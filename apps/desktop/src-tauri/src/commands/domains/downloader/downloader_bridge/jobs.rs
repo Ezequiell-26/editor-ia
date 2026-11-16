@@ -41,14 +41,22 @@ fn run_direct_image(job_state: Arc<Mutex<Option<BridgeJob>>>, downloads_dir: Pat
         let mut buffer = [0u8; 64 * 1024];
         let mut written: u64 = 0;
         loop {
-            let read = response
-                .read(&mut buffer)
-                .map_err(|error| provider_error(format!("La imagen se cortó: {error}")))?;
+            // Si la conexión se corta a mitad, el parcial no puede quedar
+            // en Descargas (antes sólo oversize/vacío limpiaban).
+            let read = match response.read(&mut buffer) {
+                Ok(read) => read,
+                Err(error) => {
+                    let _ = std::fs::remove_file(&destination);
+                    return Err(provider_error(format!("La imagen se cortó: {error}")));
+                }
+            };
             if read == 0 {
                 break;
             }
-            file.write_all(&buffer[..read])
-                .map_err(|_| provider_error("No se pudo guardar la imagen."))?;
+            if file.write_all(&buffer[..read]).is_err() {
+                let _ = std::fs::remove_file(&destination);
+                return Err(provider_error("No se pudo guardar la imagen."));
+            }
             written += read as u64;
             if written > 100 * 1024 * 1024 {
                 let _ = std::fs::remove_file(&destination);

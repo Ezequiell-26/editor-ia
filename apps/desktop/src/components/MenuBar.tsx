@@ -10,6 +10,7 @@ import { runSilenceCuts } from '../state/silence-cuts';
 import { autoCleanupSummary, runAutoCleanup } from '../state/auto-cleanup';
 import { autoPilotSummary, runAutoPilot } from '../state/auto-pilot';
 import { ReviewDialog } from '../features/editor/ReviewDialog';
+import { HistoryDialog } from '../features/editor/HistoryDialog';
 import { CriticDialog } from '../features/editor/CriticDialog';
 import { applyProjectTitleCard } from '../state/auto-title';
 import { useProjectPlaying, useProjectStore } from '../state/project-store';
@@ -48,6 +49,7 @@ interface MenuBarProps {
   readonly activeId: ViewId;
   readonly views?: readonly NavView[];
   readonly onSelect: (id: ViewId) => void;
+  /** Vuelta al launcher (StartScreen); sin handler cae a la vista Inicio. */
   readonly onOpenStart?: () => void;
   readonly onOpenShortcuts?: () => void;
   readonly onOpenTour?: () => void;
@@ -63,8 +65,9 @@ interface NewsAvailability {
 }
 const NEWS_AVAILABILITY: Record<string, NewsAvailability> = {
   'Seguimiento de cámara': {
-    detail: 'Seguimiento de objeto/cámara sobre la timeline. Requiere el motor de tracking; la estructura del inspector está preparada.',
-    pending: true,
+    detail:
+      'Seguimiento de rostro sobre el clip: en el inspector, pestaña Vídeo → Seguimiento → «Centrar rostro» detecta el rostro en el tramo y crea keyframes de posición y escala (camera tracking). Requiere el modelo de rostros descargado en Ajustes → Capacidades; sigue rostros, no objetos genéricos.',
+    view: 'editor',
   },
   'Máscara de color': {
     detail: 'Pestaña del inspector con capas de gradación, Básico, HSL, Curvas, Ruedas cromáticas y HDR. Los controles tienen estado real de capa.',
@@ -75,7 +78,7 @@ const NEWS_AVAILABILITY: Record<string, NewsAvailability> = {
     view: 'creator',
   },
   'Análisis multimedia con IA': {
-    detail: 'Análisis medido de clips, cortes con motivo y shorts. Disponible en el Director local y el Editor automático.',
+    detail: 'Análisis medido de clips, cortes con motivo y shorts. Disponible en el Director local y como modo dentro del editor.',
     view: 'director',
   },
   'Corrección inteligente de color': {
@@ -268,7 +271,7 @@ export function MenuBar({
   const playing = useProjectPlaying();
   const { appearance, update, reset } = useAppearance();
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
-  const [modal, setModal] = useState<'shortcuts' | 'about' | 'review' | 'critic' | 'news' | 'login' | null>(null);
+  const [modal, setModal] = useState<'shortcuts' | 'about' | 'review' | 'critic' | 'news' | 'login' | 'history' | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [configDir, setConfigDir] = useState<string | null>(null);
   const [menuTabIndex, setMenuTabIndex] = useState(0);
@@ -710,6 +713,12 @@ export function MenuBar({
         },
         {
           kind: 'item',
+          label: 'Historial de deshacer…',
+          disabled: !project || !store.canUndo,
+          action: () => setModal('history'),
+        },
+        {
+          kind: 'item',
           label: 'Piloto automático: limpiar y exportar',
           disabled: !project || !opened,
           action: () => void runPilot(),
@@ -835,7 +844,6 @@ export function MenuBar({
         { kind: 'item', label: 'Efectos y transiciones', action: () => onSelect('visuals') },
         { kind: 'separator', id: 'advanced-ai' },
         { kind: 'item', label: 'Director local', action: () => onSelect('director') },
-        { kind: 'item', label: 'Editor automático', action: () => onSelect('auto-edit') },
         { kind: 'item', label: 'AI Hub', action: () => onSelect('ai-hub') },
         { kind: 'item', label: 'Servidores MCP', action: () => onSelect('mcp') },
       ],
@@ -993,6 +1001,10 @@ export function MenuBar({
               }}
               tabIndex={menuTabIndex === index ? 0 : -1}
               onFocus={() => setMenuTabIndex(index)}
+              // Patrón APG de menubar: los disparadores son menuitem (no
+              // button); axe `aria-required-children` lo exige y los lectores
+              // de pantalla anuncian «elemento de menú» con haspopup=menu.
+              role="menuitem"
               className={`menubar-title${openMenu === menu.id ? ' open' : ''}`}
               aria-haspopup="menu"
               aria-expanded={openMenu === menu.id}
@@ -1101,7 +1113,9 @@ export function MenuBar({
                       ? 'Novedades de Editor IA'
                       : modal === 'login'
                         ? 'Iniciar sesión'
-                        : 'Acerca de Olyvia'
+                        : modal === 'history'
+                          ? 'Historial de deshacer'
+                          : 'Acerca de Olyvia'
             }
           >
             <header>
@@ -1116,7 +1130,9 @@ export function MenuBar({
                         ? 'Novedades de Editor IA'
                         : modal === 'login'
                           ? 'Iniciar sesión'
-                          : 'Acerca de Olyvia'}
+                          : modal === 'history'
+                            ? 'Historial de deshacer'
+                            : 'Acerca de Olyvia'}
               </h2>
               <button
                 type="button"
@@ -1136,6 +1152,8 @@ export function MenuBar({
               <CriticDialog onClose={() => setModal(null)} />
             ) : modal === 'review' ? (
               <ReviewDialog onClose={() => setModal(null)} />
+            ) : modal === 'history' ? (
+              <HistoryDialog onClose={() => setModal(null)} />
             ) : modal === 'shortcuts' ? (
               <div className="shortcut-grid">
                 {[

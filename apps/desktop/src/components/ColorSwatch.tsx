@@ -11,6 +11,63 @@ function normalizeHex(value: string): string {
 }
 
 /**
+ * Paleta fija y colores recientes (paridad `seletor_cor.js` de AlaukCut):
+ * el popover ofrece una fila «Mis colores» persistida en localStorage más
+ * una paleta de 48 muestras organizadas por familia de tono.
+ */
+export const COLOR_PALETTE: readonly string[] = [
+  '#ffffff', '#f2f3f5', '#c8ccd2', '#9aa0a8', '#6b7178', '#3c4147', '#22262b', '#000000',
+  '#ffd9d9', '#ff9d9d', '#ff5a5a', '#ff2233', '#d10f1e', '#9c0a15', '#5e060d', '#2b0306',
+  '#ffe7cc', '#ffc98a', '#ffa53d', '#ff8a00', '#e06b00', '#a34d00', '#6b3200', '#331800',
+  '#fff6cc', '#ffec99', '#ffe04d', '#f4c70f', '#d4a800', '#9c7b00', '#6b5400', '#332800',
+  '#dcf7dc', '#a8eca8', '#5fd75f', '#1fd41f', '#12a312', '#0c7a0c', '#074f07', '#032603',
+  '#d6f5f7', '#9de8ee', '#4fd3de', '#12b5c4', '#0c8b96', '#08646c', '#053f45', '#021f22',
+  '#dbe7ff', '#a9c4ff', '#5f8dff', '#3d7bdc', '#0045c8', '#00308c', '#001f5c', '#00102e',
+  '#f3ddff', '#e0b0ff', '#c77dff', '#ee7aff', '#a63fd9', '#7a2ba3', '#4f1a6b', '#280d36',
+];
+
+export const RECENT_COLORS_KEY = 'editoria.colores-recientes.v1';
+export const RECENT_COLORS_LIMIT = 16;
+
+export function loadRecentColors(
+  storage: Pick<Storage, 'getItem'> | null =
+    typeof window === 'undefined' ? null : window.localStorage,
+): string[] {
+  if (!storage) return [];
+  try {
+    const parsed: unknown = JSON.parse(storage.getItem(RECENT_COLORS_KEY) ?? '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => (typeof item === 'string' && HEX.test(item.trim()) ? normalizeHex(item) : null))
+      .filter((item): item is string => item !== null)
+      .slice(0, RECENT_COLORS_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function rememberColor(hex: string): void {
+  try {
+    const storage = window.localStorage;
+    const list = [hex, ...loadRecentColors(storage).filter((item) => item !== hex)]
+      .slice(0, RECENT_COLORS_LIMIT);
+    storage.setItem(RECENT_COLORS_KEY, JSON.stringify(list));
+  } catch {
+    // Cuota llena o storage bloqueado: los recientes valen para la sesión.
+  }
+}
+
+interface EyeDropperLike {
+  open(): Promise<{ sRGBHex: string }>;
+}
+
+function eyeDropper(): EyeDropperLike | null {
+  const candidate = (window as unknown as { EyeDropper?: new () => EyeDropperLike })
+    .EyeDropper;
+  return typeof candidate === 'function' ? new candidate() : null;
+}
+
+/**
  * Fila de deslizamiento del panel de color: rótulo, pista con degradado,
  * valor numérico y botón de reinicio. Es el modelo del panel HSL de Filmora
  * (Tono / Saturación / Luminancia).
@@ -89,12 +146,15 @@ export function ColorSwatch({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(hex);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const [recent, setRecent] = useState<string[]>([]);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const canPick = typeof window !== 'undefined' && eyeDropper() !== null;
 
   useEffect(() => {
     if (!open) return;
     setDraft(hex);
+    setRecent(loadRecentColors());
   }, [hex, open]);
 
   useEffect(() => {
@@ -148,9 +208,33 @@ export function ColorSwatch({
     };
   }, [open]);
 
+  function pickFromPalette(color: string): void {
+    const next = normalizeHex(color);
+    onChange(next);
+    onCommit?.();
+    rememberColor(next);
+    setRecent(loadRecentColors());
+    setDraft(next);
+  }
+
+  async function pickFromScreen(): Promise<void> {
+    const picker = eyeDropper();
+    if (!picker) return;
+    try {
+      const result = await picker.open();
+      pickFromPalette(result.sRGBHex);
+    } catch {
+      // El usuario canceló el cuentagotas o el webview no lo soporta del
+      // todo: el selector sigue usable con la rueda y la paleta.
+    }
+  }
+
   function commitDraft(): void {
     const next = normalizeHex(draft);
-    if (next !== hex) onChange(next);
+    if (next !== hex) {
+      onChange(next);
+      rememberColor(next);
+    }
     setDraft(next);
     onCommit?.();
   }
@@ -222,8 +306,53 @@ export function ColorSwatch({
                   onCommit={onCommit}
                 />
               </div>
+              {recent.length > 0 ? (
+                <div className="color-popover-section">
+                  <span className="color-popover-section-title">Mis colores</span>
+                  <div className="color-popover-palette">
+                    {recent.map((color) => (
+                      <button
+                        key={color}
+                        type="button"
+                        className="color-popover-swatch"
+                        style={{ background: color }}
+                        title={color.toUpperCase()}
+                        aria-label={`Usar ${color}`}
+                        onClick={() => pickFromPalette(color)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="color-popover-section">
+                <span className="color-popover-section-title">Paleta</span>
+                <div className="color-popover-palette">
+                  {COLOR_PALETTE.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      className={`color-popover-swatch${color === hex ? ' active' : ''}`}
+                      style={{ background: color }}
+                      title={color.toUpperCase()}
+                      aria-label={`Usar ${color}`}
+                      onClick={() => pickFromPalette(color)}
+                    />
+                  ))}
+                </div>
+              </div>
               <div className="color-popover-foot">
                 <span className="color-popover-chip" style={{ background: hex }} aria-hidden="true" />
+                {canPick ? (
+                  <button
+                    type="button"
+                    className="color-popover-eyedropper"
+                    title="Tomar color de la pantalla"
+                    aria-label="Tomar color de la pantalla"
+                    onClick={() => void pickFromScreen()}
+                  >
+                    ⌖
+                  </button>
+                ) : null}
                 <input
                   className="color-popover-hex"
                   value={draft}

@@ -21,8 +21,8 @@ pub async fn synthesize_dub(
             "el video para doblar ya no está en el proyecto",
         ));
     }
-    let output_dir = PathBuf::from(request.output_dir.trim());
-    if output_dir.as_os_str().is_empty() || !output_dir.is_dir() {
+    let output_dir = crate::application::fs::validate_user_write_path(&request.output_dir)?;
+    if !output_dir.is_dir() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "la carpeta de destino del doblaje no existe",
@@ -65,19 +65,37 @@ pub async fn synthesize_dub(
         }
         None => None,
     };
-    let source_duration = probe_video(&ffprobe, &input).2;
-    let end_seconds = dub_end_seconds(&cues, request.end_seconds, source_duration);
-    synthesize_dub_file(
-        Some(&app),
-        &powershell,
-        &ffmpeg,
-        &ffprobe,
-        &input,
-        &output_dir,
-        language,
-        &voice.name,
-        &cues,
-        end_seconds,
-        bed_volume,
-    )
+    // AUD-030: el doblaje sintetiza cada cue con SAPI y re-muxa con FFmpeg;
+    // todo eso es bloqueante y puede tardar minutos — va a spawn_blocking.
+    let ffmpeg_path = ffmpeg.clone();
+    let ffprobe_path = ffprobe.clone();
+    let powershell_path = powershell.clone();
+    let input_path = input.clone();
+    let output_dir_path = output_dir.clone();
+    let voice_name = voice.name.clone();
+    let request_end = request.end_seconds;
+    tauri::async_runtime::spawn_blocking(move || {
+        let source_duration = probe_video(&ffprobe_path, &input_path).2;
+        let end_seconds = dub_end_seconds(&cues, request_end, source_duration);
+        synthesize_dub_file(
+            Some(&app),
+            &powershell_path,
+            &ffmpeg_path,
+            &ffprobe_path,
+            &input_path,
+            &output_dir_path,
+            language,
+            &voice_name,
+            &cues,
+            end_seconds,
+            bed_volume,
+        )
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "el doblaje se interrumpió antes de terminar",
+        )
+    })?
 }

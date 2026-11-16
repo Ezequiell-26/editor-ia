@@ -1,0 +1,23 @@
+format = 2
+
+[effect]
+id = "concat.light-leak-transition"
+name = "Light Leak"
+kind = "transition"
+category = "Light"
+order = 13
+description = "A wash of warm light flares across the frame and the next shot is left behind it as it passes."
+
+[[param]]
+key = "warmth"
+label = "Warmth"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 70
+
+[transition]
+fallback = "cross-fade"
+xfade = "fadewhite"
+entry = "effect.wgsl"

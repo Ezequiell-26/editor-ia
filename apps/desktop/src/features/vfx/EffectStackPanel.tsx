@@ -1,7 +1,8 @@
 import { ColorSwatch } from '../../components/ColorSwatch';
 import { useState } from 'react';
 import type { CubicBezier } from '@editor-ia/project-schema';
-import { KeyframeCurveEditor } from '../editor/KeyframeCurveEditor';
+import { BEZIER_PRESETS, bezierPresetId } from '@editor-ia/project-schema';
+import { KeyframeCurveEditor } from '../../components/KeyframeCurveEditor';
 import { formatTimecode } from '../../state/project-actions';
 import {
   clearParamKeyframeCurves,
@@ -20,6 +21,7 @@ import {
   setInstanceEnabled,
   setInstanceParam,
   setParamKeyframeAt,
+  setParamKeyframesBezier,
   setParamKeyframeBezier,
   setParamKeyframeEasing,
   shiftInstance,
@@ -101,6 +103,8 @@ interface ParamAnimation {
     | undefined;
   /** Quita las curvas de todas las claves (vuelven a easing/lineal). */
   readonly onClearCurves?: (() => void) | undefined;
+  /** Aplica la misma curva Bézier a todas las claves de la pista. */
+  readonly onApplyCurveToAll?: ((bezier: CubicBezier) => void) | undefined;
   /** Quita una clave suelta del frame dado (lista del editor de curva). */
   readonly onRemoveKey?: ((frame: number) => void) | undefined;
   /** Salta el playhead a una clave de la lista (frame local del clip). */
@@ -123,6 +127,14 @@ function ParamControl({
   readonly animation?: ParamAnimation | undefined;
 }) {
   const [curveOpen, setCurveOpen] = useState(false);
+  const presetIds = new Set(
+    (animation?.track ?? []).map((key) =>
+      key.bezier ? (bezierPresetId(key.bezier) ?? '__custom__') : '__none__',
+    ),
+  );
+  const onlyId = presetIds.size === 1 ? [...presetIds][0] : undefined;
+  const sharedPresetId =
+    onlyId && BEZIER_PRESETS.some((preset) => preset.id === onlyId) ? onlyId : '';
   if (spec.type === 'bool') {
     return (
       <label className="effect-param switch">
@@ -361,6 +373,30 @@ function ParamControl({
                 })}
             </span>
           ) : null}
+          {animation.onApplyCurveToAll && (animation.track?.length ?? 0) >= 2 ? (
+            <label className="effect-easing-field">
+              <span className="fine-print">Curva para todas</span>
+              <select
+                value={sharedPresetId}
+                aria-label={`Preset Bézier para todas las claves de ${spec.label}`}
+                onChange={(event) => {
+                  const preset = BEZIER_PRESETS.find(
+                    (item) => item.id === event.target.value,
+                  );
+                  if (preset) animation.onApplyCurveToAll?.({ ...preset.bezier });
+                }}
+              >
+                <option value="" disabled>
+                  {sharedPresetId ? 'Personalizada' : 'Preset Bézier'}
+                </option>
+                {BEZIER_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {animation.hasCurve && animation.onClearCurves ? (
             <button
               type="button"
@@ -514,6 +550,10 @@ function StackRow({
                           ),
                         onClearCurves: () =>
                           onChange(clearParamKeyframeCurves(stack, instance.id, spec.id)),
+                        onApplyCurveToAll: (bezier: CubicBezier) =>
+                          onChange(
+                            setParamKeyframesBezier(stack, instance.id, spec.id, bezier),
+                          ),
                         onRemoveKey: (frame: number) =>
                           onChange(removeParamKeyframe(stack, instance.id, spec.id, frame)),
                         onSeek: onSeekFrame,

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
+import { createEmptyProject, type ClipEffects, type ProjectDocument } from '@editor-ia/project-schema';
 import { readyAsset, createFakeService } from '../test/fake-service';
 import { addAsset, addClipFromAsset, ensureDelivery } from './project-actions';
 import { executeMcpTool, type McpToolContext } from './mcp-tools';
@@ -424,6 +424,37 @@ describe('herramientas MCP', () => {
     spy.mockRestore();
   });
 
+  it('busca medios por nombre dentro de una carpeta', async () => {
+    const { context } = fixture();
+    const spy = vi
+      .spyOn(context.store.service, 'searchMediaFolder')
+      .mockResolvedValue({
+        directory: 'D:\\material\\boda',
+        query: 'boda',
+        truncated: false,
+        files: [
+          { path: 'D:\\material\\boda\\boda-clip.mp4', name: 'boda-clip.mp4', kind: 'video', bytes: 2048 },
+        ],
+      });
+    const result = JSON.parse(
+      await executeMcpTool(
+        'media_search',
+        { folder: 'D:\\material\\boda', query: 'boda', kind: 'video' },
+        context,
+      ),
+    );
+    expect(spy).toHaveBeenCalledWith({
+      folder: 'D:\\material\\boda',
+      query: 'boda',
+      kind: 'video',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.count).toBe(1);
+    expect(result.truncated).toBe(false);
+    expect(result.files[0]).toMatchObject({ name: 'boda-clip.mp4', kind: 'video' });
+    spy.mockRestore();
+  });
+
   it('lista cualquier carpeta del disco y lee archivos de texto', async () => {
     const { context } = fixture();
     const listSpy = vi
@@ -577,5 +608,392 @@ describe('herramientas MCP', () => {
     await expect(executeMcpTool('inventada', {}, context)).rejects.toThrow(/desconocida/);
     (context.store.state as { project: ProjectDocument | null }).project = null;
     await expect(executeMcpTool('project_summary', {}, context)).rejects.toThrow(/proyecto abierto/);
+  });
+
+  it('aplica, previsualiza y limpia efectos visuales', async () => {
+    const { context, project } = fixture();
+    const clipId = project.timeline.clips[0]!.id;
+    const applied = JSON.parse(
+      await executeMcpTool(
+        'clip_effects_apply',
+        { clipId, brightness: 0.2, contrast: 1.4, saturation: 1.3 },
+        context,
+      ),
+    );
+    expect(applied.ok).toBe(true);
+    const fxOf = (index: number): ClipEffects | undefined => {
+      const clip = context.store.state.project!.timeline.clips[index]!;
+      return (clip as { effects?: ClipEffects }).effects;
+    };
+    expect(fxOf(0)?.brightness).toBe(0.2);
+    expect(fxOf(0)?.contrast).toBe(1.4);
+
+    const wheels = JSON.parse(
+      await executeMcpTool(
+        'color_wheels_adjust',
+        { clipId, lift: { r: 0.1, g: 0, b: -0.1 }, gain: { r: 0.05, g: 0, b: 0.05 } },
+        context,
+      ),
+    );
+    expect(wheels.ok).toBe(true);
+    expect(fxOf(0)?.lift?.r).toBe(0.1);
+    expect(fxOf(0)?.gain?.b).toBe(0.05);
+
+    const preset = JSON.parse(
+      await executeMcpTool('clip_effects_preset', { clipId, preset: 'vintage' }, context),
+    );
+    expect(preset.ok).toBe(true);
+    expect(fxOf(0)?.curvePreset).toBe('vintage');
+    expect(fxOf(0)?.brightness).toBeUndefined();
+
+    const cinematic = JSON.parse(
+      await executeMcpTool(
+        'color_preset_cinematic',
+        { clipId, preset: 'teal-orange', intensity: 0.5 },
+        context,
+      ),
+    );
+    expect(cinematic.ok).toBe(true);
+    expect(fxOf(0)?.gain?.r).toBeCloseTo(0.035, 3);
+
+    const cleared = JSON.parse(
+      await executeMcpTool('clip_effects_clear', { clipId }, context),
+    );
+    expect(cleared.ok).toBe(true);
+    expect(fxOf(0)?.brightness).toBeUndefined();
+    expect(fxOf(0)?.gain).toBeUndefined();
+  });
+
+  it('agrega, lista y quita transiciones entre clips contiguos', async () => {
+    const { context, project, assetId } = fixture();
+    const first = project.timeline.clips[0]!;
+    await executeMcpTool(
+      'clip_add',
+      { assetId, atFrame: first.startFrame + first.durationFrames, durationFrames: 60 },
+      context,
+    );
+    const second = context.store.state.project!.timeline.clips.find(
+      (clip) => clip.id !== first.id,
+    )!;
+
+    const added = JSON.parse(
+      await executeMcpTool(
+        'transition_add',
+        { fromClipId: first.id, toClipId: second.id, type: 'dissolve', durationFrames: 12 },
+        context,
+      ),
+    );
+    expect(added.ok).toBe(true);
+    expect(added.type).toBe('dissolve');
+
+    const list = JSON.parse(await executeMcpTool('transitions_list', {}, context));
+    expect(list.count).toBe(1);
+    expect(list.transitions[0].clipId).toBe(second.id);
+
+    const removed = JSON.parse(
+      await executeMcpTool('transition_remove', { clipId: second.id }, context),
+    );
+    expect(removed.ok).toBe(true);
+    const after = context.store.state.project!.timeline.clips.find(
+      (clip) => clip.id === second.id,
+    )! as { transitionIn?: unknown };
+    expect(after.transitionIn).toBeUndefined();
+
+    await expect(
+      executeMcpTool(
+        'transition_add',
+        { fromClipId: first.id, toClipId: second.id, type: 'inventada' },
+        context,
+      ),
+    ).rejects.toThrow(/inválido|desconocido/);
+  });
+
+  it('crea y edita capas de texto y lower thirds', async () => {
+    const { context } = fixture();
+    const text = JSON.parse(
+      await executeMcpTool(
+        'text_layer_add',
+        {
+          text: 'Título de prueba',
+          startFrame: 0,
+          durationFrames: 60,
+          fontSize: 64,
+          color: '#ff0000',
+          positionX: 0.5,
+          positionY: 0.2,
+          animation: 'typewriter',
+        },
+        context,
+      ),
+    );
+    expect(text.ok).toBe(true);
+    expect(text.animation).toBe('write');
+    const graphicClip = context.store.state.project!.timeline.clips.find(
+      (clip) => clip.id === text.clipId,
+    )!;
+    expect(graphicClip.kind).toBe('graphic');
+
+    const updated = JSON.parse(
+      await executeMcpTool(
+        'text_layer_update',
+        { clipId: text.clipId, text: 'Nuevo texto', positionY: 0.8 },
+        context,
+      ),
+    );
+    expect(updated.ok).toBe(true);
+    const motion = context.store.state.project!.motion.find(
+      (item) => item.id === text.motionId,
+    )!;
+    expect(motion.props.text).toBe('Nuevo texto');
+    expect(motion.props.y).toBe(0.8);
+
+    const lower = JSON.parse(
+      await executeMcpTool(
+        'lower_third_add',
+        {
+          title: 'Ana García',
+          subtitle: 'Periodista',
+          startFrame: 10,
+          durationFrames: 120,
+          style: 'minimal',
+          position: 'lower-right',
+        },
+        context,
+      ),
+    );
+    expect(lower.ok).toBe(true);
+    expect(lower.style).toBe('lower-third-minimal');
+    const lowerMotion = context.store.state.project!.motion.find(
+      (item) => item.id === lower.motionId,
+    )!;
+    expect(lowerMotion.props.title).toBe('Ana García');
+    expect(lowerMotion.props.side).toBe('right');
+  });
+
+  it('selecciona en lote, aplica efectos y velocidad a varios clips', async () => {
+    const { context, project, assetId } = fixture();
+    const first = project.timeline.clips[0]!;
+    await executeMcpTool(
+      'clip_add',
+      { assetId, atFrame: first.startFrame + first.durationFrames, durationFrames: 60 },
+      context,
+    );
+    const ids = context.store.state.project!.timeline.clips.map((clip) => clip.id);
+
+    const selected = JSON.parse(
+      await executeMcpTool('batch_clips_select', { kind: 'video' }, context),
+    );
+    expect(selected.count).toBe(2);
+
+    const fx = JSON.parse(
+      await executeMcpTool(
+        'batch_effects_apply',
+        { clipIds: ids, effect: 'saturation', value: 1.5 },
+        context,
+      ),
+    );
+    expect(fx.ok).toBe(true);
+    expect(fx.applied).toBe(2);
+    for (const clip of context.store.state.project!.timeline.clips) {
+      expect((clip as { effects?: ClipEffects }).effects?.saturation).toBe(1.5);
+    }
+
+    const speed = JSON.parse(
+      await executeMcpTool('batch_speed_change', { clipIds: ids, speed: 2 }, context),
+      );
+    expect(speed.ok).toBe(true);
+    for (const clip of context.store.state.project!.timeline.clips) {
+      expect((clip as { speed?: { num: number } }).speed?.num).toBe(2);
+    }
+  });
+
+  it('batch_effects_apply rechaza valores fuera del rango del esquema', async () => {
+    const { context, project } = fixture();
+    const clipId = project.timeline.clips[0]!.id;
+    await expect(
+      executeMcpTool(
+        'batch_effects_apply',
+        { clipIds: [clipId], effect: 'saturation', value: -0.2 },
+        context,
+      ),
+    ).rejects.toThrow('admite valores entre 0 y 3');
+    // brightness -1..1: 1.5 también es inválido
+    await expect(
+      executeMcpTool(
+        'batch_effects_apply',
+        { clipIds: [clipId], effect: 'brightness', value: 1.5 },
+        context,
+      ),
+    ).rejects.toThrow('admite valores entre -1 y 1');
+  });
+
+  it('agrega keyframes y aplica presets de animación', async () => {
+    const { context, project } = fixture();
+    const clipId = project.timeline.clips[0]!.id;
+    const key = JSON.parse(
+      await executeMcpTool(
+        'keyframe_add',
+        { clipId, frame: 30, property: 'scale', value: 1.3, easing: 'ease-out' },
+        context,
+      ),
+    );
+    expect(key.ok).toBe(true);
+    expect(key.localFrame).toBe(30);
+    const clip = context.store.state.project!.timeline.clips[0]!;
+    expect(clip.transform?.keyframes?.some((k) => k.frame === 30 && k.scale === 1.3)).toBe(true);
+
+    await expect(
+      executeMcpTool(
+        'keyframe_add',
+        { clipId, frame: 500, property: 'scale', value: 1 },
+        context,
+      ),
+    ).rejects.toThrow(/fuera del clip/);
+
+    const anim = JSON.parse(
+      await executeMcpTool('animation_preset_apply', { clipId, preset: 'zoom-in', intensity: 0.6 }, context),
+    );
+    expect(anim.ok).toBe(true);
+    const after = context.store.state.project!.timeline.clips[0]! as {
+      motion?: { type: string };
+    };
+    expect(after.motion?.type).toBe('zoom-in');
+  });
+
+  it('aplica EQ, voz, nivelación y ducking de audio', async () => {
+    const { context, project } = fixture();
+    const clipId = project.timeline.clips[0]!.id;
+    const eq = JSON.parse(
+      await executeMcpTool(
+        'audio_effect_eq',
+        { clipId, lowDb: 3, midDb: -2, highDb: 1.5 },
+        context,
+      ),
+    );
+    expect(eq.ok).toBe(true);
+    let clip = context.store.state.project!.timeline.clips[0]!;
+    expect(clip.audio?.eqLowDb).toBe(3);
+    expect(clip.audio?.eqMidDb).toBe(-2);
+    expect(clip.audio?.eqHighDb).toBe(1.5);
+
+    const voice = JSON.parse(
+      await executeMcpTool('audio_effect_voice', { clipId, effect: 'deep' }, context),
+    );
+    expect(voice.ok).toBe(true);
+    clip = context.store.state.project!.timeline.clips[0]!;
+    expect(clip.audio?.voiceEffect).toBe('deep');
+
+    const norm = JSON.parse(
+      await executeMcpTool('batch_audio_normalize', { clipIds: [clipId], targetLufs: -16 }, context),
+    );
+    expect(norm.ok).toBe(true);
+    const audioFx = (context.store.state.project!.timeline.clips[0] as {
+      effects?: { audioStack?: { effectId: string }[] };
+    }).effects;
+    expect(audioFx?.audioStack?.some((item) => item.effectId === 'audio.leveler')).toBe(true);
+
+    const track = context.store.state.project!.timeline.tracks[0]!;
+    const duck = JSON.parse(
+      await executeMcpTool(
+        'audio_ducking',
+        {
+          musicTrackId: track.id,
+          voiceTrackId: track.id,
+          reductionDb: -10,
+          fadeMs: 200,
+        },
+        context,
+      ),
+    );
+    expect(duck.ok).toBe(true);
+    expect(context.store.state.project!.audio.ducking.enabled).toBe(true);
+    expect(context.store.state.project!.audio.ducking.amountDb).toBe(-10);
+    expect(duck.warnings.length).toBe(1);
+  });
+
+  it('ripple delete, cierra gaps, alinea y agrega transiciones en lote', async () => {
+    const { context, project, assetId } = fixture();
+    const first = project.timeline.clips[0]!;
+    const extraTrack = JSON.parse(
+      await executeMcpTool('track_add', { kind: 'video', label: 'P2' }, context),
+    );
+    await executeMcpTool(
+      'clip_add',
+      { assetId, atFrame: first.startFrame + first.durationFrames, durationFrames: 60 },
+      context,
+    );
+    const second = context.store.state.project!.timeline.clips.find(
+      (clip) => clip.id !== first.id,
+    )!;
+    const trackId = first.trackId;
+
+    const batch = JSON.parse(
+      await executeMcpTool(
+        'batch_transitions_add',
+        { trackId, type: 'fade', durationFrames: 10 },
+        context,
+      ),
+    );
+    expect(batch.ok).toBe(true);
+    expect(batch.applied).toBe(1);
+
+    const gaps = JSON.parse(
+      await executeMcpTool('timeline_gaps_remove', { trackId }, context),
+    );
+    expect(gaps.ok).toBe(true);
+
+    // Alinear dos clips en la misma pista siempre solapa: se mueve el segundo
+    // a otra pista para que la alineación por borde sea posible.
+    await executeMcpTool(
+      'clip_move',
+      { clipId: second.id, startFrame: second.startFrame, trackId: extraTrack.trackId },
+      context,
+    );
+    const align = JSON.parse(
+      await executeMcpTool(
+        'timeline_align_clips',
+        { clipIds: [first.id, second.id], alignTo: 'end', referenceFrame: 300 },
+        context,
+      ),
+    );
+    expect(align.ok).toBe(true);
+    const movedFirst = context.store.state.project!.timeline.clips.find(
+      (clip) => clip.id === first.id,
+    )!;
+    const movedSecond = context.store.state.project!.timeline.clips.find(
+      (clip) => clip.id === second.id,
+    )!;
+    expect(movedFirst.startFrame + movedFirst.durationFrames).toBe(300);
+    expect(movedSecond.startFrame + movedSecond.durationFrames).toBe(300);
+
+    const ripple = JSON.parse(
+      await executeMcpTool('timeline_ripple_delete', { clipIds: [second.id] }, context),
+    );
+    expect(ripple.ok).toBe(true);
+    expect(ripple.deleted).toBe(1);
+  });
+});
+
+describe('fs_* audit y confirmación (AUD-014)', () => {
+  it('fs_delete exige confirm=true y fs_write/fs_move quedan en la bitácora', async () => {
+    const { context } = fixture();
+    await expect(
+      executeMcpTool('fs_delete', { path: 'C:\tmp\a.txt' }, context),
+    ).rejects.toThrow(/confirm/);
+    const deleted = JSON.parse(
+      await executeMcpTool(
+        'fs_delete',
+        { path: 'C:\tmp\a.txt', confirm: true },
+        context,
+      ),
+    );
+    expect(deleted.ok).toBe(true);
+    await executeMcpTool('fs_write', { path: 'C:\tmp\b.txt', content: 'x' }, context);
+    await executeMcpTool('fs_move', { from: 'C:\tmp\b.txt', to: 'C:\tmp\c.txt' }, context);
+    const diagnostics = JSON.parse(await executeMcpTool('diagnostics', {}, context));
+    const ops = diagnostics.fsAudit.map((entry: { op: string }) => entry.op);
+    expect(ops).toContain('delete');
+    expect(ops).toContain('write');
+    expect(ops).toContain('move');
   });
 });

@@ -270,6 +270,13 @@ describe('ClipSchema', () => {
     expect(ClipSchema.safeParse(videoClip({ colorTag: 'neon' })).success).toBe(false);
   });
 
+  it('accepts a clip waveform style override and rejects an unknown one', () => {
+    expect(ClipSchema.safeParse(videoClip({ waveformStyle: 'capcut' })).success).toBe(true);
+    expect(ClipSchema.safeParse(videoClip({ waveformStyle: 'davinci' })).success).toBe(true);
+    expect(ClipSchema.safeParse(videoClip({ waveformStyle: 'capCut' })).success).toBe(false);
+    expect(ClipSchema.safeParse(videoClip({ waveformStyle: 'flames' })).success).toBe(false);
+  });
+
   it('accepts a per-clip audio mute and rejects a non-boolean', () => {
     expect(ClipSchema.safeParse(videoClip({ audio: { muted: true } })).success).toBe(true);
     expect(ClipSchema.safeParse(videoClip({ audio: { muted: 'yes' } })).success).toBe(false);
@@ -287,6 +294,67 @@ describe('ClipSchema', () => {
     expect(
       ClipSchema.safeParse(videoClip({ effects: { lutFile: 'media/luts/x.cube', lutIntensity: -0.1 } }))
         .success,
+    ).toBe(false);
+  });
+
+  it('accepts a camera log profile id and rejects unknown ones', () => {
+    expect(
+      ClipSchema.safeParse(videoClip({ effects: { cameraProfile: 'slog3709' } })).success,
+    ).toBe(true);
+    expect(
+      ClipSchema.safeParse(videoClip({ effects: { cameraProfile: 'arri400' } })).success,
+    ).toBe(false);
+    expect(ClipSchema.safeParse(videoClip({ effects: { cameraProfile: 3 } })).success).toBe(false);
+  });
+
+  it('accepts a spectrum overlay config and rejects malformed values', () => {
+    expect(
+      ClipSchema.safeParse(
+        videoClip({
+          effects: {
+            spectrum: {
+              mode: 'neon',
+              color1: '#00FFFF',
+              color2: '#FF00FF',
+              intensity: 0.8,
+              width: 0.9,
+              height: 0.25,
+              x: -0.3,
+              y: 0.4,
+            },
+          },
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      ClipSchema.safeParse(
+        videoClip({ effects: { spectrum: { mode: 'circular' } } }),
+      ).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(
+        videoClip({ effects: { spectrum: { color1: 'red' } } }),
+      ).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(
+        videoClip({ effects: { spectrum: { width: 2 } } }),
+      ).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(
+        videoClip({ effects: { spectrum: { intensity: 1.5 } } }),
+      ).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(
+        videoClip({ effects: { spectrum: { y: -0.1 } } }),
+      ).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(
+        videoClip({ effects: { spectrum: { y: 1.2 } } }),
+      ).success,
     ).toBe(false);
   });
 

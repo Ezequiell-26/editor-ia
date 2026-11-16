@@ -32,6 +32,23 @@ fn aspect_filters_use_blur_for_vertical_and_square() {
 }
 
 #[test]
+fn unique_output_path_never_overwrites_a_previous_export() {
+    // AUD-081: repetir una operación no debe truncar la salida anterior.
+    let workspace = TempWorkspace::new("unique-out").unwrap();
+    let first = workspace.path.join("clip-hook.mp4");
+    std::fs::write(&first, b"old").unwrap();
+    let second = unique_output_path(first.clone());
+    assert_eq!(second.file_name().unwrap(), "clip-hook-2.mp4");
+    assert_ne!(second, first);
+    std::fs::write(&second, b"older").unwrap();
+    let third = unique_output_path(first);
+    assert_eq!(third.file_name().unwrap(), "clip-hook-3.mp4");
+    // Sin colisión devuelve la misma ruta.
+    let fresh = workspace.path.join("clip-cta.mp4");
+    assert_eq!(unique_output_path(fresh.clone()), fresh);
+}
+
+#[test]
 fn qr_png_is_generated_offline() {
     let workspace = TempWorkspace::new("qr-test").unwrap();
     let path = workspace.path.join("qr.png");
@@ -68,6 +85,8 @@ async fn creator_tools_live_optional() {
     let ffprobe = find_executable("ffprobe", None).expect("ffprobe");
     let workspace = TempWorkspace::new("creator-live").unwrap();
     let input = workspace.path.join("base.mp4");
+    let h264_fixture = crate::commands::system::h264_encoder_args(&ffmpeg, "ultrafast", 23)
+        .expect("encoder H.264 disponible en el FFmpeg de prueba");
     let made = Command::new(&ffmpeg)
         .args([
             "-hide_banner",
@@ -82,16 +101,9 @@ async fn creator_tools_live_optional() {
             "lavfi",
             "-i",
             "sine=frequency=440:duration=6",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-shortest",
         ])
+        .args(&h264_fixture)
+        .args(["-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"])
         .arg(&input)
         .status()
         .expect("generate input");
@@ -110,11 +122,9 @@ async fn creator_tools_live_optional() {
                 "lavfi",
                 "-i",
                 &format!("color=c={color}:size=320x180:rate=30:duration=1"),
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
             ])
+            .args(&h264_fixture)
+            .args(["-pix_fmt", "yuv420p"])
             .arg(&clip)
             .status()
             .unwrap();

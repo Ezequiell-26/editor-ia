@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::time::Duration;
 
 use crate::commands::system::resolve_tools;
 use crate::ports::media::{MediaRunner, MediaTools};
@@ -42,25 +43,47 @@ impl MediaTools for StateMediaTools<'_> {
 /// Runner de procesos FFmpeg/FFprobe sobre el sistema real.
 pub struct SystemMediaRunner;
 
+fn command_for(program: &Path, args: &[String], cwd: Option<&Path>) -> Command {
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null());
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    crate::commands::hide_console(&mut command);
+    command
+}
+
 fn run(
     program: &Path,
     args: &[String],
     cwd: Option<&Path>,
     spawn_error: &'static str,
 ) -> Result<Output, ProjectError> {
-    let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    crate::commands::hide_console(&mut command);
-    command
+    command_for(program, args, cwd)
         .output()
         .map_err(|_| ProjectError::message(ProjectErrorCode::Io, spawn_error))
+}
+
+/// Variante con deadline: si el proceso no termina a tiempo se mata y se
+/// devuelve un error propio (distinto del de spawn) para que el caller pueda
+/// mostrar "tardó demasiado" en vez de "no se pudo iniciar".
+fn run_timed(
+    program: &Path,
+    args: &[String],
+    cwd: Option<&Path>,
+    spawn_error: &'static str,
+    timeout_error: &'static str,
+    timeout: Duration,
+) -> Result<Output, ProjectError> {
+    let mut command = command_for(program, args, cwd);
+    let timed = crate::infrastructure::process::output_with_timeout(&mut command, timeout)
+        .map_err(|_| ProjectError::message(ProjectErrorCode::Io, spawn_error))?;
+    if timed.timed_out {
+        return Err(ProjectError::message(ProjectErrorCode::Io, timeout_error));
+    }
+    timed.into_output().ok_or_else(|| {
+        ProjectError::message(ProjectErrorCode::Io, timeout_error)
+    })
 }
 
 impl MediaRunner for SystemMediaRunner {
@@ -79,6 +102,39 @@ impl MediaRunner for SystemMediaRunner {
             args,
             None,
             "no se pudo iniciar ffprobe para inspeccionar el archivo",
+        )
+    }
+
+    fn run_ffmpeg_with_timeout(
+        &self,
+        ffmpeg: &Path,
+        args: &[String],
+        cwd: Option<&Path>,
+        timeout: Duration,
+    ) -> Result<Output, ProjectError> {
+        run_timed(
+            ffmpeg,
+            args,
+            cwd,
+            "no se pudo iniciar FFmpeg",
+            "FFmpeg no terminó a tiempo; el proceso fue interrumpido",
+            timeout,
+        )
+    }
+
+    fn run_ffprobe_with_timeout(
+        &self,
+        ffprobe: &Path,
+        args: &[String],
+        timeout: Duration,
+    ) -> Result<Output, ProjectError> {
+        run_timed(
+            ffprobe,
+            args,
+            None,
+            "no se pudo iniciar ffprobe para inspeccionar el archivo",
+            "ffprobe no terminó a tiempo; el proceso fue interrumpido",
+            timeout,
         )
     }
 

@@ -1,13 +1,23 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import type { Asset, Clip, ClipEffects, ClipTransition, ProjectDocument } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import { friendlyAssetLabel } from '../../state/asset-labels';
+import { hideMediaSpy, scrubMediaSpy, showMediaSpy } from '../../state/media-spy';
 import {
   addAdjustmentLayer,
   addClipFromAsset,
+  addMotionGraphic,
   addTitleFromTemplate,
+  applyClickPulse,
   applyTransitionToCuts,
   fpsOf,
   toggleAssetFavorite,
@@ -19,13 +29,29 @@ import {
   applyEffectPreset,
   type EffectPreset,
 } from '../../state/effect-presets';
+import {
+  catalogFavoriteKey,
+  toggleCatalogFavorite,
+  useCatalogFavorites,
+} from '../../state/catalog-favorites';
+import {
+  clearLookAudition,
+  setLookAudition,
+  useLookAudition,
+} from '../../state/look-audition';
 import { TITLE_TEMPLATES, type TitleTemplate } from '../../state/title-templates';
 import { COLOR_LOOKS } from './color-looks';
 import { useProjectStore } from '../../state/project-store';
+import {
+  openClipInspectorTab,
+  type ClipInspectorTab,
+} from '../../state/inspector-tab-command';
 import { EmojiPickerButton } from '../emoji/EmojiPicker';
 import { insertEmoji } from '../emoji/emoji';
 import { ProxyToolsPanel } from './ProxyToolsPanel';
-import { lumaMateCandidates, lumaMatePick } from './luma-mate';
+import { lumaMateCandidates, lumaMatePick } from '../../state/luma-mate';
+import { TransitionPreview } from './TransitionPreview';
+import { SfxLibrary } from './SfxLibrary';
 import { SPLIT_SCREEN_TEMPLATES, SplitScreenTemplates } from './FilmoraStates';
 
 type AssetFilter = AssetKindFilter;
@@ -58,12 +84,18 @@ const RAIL_VIEWS: readonly { readonly id: RailView; readonly label: string; read
 interface StickerItem {
   readonly id: string;
   readonly name: string;
-  readonly category: 'trending' | 'social' | 'arrows' | 'emojis';
+  readonly category: 'trending' | 'social' | 'arrows' | 'emojis' | 'shapes';
   /** Etiqueta corta de texto; la interfaz no usa glifos emoji. */
   readonly badge: string;
   readonly text: string;
   readonly animation: 'pop' | 'fade' | 'slide-up';
   readonly color: string;
+  /** Si está presente, el sticker es una forma animada (clip gráfico con
+   * motion template `shape`) en vez de un título de texto. */
+  readonly shape?: 'rect' | 'ellipse' | 'triangle' | 'diamond' | 'star' | 'pentagon' | 'hexagon' | 'arrow' | 'line' | 'parallelogram' | 'trapezoid' | 'heart' | 'hand';
+  /** Si está presente, tras insertar el clip se le aplica la pulsación
+   * de clic (`applyClickPulse`) — gesto del manito de `maozinha`. */
+  readonly click?: boolean;
 }
 
 /** Stickers de TEXTO: misma función, sin emojis en la interfaz. */
@@ -90,6 +122,36 @@ const STICKER_LIBRARY: readonly StickerItem[] = [
   { id: 'mindblown', name: 'Shock', category: 'emojis', badge: 'WOW', text: 'WOW', animation: 'pop', color: '#ffffff' },
   { id: 'laugh', name: 'Risas', category: 'emojis', badge: 'JAJA', text: 'JAJA', animation: 'pop', color: '#ffffff' },
   { id: 'party', name: 'Fiesta', category: 'emojis', badge: 'FIESTA', text: 'FIESTA', animation: 'pop', color: '#faad14' },
+  // Formas animadas (paridad `emojis_animados.js`): clip gráfico con el
+  // template `shape` — figura + animación de entrada, sin texto.
+  { id: 'shape-star', name: 'Estrella', category: 'shapes', badge: '★', text: '', animation: 'pop', color: '#faad14', shape: 'star' },
+  { id: 'shape-heart-ish', name: 'Destello', category: 'shapes', badge: '◆', text: '', animation: 'pop', color: '#ff4d4f', shape: 'diamond' },
+  { id: 'shape-arrow-big', name: 'Flecha grande', category: 'shapes', badge: '➤', text: '', animation: 'slide-up', color: '#52c41a', shape: 'arrow' },
+  { id: 'shape-circle', name: 'Círculo', category: 'shapes', badge: '●', text: '', animation: 'fade', color: '#1890ff', shape: 'ellipse' },
+  { id: 'shape-triangle', name: 'Triángulo', category: 'shapes', badge: '▲', text: '', animation: 'pop', color: '#fa541c', shape: 'triangle' },
+  { id: 'shape-hex', name: 'Hexágono', category: 'shapes', badge: '⬡', text: '', animation: 'fade', color: '#722ed1', shape: 'hexagon' },
+  { id: 'shape-pentagon', name: 'Pentágono', category: 'shapes', badge: '⬠', text: '', animation: 'slide-up', color: '#13c2c2', shape: 'pentagon' },
+  // Manito señalador (paridad `maozinha` de AlaukCut): mano a la
+  // derecha; el usuario la rota con el transform del clip para apuntar
+  // en cualquier dirección.
+  { id: 'shape-hand', name: 'Manito', category: 'shapes', badge: 'MANO', text: '', animation: 'pop', color: '#ffd23f', shape: 'hand' },
+  // Manito que «hace clic»: mismo clip pero con la pulsación de escala
+  // horneada en keyframes de transform (editables en Curvas).
+  { id: 'shape-hand-click', name: 'Manito clic', category: 'shapes', badge: 'CLICK', text: '', animation: 'pop', color: '#ffd23f', shape: 'hand', click: true },
+  // CTA y utilidad editorial
+  { id: 'comment', name: 'Comenta', category: 'social', badge: 'COMENTA', text: 'COMENTA', animation: 'pop', color: '#38bdf8' },
+  { id: 'save', name: 'Guardalo', category: 'social', badge: 'GUARDÁ', text: 'GUARDÁ ESTE VIDEO', animation: 'pop', color: '#a78bfa' },
+  { id: 'bell-cta', name: 'Activa la campana', category: 'social', badge: 'CAMPANA', text: 'ACTIVA LA CAMPANA', animation: 'slide-up', color: '#facc15' },
+  { id: 'follow', name: 'Seguime', category: 'social', badge: 'SEGUIME', text: 'SEGUIME', animation: 'pop', color: '#4ade80' },
+  { id: 'link-bio', name: 'Link en bio', category: 'arrows', badge: 'BIO', text: 'LINK EN BIO', animation: 'slide-up', color: '#fbbf24' },
+  { id: 'swipe', name: 'Desliza', category: 'arrows', badge: 'DESLIZA', text: 'DESLIZÁ', animation: 'slide-up', color: '#38bdf8' },
+  { id: 'new', name: 'Nuevo', category: 'trending', badge: 'NUEVO', text: 'NUEVO', animation: 'pop', color: '#22d3ee' },
+  { id: 'offer', name: 'Oferta', category: 'trending', badge: 'OFERTA', text: 'OFERTA', animation: 'pop', color: '#fb923c' },
+  { id: 'shape-heart', name: 'Corazón', category: 'shapes', badge: '♥', text: '', animation: 'pop', color: '#ec4899', shape: 'heart' },
+  { id: 'shape-panel', name: 'Placa', category: 'shapes', badge: 'PLACA', text: '', animation: 'fade', color: '#334155', shape: 'rect' },
+  { id: 'shape-parallelogram', name: 'Paralelogramo', category: 'shapes', badge: 'PARA', text: '', animation: 'slide-up', color: '#0ea5e9', shape: 'parallelogram' },
+  { id: 'shape-trapezoid', name: 'Trapecio', category: 'shapes', badge: 'TRAP', text: '', animation: 'pop', color: '#8b5cf6', shape: 'trapezoid' },
+  { id: 'shape-line', name: 'Línea', category: 'shapes', badge: 'LÍNEA', text: '', animation: 'pop', color: '#facc15', shape: 'line' },
 ];
 
 /** Efectos de sonido SFX predeterminados */
@@ -119,7 +181,7 @@ interface TransitionPreset {
   readonly iconSymbol: string;
 }
 
-const TRANSITION_PRESETS: readonly TransitionPreset[] = [
+export const TRANSITION_PRESETS: readonly TransitionPreset[] = [
   { id: 'dissolve', label: 'Disolución', description: 'Fundido cruzado clásico suave', iconSymbol: '░' },
   { id: 'fade-black', label: 'Fundido a Negro', description: 'Cierre y apertura cinematográfica', iconSymbol: '■' },
   { id: 'fade-white', label: 'Fundido a Blanco', description: 'Apertura luminosa desde blanco', iconSymbol: '□' },
@@ -137,7 +199,31 @@ const TRANSITION_PRESETS: readonly TransitionPreset[] = [
   { id: 'wipe-up', label: 'Barrido Arriba', description: 'El nuevo clip barre desde abajo', iconSymbol: '⇡' },
   { id: 'wipe-down', label: 'Barrido Abajo', description: 'El nuevo clip barre desde arriba', iconSymbol: '⇣' },
   { id: 'iris', label: 'Iris', description: 'El nuevo clip abre desde el centro en círculo', iconSymbol: '◉' },
+  { id: 'blinds', label: 'Persianas', description: 'El nuevo clip se revela en diez listones en cascada', iconSymbol: '▤' },
+  { id: 'clock-wipe', label: 'Reloj', description: 'El nuevo clip barre en sentido horario desde arriba', iconSymbol: '◔' },
+  { id: 'ink', label: 'Tinta', description: 'El nuevo clip se expande desde el centro como mancha', iconSymbol: '✒' },
+  { id: 'bolhas', label: 'Burbujas', description: 'El nuevo clip nace en burbujas que crecen en retardo', iconSymbol: '◎' },
+  { id: 'colmeia', label: 'Colmena', description: 'Los favos hexagonales se revelan del centro hacia afuera', iconSymbol: '⬡' },
+  { id: 'chuva', label: 'Lluvia digital', description: 'Columnas de lluvia que revelan el clip de abajo hacia arriba', iconSymbol: '≋' },
+  { id: 'vento', label: 'Viento', description: 'Los granos del clip saliente son arrastrados por el viento', iconSymbol: '≋' },
+  { id: 'triangulos', label: 'Triángulos', description: 'Los triángulos del clip saliente se encogen de izquierda a derecha', iconSymbol: '△' },
+  { id: 'persiana', label: 'Cortina', description: 'Diez listones horizontales abren en cascada sobre el clip entrante', iconSymbol: '☰' },
+  { id: 'reflexo', label: 'Reflejo', description: 'Un frente de luz diagonal cruza el cuadro', iconSymbol: '◢' },
+  { id: 'pixelar', label: 'Pixelado', description: 'El clip entrante aparece en bloques grandes y se resuelve', iconSymbol: '▦' },
+  { id: 'interferencia', label: 'Interferencia', description: 'Aberración cromática y ruido de señal que se disuelve', iconSymbol: '≋' },
+  { id: 'liquido', label: 'Líquido', description: 'El clip entrante entra deformado y se calma hasta quedar nítido', iconSymbol: '〜' },
+  { id: 'caleidoscopio', label: 'Caleidoscopio', description: 'El clip entrante aparece plegado en sectores espejados', iconSymbol: '✳' },
+  { id: 'desenfoque-lineal', label: 'Desenfoque lineal', description: 'El clip entrante entra con estelas direccionales que se enfocan', iconSymbol: '≋' },
+  { id: 'warp-direccional', label: 'Warp direccional', description: 'El clip entrante aparece abombado y se endereza', iconSymbol: '〜' },
+  { id: 'glitch-digital', label: 'Glitch digital', description: 'Bloques desplazados y aberración cromática que se resuelven', iconSymbol: '▦' },
+  { id: 'zoom-suave', label: 'Zoom suave', description: 'El clip entrante asienta desde un acercamiento del 18 %', iconSymbol: '◎' },
+  { id: 'zoom-rapido', label: 'Zoom rápido', description: 'El clip entrante acerca desde un 15 % alejado', iconSymbol: '◉' },
+  { id: 'barrido-diagonal', label: 'Barrido diagonal', description: 'Un borde recto a 45° cruza el cuadro', iconSymbol: '╱' },
   { id: 'luma-wipe', label: 'Barrido Luma', description: 'El clip entrante se revela por la luminancia de un clip mate (se elige el mejor candidato por corte)', iconSymbol: '◑' },
+  { id: 'textura-luz', label: 'Textura de luz', description: 'Destello de luz cálido generado que lava el corte', iconSymbol: '☀' },
+  { id: 'textura-celular', label: 'Textura celular', description: 'Lluvia digital de autómata celular que tiñe el corte', iconSymbol: '▤' },
+  { id: 'textura-fractal', label: 'Textura fractal', description: 'Túnel fractal mandelbrot con zoom lento', iconSymbol: '✳' },
+  { id: 'textura-vida', label: 'Textura viva', description: 'Game of Life con paleta cálida que late sobre el corte', iconSymbol: '❋' },
 ];
 
 /* ── Árbol por módulo (capturas 100, 102–111, 114) ─────────────────────────
@@ -151,6 +237,10 @@ interface RailTreeItem {
   readonly pending?: boolean;
   readonly target?: ViewId;
   readonly action?: 'add-text';
+  /** Abre una pestaña/subpestaña real del inspector del clip seleccionado
+   *  (mismo mecanismo que la barra rápida de la timeline). */
+  readonly inspectorTab?: ClipInspectorTab;
+  readonly inspectorSubTab?: string;
   readonly badge?: string;
 }
 interface RailTreeGroup {
@@ -201,6 +291,7 @@ const RAIL_TREES: Record<RailView, readonly RailTreeGroup[]> = {
         { id: 'social', label: 'Redes sociales' },
         { id: 'arrows', label: 'Flechas' },
         { id: 'emojis', label: 'Expresiones' },
+        { id: 'shapes', label: 'Formas animadas' },
         { id: 'sticker-ai', label: 'Sticker de IA', pending: true },
         { id: 'premium', label: 'Premium', pending: true },
       ],
@@ -265,8 +356,8 @@ const RAIL_TREES: Record<RailView, readonly RailTreeGroup[]> = {
         { id: 'basic', label: 'Básico' },
         { id: 'color', label: 'Color' },
         { id: 'looks', label: 'Looks rápidos' },
-        { id: 'wheels', label: 'Ruedas cromáticas', pending: true },
-        { id: 'hdr', label: 'HDR', pending: true },
+        { id: 'wheels', label: 'Ruedas cromáticas', inspectorTab: 'color', inspectorSubTab: 'wheels' },
+        { id: 'hdr', label: 'HDR', inspectorTab: 'color', inspectorSubTab: 'hdr' },
       ],
     },
   ],
@@ -514,6 +605,7 @@ function ModuleTree({
   onSelect,
   onNavigate,
   onAddText,
+  onInspectorTab,
 }: {
   readonly view: RailView;
   readonly active: string;
@@ -521,6 +613,7 @@ function ModuleTree({
   readonly onSelect: (id: string) => void;
   readonly onNavigate: (id: ViewId) => void;
   readonly onAddText: () => void;
+  readonly onInspectorTab?: ((tab: ClipInspectorTab, subTab?: string) => void) | undefined;
 }) {
   return (
     <nav className="rail-categories rail-tree" aria-label="Categorías del módulo">
@@ -536,13 +629,22 @@ function ModuleTree({
                 key={item.id}
                 type="button"
                 className={active === item.id ? 'active' : ''}
-                disabled={item.pending}
+                disabled={
+                  item.pending ||
+                  (item.inspectorTab !== undefined && onInspectorTab === undefined)
+                }
                 title={
                   item.pending
                     ? 'Estructura preparada · requiere integración de backend (pendiente)'
-                    : item.label
+                    : item.inspectorTab !== undefined && onInspectorTab === undefined
+                      ? 'Abre el inspector del clip seleccionado en el editor'
+                      : item.label
                 }
                 onClick={() => {
+                  if (item.inspectorTab) {
+                    onInspectorTab?.(item.inspectorTab, item.inspectorSubTab);
+                    return;
+                  }
                   if (item.target) {
                     onNavigate(item.target);
                     return;
@@ -635,9 +737,58 @@ function RailAsset({
   const selected =
     store.state.selection.kind === 'asset' && store.state.selection.id === asset.id;
 
+  // Espía de medios (paridad `espiada_midia.js`): video/imagen listos
+  // muestran el frame del instante bajo el cursor en el monitor.
+  const spy = (() => {
+    if (asset.status !== 'ready') return null;
+    if (asset.kind === 'video') {
+      const media = asset.media;
+      if (
+        !media ||
+        !('durationFrames' in media) ||
+        !('frameRate' in media) ||
+        media.frameRate.den === 0
+      ) {
+        return null;
+      }
+      const fps = media.frameRate.num / media.frameRate.den;
+      if (!(fps > 0)) return null;
+      return { kind: 'video' as const, duration: media.durationFrames / fps };
+    }
+    if (asset.kind === 'image') return { kind: 'image' as const, duration: 0 };
+    return null;
+  })();
+  const spyTimeAt = (clientX: number, el: HTMLElement): number => {
+    if (!spy) return 0;
+    const rect = el.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / Math.max(1, rect.width)));
+    return frac * spy.duration;
+  };
+  const spyHandlers =
+    spy && root
+      ? {
+          onPointerEnter: (event: ReactPointerEvent<HTMLElement>) => {
+            showMediaSpy(
+              asset.id,
+              store.service.mediaUrl(root, asset.source.path),
+              spy.kind,
+              spy.duration,
+              spyTimeAt(event.clientX, event.currentTarget),
+            );
+          },
+          onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+            scrubMediaSpy(spyTimeAt(event.clientX, event.currentTarget));
+          },
+          onPointerLeave: () => hideMediaSpy(),
+        }
+      : {};
+
   return (
     <div className={`rail-asset${selected ? ' selected' : ''}`}>
-      <div className={`rail-thumb kind-${asset.kind}`}>
+      <div
+        className={`rail-thumb kind-${asset.kind}`}
+        {...spyHandlers}
+      >
         {thumbnail ? (
           <img src={thumbnail} alt="" draggable={false} />
         ) : (
@@ -744,11 +895,51 @@ function lookSwatch(id: string): string {
   }
 }
 
+/** Buscador de texto del catálogo (efectos, transiciones, filtros). */
+function CatalogSearch({
+  value,
+  onChange,
+  placeholder,
+}: {
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly placeholder: string;
+}) {
+  return (
+    <div className="rail-search catalog-search">
+      <Icon name="search" size={13} />
+      <input
+        type="search"
+        value={value}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {value ? (
+        <button
+          type="button"
+          className="rail-search-clear"
+          aria-label="Limpiar búsqueda"
+          onClick={() => onChange('')}
+        >
+          <Icon name="close" size={11} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function EditorAssets({
   onNavigate,
+  onRequestInspectorTab,
   emptyGuide,
 }: {
   readonly onNavigate: (id: ViewId) => void;
+  /** Pedido de pestaña/subpestaña del inspector (rail de Ajustes →
+   *  Ruedas cromáticas / HDR). Mismo contrato que la barra rápida. */
+  readonly onRequestInspectorTab?:
+    | ((tab: ClipInspectorTab, subTab?: string) => void)
+    | undefined;
   /** Guía de primer uso (captura 95) renderizada dentro del panel de medios. */
   readonly emptyGuide?: ReactNode;
 }) {
@@ -764,10 +955,15 @@ export function EditorAssets({
   const [view, setView] = useState<RailView>('media');
   const [splitTemplate, setSplitTemplate] = useState<string | null>(null);
   const [treeFilter, setTreeFilter] = useState('all');
+  // Filtro de favoritos del CATÁLOGO (efectos/transiciones). Es independiente
+  // de `favoritesOnly`, que filtra medios del proyecto.
+  const [catalogFavoritesOnly, setCatalogFavoritesOnly] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const catalogFavorites = useCatalogFavorites();
   const [facet, setFacet] = useState('files');
   const [titleText, setTitleText] = useState('Tu título aquí');
   const titleInputRef = useRef<HTMLInputElement | null>(null);
-  const [stickerCategory, setStickerCategory] = useState<'all' | 'trending' | 'social' | 'arrows' | 'emojis'>('all');
+  const [stickerCategory, setStickerCategory] = useState<'all' | 'trending' | 'social' | 'arrows' | 'emojis' | 'shapes'>('all');
   const [transitionFrames, setTransitionFrames] = useState(12);
   const fps = project ? fpsOf(project) : 30;
 
@@ -798,21 +994,43 @@ export function EditorAssets({
     stickerCategory === 'all'
       ? STICKER_LIBRARY
       : STICKER_LIBRARY.filter((item) => item.category === stickerCategory);
+  // Término normalizado del buscador de catálogo (independiente del de medios).
+  const catalogTerm = catalogQuery.trim().toLowerCase();
   const visibleEffects = useMemo(
-    () => EFFECT_PRESETS.filter((preset) => effectMatchesSetting(preset, treeFilter)),
-    [treeFilter],
+    () => EFFECT_PRESETS.filter((preset) =>
+      effectMatchesSetting(preset, treeFilter) &&
+      (!catalogTerm || preset.label.toLowerCase().includes(catalogTerm)) &&
+      (!catalogFavoritesOnly || catalogFavorites.has(catalogFavoriteKey('effect', preset.id))),
+    ),
+    [catalogFavorites, catalogFavoritesOnly, catalogTerm, treeFilter],
   );
   const visibleTransitions = useMemo(
-    () => TRANSITION_PRESETS.filter((preset) => transitionMatchesPreset(preset, treeFilter)),
-    [treeFilter],
+    () => TRANSITION_PRESETS.filter((preset) =>
+      transitionMatchesPreset(preset, treeFilter) &&
+      (!catalogTerm ||
+        `${preset.label} ${preset.description}`.toLowerCase().includes(catalogTerm)) &&
+      (!catalogFavoritesOnly || catalogFavorites.has(catalogFavoriteKey('transition', preset.id))),
+    ),
+    [catalogFavorites, catalogFavoritesOnly, catalogTerm, treeFilter],
   );
   const visibleLooks = useMemo(
-    () => COLOR_LOOKS.filter((look) => lookMatchesPreset(look, treeFilter)),
-    [treeFilter],
+    () => COLOR_LOOKS.filter((look) =>
+      lookMatchesPreset(look, treeFilter) &&
+      (!catalogTerm || look.label.toLowerCase().includes(catalogTerm)) &&
+      (!catalogFavoritesOnly || catalogFavorites.has(catalogFavoriteKey('look', look.id))),
+    ),
+    [catalogFavorites, catalogFavoritesOnly, catalogTerm, treeFilter],
   );
   const visibleTemplates = useMemo(
     () => TITLE_TEMPLATES.filter((template) => templateMatchesPreset(template, treeFilter)),
     [treeFilter],
+  );
+  const visibleSplitTemplates = useMemo(
+    () => SPLIT_SCREEN_TEMPLATES.filter((template) =>
+      (!catalogTerm || template.label.toLowerCase().includes(catalogTerm)) &&
+      (!catalogFavoritesOnly || catalogFavorites.has(catalogFavoriteKey('template', template.id))),
+    ),
+    [catalogFavorites, catalogFavoritesOnly, catalogTerm],
   );
 
   const selectedClip = useMemo(() => {
@@ -821,17 +1039,65 @@ export function EditorAssets({
     return project.timeline.clips.find((clip) => clip.id === selection.id) ?? null;
   }, [project, store.state.selection]);
 
+  // Audición de catálogo (patrón Concat): la tarjeta bajo el cursor/foco
+  // suena en la preview sin mutar el proyecto. Se corta al cambiar de clip,
+  // de vista del rail o al desmontar el panel.
+  const audition = useLookAudition();
+  useEffect(() => {
+    clearLookAudition();
+  }, [selectedClip?.id, view]);
+  useEffect(() => () => clearLookAudition(), []);
+
+  function auditionLook(look: (typeof COLOR_LOOKS)[number]): void {
+    if (!selectedClip) return;
+    setLookAudition({
+      clipId: selectedClip.id,
+      label: look.label,
+      effects: look.effects,
+    });
+  }
+
+  function auditionEffect(preset: EffectPreset): void {
+    if (!selectedClip) return;
+    const currentEffects =
+      'effects' in selectedClip ? selectedClip.effects ?? {} : {};
+    setLookAudition({
+      clipId: selectedClip.id,
+      label: preset.label,
+      effects: applyEffectPreset(currentEffects, preset),
+    });
+  }
+
+  function auditioning(label: string): boolean {
+    return (
+      audition !== null &&
+      audition.clipId === selectedClip?.id &&
+      audition.label === label
+    );
+  }
+
   function changeView(next: RailView): void {
     setView(next);
     setTreeFilter('all');
+    setCatalogFavoritesOnly(false);
+    setCatalogQuery('');
     setFacet(FACETS[next][0]?.id ?? 'files');
     setStickerCategory('all');
   }
   function selectTree(id: string): void {
     setTreeFilter(id);
-    if (view === 'stickers' && ['all', 'trending', 'social', 'arrows', 'emojis'].includes(id)) {
+    if (view === 'stickers' && ['all', 'trending', 'social', 'arrows', 'emojis', 'shapes'].includes(id)) {
       setStickerCategory(id as typeof stickerCategory);
     }
+  }
+  // «Ruedas cromáticas» y «HDR» del árbol de Ajustes abren la subpestaña
+  // real del inspector del clip seleccionado (color → wheels/hdr), con la
+  // misma elegibilidad y avisos que la barra rápida de la timeline.
+  function openInspectorPanel(tab: ClipInspectorTab, subTab?: string): void {
+    openClipInspectorTab(store, tab, (requested, requestedSub) => {
+      if (onRequestInspectorTab) onRequestInspectorTab(requested, requestedSub);
+      else store.setNotice('Las propiedades del clip se abren en el panel Detalles del editor.');
+    }, subTab);
   }
   const treeItems = RAIL_TREES[view].flatMap((group) => group.items);
   const activeTreeLabel = treeItems.find((item) => item.id === treeFilter)?.label ?? 'Todos';
@@ -843,7 +1109,7 @@ export function EditorAssets({
       : view === 'titles' ? visibleTemplates.length
       : view === 'stickers' ? visibleStickers.length
       : view === 'audio' ? SFX_PRESETS.length + counts.audio
-      : view === 'templates' ? SPLIT_SCREEN_TEMPLATES.length
+      : view === 'templates' ? visibleSplitTemplates.length
       : visibleAssets.length;
 
   if (!project) return null;
@@ -901,6 +1167,36 @@ export function EditorAssets({
   }
 
   function addSticker(sticker: StickerItem): void {
+    // Formas animadas (`emojis_animados.js`): clip gráfico con el template
+    // `shape` — figura de color + animación de entrada, sin texto.
+    if (sticker.shape) {
+      let clipId: string | null = null;
+      const result = store.mutate((current) => {
+        const added = addMotionGraphic(current, {
+          templateId: 'shape',
+          templateVersion: '1.0.0',
+          props: {
+            shape: sticker.shape,
+            color: sticker.color,
+            size: 0.16,
+            animation: sticker.animation,
+          },
+          durationFrames: Math.round(2.5 * fps),
+          atFrame: store.getPlayhead(),
+          label: `Sticker · ${sticker.name}`,
+        });
+        clipId = added.clipId;
+        const project = sticker.click
+          ? applyClickPulse(added.project, added.clipId, {})
+          : added.project;
+        return { project };
+      });
+      if (result) {
+        if (clipId) store.setSelection({ kind: 'clip', id: clipId });
+        store.setNotice(`Sticker ${sticker.name} agregado en el playhead.`);
+      }
+      return;
+    }
     const template: TitleTemplate = {
       id: `sticker-${sticker.id}`,
       name: sticker.name,
@@ -1258,6 +1554,7 @@ export function EditorAssets({
           onSelect={selectTree}
           onNavigate={onNavigate}
           onAddText={addDefaultText}
+          onInspectorTab={openInspectorPanel}
         />
         )}
 
@@ -1277,20 +1574,29 @@ export function EditorAssets({
               {item.ai ? <span className="rail-facet-badge">IA</span> : null}
             </button>
           ))}
-          <button
-            type="button"
-            className="rail-commercial-toggle"
-            disabled
-            title="Filtro de licencia comercial · requiere catálogo de stock (pendiente)"
-          >
-            Comercial
-          </button>
         </div>
+        {/* Fuera del tablist: un tablist sólo admite role="tab" (axe
+            aria-required-children). Es un toggle de filtro pendiente, no una
+            faceta del módulo. */}
+        <button
+          type="button"
+          className="rail-commercial-toggle"
+          disabled
+          title="Filtro de licencia comercial · requiere catálogo de stock (pendiente)"
+        >
+          Comercial
+        </button>
       {view !== 'media' ? (
         <>
           <div className="rail-chips" role="group" aria-label="Categorías del módulo">
             {treeItems
-              .filter((item) => !item.pending && !item.target && item.action !== 'add-text')
+              .filter(
+                (item) =>
+                  !item.pending &&
+                  !item.target &&
+                  !item.inspectorTab &&
+                  item.action !== 'add-text',
+              )
               .slice(0, 6)
               .map((item) => (
                 <button
@@ -1480,25 +1786,7 @@ export function EditorAssets({
 
           <div className="audio-category-group" hidden={treeFilter === 'assets'}>
             <h5 className="rail-subheading">Efectos de sonido (SFX)</h5>
-            <div className="sfx-list">
-              {SFX_PRESETS.map((sfx) => (
-                <div key={sfx.id} className="sfx-card">
-                  <div className="sfx-info">
-                    <strong>{sfx.label}</strong>
-                    <span>{sfx.duration} · {sfx.description}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="small ghost"
-                    onClick={() => {
-                      store.setNotice(`Efecto ${sfx.label}: agregalo o grabalo en tu carpeta de audios.`);
-                    }}
-                  >
-                    + Agregar
-                  </button>
-                </div>
-              ))}
-            </div>
+            <SfxLibrary />
           </div>
 
           <div className="audio-category-group" hidden={treeFilter === 'sfx'}>
@@ -1574,7 +1862,33 @@ export function EditorAssets({
       {/* ─── VISTA: PLANTILLAS / SPLIT SCREEN (capturas 114–117) ─── */}
       {view === 'templates' ? (
         <div className="rail-presets fm-rail-templates">
+          <CatalogSearch
+            value={catalogQuery}
+            onChange={setCatalogQuery}
+            placeholder="Buscar plantilla…"
+          />
+          <div className="catalog-fav-bar">
+            <button
+              type="button"
+              className={`catalog-fav-filter${catalogFavoritesOnly ? ' active' : ''}`}
+              aria-pressed={catalogFavoritesOnly}
+              title="Mostrar sólo las plantillas marcadas con ★"
+              onClick={() => setCatalogFavoritesOnly((value) => !value)}
+            >
+              <Icon name="star" size={11} />
+              <span>Favoritos</span>
+            </button>
+            <span className="catalog-fav-count">
+              {visibleSplitTemplates.length} de {SPLIT_SCREEN_TEMPLATES.length}
+            </span>
+          </div>
+          {catalogFavoritesOnly && visibleSplitTemplates.length === 0 ? (
+            <p className="empty-inline">
+              Todavía no marcaste plantillas. Tocá ★ en una tarjeta para guardarla acá.
+            </p>
+          ) : null}
           <SplitScreenTemplates
+            templates={visibleSplitTemplates}
             selectedId={splitTemplate}
             onSelect={(template) => setSplitTemplate(template.id)}
           />
@@ -1620,6 +1934,13 @@ export function EditorAssets({
             >
               Expresiones
             </button>
+            <button
+              type="button"
+              className={stickerCategory === 'shapes' ? 'active' : ''}
+              onClick={() => setStickerCategory('shapes')}
+            >
+              Formas
+            </button>
           </div>
           <p className="fine-print">
             Insertá stickers animados sobre la timeline en la posición del playhead.
@@ -1633,7 +1954,7 @@ export function EditorAssets({
                 onClick={() => addSticker(sticker)}
                 title={`Agregar sticker ${sticker.name}`}
               >
-                <span className="sticker-emoji">{sticker.badge}</span>
+                <span className="sticker-emoji sticker-emoji-live">{sticker.badge}</span>
                 <span className="sticker-label">{sticker.name}</span>
               </button>
             ))}
@@ -1645,28 +1966,81 @@ export function EditorAssets({
       {view === 'effects' ? (
         <div className="rail-presets">
           <p className="rail-view-hint">
-            Efectos visuales creativos. Hacé clic para aplicar al clip seleccionado en la timeline.
+            Efectos visuales creativos. Pasá el cursor para previsualizarlos en el monitor; hacé clic para aplicar al clip seleccionado.
           </p>
+          <CatalogSearch
+            value={catalogQuery}
+            onChange={setCatalogQuery}
+            placeholder="Buscar efecto…"
+          />
+          <div className="catalog-fav-bar">
+            <button
+              type="button"
+              className={`catalog-fav-filter${catalogFavoritesOnly ? ' active' : ''}`}
+              aria-pressed={catalogFavoritesOnly}
+              title="Mostrar sólo los efectos marcados con ★"
+              onClick={() => setCatalogFavoritesOnly((value) => !value)}
+            >
+              <Icon name="star" size={11} />
+              <span>Favoritos</span>
+            </button>
+            <span className="catalog-fav-count">
+              {visibleEffects.length} de {EFFECT_PRESETS.length}
+            </span>
+          </div>
           {!selectedClip ? (
             <p className="empty-inline">
               Seleccioná un clip en la timeline para aplicarle un efecto.
             </p>
           ) : null}
+          {catalogFavoritesOnly && visibleEffects.length === 0 ? (
+            <p className="empty-inline">
+              Todavía no marcaste efectos. Tocá ★ en una tarjeta para guardarla acá.
+            </p>
+          ) : null}
           <div className="preset-grid">
-            {visibleEffects.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className="preset-card"
-                disabled={!selectedClip}
-                onClick={() => applyEffect(preset)}
-              >
-                <span className="preset-icon">
-                  <Icon name="effects" size={15} />
-                </span>
-                <strong>{preset.label}</strong>
-              </button>
-            ))}
+            {visibleEffects.map((preset) => {
+              const favorite = catalogFavorites.has(catalogFavoriteKey('effect', preset.id));
+              return (
+                <div
+                  key={preset.id}
+                  className="preset-card-wrap"
+                  onMouseEnter={() => auditionEffect(preset)}
+                  onMouseLeave={clearLookAudition}
+                >
+                  <button
+                    type="button"
+                    className={`preset-card${auditioning(preset.label) ? ' auditioning' : ''}`}
+                    disabled={!selectedClip}
+                    onFocus={() => auditionEffect(preset)}
+                    onBlur={clearLookAudition}
+                    onClick={() => {
+                      clearLookAudition();
+                      applyEffect(preset);
+                    }}
+                  >
+                    <span className="preset-icon">
+                      <Icon name="effects" size={15} />
+                    </span>
+                    <strong>{preset.label}</strong>
+                  </button>
+                  <button
+                    type="button"
+                    className={`catalog-fav${favorite ? ' active' : ''}`}
+                    aria-label={
+                      favorite
+                        ? `Quitar ${preset.label} de favoritos`
+                        : `Agregar ${preset.label} a favoritos`
+                    }
+                    aria-pressed={favorite}
+                    title={favorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+                    onClick={() => toggleCatalogFavorite('effect', preset.id)}
+                  >
+                    <Icon name="star" size={11} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -1677,6 +2051,26 @@ export function EditorAssets({
           <p className="rail-view-hint">
             Transiciones entre cortes estilo CapCut. Aplicá al clip seleccionado o a todos los cortes contiguos.
           </p>
+          <CatalogSearch
+            value={catalogQuery}
+            onChange={setCatalogQuery}
+            placeholder="Buscar transición…"
+          />
+          <div className="catalog-fav-bar">
+            <button
+              type="button"
+              className={`catalog-fav-filter${catalogFavoritesOnly ? ' active' : ''}`}
+              aria-pressed={catalogFavoritesOnly}
+              title="Mostrar sólo las transiciones marcadas con ★"
+              onClick={() => setCatalogFavoritesOnly((value) => !value)}
+            >
+              <Icon name="star" size={11} />
+              <span>Favoritos</span>
+            </button>
+            <span className="catalog-fav-count">
+              {visibleTransitions.length} de {TRANSITION_PRESETS.length}
+            </span>
+          </div>
           <div className="transition-settings-bar">
             <label className="field" style={{ flex: 1 }}>
               <span>Duración ({transitionFrames} frames / {(transitionFrames / fps).toFixed(2)}s)</span>
@@ -1689,35 +2083,61 @@ export function EditorAssets({
               />
             </label>
           </div>
+          {catalogFavoritesOnly && visibleTransitions.length === 0 ? (
+            <p className="empty-inline">
+              Todavía no marcaste transiciones. Tocá ★ en una tarjeta para guardarla acá.
+            </p>
+          ) : null}
           <div className="transition-grid">
-            {visibleTransitions.map((transition) => (
-              <div key={transition.id} className="transition-card">
-                <div className="transition-icon-wrap" aria-hidden="true">
-                  <span className="transition-symbol">{transition.iconSymbol}</span>
-                </div>
-                <strong>{transition.label}</strong>
-                <p>{transition.description}</p>
-                <div className="transition-actions">
+            {visibleTransitions.map((transition) => {
+              const favorite = catalogFavorites.has(
+                catalogFavoriteKey('transition', transition.id),
+              );
+              return (
+                <div
+                  key={transition.id}
+                  className="transition-card"
+                  title={`${transition.label}: ${transition.description}`}
+                >
                   <button
                     type="button"
-                    className="small"
-                    disabled={!selectedClip}
-                    onClick={() => applyTransition(transition.id)}
-                    title={selectedClip ? 'Aplicar al clip seleccionado' : 'Seleccioná un clip'}
+                    className={`catalog-fav${favorite ? ' active' : ''}`}
+                    aria-label={
+                      favorite
+                        ? `Quitar ${transition.label} de favoritos`
+                        : `Agregar ${transition.label} a favoritos`
+                    }
+                    aria-pressed={favorite}
+                    title={favorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+                    onClick={() => toggleCatalogFavorite('transition', transition.id)}
                   >
-                    Aplicar
+                    <Icon name="star" size={11} />
                   </button>
-                  <button
-                    type="button"
-                    className="small ghost"
-                    onClick={() => applyAllTransitions(transition.id)}
-                    title="Aplicar a todos los cortes contiguos"
-                  >
-                    A todos
-                  </button>
+                  <TransitionPreview type={transition.id} />
+                  <strong>{transition.label}</strong>
+                  <p className="transition-description">{transition.description}</p>
+                  <div className="transition-actions">
+                    <button
+                      type="button"
+                      className="small"
+                      disabled={!selectedClip}
+                      onClick={() => applyTransition(transition.id)}
+                      title={selectedClip ? 'Aplicar al clip seleccionado' : 'Seleccioná un clip'}
+                    >
+                      Aplicar
+                    </button>
+                    <button
+                      type="button"
+                      className="small ghost"
+                      onClick={() => applyAllTransitions(transition.id)}
+                      title="Aplicar a todos los cortes contiguos"
+                    >
+                      Todos
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -1726,28 +2146,81 @@ export function EditorAssets({
       {view === 'filters' ? (
         <div className="rail-presets">
           <p className="rail-view-hint">
-            Filtros cinematográficos y looks de color. Se aplican al clip seleccionado con un clic.
+            Filtros cinematográficos y looks de color. Pasá el cursor para previsualizar el look en el monitor; hacé clic para aplicarlo al clip seleccionado.
           </p>
+          <CatalogSearch
+            value={catalogQuery}
+            onChange={setCatalogQuery}
+            placeholder="Buscar filtro…"
+          />
+          <div className="catalog-fav-bar">
+            <button
+              type="button"
+              className={`catalog-fav-filter${catalogFavoritesOnly ? ' active' : ''}`}
+              aria-pressed={catalogFavoritesOnly}
+              title="Mostrar sólo los filtros marcados con ★"
+              onClick={() => setCatalogFavoritesOnly((value) => !value)}
+            >
+              <Icon name="star" size={11} />
+              <span>Favoritos</span>
+            </button>
+            <span className="catalog-fav-count">
+              {visibleLooks.length} de {COLOR_LOOKS.length}
+            </span>
+          </div>
           {!selectedClip ? (
             <p className="empty-inline">
               Seleccioná un clip en la timeline para aplicarle un filtro.
             </p>
           ) : null}
+          {catalogFavoritesOnly && visibleLooks.length === 0 ? (
+            <p className="empty-inline">
+              Todavía no marcaste filtros. Tocá ★ en una tarjeta para guardarlo acá.
+            </p>
+          ) : null}
           <div className="preset-grid">
-            {visibleLooks.map((look) => (
-              <button
-                key={look.id}
-                type="button"
-                className="preset-card"
-                disabled={!selectedClip}
-                onClick={() => applyPreset(look.label, look.effects)}
-              >
-                <span className="preset-swatch" aria-hidden="true">
-                  <i style={{ background: lookSwatch(look.id) }} />
-                </span>
-                <strong>{look.label}</strong>
-              </button>
-            ))}
+            {visibleLooks.map((look) => {
+              const favorite = catalogFavorites.has(catalogFavoriteKey('look', look.id));
+              return (
+                <div
+                  key={look.id}
+                  className="preset-card-wrap"
+                  onMouseEnter={() => auditionLook(look)}
+                  onMouseLeave={clearLookAudition}
+                >
+                  <button
+                    type="button"
+                    className={`preset-card${auditioning(look.label) ? ' auditioning' : ''}`}
+                    disabled={!selectedClip}
+                    onFocus={() => auditionLook(look)}
+                    onBlur={clearLookAudition}
+                    onClick={() => {
+                      clearLookAudition();
+                      applyPreset(look.label, look.effects);
+                    }}
+                  >
+                    <span className="preset-swatch" aria-hidden="true">
+                      <i style={{ background: lookSwatch(look.id) }} />
+                    </span>
+                    <strong>{look.label}</strong>
+                  </button>
+                  <button
+                    type="button"
+                    className={`catalog-fav${favorite ? ' active' : ''}`}
+                    aria-label={
+                      favorite
+                        ? `Quitar ${look.label} de favoritos`
+                        : `Agregar ${look.label} a favoritos`
+                    }
+                    aria-pressed={favorite}
+                    title={favorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+                    onClick={() => toggleCatalogFavorite('look', look.id)}
+                  >
+                    <Icon name="star" size={11} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
@@ -1770,15 +2243,27 @@ export function EditorAssets({
             </button>
           </div>
           <div className="adjustment-presets">
+            <CatalogSearch
+              value={catalogQuery}
+              onChange={setCatalogQuery}
+              placeholder="Buscar look…"
+            />
             <h5 className="rail-subheading">Looks rápidos para la capa</h5>
             <div className="preset-grid">
               {visibleLooks.map((look) => (
                 <button
                   key={look.id}
                   type="button"
-                  className="preset-card"
+                  className={`preset-card${auditioning(look.label) ? ' auditioning' : ''}`}
                   disabled={!selectedClip}
-                  onClick={() => applyPreset(look.label, look.effects)}
+                  onMouseEnter={() => auditionLook(look)}
+                  onMouseLeave={clearLookAudition}
+                  onFocus={() => auditionLook(look)}
+                  onBlur={clearLookAudition}
+                  onClick={() => {
+                    clearLookAudition();
+                    applyPreset(look.label, look.effects);
+                  }}
                 >
                   <span className="preset-swatch" aria-hidden="true">
                     <i style={{ background: lookSwatch(look.id) }} />

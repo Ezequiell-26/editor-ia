@@ -6,6 +6,7 @@ pub mod local_catalog;
 pub mod local_music;
 pub mod local_pattern;
 pub mod local_regenerator;
+pub mod local_sfx;
 pub mod local_titlecard;
 pub mod local_voice;
 pub mod production_store;

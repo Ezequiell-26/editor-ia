@@ -4,7 +4,7 @@ import * as shared from './shared';
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { AssetFileInfo, CopiedMedia, DuplicateAssetGroup, MissingAssetInfo, ProjectVersionInfo, QualityGateReport, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from "../../services/contracts";
 
-export function createProjectsService(call: NativeCall): Pick<DesktopService, 'createProject' | 'openProject' | 'openProjectAt' | 'adoptProject' | 'saveProject' | 'saveProjectAs' | 'saveDeliveryPackage' | 'closeProject' | 'importAssets' | 'importMediaPaths' | 'matchMediaPlan' | 'listMediaFolder' | 'listDirectory' | 'readTextFile' | 'writeTextFile' | 'makeDirectory' | 'movePath' | 'deletePath' | 'absoluteFileUrl' | 'recentProjectThumbnail' | 'qualityGateReview' | 'checkAssetFiles' | 'chooseMediaFolder' | 'findMissingAssets' | 'relinkAsset' | 'relinkAssetsFromFolder' | 'listProjectVersions' | 'restoreProjectVersion' | 'findDuplicateAssets' | 'writeProjectVariant' | 'writeProjectFile' | 'copyMediaInto' | 'loadDirectorMemory' | 'saveDirectorMemory' | 'savePublicationManifest' | 'mediaUrl' | 'joinPath'> {
+export function createProjectsService(call: NativeCall): Pick<DesktopService, 'createProject' | 'openProject' | 'openProjectAt' | 'adoptProject' | 'saveProject' | 'saveProjectAs' | 'saveDeliveryPackage' | 'closeProject' | 'importAssets' | 'importMediaPaths' | 'matchMediaPlan' | 'listMediaFolder' | 'searchMediaFolder' | 'listDirectory' | 'readTextFile' | 'writeTextFile' | 'makeDirectory' | 'movePath' | 'deletePath' | 'absoluteFileUrl' | 'recentProjectThumbnail' | 'qualityGateReview' | 'checkAssetFiles' | 'chooseMediaFolder' | 'findMissingAssets' | 'relinkAsset' | 'relinkAssetsFromFolder' | 'listProjectVersions' | 'restoreProjectVersion' | 'findDuplicateAssets' | 'writeProjectVariant' | 'writeProjectFile' | 'copyMediaInto' | 'loadDirectorMemory' | 'saveDirectorMemory' | 'savePublicationManifest' | 'mediaUrl' | 'joinPath'> {
   return {
     async createProject(input) {
       return shared.requireOpened(
@@ -46,10 +46,11 @@ export function createProjectsService(call: NativeCall): Pick<DesktopService, 'c
     async saveProjectAs(project) {
       return shared.requireOpened(await call(shared.PROJECT_COMMANDS.saveAs, { project }));
     },
-    async saveDeliveryPackage(bytes, fileName) {
+    async saveDeliveryPackage(bytes, fileName, outputPath) {
       const raw = await call(shared.PROJECT_COMMANDS.saveDeliveryPackage, {
         bytesBase64: shared.bytesToBase64(bytes),
         fileName,
+        ...(outputPath ? { outputPath } : {}),
       });
       return typeof raw === 'string' ? raw : null;
     },
@@ -109,6 +110,30 @@ export function createProjectsService(call: NativeCall): Pick<DesktopService, 'c
       })) as { directory?: unknown; files?: unknown };
       return {
         directory: typeof raw.directory === 'string' ? raw.directory : '',
+        files: Array.isArray(raw.files)
+          ? raw.files
+              .filter((file): file is Record<string, unknown> => typeof file === 'object' && file !== null)
+              .map((file) => ({
+                path: String(file.path ?? ''),
+                name: String(file.name ?? ''),
+                kind: String(file.kind ?? ''),
+                bytes: Number(file.bytes ?? 0),
+              }))
+              .filter((file) => file.path !== '' && file.name !== '')
+          : [],
+      };
+    },
+    async searchMediaFolder(input) {
+      const raw = (await call(shared.PROJECT_COMMANDS.searchMediaFolder, {
+        folder: input.folder,
+        query: input.query,
+        kind: input.kind ?? null,
+        root: input.root ?? null,
+      })) as { directory?: unknown; query?: unknown; files?: unknown; truncated?: unknown };
+      return {
+        directory: typeof raw.directory === 'string' ? raw.directory : '',
+        query: typeof raw.query === 'string' ? raw.query : input.query,
+        truncated: raw.truncated === true,
         files: Array.isArray(raw.files)
           ? raw.files
               .filter((file): file is Record<string, unknown> => typeof file === 'object' && file !== null)

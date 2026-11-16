@@ -1,3 +1,16 @@
+use serde::Deserialize;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use tauri::State;
+
+use crate::media::stickman::{
+    plan_stickman_render, pose_at, render_frame, ParticleSpec, PoseKeyframe,
+};
+use crate::projects::service::{ProjectError, ProjectErrorCode};
+use crate::state::AppState;
+
+use crate::commands::system::resolve_tools;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StickmanRenderRequest {
@@ -23,30 +36,6 @@ pub struct StickmanRenderRequest {
     pub particles: Option<ParticleSpec>,
 }
 
-/// Emisor de partículas procedural: `kind` = confetti | snow | sparks | bounce.
-/// `gravity` (px/s²) y `bounce` (restitución 0..1) aplican a `bounce`.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ParticleSpec {
-    #[serde(default = "default_particle_kind")]
-    pub kind: String,
-    #[serde(default = "default_particle_count")]
-    pub count: u32,
-    #[serde(default)]
-    pub color_hex: Option<String>,
-    #[serde(default)]
-    pub gravity: Option<f64>,
-    #[serde(default)]
-    pub bounce: Option<f64>,
-}
-
-fn default_particle_kind() -> String {
-    "confetti".into()
-}
-fn default_particle_count() -> u32 {
-    60
-}
-
 fn default_action() -> String {
     "idle".into()
 }
@@ -61,22 +50,6 @@ fn default_width() -> u32 {
 }
 fn default_height() -> u32 {
     360
-}
-
-const ACTIONS: &[&str] = &["idle", "walk", "run", "wave", "jump"];
-
-fn parse_hex(hex: &str, fallback: [u8; 3]) -> [u8; 3] {
-    let clean = hex.trim().trim_start_matches('#');
-    if clean.len() == 6 {
-        if let (Ok(r), Ok(g), Ok(b)) = (
-            u8::from_str_radix(&clean[0..2], 16),
-            u8::from_str_radix(&clean[2..4], 16),
-            u8::from_str_radix(&clean[4..6], 16),
-        ) {
-            return [r, g, b];
-        }
-    }
-    fallback
 }
 
 fn resolve_ffmpeg(settings: &crate::state::Settings) -> Result<PathBuf, ProjectError> {
@@ -141,79 +114,43 @@ fn probe_output(
 /// Genera un video MP4 de un personaje stickman articulado.
 ///
 /// Escribe los cuadros PNG en `<temp>/stickman-frames`, codifica con el
-/// FFmpeg del proyecto (`h264_mf`/software según disponibilidad) y verifica
-/// el resultado con ffprobe antes de responder.
+/// FFmpeg del proyecto (`libopenh264`/`h264_mf` según disponibilidad) y
+/// verifica el resultado con ffprobe antes de responder.
 #[tauri::command]
 pub async fn stickman_render(
     state: State<'_, AppState>,
     request: StickmanRenderRequest,
 ) -> Result<serde_json::Value, ProjectError> {
-    let action = request.action.trim().to_ascii_lowercase();
-    if !ACTIONS.contains(&action.as_str()) && request.keyframes.is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            &format!(
-                "acción desconocida «{}»; opciones: {} o keyframes",
-                request.action,
-                ACTIONS.join(", ")
-            ),
-        ));
-    }
-    let fps = request.fps.clamp(1, 60);
-    let width = request.width.clamp(64, 1920);
-    let height = request.height.clamp(64, 1080);
-    let duration = request.duration_seconds.clamp(0.5, 120.0);
-    let total_frames = (duration * fps as f64).round() as u64;
-    if total_frames == 0 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "duración demasiado corta",
-        ));
-    }
-    if let Some(spec) = &request.particles {
-        if !matches!(
-            spec.kind.as_str(),
-            "confetti" | "snow" | "sparks" | "bounce"
-        ) {
-            return Err(ProjectError::message(
-                ProjectErrorCode::InvalidProject,
-                "particles.kind debe ser confetti, snow, sparks o bounce",
-            ));
-        }
-        if let Some(g) = spec.gravity {
-            if !(g.is_finite() && (0.0..=5000.0).contains(&g)) {
-                return Err(ProjectError::message(
-                    ProjectErrorCode::InvalidProject,
-                    "particles.gravity debe estar entre 0 y 5000 px/s²",
-                ));
-            }
-        }
-        if let Some(b) = spec.bounce {
-            if !(b.is_finite() && (0.0..=1.0).contains(&b)) {
-                return Err(ProjectError::message(
-                    ProjectErrorCode::InvalidProject,
-                    "particles.bounce debe estar entre 0 y 1",
-                ));
-            }
-        }
-    }
-    if !request.keyframes.is_empty() {
-        let max_frame = request.keyframes.iter().map(|k| k.frame).max().unwrap_or(0);
-        if max_frame == 0 && request.keyframes.len() == 1 {
-            return Err(ProjectError::message(
-                ProjectErrorCode::InvalidProject,
-                "los keyframes necesitan al menos un frame > 0 para interpolar",
-            ));
-        }
-    }
+    let max_keyframe = request
+        .keyframes
+        .iter()
+        .map(|k| k.frame)
+        .max()
+        .unwrap_or(0);
+    let plan = plan_stickman_render(
+        &request.action,
+        !request.keyframes.is_empty(),
+        max_keyframe,
+        request.keyframes.len(),
+        request.particles.as_ref(),
+        request.fps,
+        request.width,
+        request.height,
+        request.duration_seconds,
+        &request.output_path,
+        request.bone_hex.as_deref(),
+        request.bg_hex.as_deref(),
+    )?;
+    let action = plan.action;
+    let fps = plan.fps;
+    let width = plan.width;
+    let height = plan.height;
+    let duration = plan.duration;
+    let total_frames = plan.total_frames;
+    let bone = plan.bone;
+    let bg = plan.bg;
 
-    let output = PathBuf::from(request.output_path.trim());
-    if output.extension().and_then(|e| e.to_str()) != Some("mp4") {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la salida debe ser un archivo .mp4",
-        ));
-    }
+    let output = crate::application::fs::validate_user_write_path(&request.output_path)?;
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
             ProjectError::message(
@@ -222,12 +159,6 @@ pub async fn stickman_render(
             )
         })?;
     }
-
-    let bone = parse_hex(
-        request.bone_hex.as_deref().unwrap_or("#e8eaf0"),
-        [232, 234, 240],
-    );
-    let bg = parse_hex(request.bg_hex.as_deref().unwrap_or("#10131a"), [16, 19, 26]);
 
     let frames_dir = std::env::temp_dir().join(format!("stickman-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&frames_dir).map_err(|e| {
@@ -345,6 +276,3 @@ pub async fn stickman_render(
         "verified": duration_s.is_some(),
     }))
 }
-#[cfg(test)]
-#[path = "../stickman.particle_tests.rs"]
-mod particle_tests;

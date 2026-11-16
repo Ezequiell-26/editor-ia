@@ -1,0 +1,202 @@
+{
+  "inspector": {
+    "x": 1020,
+    "y": 34,
+    "w": 340,
+    "h": 473,
+    "right": 1360,
+    "bottom": 507
+  },
+  "head": "Detallesclip",
+  "tabsScroll": {
+    "client": 312,
+    "scroll": 312
+  },
+  "tabButtons": [
+    {
+      "label": "Video",
+      "active": true,
+      "x": 1034,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1089,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Audio",
+      "active": false,
+      "x": 1091,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1145,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Velocidad",
+      "active": false,
+      "x": 1147,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1202,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Recorte",
+      "active": false,
+      "x": 1204,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1258,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Animación",
+      "active": false,
+      "x": 1260,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1315,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Color",
+      "active": false,
+      "x": 1034,
+      "y": 126,
+      "w": 55,
+      "h": 23,
+      "right": 1089,
+      "bottom": 149,
+      "visible": true
+    },
+    {
+      "label": "Máscara de color",
+      "active": false,
+      "x": 1091,
+      "y": 126,
+      "w": 111,
+      "h": 23,
+      "right": 1202,
+      "bottom": 149,
+      "visible": true
+    },
+    {
+      "label": "Estilo",
+      "active": false,
+      "x": 1204,
+      "y": 126,
+      "w": 55,
+      "h": 23,
+      "right": 1258,
+      "bottom": 149,
+      "visible": true
+    },
+    {
+      "label": "Todo",
+      "active": false,
+      "x": 1260,
+      "y": 126,
+      "w": 55,
+      "h": 23,
+      "right": 1315,
+      "bottom": 149,
+      "visible": true
+    }
+  ],
+  "activeTab": "Video",
+  "subTabButtons": [
+    {
+      "label": "Básico",
+      "active": true,
+      "disabled": false,
+      "x": 1035,
+      "y": 161,
+      "w": 47,
+      "h": 23,
+      "right": 1082,
+      "bottom": 184,
+      "visible": true
+    },
+    {
+      "label": "Máscara",
+      "active": false,
+      "disabled": false,
+      "x": 1085,
+      "y": 161,
+      "w": 56,
+      "h": 23,
+      "right": 1142,
+      "bottom": 184,
+      "visible": true
+    },
+    {
+      "label": "Seguimiento",
+      "active": false,
+      "disabled": false,
+      "x": 1145,
+      "y": 161,
+      "w": 76,
+      "h": 23,
+      "right": 1221,
+      "bottom": 184,
+      "visible": true
+    },
+    {
+      "label": "IA",
+      "active": false,
+      "disabled": false,
+      "x": 1224,
+      "y": 161,
+      "w": 28,
+      "h": 23,
+      "right": 1252,
+      "bottom": 184,
+      "visible": true
+    }
+  ],
+  "activeSubTab": "Básico",
+  "clipInspectorTab": "video",
+  "clipInspectorSub": "basic",
+  "sections": [
+    "Clip",
+    "Transformación",
+    "Transición de entrada",
+    "Transición de salida",
+    "Animación de entrada y salida",
+    "Velocidad",
+    "Estabilización",
+    "Seguimiento de rostro",
+    "Ajuste fino",
+    "Movimiento",
+    "Fondo automático",
+    "Fondo / chroma key",
+    "Máscara",
+    "Efectos creativos",
+    "Estilo",
+    "Color y efectos",
+    "Ruedas cromáticas",
+    "HSL selectivo",
+    "Curvas tonales",
+    "Color avanzado",
+    "Relight por rostro",
+    "Análisis de escenas",
+    "Audio del clip",
+    "Reducción de ruido",
+    "Filtros de voz",
+    "Cortar silencios"
+  ],
+  "sliders": 0,
+  "numberInputs": 91,
+  "presetButtons": 27,
+  "hasColorStudio": false
+}

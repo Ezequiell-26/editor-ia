@@ -1,0 +1,56 @@
+# Workspace raíz de los crates de Concat vendorados en Olyvia.
+#
+# Procedencia: https://github.com/jub0t/Concat (Jareer Abdullah), versión
+# 0.2.10, clonado el 2026-11-12 en D:\Users\ofici\QODER-WORK\concat-ref.
+# Licencia: AGPL-3.0-or-later — ver LICENSE en este directorio.
+#
+# Este workspace existe sólo para que los crates vendorados resuelvan sus
+# herencias `*.workspace = true` y `[lints] workspace = true`. NO es un
+# workspace member de Olyvia: se consume por path dependencies desde
+# apps/desktop/src-tauri. Los crates se agregan de a uno por fase;
+# `members = ["crates/*"]` los toma automáticamente.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.2.10"
+edition = "2024"
+rust-version = "1.93"
+license = "AGPL-3.0-or-later"
+
+[workspace.dependencies]
+concat-core = { path = "crates/concat-core" }
+concat-project = { path = "crates/concat-project" }
+concat-effects = { path = "crates/concat-effects" }
+concat-media = { path = "crates/concat-media" }
+concat-render = { path = "crates/concat-render" }
+concat-text = { path = "crates/concat-text" }
+concat-log = { path = "crates/concat-log" }
+concat-vision = { path = "crates/concat-vision" }
+
+# Dependencias externas que los crates referencian con `.workspace = true`.
+# Versiones copiadas de concat-ref/src/Cargo.toml [workspace.dependencies].
+# (`serde`, `naga` y `toml` se declaran literales en cada crate, no por
+# workspace, así que no van acá.)
+serde_json = "1"
+thiserror = "2"
+schemars = "1"
+
+# concat-vision lo declara `optional` tras su feature `infer`: sin la
+# feature `ort` entra al Cargo.lock pero nunca se compila. La spec es la
+# de concat-ref/src/Cargo.toml; Olyvia no habilita `infer` (ver NOTICE.md).
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "tracing", "download-binaries", "tls-native", "copy-dylibs"] }
+
+# Fase D (pipeline render/composición). Versiones copiadas de
+# concat-ref/src/Cargo.toml [workspace.dependencies]: wgpu pineado al
+# major que Slint 1.17+ puede compartir device; pollster para block_on.
+wgpu = "30"
+pollster = "0.4"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# Cleverness is the enemy of a codebase you maintain alone.
+too_many_arguments = "allow"

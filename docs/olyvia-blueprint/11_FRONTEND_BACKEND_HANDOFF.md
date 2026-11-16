@@ -443,3 +443,118 @@ devuelve el `QualityReportSummary` del proyecto abierto — misma lógica
 que el comando IPC `quality_gate_review` (`application::quality_gate::
 review_open_project`), evaluando el último estado guardado en disco.
 Catálogo MCP: 37 tools.
+
+## 24. Nota de HY4 — 2026-11-11: capa visual del editor, sin contratos nuevos
+
+**Sin cambios de contrato.** Esta fase es **sólo presentación** sobre el DOM ya existente.
+No se añaden IPC, DTO, eventos ni comandos; no se simula ninguna operación como funcionalidad
+terminada. La UI sigue consumiendo exactamente los contratos de §2 del `HY4-STATUS.md`.
+
+### Entregado
+
+- `apps/desktop/src/styles/capcut-ui.css` y `capcut-editor.css`, importados al final de
+  `apps/desktop/src/main.tsx`. Selectores acotados a `:root[data-theme='dark']`; el preset
+  opcional `data-preset='capcut'` (`styles/capcut.css`), los layouts alternativos
+  (`styles/layouts.css`) y el tema claro quedan intactos.
+- Corrección de 11 defectos de geometría medidos en el editor a 1360×768 y 1280×720
+  (monitor, biblioteca de medios, cabeceras, barra del monitor, franja inferior de la
+  timeline, pestañas con etiqueta, divisor). Detalle y valores antes/después en
+  `agent-status/HY4-STATUS.md` §5.
+- 14 capturas reales + 2 JSON de métricas en `screenshots/hy4/`.
+
+### Consumo de contratos: sin novedades
+
+La capa visual no llama a `DesktopService`. Los gaps ya registrados por SWE 2 en §22 siguen
+abiertos y **no se han cerrado en esta fase**; se reiteran para que no se den por integrados:
+
+- `production_start` / `production_pause` — disponibles, la UI sigue usando `advance` + sondeo.
+- Evento `production-run` (`{ runId, run }`) — emitido, la UI no lo escucha todavía.
+- `production_plan_from_brief` / `production_plan_from_text` — disponibles, la UI mantiene su
+  builder local (`state/production-plan.ts`).
+- `repairAttempts` / `lastRepair`, `studio_capabilities.remoteVoice` — campos aditivos que el
+  tipo TS puede ignorar; la UI no los muestra aún.
+- §7 capability registry enriquecido y §10 `credentialState` siguen siendo **pendientes de
+  backend**; las pantallas deben mostrar «No disponible» y no inventar catálogo paralelo.
+
+### Petición concreta a SWE 2 (bloqueo de compilación, owner del esquema)
+
+`npx tsc --noEmit -p apps/desktop/tsconfig.json` devuelve **exit 2 con 15 errores, todos en
+`apps/desktop/src/state/mcp-tools.test.ts`**:
+
+- `TS2339` en las líneas 594, 595, 606, 607, 614, 615, 626, 633, 634, 670, 768, 776, 808, 839:
+  el test accede a `effects`, `transitionIn`, `speed` y `motion` sobre la unión discriminada de
+  `Clip` sin estrechar por `kind` (audio / image / graphic no declaran esas propiedades).
+- `TS7006` en 839,44: parámetro `item` con `any` implícito.
+
+Origen: cambios concurrentes en `packages/project-schema/src/timeline.ts` (y ficheros vecinos
+del esquema). **HY4 no modifica ese test ni el esquema** para no sobrescribir trabajo ajeno.
+Se solicita estrechar por `kind` (o tipar el helper del test) y tipar `item`, para que el
+worktree vuelva a compilar limpio. Hasta entonces, el typecheck global no puede usarse como
+criterio de aceptación del frontend; la suite de regresión sí pasa (148/148) y las 10 capturas
+de la app real no muestran overflow ni errores de consola.
+
+### Limitación de las capturas
+
+Las imágenes `editor-full-*.png` se obtuvieron con un arnés temporal que montaba los
+componentes reales junto al proyecto de demostración del repo (`createDemoProject`), porque en
+modo navegador el editor muestra su empty-state. Ese arnés **ya se eliminó** del árbol. El
+`preview-look` del proyecto demo renderiza una composición de ejemplo con una interfaz de editor
+dentro del vídeo: es contenido del proyecto, no un panel de la app.
+
+## 25. Nota de HY4 — 2026-11-11 (tarde): edición fácil del inspector
+
+**Sin cambios de contrato.** No se añaden IPC, DTO, eventos ni operaciones de proyecto.
+Todo el trabajo es presentación + un ajuste de estado de UI local (`setTab`), sobre código ya
+existente. No se simuló ninguna capacidad como terminada.
+
+### Aprendizaje de CapCut con REA / Ghidra
+
+Se usó el MCP `rea` sobre la instalación local de CapCut 9.7.1.4203:
+`open_binary` → `CapCut.exe` y `FusionUI.dll` (PE x86_64), `search_strings` → 1.447 strings.
+Ghidra rechazó la ruta `C:\Users\ofici\AppData\Local\CapCut\...` por ser un **reparse point**
+(`ERR_REA_WINDOWS_NATIVE`); se reabrió con la ruta real
+`D:\Users\ofici\_Migrado_de_C\AppData\Local\CapCut\...`. El inventario QML confirma UI Qt/QML
+con `QUIColorWheel`, `QUIColorAlphaSlider`, `QUIColorBrightnessSlider`, `QUIColorHexInput`,
+`QUIColorRGBAInput`: rueda + slider + valor numérico, siempre visibles. Sólo se inspeccionaron
+recursos/etiquetas para informar decisiones de UX; no se desensambló lógica propietaria.
+
+### Diagnóstico y entrega
+
+- **Antes**: al seleccionar un clip de vídeo, 9 pestañas en 288px (`scrollWidth 460`,
+  `scrollbar-width:none`); **«Color» quedaba cortada** y exigía el desplegable «». Color ya
+  usaba `PropertySlider` (etiqueta + slider + valor + keyframe) y presets visuales; el resto de
+  pestañas usaba 91 campos numéricos sueltos y 28 secciones abiertas.
+- **Después**: `styles/capcut-inspector.css` (nueva, aditiva, sólo `data-theme='dark'`)
+  muestra las 9 pestañas en 2 filas sin scroll, uniforma `.field`/`.num-spin-wrap`/`select`
+  con la métrica de `.fp-slider-number`, hace sticky las cabeceras de sección, deja los 4
+  presets en una fila, compacta el pie y añade un hint cuando no hay clip.
+  `features/editor/Inspector.tsx` conserva la pestaña activa entre clips del mismo tipo
+  (edición de un bloque en el `useEffect([clip.id, clip.kind])`, sin tocar el resto del
+  fichero). `main.tsx` suma un import al final del cascade.
+- **Medido** en 1360×768 y 1280×720: 9/9 pestañas visibles, 0 cortadas; Color a 1 clic; los
+  4 sliders básicos con valor caben sin scroll; flujo vídeo→Color→Ruedas→otro vídeo conserva
+  `color/wheels`; al pasar a audio resetea a `audio/basic`. 0 errores de consola.
+- `tsc --noEmit -p apps/desktop/tsconfig.json`: **exit 0 (worktree limpio)**. El bloqueo de
+  `state/mcp-tools.test.ts` registrado en §24 quedó resuelto concurrentemente.
+- 101/101 tests de `ColorPropertiesPanel`, `App.teclado`, `appearance`, `theme-palette` y
+  `Timeline` pasan. 10/10 capturas de la app real sin overflow ni errores.
+- 22 capturas + 5 JSON de métricas en `screenshots/hy4/`; detalle en `HY4-STATUS.md` §11.
+
+### Pendiente que SWE 2 / owner de vistas debe revisar (no es de HY4)
+
+`apps/desktop/src/App.test.tsx:326` espera `'Editor automático'` tras pulsar la pestaña
+«Automático», pero la UI renderiza «Variantes editables analizadas localmente / Volver a
+Edición». Ese fichero de test tiene 32 líneas añadidas por otro agente en el mismo diff
+(renombrados «Automático», «Abrir en Studio» → «Abrir en el editor»). **No lo causa HY4**: el
+test crea un proyecto vacío (0 pistas / 0 clips), así que `RegularClipInspector` —único TSX
+modificado por HY4— no se monta. No se corrige para no sobrescribir un test en edición activa;
+la suite de regresión propia (101 tests) está verde.
+
+### Sin cambios en los contratos
+
+Siguen abiertos los gaps de §22 (`production_start`/`production_pause`, evento
+`production-run`, planners remotos, `repairAttempts`/`lastRepair`, `remoteVoice`) y los
+pendientes de §7/§10 (capability registry enriquecido, `credentialState`). La comparación
+antes/después de Color **no existe** en la UI y no se ha simulado; si se desea, requiere una
+decisión de contrato/UX previa.
+

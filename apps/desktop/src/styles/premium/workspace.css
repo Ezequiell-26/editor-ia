@@ -834,7 +834,8 @@ body.inspector-resizing {
   opacity: var(--disabled-opacity);
 }
 
-.app-shell .preview-ratio-select {
+.app-shell .preview-ratio-select,
+.app-shell .preview-safearea-select {
   height: var(--ctl-h-sm, 24px);
   min-height: var(--ctl-h-sm, 24px);
   max-width: 126px;
@@ -1155,6 +1156,67 @@ body.inspector-resizing {
 .app-shell .inspector input[type='range'] {
   width: 100%;
   accent-color: var(--color-accent);
+}
+
+/* Spinner ▲▼ con aceleración al mantener — paridad `caixa_numero.js`
+ * de AlaukCut. Reemplaza los spinners nativos del number input. */
+.app-shell .inspector .num-spin-wrap {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.app-shell .inspector .num-spin-wrap input[type='number'] {
+  width: 100%;
+  padding-right: 18px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.app-shell .inspector .num-spin-wrap input[type='number']::-webkit-outer-spin-button,
+.app-shell .inspector .num-spin-wrap input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.app-shell .inspector .num-spin {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  display: flex;
+  flex-direction: column;
+  width: 16px;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface-raised, var(--color-surface));
+  border-radius: 0 var(--rad-sm) var(--rad-sm) 0;
+  overflow: hidden;
+}
+
+.app-shell .inspector .num-spin button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 7px;
+  line-height: 1;
+  cursor: ns-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.app-shell .inspector .num-spin button:hover:not(:disabled) {
+  background: var(--color-accent-soft, rgba(255, 255, 255, 0.08));
+  color: var(--ink-1);
+}
+
+.app-shell .inspector .num-spin button:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 .app-shell .inspector input[type='color'] {

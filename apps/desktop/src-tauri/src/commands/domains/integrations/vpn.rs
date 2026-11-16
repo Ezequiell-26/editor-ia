@@ -7,34 +7,17 @@
 //! WireGuard se detecta como instalación aparte: su túnel lo activa el
 //! usuario desde la app oficial con sus privilegios.
 //!
-//! Todo el parsing vive en funciones puras testeables; los comandos sólo
-//! orquestan procesos.
+//! DTOs, el parser JSON y la validación anti-inyección viven en
+//! `application::vpn`; acá sólo queda la orquestación de procesos.
 
-use serde::Serialize;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 
-/// Una conexión VPN configurada en Windows.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct VpnConnection {
-    pub name: String,
-    pub server_address: String,
-    pub tunnel_type: String,
-    /// `Connected` / `Disconnected` / `Connecting` (texto de Windows).
-    pub status: String,
-}
-
-/// Dónde quedó instalada la app oficial de WireGuard, si existe.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WireGuardInfo {
-    pub installed: bool,
-    pub path: Option<String>,
-}
+// DTOs, LIST_SCRIPT, parser y validación: `application::vpn`.
+pub use crate::application::vpn::*;
 
 #[cfg(not(windows))]
 fn unsupported() -> ProjectError {
@@ -42,57 +25,6 @@ fn unsupported() -> ProjectError {
         ProjectErrorCode::ProviderUnavailable,
         "la gestión de VPN del sistema sólo está implementada en Windows",
     )
-}
-
-/// Parsea la salida JSON de `Get-VpnConnection | ConvertTo-Json`.
-/// Tolera objeto único (PowerShell no envuelve en array con 1 resultado),
-/// array vacío y campos ausentes.
-fn parse_vpn_connections(json: &str) -> Vec<VpnConnection> {
-    let trimmed = json.trim();
-    if trimmed.is_empty() || trimmed == "null" {
-        return Vec::new();
-    }
-    let value: serde_json::Value = match serde_json::from_str(trimmed) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-    let items: Vec<&serde_json::Value> = match &value {
-        serde_json::Value::Array(list) => list.iter().collect(),
-        serde_json::Value::Object(_) => vec![&value],
-        _ => Vec::new(),
-    };
-    items
-        .into_iter()
-        .filter_map(|item| {
-            let name = item["name"].as_str()?.trim().to_string();
-            if name.is_empty() {
-                return None;
-            }
-            Some(VpnConnection {
-                name,
-                server_address: item["server"].as_str().unwrap_or("").to_string(),
-                tunnel_type: item["tunnel"].as_str().unwrap_or("").to_string(),
-                status: item["status"].as_str().unwrap_or("").to_string(),
-            })
-        })
-        .collect()
-}
-
-/// El nombre debe ser exactamente una conexión listada: evita inyección en
-/// `rasdial` y que la app marque conexiones arbitrarias del sistema.
-fn require_known_connection<'a>(
-    connections: &'a [VpnConnection],
-    name: &str,
-) -> Result<&'a VpnConnection, ProjectError> {
-    connections
-        .iter()
-        .find(|connection| connection.name == name)
-        .ok_or_else(|| {
-            ProjectError::message(
-                ProjectErrorCode::NotFound,
-                "la conexión VPN no existe en el sistema o no se pudo listar",
-            )
-        })
 }
 
 /// Ejecuta un proceso con timeout y lo mata si no termina. Devuelve
@@ -177,11 +109,6 @@ fn powershell_json(script: &str) -> Result<String, ProjectError> {
     }
     Ok(output)
 }
-
-/// Script único: una fila JSON por conexión. `.ToString()` en los enums para
-/// que `TunnelType`/`ConnectionStatus` lleguen como texto, no como número.
-#[cfg(windows)]
-const LIST_SCRIPT: &str = "Get-VpnConnection | ForEach-Object { [pscustomobject]@{ name=$_.Name; server=$_.ServerAddress; tunnel=$_.TunnelType.ToString(); status=$_.ConnectionStatus.ToString() } } | ConvertTo-Json -Compress";
 
 /// Lista las conexiones VPN configuradas en el usuario actual de Windows.
 #[tauri::command]
@@ -345,58 +272,5 @@ pub async fn vpn_wireguard_open() -> Result<(), ProjectError> {
     #[cfg(not(windows))]
     {
         Err(unsupported())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parsea_array_y_objeto_unico() {
-        let array = r#"[{"name":"Casa","server":"vpn.ejemplo.com","tunnel":"IKEv2","status":"Disconnected"}]"#;
-        let list = parse_vpn_connections(array);
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].name, "Casa");
-        assert_eq!(list[0].server_address, "vpn.ejemplo.com");
-        assert_eq!(list[0].tunnel_type, "IKEv2");
-        assert_eq!(list[0].status, "Disconnected");
-
-        let single =
-            r#"{"name":"Oficina","server":"10.0.0.1","tunnel":"L2tp","status":"Connected"}"#;
-        let list = parse_vpn_connections(single);
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].status, "Connected");
-    }
-
-    #[test]
-    fn tolera_vacio_null_y_basura() {
-        assert!(parse_vpn_connections("").is_empty());
-        assert!(parse_vpn_connections("null").is_empty());
-        assert!(parse_vpn_connections("esto no es json").is_empty());
-        assert!(parse_vpn_connections("[]").is_empty());
-    }
-
-    #[test]
-    fn descarta_entradas_sin_nombre() {
-        let json =
-            r#"[{"name":"","server":"x"},{"server":"y"},{"name":"Ok","status":"Disconnected"}]"#;
-        let list = parse_vpn_connections(json);
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].name, "Ok");
-    }
-
-    #[test]
-    fn require_known_connection_rechaza_desconocidas() {
-        let connections = vec![VpnConnection {
-            name: "Casa".to_owned(),
-            server_address: String::new(),
-            tunnel_type: String::new(),
-            status: "Disconnected".to_owned(),
-        }];
-        assert!(require_known_connection(&connections, "Casa").is_ok());
-        assert!(require_known_connection(&connections, "Otra").is_err());
-        // Inyección tipo "Casa; rm -rf" no matchea nada.
-        assert!(require_known_connection(&connections, "Casa\" /disconnect").is_err());
     }
 }

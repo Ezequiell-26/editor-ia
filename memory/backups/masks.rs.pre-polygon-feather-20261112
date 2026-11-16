@@ -1,0 +1,259 @@
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<String> {
+    let mask = &clip["mask"];
+    let shape = mask["shape"].as_str()?;
+    if !matches!(
+        shape,
+        "rectangle"
+            | "ellipse"
+            | "diamond"
+            | "triangle"
+            | "rounded"
+            | "polygon"
+            | "star"
+            | "heart"
+    ) {
+        return None;
+    }
+    let keyframes = mask["keyframes"]
+        .as_array()
+        .filter(|items| !items.is_empty());
+    // The mask runs after zoompan, whose timestamps may be rebased; the frame
+    // counter N is the reliable clock, expressed in seconds since the clip's
+    // nominal start (the lead belongs to the incoming transition).
+    let time_var = format!(
+        "((N-{:.0})/{:.6})",
+        (lead_seconds * fps).round(),
+        fps.max(1.0)
+    );
+    let expression = |property: &str, fallback: f64| -> String {
+        keyframes
+            .and_then(|items| keyframe_expression(items, property, fps, &time_var))
+            .unwrap_or_else(|| format!("{fallback:.6}"))
+    };
+    let x = expression("x", number(mask, "x").unwrap_or(0.0).clamp(-1.0, 1.0));
+    let y = expression("y", number(mask, "y").unwrap_or(0.0).clamp(-1.0, 1.0));
+    let width = expression(
+        "width",
+        number(mask, "width").unwrap_or(1.0).clamp(0.01, 2.0),
+    );
+    let height = expression(
+        "height",
+        number(mask, "height").unwrap_or(1.0).clamp(0.01, 2.0),
+    );
+    let feather = expression(
+        "feather",
+        number(mask, "feather").unwrap_or(0.08).clamp(0.0, 1.0),
+    );
+    let rotation = expression(
+        "rotationDeg",
+        number(mask, "rotationDeg")
+            .unwrap_or(0.0)
+            .clamp(-180.0, 180.0),
+    );
+    let invert = mask["invert"].as_bool().unwrap_or(false);
+    if shape == "polygon" {
+        let points: Vec<(f64, f64)> = mask["points"]
+            .as_array()?
+            .iter()
+            .filter_map(|point| {
+                let px = point["x"].as_f64()?;
+                let py = point["y"].as_f64()?;
+                if px.is_finite() && py.is_finite() {
+                    Some((px.clamp(0.0, 1.0), py.clamp(0.0, 1.0)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if points.len() < 3 {
+            return None;
+        }
+        let px = "(X/W)".to_owned();
+        let py = "(Y/H)".to_owned();
+        let mut crossings = Vec::new();
+        for index in 0..points.len() {
+            let (x1, y1) = points[index];
+            let (x2, y2) = points[(index + 1) % points.len()];
+            let x1 = format!("({x1:.6}+({x}))");
+            let y1 = format!("({y1:.6}+({y}))");
+            let x2 = format!("({x2:.6}+({x}))");
+            let y2 = format!("({y2:.6}+({y}))");
+            let crosses_y = format!(
+                "(if(gt({y1},{py}),1,0)*if(lte({y2},{py}),1,0))+(if(gt({y2},{py}),1,0)*if(lte({y1},{py}),1,0))"
+            );
+            let x_at_y =
+                format!("(({x1})+((({x2})-({x1}))*((({py})-({y1}))/((({y2})-({y1}))+0.000001))))");
+            let condition = format!("(({crosses_y})*if(lt({px},{x_at_y}),1,0))");
+            crossings.push(format!("if({condition},1,0)"));
+        }
+        let inside = format!("mod(({}),2)", crossings.join("+"));
+        let alpha = if invert {
+            format!("(1-({inside}))")
+        } else {
+            inside
+        };
+        return Some(format!(
+            "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({alpha})'"
+        ));
+    }
+    let dx = format!("((X/W)-0.5-({x}))");
+    let dy = format!("((Y/H)-0.5-({y}))");
+    let rotating = keyframes.is_some() || rotation != "0.000000";
+    // Expansión/contracción (mascara_desenho: «expansión de borde») —
+    // factor (1−expand) sobre las coordenadas normalizadas: expand>0
+    // agranda la forma, expand<0 la encoge. clamp ±0,5 → factor ∈[0,5,1,5].
+    // Estático (sin keyframes); `polygon` retorna antes y no aplica.
+    let expand = number(mask, "expand").unwrap_or(0.0).clamp(-0.5, 0.5);
+    let expand_factor = format!("{:.6}", 1.0 - expand);
+    // Coordenadas normalizadas para un ancho/alto dados (expresiones).
+    // La rotación se aplica sobre el numerador — no depende de w/h — así
+    // que dilatar/erosionar para el trazo sólo cambia el denominador.
+    let coords = |w: &str, h: &str| -> (String, String) {
+        let (nx, ny) = if !rotating {
+            (
+                format!("({dx}/(({w})/2))"),
+                format!("({dy}/(({h})/2))"),
+            )
+        } else {
+            // Rotate in pixel space even though the centre and size are
+            // normalised: H/W converts the vertical component before mixing.
+            let cos = format!("cos(({rotation})*PI/180)");
+            let sin = format!("sin(({rotation})*PI/180)");
+            (
+                format!("((({cos})*({dx})+({sin})*({dy})*(H/W))/(({w})/2))"),
+                format!("((({cos})*({dy})-({sin})*({dx})*(W/H))/(({h})/2))"),
+            )
+        };
+        if expand != 0.0 {
+            (
+                format!("(({})*({expand_factor}))", nx),
+                format!("(({})*({expand_factor}))", ny),
+            )
+        } else {
+            (nx, ny)
+        }
+    };
+    let feather_expr = format!("max(({feather}),0.0001)");
+    let soft = |value: &str| format!("max(0,min(1,(1-abs({value}))/{feather_expr}))");
+    let coverage_for = |nx: &str, ny: &str| -> String {
+        match shape {
+        "ellipse" => {
+            let radius = format!("sqrt(({nx})*({nx})+({ny})*({ny}))");
+            format!("max(0,min(1,(1-({radius}))/{feather_expr}))")
+        }
+        "diamond" => {
+            let distance = format!("abs({nx})+abs({ny})");
+            format!("max(0,min(1,(1-({distance}))/{feather_expr}))")
+        }
+        "triangle" => {
+            // Triángulo con vértice arriba: ancho permitido = v, donde v va de
+            // 0 en el vértice a 1 en la base. El borde superior también se
+            // suaviza para que el vértice no quede duro.
+            let v = format!("max(0,min(1,(({ny})+1)/2))");
+            let inside = format!("(({v})-abs({nx}))");
+            format!(
+                "max(0,min(1,({inside})/{feather_expr}))*max(0,min(1,({v})/{feather_expr}))*max(0,min(1,(1-({v}))/{feather_expr}))"
+            )
+        }
+        "star" => {
+            // Estrella de 5 puntas en coordenadas polares — paridad de la
+            // forma `estrela` de `mascara_desenho.js`. `atan2(nx,-ny)` da la
+            // aguja como ángulo de brújula desde el tope (0°) girando en
+            // sentido horario; `mod` lo reparte en sectores de 72°. El radio
+            // límite interpola linealmente entre punta (Ro=1) y valle
+            // (Ri=0,45); el borde se suaviza con `feather` como el resto.
+            let rho = format!("sqrt(({nx})*({nx})+({ny})*({ny}))");
+            let ang = format!("atan2({nx},-({ny}))");
+            let sector = 2.0 * std::f64::consts::PI / 5.0;
+            let t = format!("(mod(({ang}),{sector:.8})/{sector:.8})");
+            let boundary = format!(
+                "(0.45+(1.0-0.45)*abs(2*({t})-1))"
+            );
+            format!("max(0,min(1,(({boundary})-({rho}))/{feather_expr}))")
+        }
+        "heart" => {
+            // Corazón implícito — paridad de `corazon` de
+            // `mascara_desenho.js`: (u²+v²−1)³ − u²v³ ≤ 0 con u,v
+            // normalizados y /1,15 (la curva cruda mide ~1,14 de semiancho).
+            // El término −u²v³ estira la cúspide hacia abajo (Y crece hacia
+            // abajo en pantalla). El feather usa la propia función implícita
+            // como pseudo-distancia (gradiente ~0,05–1,5; divisor 0,5·feather
+            // da una transición de ~un feather de ancho).
+            let u = format!("(({nx})/1.15)");
+            let v = format!("(({ny})/1.15)");
+            let uu = format!("({u})*({u})");
+            let vv = format!("({v})*({v})");
+            let heart_f = format!(
+                "(pow(({uu})+({vv})-1,3)-({uu})*pow(({v}),3))"
+            );
+            format!(
+                "max(0,min(1,((0)-({heart_f}))/((({feather_expr})*0.5)+0.0001)))"
+            )
+        }
+        "rounded" => {
+            // SDF de una caja redondeada: los centros de esquina quedan en
+            // 1-radio y el borde exterior sigue en 1. Radio fijo de 0.25.
+            let radius = 0.25;
+            let qx = format!("(abs({nx})-{:.6})", 1.0 - radius);
+            let qy = format!("(abs({ny})-{:.6})", 1.0 - radius);
+            let outside = format!("sqrt(pow(max({qx},0),2)+pow(max({qy},0),2))");
+            let inside = format!("min(max({qx},{qy}),0)");
+            let distance = format!("(({outside})+({inside})-{radius:.6})");
+            format!("max(0,min(1,(-({distance}))/{feather_expr}))")
+        }
+            _ => format!("({})*({})", soft(nx), soft(ny)),
+        }
+    };
+    let (nx, ny) = coords(&width, &height);
+    let coverage = coverage_for(&nx, &ny);
+    // Trazo de color alrededor del borde (paridad «mask stroke» de
+    // `molduras.js`): banda morfológica = cobertura de la forma dilatada
+    // menos la de la erosionada — un anillo centrado en el borde, visible
+    // por dentro sin `invert` y por fuera con `invert`. Se mezcla el RGB
+    // hacia `strokeColor`; el alfa no cambia. `strokeWidth` es la
+    // semiancha como fracción del tamaño (clamp 0,5 → banda ≤ tamaño).
+    // Sólo formas SDF (este camino); `polygon`/`text` retornan antes.
+    let stroke_width = number(mask, "strokeWidth").unwrap_or(0.0);
+    let stroke_rgb = mask["strokeColor"]
+        .as_str()
+        .and_then(|hex| hex.strip_prefix('#'))
+        .filter(|hex| hex.len() == 6)
+        .and_then(|hex| u32::from_str_radix(hex, 16).ok());
+    let (r_expr, g_expr, b_expr) = match (stroke_rgb, stroke_width) {
+        (Some(color), stroke_w) if stroke_w > 0.0 => {
+            let sw = stroke_w.min(0.5);
+            let dil_w = format!("(({})*({:.6}))", width, 1.0 + sw);
+            let dil_h = format!("(({})*({:.6}))", height, 1.0 + sw);
+            let ero_w = format!("(({})*({:.6}))", width, (1.0 - sw).max(0.01));
+            let ero_h = format!("(({})*({:.6}))", height, (1.0 - sw).max(0.01));
+            let (dnx, dny) = coords(&dil_w, &dil_h);
+            let (enx, eny) = coords(&ero_w, &ero_h);
+            let cov_dil = coverage_for(&dnx, &dny);
+            let cov_ero = coverage_for(&enx, &eny);
+            let band = format!("max(0,min(1,(({cov_dil})-({cov_ero}))))");
+            let channel = |shift: u32| {
+                let value = ((color >> shift) & 0xFF) as f64 / 255.0;
+                format!("(({value:.6})*({band}))")
+            };
+            (
+                format!("(r(X,Y)*(1-({band}))+{})", channel(16)),
+                format!("(g(X,Y)*(1-({band}))+{})", channel(8)),
+                format!("(b(X,Y)*(1-({band}))+{})", channel(0)),
+            )
+        }
+        _ => (
+            "r(X,Y)".to_owned(),
+            "g(X,Y)".to_owned(),
+            "b(X,Y)".to_owned(),
+        ),
+    };
+    let alpha = if invert {
+        format!("(1-({coverage}))")
+    } else {
+        coverage
+    };
+    Some(format!(
+        "geq=r='{r_expr}':g='{g_expr}':b='{b_expr}':a='alpha(X,Y)*({alpha})'"
+    ))
+}

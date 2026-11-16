@@ -6,6 +6,7 @@ import {
   type EditorPreferences,
 } from '../../state/editor-preferences';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
+import { APP_CURSOR_OPTIONS } from '../../state/app-cursor';
 
 interface RangeFieldProps {
   readonly label: string;
@@ -193,6 +194,16 @@ export function EditorPreferencesCard() {
           onChange={(value) => patch({ timelineDensity: value })}
         />
         <SegmentedPref
+          label="Estilo de onda"
+          hint="CapCut dibuja barras desde la base; DaVinci, la envolvente simétrica."
+          value={preferences.waveformStyle}
+          options={[
+            { value: 'capcut', label: 'CapCut' },
+            { value: 'davinci', label: 'DaVinci' },
+          ]}
+          onChange={(value) => patch({ waveformStyle: value })}
+        />
+        <SegmentedPref
           label="Etiquetas de clip"
           hint="Minimal deja sólo el nombre; completa suma inicio y fin."
           value={preferences.timelineClipLabels}
@@ -201,6 +212,16 @@ export function EditorPreferencesCard() {
             { value: 'minimal', label: 'Minimal' },
           ]}
           onChange={(value) => patch({ timelineClipLabels: value })}
+        />
+        <SegmentedPref
+          label="Cursor de la app"
+          hint="Reemplaza el cursor del sistema dentro del editor (estilo de AlaukCut)."
+          value={preferences.editorCursor}
+          options={APP_CURSOR_OPTIONS.map((option) => ({
+            value: option.value,
+            label: option.label,
+          }))}
+          onChange={(value) => patch({ editorCursor: value })}
         />
       </div>
 
@@ -260,6 +281,14 @@ export function EditorPreferencesCard() {
             onChange={(event) => patch({ timelineRipple: event.target.checked })}
           />
           Ripple: mover y recortar corre los clips posteriores
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={preferences.editorCursorRipple}
+            onChange={(event) => patch({ editorCursorRipple: event.target.checked })}
+          />
+          Onda de click con el cursor propio
         </label>
         <label className="check">
           <input

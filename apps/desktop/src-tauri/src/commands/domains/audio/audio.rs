@@ -10,8 +10,9 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::mpsc::{sync_channel, RecvTimeoutError};
+use std::time::{Duration, Instant};
 
-use serde::Serialize;
 use tauri::State;
 
 use crate::commands::system::resolve_tools;
@@ -25,28 +26,11 @@ use crate::state::AppState;
 pub(crate) use crate::media::proxy::proxy_video_args;
 pub use crate::render::ffmpeg::{detect_hardware, hardware_h264, HardwareEncoders};
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AudioPeaks {
-    pub asset_id: String,
-    pub duration_seconds: f64,
-    pub buckets: u32,
-    pub peaks: Vec<PeakPair>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct PeakPair {
-    pub min: f32,
-    pub max: f32,
-}
-
-/// Tope de buckets: la UI no necesita más y evita payloads enormes.
-const MAX_BUCKETS: u32 = 4000;
-const MIN_BUCKETS: u32 = 16;
-
-fn clamp_buckets(requested: u32) -> u32 {
-    requested.clamp(MIN_BUCKETS, MAX_BUCKETS)
-}
+// DTOs, clamp de buckets, parser de ffprobe y reductor min/max: `media::peaks`.
+pub use crate::media::peaks::{
+    clamp_buckets, parse_audio_probe, AudioPeaks, PeakPair, PeakReducer, MAX_BUCKETS,
+    MIN_BUCKETS,
+};
 
 /// Resuelve el asset y valida que tenga audio posible.
 pub(crate) fn resolve_audio_asset(
@@ -96,8 +80,15 @@ pub(crate) fn resolve_audio_asset(
     Ok((kind, path))
 }
 
+/// ffprobe lee sólo cabeceras; 60 s es margen de sobra incluso en archivos
+/// grandes o discos lentos. Sin deadline un ffprobe colgado congelaba el
+/// comando IPC para siempre.
+const AUDIO_PROBE_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Duración y frecuencia de muestreo de la primera pista de audio.
-fn probe_audio(ffprobe: &Path, source: &Path) -> Result<(f64, f64), ProjectError> {
+/// `pub(crate)`: la transcripción nativa la usa para decidir si el archivo
+/// entra en el presupuesto de memoria/tiempo del motor in-process.
+pub(crate) fn probe_audio(ffprobe: &Path, source: &Path) -> Result<(f64, f64), ProjectError> {
     let mut command = Command::new(ffprobe);
     command
         .arg("-v")
@@ -113,26 +104,39 @@ fn probe_audio(ffprobe: &Path, source: &Path) -> Result<(f64, f64), ProjectError
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     crate::commands::hide_console(&mut command);
-    let output = command.output().map_err(|_| {
+    let timed = crate::commands::output_with_timeout(&mut command, AUDIO_PROBE_TIMEOUT)
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo iniciar FFprobe para leer el audio",
+            )
+        })?;
+    if timed.timed_out {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "FFprobe tardó demasiado leyendo el audio",
+        ));
+    }
+    let output = timed.into_output().ok_or_else(|| {
         ProjectError::message(
             ProjectErrorCode::Io,
-            "no se pudo iniciar FFprobe para leer el audio",
+            "FFprobe no devolvió la lectura del audio",
         )
     })?;
     let text = String::from_utf8_lossy(&output.stdout);
-    let value: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-    let stream = &value["streams"][0];
-    let rate = stream["sample_rate"]
-        .as_str()
-        .and_then(|raw| raw.parse::<f64>().ok())
-        .filter(|rate| *rate > 0.0)
-        .unwrap_or(48_000.0);
-    let duration = stream["duration"]
-        .as_str()
-        .and_then(|raw| raw.parse::<f64>().ok())
-        .filter(|seconds| *seconds > 0.0)
-        .unwrap_or(0.0);
-    Ok((duration, rate))
+    Ok(parse_audio_probe(&text))
+}
+
+/// El decode PCM mono corre ~30-100× realtime; 10× la duración del archivo
+/// (acotado entre 2 min y 2 h) da margen amplio sin esperas eternas si
+/// FFmpeg se cuelga a mitad del stream.
+fn peaks_decode_timeout(duration_seconds: f64) -> Duration {
+    const FACTOR: f64 = 10.0;
+    const FLOOR_SECS: f64 = 120.0;
+    const CEILING_SECS: f64 = 2.0 * 3600.0;
+    Duration::from_secs_f64(
+        (duration_seconds.max(0.0) * FACTOR).clamp(FLOOR_SECS, CEILING_SECS),
+    )
 }
 
 /// Decodifica el audio a PCM mono f32 y lo reduce a `buckets` pares min/max.
@@ -179,59 +183,78 @@ fn decode_peaks(
         )
     })?;
 
-    let mut peaks: Vec<PeakPair> = Vec::with_capacity(buckets as usize);
-    let mut current = PeakPair { min: 0.0, max: 0.0 };
-    let mut in_bucket = 0usize;
-    let mut pending = [0u8; 4];
-    let mut read_buffer = [0u8; 64 * 1024];
-    let mut carry: Vec<u8> = Vec::with_capacity(4);
-
-    loop {
-        let read = stdout.read(&mut read_buffer).map_err(|_| {
-            ProjectError::message(ProjectErrorCode::Io, "falló la lectura del audio")
-        })?;
-        if read == 0 {
-            break;
-        }
-        // Reconstruir muestras f32 (little endian) incluso si vienen partidas.
-        let mut chunk: Vec<u8> = std::mem::take(&mut carry);
-        chunk.extend_from_slice(&read_buffer[..read]);
-        let usable = chunk.len() / 4 * 4;
-        carry.extend_from_slice(&chunk[usable..]);
-        for start in (0..usable).step_by(4) {
-            pending.copy_from_slice(&chunk[start..start + 4]);
-            let sample = f32::from_le_bytes(pending);
-            if !sample.is_finite() {
-                continue;
-            }
-            if in_bucket == 0 {
-                current = PeakPair {
-                    min: sample,
-                    max: sample,
-                };
-            } else {
-                current.min = current.min.min(sample);
-                current.max = current.max.max(sample);
-            }
-            in_bucket += 1;
-            if in_bucket as f64 >= per_bucket {
-                peaks.push(current);
-                in_bucket = 0;
-                if peaks.len() as u32 >= MAX_BUCKETS {
-                    break;
+    // stdout se drena en un thread hacia un canal acotado: el consumo PCM
+    // queda en este hilo (lleva el PeakReducer) y el deadline se chequea
+    // entre chunks, así una lectura bloqueada no puede congelar el comando.
+    let (tx, rx) = sync_channel::<Vec<u8>>(16);
+    let reader = std::thread::spawn(move || {
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            match stdout.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => {
+                    if tx.send(buffer[..read].to_vec()).is_err() {
+                        break;
+                    }
                 }
             }
         }
-        if peaks.len() as u32 >= MAX_BUCKETS {
-            break;
+    });
+
+    let deadline = Instant::now() + peaks_decode_timeout(duration_seconds);
+    let mut reducer = PeakReducer::new(per_bucket, MAX_BUCKETS);
+    let mut pending = [0u8; 4];
+    let mut carry: Vec<u8> = Vec::with_capacity(4);
+    let mut reducer_full = false;
+    let mut timed_out = false;
+
+    loop {
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(chunk) => {
+                // Reconstruir muestras f32 (little endian) incluso si vienen partidas.
+                let mut data: Vec<u8> = std::mem::take(&mut carry);
+                data.extend_from_slice(&chunk);
+                let usable = data.len() / 4 * 4;
+                carry.extend_from_slice(&data[usable..]);
+                for start in (0..usable).step_by(4) {
+                    pending.copy_from_slice(&data[start..start + 4]);
+                    let sample = f32::from_le_bytes(pending);
+                    if !reducer.push(sample) {
+                        reducer_full = true;
+                        break;
+                    }
+                }
+                if reducer_full {
+                    break;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                if Instant::now() >= deadline {
+                    timed_out = true;
+                    break;
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
         }
     }
-    if in_bucket > 0 {
-        peaks.push(current);
+
+    // Si cortamos antes de que FFmpeg termine (reducer lleno o deadline) hay
+    // que matarlo: si no, queda bloqueado escribiendo al pipe sin lector y
+    // `wait()` nunca vuelve.
+    if reducer_full || timed_out {
+        let _ = child.kill();
     }
+    let _ = reader.join();
     let status = child.wait().map_err(|_| {
         ProjectError::message(ProjectErrorCode::Io, "FFmpeg no terminó de decodificar")
     })?;
+    let peaks = reducer.finish();
+    if timed_out {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "la decodificación del audio tardó demasiado; probá con un archivo más corto",
+        ));
+    }
     if !status.success() && peaks.is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
@@ -296,7 +319,9 @@ pub async fn audio_peaks_path(
             "FFmpeg y FFprobe son necesarios para leer la onda",
         ));
     };
-    let source = PathBuf::from(path.trim());
+    // La cola de carpeta trabaja con archivos del usuario fuera del
+    // proyecto: política de lectura de `fs_*` (absoluta, sin credenciales).
+    let source = crate::application::fs::resolve_user_file_path(&path)?;
     if !source.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::Io,
@@ -342,6 +367,8 @@ pub async fn hardware_encoders(
             hevc: None,
             av1: None,
             vp9: None,
+            h264_software: None,
+            hevc_software: None,
             checked: false,
         });
     };
@@ -351,46 +378,6 @@ pub async fn hardware_encoders(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn buckets_quedan_en_rango() {
-        assert_eq!(clamp_buckets(0), MIN_BUCKETS);
-        assert_eq!(clamp_buckets(1), MIN_BUCKETS);
-        assert_eq!(clamp_buckets(600), 600);
-        assert_eq!(clamp_buckets(999_999), MAX_BUCKETS);
-    }
-
-    #[test]
-    fn el_contrato_json_de_picos_es_camel_case_y_min_max() {
-        // Contrato que consume `useWaveform`/`audioPeaks` en el frontend:
-        // { assetId, durationSeconds, buckets, peaks: [{ min, max }] }.
-        let response = AudioPeaks {
-            asset_id: "asset-1".to_owned(),
-            duration_seconds: 12.5,
-            buckets: 600,
-            peaks: vec![
-                PeakPair {
-                    min: -0.5,
-                    max: 0.25,
-                },
-                PeakPair {
-                    min: -1.0,
-                    max: 1.0,
-                },
-            ],
-        };
-        let json = serde_json::to_value(&response).expect("serializa el contrato");
-        assert_eq!(json["assetId"], "asset-1");
-        assert_eq!(json["durationSeconds"], 12.5);
-        assert_eq!(json["buckets"], 600);
-        assert_eq!(json["peaks"][0]["min"], -0.5);
-        assert_eq!(json["peaks"][0]["max"], 0.25);
-        assert_eq!(json["peaks"][1]["min"], -1.0);
-        assert_eq!(json["peaks"][1]["max"], 1.0);
-        // Sin campos viejos/snake_case en el wire.
-        assert!(json.get("asset_id").is_none());
-        assert!(json.get("duration_seconds").is_none());
-    }
 
     #[test]
     fn el_proxy_usa_gpu_cuando_existe() {
@@ -411,38 +398,15 @@ mod tests {
     }
 
     #[test]
-    fn los_picos_quedan_entre_menos_uno_y_uno() {
-        // Muestras de prueba: silencio, pico positivo y negativo.
-        let samples = [0.0f32, 0.5, -0.75, 1.0, -1.0, 0.25];
-        let mut peaks: Vec<PeakPair> = Vec::new();
-        let per_bucket = 2.0;
-        let mut current = PeakPair { min: 0.0, max: 0.0 };
-        let mut in_bucket = 0usize;
-        for sample in samples {
-            if in_bucket == 0 {
-                current = PeakPair {
-                    min: sample,
-                    max: sample,
-                };
-            } else {
-                current.min = current.min.min(sample);
-                current.max = current.max.max(sample);
-            }
-            in_bucket += 1;
-            if in_bucket as f64 >= per_bucket {
-                peaks.push(current);
-                in_bucket = 0;
-            }
-        }
-        if in_bucket > 0 {
-            peaks.push(current);
-        }
-        assert_eq!(peaks.len(), 3);
-        assert!((peaks[0].max - 0.5).abs() < f32::EPSILON);
-        assert!((peaks[1].min + 0.75).abs() < f32::EPSILON);
-        assert!((peaks[1].max - 1.0).abs() < f32::EPSILON);
-        for peak in &peaks {
-            assert!(peak.min >= -1.0 && peak.max <= 1.0);
-        }
+    fn el_proxy_cubre_el_fallback_de_software_del_bundle() {
+        // El FFmpeg LGPL no trae libx264: la detección ofrece libopenh264
+        // (o h264_mf) y el proxy va por bitrate, no por preset/CRF.
+        let openh264 = proxy_video_args(Some("libopenh264")).join(" ");
+        assert!(openh264.contains("-c:v libopenh264"));
+        assert!(openh264.contains("-b:v 4M"));
+        assert!(!openh264.contains("-crf") && !openh264.contains("-preset"));
+        // Si el FFmpeg del usuario sí trae x264, conserva preset/CRF.
+        let x264 = proxy_video_args(Some("libx264")).join(" ");
+        assert!(x264.contains("-preset veryfast") && x264.contains("-crf 26"));
     }
 }

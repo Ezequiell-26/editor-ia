@@ -19,7 +19,7 @@ fn burn_subtitles_blocking(
     let workspace = TempWorkspace::new("burn")?;
     std::fs::write(workspace.path.join("subs.srt"), subtitle_text)?;
     let filter = "scale=trunc(iw/2)*2:trunc(ih/2)*2,subtitles=subs.srt:force_style='FontName=Segoe UI,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=48'";
-    let args = vec![
+    let mut args = vec![
         "-i".into(),
         input.to_string_lossy().into_owned(),
         "-vf".into(),
@@ -28,12 +28,9 @@ fn burn_subtitles_blocking(
         "0:v:0".into(),
         "-map".into(),
         "0:a?".into(),
-        "-c:v".into(),
-        "libx264".into(),
-        "-preset".into(),
-        "veryfast".into(),
-        "-crf".into(),
-        "20".into(),
+    ];
+    args.extend(h264_encoder_args(ffmpeg, "veryfast", 20).map_err(CreatorError::Ffmpeg)?);
+    args.extend([
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-c:a".into(),
@@ -43,7 +40,7 @@ fn burn_subtitles_blocking(
         "-movflags".into(),
         "+faststart".into(),
         output.to_string_lossy().into_owned(),
-    ];
+    ]);
     run_ffmpeg(ffmpeg, &args, &workspace.path)?;
     metadata_output(
         output.to_path_buf(),

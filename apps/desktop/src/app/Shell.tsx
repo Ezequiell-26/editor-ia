@@ -1,5 +1,5 @@
 ﻿import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { OnboardingTour, SettingsHome, ShortcutsCheatSheet, ViewFallback, type ViewStyleKind, ensureViewStyles, preloadViews, styleKindForView } from './view-registry';
+import { OnboardingTour, ShortcutsCheatSheet, ViewFallback, type ViewStyleKind, ensureViewStyles, preloadViews, styleKindForView } from './view-registry';
 import { WorkspaceView } from './WorkspaceView';
 import {
   destroyMainWindow,
@@ -9,12 +9,11 @@ import {
 import { AppShell } from '../components/AppShell';
 import { BrowserModeBanner } from '../components/BrowserModeBanner';
 import { CommandPalette } from '../components/CommandPalette';
-import { SettingsWindow } from '../components/SettingsWindow';
 import { ViewErrorBoundary } from '../components/ViewErrorBoundary';
 import { WelcomeDialog } from '../components/WelcomeDialog';
 import { buildCommands } from './commands';
 import { MAIN_NAV_VIEWS, NAV_VIEWS, SECONDARY_NAV_VIEWS, type ViewId } from './navigation';
-import { editorModeForView, editorToolForView, resolveViewRoute, viewForEditorMode, type EditorModeId } from './view-routing';
+import { EDITOR_TOOL_HOSTS, editorModeForView, editorToolForView, resolveViewRoute, viewForEditorMode, type EditorModeId } from './view-routing';
 import { duplicateClip, fpsOf, rippleDeleteClip, totalFrames } from '../state/project-actions';
 import { detectNativeRuntime } from '../services/project-service';
 import { useProjectPlaying, useProjectStore } from '../state/project-store';
@@ -38,18 +37,18 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 
 export interface ShellProps {
   readonly initialView?: ViewId;
+  /** Vuelta al launcher (StartScreen) desde la topbar/menú Archivo. */
   readonly onReturnToStart?: () => void;
 }
 
 
 
-export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
+export function Shell({ initialView = 'editor', onReturnToStart }: ShellProps) {
   const initialRoute = resolveViewRoute(initialView);
-  // Ajustes es una ventana flotante, no una vista: si se entra directo a ella
-  // desde el inicio, el fondo muestra Inicio y la ventana aparece encima.
-  const [activeId, setActiveId] = useState<ViewId>(
-    initialRoute.view === 'settings' ? 'home' : initialRoute.view,
-  );
+  // UN SOLO EDITOR: ninguna ViewId abre otra pantalla. `settings` incluido:
+  // es un panel del editor, así que se conserva como id activo para que el
+  // rail marque la herramienta real.
+  const [activeId, setActiveId] = useState<ViewId>(initialRoute.view);
   const [hubTab, setHubTab] = useState<string | null>(initialRoute.hubTab ?? null);
   const [editorMode, setEditorMode] = useState<EditorModeId>(
     initialRoute.editorMode ?? 'timeline',
@@ -62,7 +61,6 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   const [toolView, setToolView] = useState<ViewId | null>(null);
   const [toolTab, setToolTab] = useState<string | null>(null);
   const [toolRequest, setToolRequest] = useState(0);
-  const [settingsOpen, setSettingsOpen] = useState(initialView === 'settings');
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Una sola instancia de cada ayuda, disponible desde CUALQUIER superficie,
   // incluido el editor. Antes estos dos componentes nunca se montaban.
@@ -73,11 +71,15 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   const store = useProjectStore();
   const project = store.state.project;
   const hasProject = project !== null;
-  // F2: con proyecto abierto, seis vistas de flujo se montan DENTRO del editor.
-  // `activeId` sigue siendo el ViewId lÃ³gico para que el rail marque la
-  // herramienta real; `editorSurface` indica que el shell es el del editor.
-  const embeddedMode = hasProject ? editorModeForView(activeId) : undefined;
-  const toolActive = hasProject && toolView !== null;
+  // UN SOLO EDITOR: con o sin proyecto, las vistas de flujo y las
+  // herramientas se montan DENTRO del editor. `activeId` sigue siendo el
+  // ViewId lÃ³gico para que el rail marque la herramienta real.
+  const embeddedMode = editorModeForView(activeId);
+  // `toolView` explícito (navigate) o el host que `activeId` ya implica
+  // (montaje inicial / deep link): ambos viven en el modo «Todo».
+  const routedToolView = toolView ?? (EDITOR_TOOL_HOSTS.has(activeId) ? activeId : null);
+  const routedToolTab = toolView !== null ? toolTab : hubTab;
+  const toolActive = routedToolView !== null;
   const editorSurface = activeId === 'editor' || embeddedMode !== undefined || toolActive;
   const needsBothStyles = embeddedMode !== undefined || toolActive;
   // `playing` vive en su propio contexto: cambia sÃ³lo al play/pausa, asÃ­ que
@@ -165,15 +167,11 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
     setEditorRequest((request) => request + 1);
   }, []);
 
-  // Si el proyecto se abre estando ya en una herramienta (deep link, sesiÃ³n
-  // recuperada), esa herramienta pasa a vivir dentro del editor. Sin proyecto
-  // se limpia para que vuelva a ser una pantalla standalone con empty-state.
+  // Si el proyecto se abre/ciere la superficie no cambia: las herramientas
+  // ya viven dentro del editor. Este efecto sólo resincroniza el panel
+  // «Todo» cuando hay proyecto (comportamiento previo conservado).
   useEffect(() => {
-    if (!hasProject) {
-      setToolView(null);
-      setToolTab(null);
-      return;
-    }
+    if (!hasProject) return;
     const tool = editorToolForView(activeId);
     if (!tool) return;
     setToolView(tool.view);
@@ -237,15 +235,12 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
 
   const navigate = useCallback((id: ViewId) => {
     const route = resolveViewRoute(id);
-    if (route.view === 'settings') {
-      setSettingsOpen(true);
-      return;
-    }
-    // T1/F2: con proyecto, TODA herramienta se monta dentro del editor. F2
-    // usa un modo propio; el resto usa el panel `tools` con su host y su tab.
-    // El rail sigue marcando la vista lÃ³gica (activeId).
-    const embeddedMode = hasProject ? editorModeForView(route.view) : undefined;
-    const tool = hasProject ? editorToolForView(id) : undefined;
+    // UN SOLO EDITOR: toda herramienta —incluidos Ajustes— se monta dentro
+    // del editor, con o
+    // sin proyecto. F2 usa un modo propio; el resto usa el panel `tools`
+    // con su host y su tab. El rail sigue marcando la vista lÃ³gica.
+    const embeddedMode = editorModeForView(route.view);
+    const tool = editorToolForView(id);
     setActiveId(route.view);
     setHubTab(route.hubTab ?? null);
     setHubRequest((request) => request + 1);
@@ -263,7 +258,7 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
       setEditorMode(embeddedMode ?? route.editorMode ?? 'timeline');
       setEditorRequest((request) => request + 1);
     }
-  }, [hasProject]);
+  }, []);
 
   useEffect(() => {
     const onMcpNavigate = (event: Event) => {
@@ -570,8 +565,8 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           <WorkspaceView
             id={activeId}
             toolActive={toolActive}
-            toolView={toolView}
-            toolTab={toolTab}
+            toolView={routedToolView}
+            toolTab={routedToolTab}
             toolRequest={toolRequest}
             hasProject={hasProject}
             navigate={navigate}
@@ -583,6 +578,7 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
             hubTab={hubTab}
             hubRequest={hubRequest}
             editorMode={editorMode}
+            openPalette={() => setPaletteOpen(true)}
           />
         </Suspense>
     </ViewErrorBoundary>
@@ -597,17 +593,17 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         views={railViews}
         moreViews={SECONDARY_NAV_VIEWS}
         onSelect={navigate}
+        {...(onReturnToStart ? { onReturnToStart } : {})}
         onOpenPalette={() => setPaletteOpen(true)}
         onOpenTour={openTour}
         onOpenShortcuts={openShortcuts}
         onOpenToolMap={openToolMap}
         editorSurface={editorSurface}
-        {...(onReturnToStart ? { onReturnToStart } : {})}
         banner={
           browserMode ? (
             <BrowserModeBanner
               reason={store.service.unavailableReason}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSettings={() => navigate('settings')}
             />
           ) : null
         }
@@ -639,20 +635,10 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           <ShortcutsCheatSheet
             open
             onClose={() => setShortcutsOpen(false)}
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => navigate('settings')}
           />
         </Suspense>
       ) : null}
-      {settingsOpen && (
-        <SettingsWindow onClose={() => setSettingsOpen(false)}>
-          <SettingsHome
-            onNavigate={(id) => {
-              setSettingsOpen(false);
-              navigate(id);
-            }}
-          />
-        </SettingsWindow>
-      )}
       {paletteOpen && (
         <CommandPalette
           commands={commandList}

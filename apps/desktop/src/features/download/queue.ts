@@ -101,7 +101,7 @@ export function saveWatchFolder(dir: string, enabled: boolean): void {
 }
 
 export function loadWatchSeen(): Record<string, number> {
-  return readJson(WATCH_SEEN_KEY, {});
+  return readJson(WATCH_SEEN_KEY, {} as Record<string, number>, isNumberRecord);
 }
 
 export function saveWatchSeen(seen: Record<string, number>): void {
@@ -136,7 +136,7 @@ export function saveRssFilter(include: string, exclude: string): void {
 }
 
 export function loadFeeds(): FeedConfig[] {
-  return readJson<FeedConfig[]>(FEEDS_KEY, []).slice(0, 20);
+  return readJson<FeedConfig[]>(FEEDS_KEY, [], isFeedArray).slice(0, 20);
 }
 
 export function saveFeeds(feeds: readonly FeedConfig[]): void {
@@ -164,11 +164,65 @@ export function saveMaxParallel(value: number): void {
   writeJson(PARALLEL_KEY, clampParallel(value, true));
 }
 
-function readJson<T>(key: string, fallback: T): T {
+/**
+ * `JSON.parse` devuelve `any`: sin comprobar la forma, un valor corrupto o
+ * manipulado en localStorage llegaba al render como si fuera un job válido y
+ * podía romper la vista (`job.status` de `undefined`, `.map` sobre un objeto…).
+ * Se valida el tipo de primer nivel contra el fallback y, cuando corresponde,
+ * la forma de cada elemento.
+ */
+function sameShape(value: unknown, fallback: unknown): boolean {
+  if (Array.isArray(fallback)) return Array.isArray(value);
+  if (fallback === null) return value === null;
+  if (typeof fallback !== typeof value) return false;
+  if (typeof fallback === 'object') {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Campos mínimos que consume la UI de la cola/historial. */
+function isStoredEntry(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.id === 'string'
+    && typeof value.runId === 'string'
+    && typeof value.url === 'string'
+    && typeof value.status === 'string'
+    && isRecord(value.request);
+}
+
+function isEntryArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every(isStoredEntry);
+}
+
+function isFeedArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) =>
+    isRecord(item)
+    && typeof item.url === 'string'
+    && typeof item.title === 'string'
+    && Array.isArray(item.seen));
+}
+
+function isNumberRecord(value: unknown): boolean {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry === 'number');
+}
+
+function readJson<T>(
+  key: string,
+  fallback: T,
+  validate?: (value: unknown) => boolean,
+): T {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return fallback;
-    return JSON.parse(raw) as T;
+    const parsed: unknown = JSON.parse(raw);
+    if (!sameShape(parsed, fallback)) return fallback;
+    if (validate && !validate(parsed)) return fallback;
+    return parsed as T;
   } catch {
     return fallback;
   }
@@ -183,7 +237,7 @@ function writeJson(key: string, value: unknown): void {
 }
 
 export function loadQueue(): DownloadJob[] {
-  const stored = readJson<DownloadJob[]>(QUEUE_KEY, []);
+  const stored = readJson<DownloadJob[]>(QUEUE_KEY, [], isEntryArray);
   // Un trabajo que estaba corriendo cuando se cerró la app se reencola y
   // conserva su runId para reanudar los .part en la misma carpeta. Un trabajo
   // pausado a propósito sigue pausado.
@@ -197,7 +251,7 @@ export function saveQueue(queue: readonly DownloadJob[]): void {
 }
 
 export function loadHistory(): DownloadHistoryEntry[] {
-  return readJson<DownloadHistoryEntry[]>(HISTORY_KEY, []).slice(0, MAX_HISTORY);
+  return readJson<DownloadHistoryEntry[]>(HISTORY_KEY, [], isEntryArray).slice(0, MAX_HISTORY);
 }
 
 export function saveHistory(history: readonly DownloadHistoryEntry[]): void {

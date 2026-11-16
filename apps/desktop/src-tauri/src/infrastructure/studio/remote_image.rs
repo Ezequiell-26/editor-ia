@@ -367,6 +367,9 @@ impl ContentGenerator for RemoteImageGenerator {
             bytes: bytes.len() as u64,
             provider: PROVIDER_ID.to_owned(),
             model: self.config.model.clone(),
+            // `/images/generations` no devuelve coste por llamada: queda
+            // `None` a propósito (no se estima ni se inventa). El gasto se
+            // controla con `maxCostCents` del plan antes de llamar.
             cost_cents: None,
             license: None,
         })
@@ -438,6 +441,8 @@ mod tests {
         let result = generator(&base).generate(&request(), &temp).unwrap();
         let _ = server.join();
         assert_eq!(result.provider, PROVIDER_ID);
+        // La API de imágenes no informa coste: queda None, no un estimado.
+        assert_eq!(result.cost_cents, None);
         assert!(result.path.starts_with("generated/"));
         let saved = temp.join(&result.path);
         let bytes = std::fs::read(&saved).unwrap();

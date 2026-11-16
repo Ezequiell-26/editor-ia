@@ -87,6 +87,7 @@ struct SceneResolution {
     warnings: Vec<String>,
 }
 
+#[derive(Default)]
 pub struct AssemblyStageExecutor;
 
 impl AssemblyStageExecutor {
@@ -741,7 +742,7 @@ impl AssemblyStageExecutor {
             if let Some(clips) = doc["timeline"]["clips"].as_array_mut() {
                 for (_, positions) in by_track {
                     for (position, duration) in positions.iter().skip(1) {
-                        let frames = transition.frames.min(*duration).min(120).max(1);
+                        let frames = transition.frames.min(*duration).clamp(1, 120);
                         if let Some(clip) = clips.get_mut(*position) {
                             clip["transitionIn"] = json!({
                                 "type": transition.transition_type,

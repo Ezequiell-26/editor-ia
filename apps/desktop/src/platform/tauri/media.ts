@@ -1,10 +1,10 @@
 import type { DesktopService } from "../../services/contracts";
 import type { NativeCall } from './shared';
 import * as shared from './shared';
-import type { BackgroundProgress, BackgroundRemoval, BatchConversionItem, BestThumbnailFrame, CapabilityInfo, CompressProgress, ConversionResult, ConvertProgress, DenoiseProgress, DenoiseResult, EdlResult, ExtractedSubtitles, FcpxmlResult, LookLutResult, LosslessResult, MediaAnalysis, MediaProbe, ModelInfo, OtioResult, PreviewFrameResult, ProxyCleanupResult, ProxyProgressEvent, ProxyStatus, SceneDetection, ScopeFrameResult, SharpenProgress, SharpenResult, StabilizationAnalysis, ThumbnailExportResult, TimelineImportResult, ToolResult, UpscaleProgress, UpscaleResult, UpscaleVideoResult, VisualAudit, VisualCatalog } from "../../services/contracts";
+import type { BackgroundProgress, BackgroundRemoval, BatchConversionItem, BestThumbnailFrame, CapabilityInfo, CompressProgress, ConcatWorkerEnvelope, ConcatWorkerEvent, ConcatWorkerStatus, ConversionResult, ConvertProgress, DenoiseProgress, DenoiseResult, EdlResult, ExtractedSubtitles, FcpxmlResult, LookLutResult, LosslessResult, MediaAnalysis, MediaProbe, ModelInfo, OtioResult, PreviewFrameResult, ProxyCleanupResult, ProxyProgressEvent, ProxyStatus, SceneDetection, ScopeFrameResult, SfxItem, SharpenProgress, SharpenResult, StabilizationAnalysis, ThumbnailExportResult, TimelineImportResult, ToolResult, UpscaleProgress, UpscaleResult, UpscaleVideoResult, VisualAudit, VisualCatalog } from "../../services/contracts";
 import { listen } from "@tauri-apps/api/event";
 
-export function createMediaService(call: NativeCall): Pick<DesktopService, 'analyzeImages' | 'analyzeMediaFrames' | 'importLut' | 'chooseImageFile' | 'chooseVideoFile' | 'chooseAudioFile' | 'probeMediaFile' | 'compressAnyFile' | 'onCompressProgress' | 'measureVmaf' | 'listModels' | 'downloadModel' | 'deleteModel' | 'listCapabilities' | 'listVisualCatalog' | 'auditVisuals' | 'removeBackground' | 'removeBackgroundAsset' | 'onBackgroundProgress' | 'writeAlphaFrames' | 'alphaFramesToAsset' | 'discardAlphaFrames' | 'upscaleImage' | 'upscaleVideo' | 'onUpscaleProgress' | 'denoiseMedia' | 'onDenoiseProgress' | 'sharpenMedia' | 'onSharpenProgress' | 'saveThumbnail' | 'pickThumbnailFrames' | 'renderPreviewFrame' | 'analyzeScopesFrame' | 'exportLookLut' | 'exportEdl' | 'exportOtio' | 'exportFcpxml' | 'importTimeline' | 'chooseSubtitleFile' | 'chooseTimelineFile' | 'extractFreezeFrame' | 'createVideoProxy' | 'proxyStatus' | 'ensureProxy' | 'cancelProxy' | 'applyProxyToAsset' | 'cleanupProxies' | 'onProxyProgress' | 'sampleAssetColor' | 'mediaThumbnail' | 'detectScenes' | 'analyzeStabilization' | 'analyzeMedia' | 'convertMedia' | 'convertMediaBatch' | 'compressMedia' | 'mergeVideos' | 'trimVideo' | 'watermarkVideo' | 'setMetadata' | 'extractSubtitles' | 'remux' | 'writeChapters' | 'extractAudio' | 'onConvertProgress'> {
+export function createMediaService(call: NativeCall): Pick<DesktopService, 'analyzeImages' | 'analyzeMediaFrames' | 'importLut' | 'chooseImageFile' | 'chooseVideoFile' | 'chooseAudioFile' | 'sfxLibrary' | 'probeMediaFile' | 'compressAnyFile' | 'onCompressProgress' | 'measureVmaf' | 'listModels' | 'downloadModel' | 'deleteModel' | 'listCapabilities' | 'listVisualCatalog' | 'auditVisuals' | 'removeBackground' | 'removeBackgroundAsset' | 'onBackgroundProgress' | 'writeAlphaFrames' | 'alphaFramesToAsset' | 'discardAlphaFrames' | 'upscaleImage' | 'upscaleVideo' | 'onUpscaleProgress' | 'denoiseMedia' | 'onDenoiseProgress' | 'sharpenMedia' | 'onSharpenProgress' | 'saveThumbnail' | 'pickThumbnailFrames' | 'renderPreviewFrame' | 'analyzeScopesFrame' | 'exportLookLut' | 'exportEdl' | 'exportOtio' | 'exportFcpxml' | 'importTimeline' | 'chooseSubtitleFile' | 'chooseTimelineFile' | 'extractFreezeFrame' | 'createVideoProxy' | 'proxyStatus' | 'ensureProxy' | 'cancelProxy' | 'applyProxyToAsset' | 'cleanupProxies' | 'onProxyProgress' | 'sampleAssetColor' | 'mediaThumbnail' | 'detectScenes' | 'analyzeStabilization' | 'analyzeMedia' | 'convertMedia' | 'convertFile' | 'convertMediaBatch' | 'compressMedia' | 'mergeVideos' | 'trimVideo' | 'watermarkVideo' | 'setMetadata' | 'extractSubtitles' | 'remux' | 'writeChapters' | 'extractAudio' | 'onConvertProgress' | 'concatWorkerStatus' | 'concatWorkerRequest' | 'onConcatWorkerEvent' | 'concatWorkerCancelRender'> {
   return {
     async analyzeImages(assetIds) {
       if (assetIds.length === 0) return [];
@@ -43,6 +43,10 @@ export function createMediaService(call: NativeCall): Pick<DesktopService, 'anal
     async chooseAudioFile(title) {
       const raw = await call(shared.PROJECT_COMMANDS.chooseAudioFile, { title: title ?? null });
       return typeof raw === 'string' && raw ? raw : null;
+    },
+    async sfxLibrary() {
+      const raw = await call(shared.PROJECT_COMMANDS.sfxLibrary);
+      return Array.isArray(raw) ? (raw as SfxItem[]) : [];
     },
     async probeMediaFile(path) {
       return (await call(shared.PROJECT_COMMANDS.probeMediaFile, { path })) as MediaProbe;
@@ -279,8 +283,12 @@ export function createMediaService(call: NativeCall): Pick<DesktopService, 'anal
         b: typeof record.b === 'number' ? record.b : 0,
       };
     },
-    async mediaThumbnail(path, isImage) {
-      const raw = await call(shared.PROJECT_COMMANDS.thumbnail, { path, isImage });
+    async mediaThumbnail(path, isImage, timeSeconds) {
+      const raw = await call(shared.PROJECT_COMMANDS.thumbnail, {
+        path,
+        isImage,
+        timeSeconds: timeSeconds ?? null,
+      });
       if (typeof raw !== 'string') {
         throw new Error('la miniatura no llegó como imagen');
       }
@@ -324,6 +332,16 @@ export function createMediaService(call: NativeCall): Pick<DesktopService, 'anal
         maxWidth: request.maxWidth ?? null,
         encoder: request.encoder ?? null,
         enhance: request.enhance ?? null,
+      })) as ConversionResult;
+    },
+    async convertFile(request) {
+      return (await call(shared.PROJECT_COMMANDS.convertFile, {
+        inputPath: request.inputPath,
+        target: request.target,
+        outputDir: request.outputDir,
+        quality: request.quality ?? null,
+        maxWidth: request.maxWidth ?? null,
+        fps: request.fps ?? null,
       })) as ConversionResult;
     },
     async convertMediaBatch(assetIds, target, outputDir, quality, maxWidth, encoder, enhance) {
@@ -407,6 +425,24 @@ export function createMediaService(call: NativeCall): Pick<DesktopService, 'anal
     },
     async onConvertProgress(handler) {
       return listen<ConvertProgress>('convert-progress', (event) => handler(event.payload));
+    },
+    async concatWorkerStatus() {
+      return (await call(shared.PROJECT_COMMANDS.concatWorkerStatus)) as ConcatWorkerStatus;
+    },
+    async concatWorkerRequest(op, params, timeoutMs) {
+      return (await call(shared.PROJECT_COMMANDS.concatWorkerRequest, {
+        op,
+        params: params ?? null,
+        timeoutMs: timeoutMs ?? null,
+      })) as ConcatWorkerEnvelope;
+    },
+    async onConcatWorkerEvent(handler) {
+      return listen<ConcatWorkerEvent>('concat-worker-progress', (event) =>
+        handler(event.payload),
+      );
+    },
+    async concatWorkerCancelRender() {
+      return (await call(shared.PROJECT_COMMANDS.concatWorkerCancelRender)) as boolean;
     },
   };
 }

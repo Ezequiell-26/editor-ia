@@ -164,11 +164,16 @@ fn fcpxml_warns_about_speed_reverse_and_transitions() {
             "speed": { "num": 2, "den": 1 }, "reverse": true,
             "transitionIn": { "type": "dissolve", "frames": 6 },
             "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 60 }
+        }, {
+            "id": "c2", "kind": "video", "label": "Salida",
+            "startFrame": 30, "durationFrames": 30,
+            "transitionOut": { "type": "fade-black", "frames": 6 },
+            "source": { "type": "asset", "assetId": "a", "inFrame": 60, "outFrame": 120 }
         }] }
     });
     let (xml, clips, warnings) = build_xml(&project);
-    assert_eq!(clips, 1);
-    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert_eq!(clips, 2);
+    assert_eq!(warnings.len(), 3, "{warnings:?}");
     assert!(
         warnings
             .iter()

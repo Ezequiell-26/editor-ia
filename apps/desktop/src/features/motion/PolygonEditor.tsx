@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { MotionPoint } from './templates';
+import type { MotionPoint } from '../../state/motion-templates';
 
 const MIN_POINTS = 3;
 const MAX_POINTS = 16;

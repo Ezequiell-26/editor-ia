@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180">
+<defs>
+<linearGradient id="dlb" x1="0" y1="0" x2="1" y2="0.5">
+<stop offset="0" stop-color="#22d3ee"/>
+<stop offset="0.5" stop-color="#a78bfa"/>
+<stop offset="1" stop-color="#f472b6"/>
+</linearGradient>
+<linearGradient id="dlbs" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0" stop-color="#22d3ee" stop-opacity="0"/>
+<stop offset="0.5" stop-color="#e2e8f0" stop-opacity="0.85"/>
+<stop offset="1" stop-color="#f472b6" stop-opacity="0"/>
+</linearGradient>
+</defs>
+<rect width="320" height="180" fill="#0b1020"/>
+<g transform="translate(160,90)">
+<g opacity="0.35">
+<rect x="-95" y="-52" width="190" height="8" rx="4" fill="url(#dlbs)" transform="rotate(-18)"/>
+<rect x="-95" y="-34" width="190" height="6" rx="3" fill="url(#dlbs)" opacity="0.7" transform="rotate(-18)"/>
+<rect x="-95" y="-18" width="190" height="10" rx="5" fill="url(#dlbs)" opacity="0.5" transform="rotate(-18)"/>
+<rect x="-95" y="0" width="190" height="7" rx="3.5" fill="url(#dlbs)" opacity="0.8" transform="rotate(-18)"/>
+<rect x="-95" y="16" width="190" height="9" rx="4.5" fill="url(#dlbs)" opacity="0.45" transform="rotate(-18)"/>
+<rect x="-95" y="34" width="190" height="6" rx="3" fill="url(#dlbs)" opacity="0.65" transform="rotate(-18)"/>
+<rect x="-95" y="50" width="190" height="8" rx="4" fill="url(#dlbs)" opacity="0.4" transform="rotate(-18)"/>
+</g>
+<circle r="26" fill="url(#dlb)" opacity="0.9"/>
+<rect x="-8" y="-3" width="16" height="6" fill="#0b1020"/>
+</g>
+</svg>

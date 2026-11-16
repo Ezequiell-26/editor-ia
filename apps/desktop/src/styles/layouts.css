@@ -1,0 +1,167 @@
+/* ── Layouts alternativos del editor (paridad `paineis.js`/`editor.css` de
+   AlaukCut) ──────────────────────────────────────────────────────────────
+   Este archivo se importa AL FINAL en `main.tsx`, después de filmora y
+   capcut: los presets declaran `grid-template-*` con `!important`, así que
+   las reglas de layout necesitan `!important` y la mayor especificidad
+   posible para ganar la cascada.
+
+   El grid real del editor tiene 4 columnas (el divisor es una columna de
+   1 px propia en los temas premium/capcut/filmora):
+     assets | contenido | divisor | inspector
+   «Vertical (Shorts)」lo redistribuye sin mover piezas en el HTML:
+     assets | inspector flexible | divisor | monitor 9:16 a toda la altura
+   y la timeline ocupa la fila inferior sólo bajo assets+inspector, igual
+   que las grid-areas de AlaukCut (`prev` y `divP` cruzan las dos filas de
+   la derecha; `tl` se queda en las tres columnas izquierdas). */
+
+:root .app-shell .editor-grid.layout-shorts {
+  grid-template-columns:
+    clamp(248px, 20.5vw, 304px) minmax(0, 1fr) 1px var(--layout-shorts-w, 420px) !important;
+}
+
+.app-shell .editor-grid.layout-shorts .inspector {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.app-shell .editor-grid.layout-shorts .editor-splitter {
+  grid-column: 3;
+  grid-row: 1 / -1;
+}
+
+.app-shell .editor-grid.layout-shorts .preview-panel {
+  grid-column: 4;
+  grid-row: 1 / -1;
+}
+
+.app-shell .editor-grid.layout-shorts .timeline-panel {
+  grid-column: 1 / 3;
+  grid-row: 2;
+}
+
+/* En la columna angosta del monitor los controles se compactan: la barra de
+   herramientas envuelve en vez de comprimir el tiempo (paridad del wrap de
+   `.previa-controles` en AlaukCut). */
+.app-shell .editor-grid.layout-shorts .preview-tools {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* A ≤880 px el rail de assets se oculta: su columna queda en 0 para no
+   desperdiciar los ~280 px en una ventana ya angosta para tres paneles. */
+@media (max-width: 880px) {
+  :root .app-shell .editor-grid.layout-shorts {
+    grid-template-columns:
+      0 minmax(0, 1fr) 1px var(--layout-shorts-w, 380px) !important;
+  }
+}
+
+/* ── «Edición con IA» (paridad `layout-edicao` de AlaukCut) ──────────────
+   La franja derecha ENTERA, del topo al pie, para la IA. Misma técnica que
+   shorts: el grid de 4 columnas del editor se redistribuye en 6 pistas —
+   assets | monitor | divisor | inspector | divisor | IA — y la timeline
+   pasa por debajo de todo MENOS la columna de IA (que cruza las dos filas,
+   como `divI`/`ia` en las grid-areas de AlaukCut). */
+:root .app-shell .editor-grid.layout-edicion {
+  grid-template-columns:
+    clamp(248px, 20.5vw, 304px) minmax(0, 1fr) 1px
+    var(--inspector-width, 340px) 1px var(--ia-width, 400px) !important;
+}
+
+.app-shell .editor-grid.layout-edicion .timeline-panel {
+  grid-column: 1 / 5;
+  grid-row: 2;
+}
+
+.app-shell .editor-grid.layout-edicion .editor-splitter-ia {
+  grid-column: 5;
+  grid-row: 1 / -1;
+}
+
+.app-shell .editor-grid.layout-edicion .ia-coluna {
+  grid-column: 6;
+  grid-row: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.ia-col-topo {
+  flex: none;
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ia-col-topo strong {
+  font-size: var(--text-sm);
+  letter-spacing: 0.02em;
+}
+
+.ia-col-corpo {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* El asistente llega por portal a `.ia-col-corpo`: dentro de la columna es
+   una pieza más del layout (no un popover flotante). */
+.ia-col-corpo .assistant-panel-docked {
+  position: static;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+
+/* Invitación mientras el asistente está cerrado (paridad `.ia-col-vazio`:
+   la columna nunca queda vacía del todo). */
+.ia-col-hint {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  margin: 14px;
+  padding: 16px 14px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.ia-col-corpo:has(> .assistant-panel) .ia-col-hint {
+  display: none;
+}
+
+.ia-col-hint p {
+  margin: 0;
+}
+
+.ia-col-abrir {
+  padding: 7px 14px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.ia-col-abrir:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}

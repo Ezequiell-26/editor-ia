@@ -29,6 +29,8 @@ use crate::projects::service::ProjectError;
 use crate::state::AppState;
 
 #[tauri::command]
+// clippy::too_many_arguments: la aridad es el contrato IPC con el frontend.
+#[allow(clippy::too_many_arguments)]
 pub async fn convert_media(
     _app: AppHandle,
     state: State<'_, AppState>,
@@ -70,7 +72,46 @@ pub async fn convert_media(
     )
 }
 
+/// `convert_file`: archivo arbitrario del disco → formato de entrega
+/// (GIF/MP3/WAV/…). No toca la sesión del proyecto; lo usa el diálogo de
+/// export para derivar entregables del MP4 ya renderizado.
 #[tauri::command]
+// clippy::too_many_arguments: la aridad es el contrato IPC con el frontend.
+#[allow(clippy::too_many_arguments)]
+pub async fn convert_file(
+    _app: AppHandle,
+    state: State<'_, AppState>,
+    input_path: String,
+    target: String,
+    output_dir: String,
+    quality: Option<u8>,
+    max_width: Option<u32>,
+    fps: Option<f64>,
+) -> Result<ConversionResult, ProjectError> {
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let files = state.conversion_files();
+    let events: Arc<dyn ConversionEvents> = Arc::new(state.conversion_events());
+    let runner = state.conversion_runner();
+    let media_runner = state.media_runner();
+    let hardware = state.conversion_hardware();
+    let deps = ConversionDeps {
+        session: &session,
+        documents: &documents,
+        tools: &tools,
+        files: &files,
+        events,
+        runner: &runner,
+        media_runner: &media_runner,
+        hardware: &hardware,
+    };
+    conversion::convert_file(&deps, &input_path, &target, &output_dir, quality, max_width, fps)
+}
+
+#[tauri::command]
+// clippy::too_many_arguments: la aridad es el contrato IPC con el frontend.
+#[allow(clippy::too_many_arguments)]
 pub async fn convert_media_batch(
     _app: AppHandle,
     state: State<'_, AppState>,

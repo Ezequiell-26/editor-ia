@@ -45,8 +45,8 @@ pub async fn sharpen_media(
     state: State<'_, AppState>,
     request: SharpenRequest,
 ) -> Result<SharpenResult, ProjectError> {
-    let input_path = PathBuf::from(request.input_path.trim());
-    if input_path.as_os_str().is_empty() || !input_path.is_file() {
+    let input_path = crate::application::fs::resolve_user_file_path(&request.input_path)?;
+    if !input_path.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "el archivo para definir nitidez no está en disco",
@@ -69,7 +69,9 @@ pub async fn sharpen_media(
         .map(|meta| meta.len())
         .unwrap_or(0);
     let output_dir = match request.output_dir.as_deref() {
-        Some(value) if !value.trim().is_empty() => PathBuf::from(value.trim()),
+        Some(value) if !value.trim().is_empty() => {
+            crate::application::fs::validate_user_write_path(value)?
+        }
         _ => input_path
             .parent()
             .map(Path::to_path_buf)

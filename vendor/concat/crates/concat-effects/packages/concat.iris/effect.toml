@@ -1,0 +1,23 @@
+format = 2
+
+[effect]
+id = "concat.iris"
+name = "Iris"
+kind = "transition"
+category = "Wipe"
+order = 11
+description = "A round opening grows from the centre until the next shot fills the frame."
+
+[[param]]
+key = "softness"
+label = "Softness"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 15
+
+[transition]
+fallback = "cross-fade"
+xfade = "circleopen"
+entry = "effect.wgsl"

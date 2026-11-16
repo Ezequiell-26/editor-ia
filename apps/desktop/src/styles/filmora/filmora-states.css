@@ -301,6 +301,37 @@
 .fm-split-templates-grid > button { display: flex !important; flex-direction: column !important; gap: 2px !important; padding: 0 !important; border: 1px solid transparent !important; border-radius: 3px !important; background: transparent !important; color: var(--fm2-ink-2) !important; cursor: pointer !important; }
 .fm-split-templates-grid > button:hover { border-color: var(--fm2-line-strong) !important; }
 .fm-split-templates-grid > button.active { border-color: var(--fm2-accent) !important; }
+/* Favoritos del catálogo: la tarjeta va envuelta para no anidar botones. */
+.fm-split-templates-grid > .fm-split-template-wrap {
+  position: relative !important;
+  display: flex !important;
+  min-width: 0 !important;
+}
+.fm-split-template-card {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  color: var(--fm2-ink-2) !important;
+  cursor: pointer !important;
+}
+.fm-split-template-card:hover { border-color: var(--fm2-line-strong) !important; }
+.fm-split-template-card.active { border-color: var(--fm2-accent) !important; }
+/* La estrella no tapa la mini-previa: aparece al pasar el mouse o si está activa. */
+.fm-split-template-wrap .catalog-fav {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.fm-split-template-wrap:hover .catalog-fav,
+.fm-split-template-wrap:focus-within .catalog-fav,
+.fm-split-template-wrap .catalog-fav.active {
+  opacity: 1;
+}
 .fm-split-preview { position: relative !important; display: block !important; width: 100% !important; aspect-ratio: 16 / 4.2 !important; border: 1px solid var(--fm2-line-strong) !important; border-radius: 2px !important; background: var(--fm2-panel-2) !important; overflow: hidden !important; }
 .fm-split-preview > span { position: absolute !important; display: grid !important; place-items: center !important; border: 1px solid #4a5158 !important; color: #aeb4ba !important; font-size: var(--fm-type-xs) !important; }
 .fm-split-label { overflow: hidden !important; font-size: var(--fm-type-xs) !important; line-height: 1.2 !important; text-align: left !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
@@ -553,4 +584,76 @@
   .fm-toolbar-customizer-body { grid-template-columns: 150px minmax(0, 1fr) !important; }
   .fm-toolbar-catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
   .preview-panel.is-detached { width: min(540px, 92vw) !important; }
+}
+
+/* ── 15.13 · Monitor dual (`previa_dupla`) ─────────────────────────────── */
+/* El toggle del monitor dual comparte la esquina del detach: se corre un
+   botón a la izquierda para que no se pisen. */
+.fm-preview-dual-toggle { right: 34px !important; }
+.preview-panel.is-detached .fm-preview-dual-toggle { position: static !important; margin: 4px 4px 0 0 !important; }
+
+.dual-monitor {
+  position: fixed !important;
+  inset: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background: #000 !important;
+  color: #e8ecf4 !important;
+  font-family: var(--font-ui, system-ui, sans-serif) !important;
+}
+.dual-monitor-stage {
+  position: relative !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.dual-monitor-stage > :first-child { flex: 1 !important; min-height: 0 !important; }
+.dual-monitor-bar {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 6px 12px !important;
+  background: #0b0e17 !important;
+  border-top: 1px solid #1d2333 !important;
+  font-size: 12px !important;
+}
+.dual-monitor-play {
+  width: 28px !important;
+  height: 24px !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 1px solid #2a3350 !important;
+  border-radius: 4px !important;
+  background: #141a2e !important;
+  color: #e8ecf4 !important;
+  cursor: pointer !important;
+}
+.dual-monitor-time { font-variant-numeric: tabular-nums !important; color: #9aa6c4 !important; }
+.dual-monitor-hint { flex: 1 !important; text-align: right !important; color: #5d6880 !important; font-size: 11px !important; }
+.dual-monitor-close {
+  border: 1px solid #2a3350 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  color: #9aa6c4 !important;
+  padding: 3px 10px !important;
+  cursor: pointer !important;
+}
+.dual-monitor-empty {
+  flex: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  color: #9aa6c4 !important;
+}
+.dual-monitor-boot {
+  position: fixed !important;
+  inset: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  background: #05070f !important;
+  color: #5d6880 !important;
+  font-family: var(--font-ui, system-ui, sans-serif) !important;
 }

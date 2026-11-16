@@ -4,6 +4,13 @@
 **Base inicial:** a7cff32638e670a1265d74e86e641abc7dc32764.  
 **Objetivo:** organizar responsabilidades y archivos sin alterar capacidades ni formato de proyectos.
 
+> **Nota de numeración (2026-11-12):** la numeración "Fase N" de este roadmap
+> (Fase 0-6, más la "Fase de maduración") **no coincide** con los "cortes
+> verticales" Fase 3-7 documentados en `CURRENT-STATE.md` y en la sección
+> "Siguiente bloque" de este mismo archivo (líneas ~201-316). Esos cortes son
+> la ejecución real del backend por capas; este roadmap es el plan original.
+> Para el estado por fases del PDF ver `PDF-100-TRACKER.md`.
+
 ## Fase 0 — Preservación y aislamiento
 **Completada.**
 - Se creó un worktree independiente en D:\Users\ofici\QODER-WORK\editor-ia-architecture.
@@ -30,17 +37,17 @@ Criterios y evidencia:
 - El typecheck completo del workspace ya tenía fallos previos en effect-kit antes del refactor.
 
 ## Fase 2 — Servicios y estado por dominios
-**Pendiente / siguiente bloque.**
-1. Descomponer native-service.ts por dominio, conservando sus funciones públicas.
-2. Extraer acciones del proyecto y coordinadores del Provider.
-3. Separar stores y selectores del estado global por propietario de dominio.
-4. Mantener una única fuente de verdad para proyectos, timeline, render y preferencias.
-5. Añadir reglas verificables de imports sin nuevas dependencias, siempre que la configuración actual lo permita.
+**En curso — actualización 2026-11-11.**
+1. ~~Descomponer native-service.ts por dominio~~ **hecho**: `services/native-service.ts` es fachada de 2 líneas; la implementación vive en `platform/tauri/native-service.ts` (39 líneas, composition root) sobre 12 módulos por dominio (`ai`, `audio`, `downloader`, `integrations`, `media`, `projects`, `providers`, `render`, `studio`, `subtitles`, `window`, `shared` — el mayor, `shared.ts`, tiene 503 líneas).
+2. ~~Extraer acciones del proyecto~~ **hecho estructuralmente**: `state/project-actions.ts` concentra las acciones puras sobre `ProjectDocument` (5.468 líneas, con suite de 3.100); `project-store-provider.tsx` (861 líneas) quedó como coordinador. Pendiente sólo si se decide subdividir `project-actions.ts` por subdominio (clips/pistas/captions/assets) — granular, no estructural.
+3. ~~Separar stores y selectores~~ **hecho**: `state/` tiene ~199 módulos segmentados por dominio (cada uno con su test); el store ya está en provider/tipos/contextos/selectores.
+4. Mantener una única fuente de verdad para proyectos, timeline, render y preferencias. **Vigente.**
+5. ~~Añadir reglas verificables de imports~~ **hecho y ampliado**: `scripts/architecture-rules.test.mjs` (12 tests, corre en `npm run verify`/CI) cubre Tauri-solo-en-platform, capas Rust y **ciclos feature↔feature con lista de deuda**; los dos ciclos conocidos (`color↔editor`, `editor↔vfx`) se resolvieron el 2026-11-11 moviendo `ScopesPanel`/`scopes` a `features/color` y `KeyframeCurveEditor` a `components/` — `KNOWN_CYCLES` quedó vacío.
 
 Cierre: typecheck de desktop, tests de service/store, smoke test de arranque y navegación.
 
 ## Fase 3 — Backend Rust en capas
-**Pendiente.**
+**Completada (2026-11-12) vía cortes verticales** documentados en "Siguiente bloque" (líneas ~201-309) y "Fase de maduración" (líneas ~339-362): Projects (ciclo de vida + versionado + recovery), Media/Timeline, Render queue/lossless/export_tools/probe, AI/MCP (providers, assistant, cliente y servidor MCP), Jobs (proxies, ciclo de vida de render, conversión). `lib.rs` actúa como composition root y `commands/` quedó en adaptadores IPC. Clusters residuales sin migrar: audio orquestación, downloader, creator/shorts/stickman-command, ONNX background/upscale, system.rs, flow_browser (ver `PDF-100-TRACKER.md` F3).
 1. Establecer domain, application, ports, infrastructure y runtime sin añadir crates por carpeta.
 2. Mover un caso de uso completo por vez.
 3. Reducir commands/ a adaptadores IPC.
@@ -50,30 +57,35 @@ Cierre: typecheck de desktop, tests de service/store, smoke test de arranque y n
 Cierre: cargo fmt sólo para los archivos modificados, cargo check/test, tests de comandos y compatibilidad IPC.
 
 ## Fase 4 — FFmpeg / render
-**Extracción de tests completada; producción pendiente.**
+**Completada en lo estructural (2026-11-12).** Además de la extracción de tests, la producción de `render/ffmpeg` quedó dividida en perfil/encoders, filtros visuales/curvas/efectos, audio, planificación y ejecución/verificación (ver cortes documentados abajo). Pendientes conocidos fuera del alcance estructural: timeouts/cancelación uniforme en procesos de render y sondeo (`PDF-100-TRACKER.md` F4) y violación `render/ffmpeg/probe.rs` → `commands::hide_console` (`PDF-100-TRACKER.md` F3).
 - Los tests se movieron a render/ffmpeg/tests.rs y encoder_tests.rs.
 - rustfmt selectivo de los archivos nuevos y ffmpeg.rs pasó.
 - La prueba Rust dirigida se compila en un target aislado para no tocar el target de main.
-- Próxima descomposición: perfil/encoders, filtros visuales/curvas/efectos, audio, planificación y ejecución/verificación.
 - Cada submódulo conserva fachada y no cambia resultados del render.
 
 ## Fase 5 — Workers, paquetes e integraciones
-**Pendiente.**
-- Confirmar project-schema y effect-kit como propietarios únicos.
-- Documentar contratos de render-worker, MCP y extensiones.
-- Eliminar dependencias circulares entre desktop y procesos auxiliares.
-- Unificar capabilities y transporte MCP sin duplicar matrices de funciones.
+**Parcialmente completada (2026-11-12).**
+- project-schema y effect-kit confirmados como propietarios únicos de sus contratos. **Hecho.**
+- Contratos de render-worker, MCP y extensiones documentados en ADRs y `ports/*`. **Hecho.**
+- Dependencias circulares desktop⇄procesos auxiliares: resueltas por ports/adapters (proxies, conversion, render lifecycle); queda la decisión Jobs documentada (no se extrajo motor común). **Hecho con excepción documentada.**
+- Unificar capabilities y transporte MCP sin duplicar matrices: cliente y servidor MCP migrados a capas (`mcp::client`/`mcp::server` + ports/infra/app); pendiente enforcement de permisos/scopes y `stop` del server (`PDF-100-TRACKER.md` F6). **Parcial.**
 
 ## Fase 6 — Validación final
-**Pendiente.**
-- Typecheck y tests de todos los workspaces.
-- Cargo check/test Rust.
-- E2E: abrir proyecto, timeline, medios, audio, preview y render.
-- Smoke tests de MCP, downloader y plugins.
-- Comparativa de arranque, bundle, RAM en reposo y export contra baseline.
-- Revisar README, arquitectura y compatibilidad de proyectos existentes.
+**Parcial (2026-11-12).**
+- Typecheck y tests de todos los workspaces: corridos por fase con evidencia en este archivo; falta una corrida integral desde checkout limpio.
+- Cargo check/test Rust: `cargo check` 0 errores y `cargo test --lib` ~672 ejecutables por fase; la batería completa desde checkout limpio está pendiente (F12).
+- E2E: abrir proyecto, timeline, medios, audio, preview y render: verificado por slices en cada corte; smoke e2e Playwright existe pero está fuera de CI.
+- Smoke tests de MCP, downloader y plugins: MCP client/server con tests dedicados; downloader y plugins sin smoke desatendido.
+- Comparativa de arranque, bundle, RAM en reposo y export contra baseline: **sin harness commiteado ni baseline** (`PDF-100-TRACKER.md` F9).
+- Revisar README, arquitectura y compatibilidad de proyectos existentes: en curso — auditoría documental del PDF aplicada el 2026-11-12 (`PDF-100-TRACKER.md`, `HANDOFF.md`).
 
 ## Registro de validación
+
+> **Tabla histórica (olas 1-2, ~2026-11-11):** refleja el estado de esas olas
+> concretas. Para el estado vigente ver "Validación acumulada vigente",
+> "Evidencia final", las olas posteriores de este archivo y
+> `PDF-100-TRACKER.md` / `HANDOFF.md`.
+
 | Comprobación | Resultado |
 |---|---|
 | Vitest project-service | 18/18 |
@@ -314,6 +326,25 @@ bundled de piper copiados al worktree (gitignored).
    commitear en main — no se porta hasta que el usuario lo confirme.
    Antes de cualquier merge: revisar `git status` de main y repetir la
    comparación de delta.
+9. ~~`fs_*` (exploración/escritura MCP de archivos)~~ **hecho**:
+   `application/fs.rs` (DTOs + topes + reglas de rutas protegidas +
+   tests en `fs.tests.rs`) y `commands/domains/projects/files.rs` como
+   adaptadores IPC delgados (818→54 líneas, re-export de tipos).
+   **Nota de entorno**: `cargo` crudo falla en esta máquina — usar
+   `node scripts/rust-env.mjs -- cargo …` (resuelve MSVC que linkea,
+   `FFMPEG_DIR` dev, `LIBCLANG_PATH`, `CARGO_HOME` fallback
+   `target/.cargo-home` y `/STACK:67108864` para bindgen de
+   `ffmpeg-sys-next`). `CARGO_HOME=D:\DevCache\Rust\cargo` quedó con
+   ACL de sólo-lectura.
+   Validado: check 0 errores, tests fs 15/15, arch-rules 12/12.
+   Además: `track_object` (NCC) en vertical completo — dominio puro en
+   `media/object_track.rs`, `ports/object_track.rs`,
+   `infrastructure/object_track.rs` (FFmpeg chunks) y
+   `application/object_track.rs`; comando 977→78 líneas con backend vía
+   `state.object_track_backend()`. Validado: check 0 errores,
+   tests tracker 6/6, arch-rules 12/12.
+   Pendiente granular: commands gordos restantes (`preview_frame/timeline.rs`,
+   `preview_frame/timeline.rs`, `downloader/*`, `browser_instances.rs`…).
 
 ---
 

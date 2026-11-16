@@ -504,6 +504,11 @@ pub fn language_name(code: &str) -> Option<&'static str> {
         "de" => Some("alemán"),
         "it" => Some("italiano"),
         "ja" => Some("japonés"),
+        "ko" => Some("coreano"),
+        "tr" => Some("turco"),
+        "pl" => Some("polaco"),
+        "nl" => Some("neerlandés"),
+        "cs" => Some("checo"),
         _ => None,
     }
 }

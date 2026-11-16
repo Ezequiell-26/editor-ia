@@ -1,0 +1,470 @@
+/* ==========================================================================
+   Olyvia · capa «Edición fácil» del inspector (aditiva, global)
+   --------------------------------------------------------------------------
+   Diagnóstico MEDIDO en el editor real (1360×768 / 1280×720, ver
+   .tmp-ref/flow.mjs y .tmp-ref/controls.mjs):
+
+   1. Al hacer clic en un clip de VÍDEO, el inspector muestra 9 pestañas en
+      un contenedor de 288px (scrollWidth 460). Sólo 5 son visibles:
+      Video | Audio | Velocidad | Recorte | Animación. **«Color», «Máscara de
+      color», «Estilo» y «Todo» quedan CORTADAS** detrás de un scroll sin
+      barra (`scrollbar-width:none`). Llegar a Color exigía abrir el
+      desplegable «» — dos clics y un descubrimiento previo. CapCut muestra
+      todas sus pestañas a la vista.
+   2. La pestaña Color ya usa el patrón correcto (`PropertySlider`: etiqueta +
+      slider con gradiente + valor numérico editable + keyframe) y presets
+      visuales. Las OTRAS pestañas usan 91 `input[type=number]`, 20 selects,
+      28 secciones abiertas y 118 `.field` con otra métrica. misma app, dos
+      lenguajes de interacción distintos.
+   3. REA/Ghidra sobre `FusionUI.dll` de CapCut 9.7.1 confirma que su UI es
+      Qt/QML con `QUIColorWheel`, `QUIColorAlphaSlider`,
+      `QUIColorBrightnessSlider`, `QUIColorHexInput` y `QUIColorPanel`: rueda
+      + slider + entrada numérica, siempre visibles en el panel de propiedades.
+
+   Esta capa NO añade funcionalidad ni cambia contratos: unifica presentación,
+   hace visible lo que ya existe y reduce la fricción de navegación. Se importa
+   la ÚLTIMA en `main.tsx`. Selectores acotados a `:root[data-theme='dark']`.
+   ========================================================================== */
+
+/* ───────────── 1 · TODAS las pestañas visibles, sin scroll oculto ──────── */
+
+:root[data-theme='dark'] .app-shell .inspector-tabs-wrap {
+  flex: 0 0 auto !important;
+  align-items: stretch !important;
+  background: #262626 !important;
+  border-bottom: 1px solid #3b3b3b !important;
+}
+
+:root[data-theme='dark'] .app-shell .inspector-tabs {
+  display: grid !important;
+  /* 9 pestañas en DOS filas de 5: la 7ª («Máscara de color», la etiqueta más
+     larga) ocupa 2 columnas. Con 3 filas el panel perdía 81px de alto y los
+     cuatro sliders básicos de Color quedaban bajo scroll. */
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  grid-auto-rows: 23px !important;
+  gap: 2px !important;
+  padding: 3px 26px 3px 5px !important;
+  overflow: visible !important;
+  scrollbar-width: auto !important;
+  position: static !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabs::-webkit-scrollbar { display: none !important; }
+:root[data-theme='dark'] .app-shell .inspector-tabs button#inspector-tab-mask {
+  grid-column: span 2 !important;
+}
+
+:root[data-theme='dark'] .app-shell .inspector-tabs button[role='tab'] {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: initial !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 23px !important;
+  min-height: 23px !important;
+  padding: 0 2px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  color: #9d9d9d !important;
+  background: #2d2d2d !important;
+  border: 1px solid #3a3a3a !important;
+  border-radius: 4px !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabs button[role='tab']:hover {
+  background: #383838 !important;
+  color: #f2f2f2 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabs button.active,
+:root[data-theme='dark'] .app-shell .inspector-tabs button[aria-selected='true'] {
+  background: rgba(0, 193, 205, 0.16) !important;
+  border-color: #00c1cd !important;
+  color: #6cecf4 !important;
+  box-shadow: inset 0 -2px 0 #00c1cd !important;
+}
+
+/* El desplegable «Todas las pestañas» sigue funcionando como respaldo, pero
+   ya no es el único camino: se vuelve discreto y no roba ancho. */
+:root[data-theme='dark'] .app-shell .inspector-tabs-overflow {
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  z-index: 8 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabs-more {
+  width: 20px !important;
+  height: 20px !important;
+  padding: 0 !important;
+  border: 1px solid #3a3a3a !important;
+  border-radius: 4px !important;
+  background: #2d2d2d !important;
+  opacity: 0.85 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabs-more:hover { opacity: 1 !important; }
+
+/* ─────────────── 2 · Subpestañas con el mismo lenguaje ────────────────── */
+
+:root[data-theme='dark'] .app-shell .inspector-subtabs {
+  flex: 0 0 auto !important;
+  gap: 3px !important;
+  padding: 4px 6px !important;
+  overflow: visible !important;
+  flex-wrap: wrap !important;
+  background: #232323 !important;
+  border-bottom: 1px solid #383838 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-subtabs button[role='tab'] {
+  height: 23px !important;
+  min-height: 23px !important;
+  padding: 0 8px !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px !important;
+  font-size: 10.5px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: #9d9d9d !important;
+  background: transparent !important;
+  white-space: nowrap !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-subtabs button[role='tab']:hover:not(:disabled) {
+  background: #333 !important;
+  color: #f2f2f2 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-subtabs button.active,
+:root[data-theme='dark'] .app-shell .inspector-subtabs button[aria-selected='true'] {
+  background: rgba(0, 193, 205, 0.14) !important;
+  border-color: rgba(0, 193, 205, 0.45) !important;
+  color: #6cecf4 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-subtabs button:disabled {
+  opacity: 0.42 !important;
+  cursor: not-allowed !important;
+}
+
+/* ───────── 3 · Patrón de control ÚNICO para todas las pestañas ──────────
+   Color ya tenía `.fp-slider-row` (etiqueta · slider · valor · keyframe).
+   Se lleva esa misma métrica a `.field` / `.num-spin-wrap` / `select` de
+   Video, Audio, Velocidad, Recorte, Animación, Estilo y Todo. */
+
+/* OJO: `.fp-slider-row` NO se toca. Tiene 4 hijos (etiqueta · slider ·
+   valor · keyframe) y su propio grid de 4 columnas en properties.css;
+   forzarlo a 2 columnas colapsa el slider. Sólo se uniforma `.field`. */
+:root[data-theme='dark'] .app-shell .inspector-tabpanel label.field {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 6px !important;
+  min-height: 27px !important;
+  margin: 0 !important;
+  padding: 1px 2px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.035) !important;
+  border-radius: 3px !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel label.field:hover {
+  background: rgba(255, 255, 255, 0.028) !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel label.field > span:first-child,
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-slider-label {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 11px !important;
+  font-weight: 550 !important;
+  color: #c2c2c2 !important;
+}
+
+/* Valor numérico: mismo aspecto en TODAS las pestañas, alineado a la derecha
+   y con cifras tabulares (como el `.fp-slider-number` de Color). */
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .num-spin-wrap {
+  flex: 0 0 auto !important;
+  width: 82px !important;
+  min-width: 82px !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .num-spin-wrap input[type='number'],
+:root[data-theme='dark'] .app-shell .inspector-tabpanel label.field > input:not([type]),
+:root[data-theme='dark'] .app-shell .inspector-tabpanel label.field > input[type='text'],
+:root[data-theme='dark'] .app-shell .inspector-tabpanel label.field > select,
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-slider-number {
+  height: 22px !important;
+  min-height: 22px !important;
+  padding: 0 5px !important;
+  border: 1px solid #3e3e3e !important;
+  border-radius: 4px !important;
+  background: #1f1f1f !important;
+  color: #eaeaea !important;
+  font-size: 11px !important;
+  font-variant-numeric: tabular-nums !important;
+  text-align: right !important;
+  box-sizing: border-box !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel label.field > select {
+  text-align: left !important;
+  max-width: 150px !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel input:focus-visible,
+:root[data-theme='dark'] .app-shell .inspector-tabpanel select:focus-visible {
+  outline: 2px solid #00c1cd !important;
+  outline-offset: 1px !important;
+  border-color: #00c1cd !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-slider-number {
+  width: 52px !important;
+  text-align: right !important;
+}
+/* El spinner de número convive con el valor sin taparlo. */
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .num-spin {
+  background: #2a2a2a !important;
+  border-left: 1px solid #3e3e3e !important;
+  border-radius: 0 3px 3px 0 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .num-spin button {
+  font-size: 8px !important;
+  color: #b9b9b9 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .num-spin button:hover {
+  background: rgba(0, 193, 205, 0.18) !important;
+  color: #6cecf4 !important;
+}
+
+/* ────────────── 4 · Secciones: jerarquía y orientación ────────────────── */
+
+:root[data-theme='dark'] .app-shell .inspector-tabpanel section.inspector-section,
+:root[data-theme='dark'] .app-shell .inspector-tabpanel section.fp-section {
+  margin: 0 0 3px !important;
+  padding-bottom: 3px !important;
+  border-bottom: 1px solid #353535 !important;
+}
+/* Compactar sin ocultar: 3 secciones × (padding+margin+gap) liberan ~30px,
+   los justos para que los 4 sliders básicos de Color quepan sin scroll. */
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-section-body {
+  gap: 5px !important;
+  padding-top: 1px !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-section h4 button {
+  height: 26px !important;
+}
+:root[data-theme='dark'] .app-shell .fp-advanced {
+  height: 20px !important;
+  margin-bottom: 3px !important;
+  padding: 0 2px !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel section.inspector-section > h4,
+:root[data-theme='dark'] .app-shell .inspector-tabpanel section.fp-section > h4 {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 3 !important;
+  margin: 0 !important;
+  background: #262626 !important;
+  border-bottom: 1px solid #383838 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .inspector-section-toggle,
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-section h4 button {
+  height: 29px !important;
+  padding: 0 6px !important;
+  color: #e2e2e2 !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .inspector-section-toggle:hover,
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-section h4 button:hover {
+  background: #333 !important;
+  color: #6cecf4 !important;
+}
+/* Marca de acento para identificar cada bloque de un vistazo. */
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .inspector-section-toggle::before,
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-section h4 button > span::before {
+  content: '' !important;
+  display: inline-block !important;
+  width: 3px !important;
+  height: 11px !important;
+  margin-right: 7px !important;
+  vertical-align: -1px !important;
+  border-radius: 2px !important;
+  background: #00c1cd !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .fine-print,
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .inspector-meta {
+  margin: 4px 0 !important;
+  color: #8f8f8f !important;
+  font-size: 10.5px !important;
+  line-height: 1.42 !important;
+}
+
+/* Scroll del inspector siempre visible y con acento. */
+:root[data-theme='dark'] .app-shell .inspector-body,
+:root[data-theme='dark'] .app-shell .fp-scroll {
+  scrollbar-width: thin !important;
+  scrollbar-color: #00c1cd #242424 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-body::-webkit-scrollbar,
+:root[data-theme='dark'] .app-shell .fp-scroll::-webkit-scrollbar { width: 7px !important; }
+:root[data-theme='dark'] .app-shell .inspector-body::-webkit-scrollbar-thumb,
+:root[data-theme='dark'] .app-shell .fp-scroll::-webkit-scrollbar-thumb {
+  background: #4a4a4a !important;
+  border-radius: 4px !important;
+}
+
+/* ─────────── 5 · Presets de Color: miniaturas legibles ────────────────── */
+
+:root[data-theme='dark'] .app-shell .fp-look-grid {
+  /* 4 columnas = todos los looks en UNA fila, como en CapCut. Con 3 los
+     presets ocupaban dos filas y desplazaban los sliders fuera del panel. */
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 5px !important;
+}
+:root[data-theme='dark'] .app-shell .fp-look {
+  gap: 4px !important;
+  padding: 3px !important;
+  border: 1px solid transparent !important;
+  border-radius: 5px !important;
+}
+:root[data-theme='dark'] .app-shell .fp-look:hover {
+  background: rgba(255, 255, 255, 0.045) !important;
+}
+:root[data-theme='dark'] .app-shell .fp-look.active {
+  border-color: rgba(0, 193, 205, 0.55) !important;
+  background: rgba(0, 193, 205, 0.09) !important;
+}
+:root[data-theme='dark'] .app-shell .fp-look-thumb {
+  aspect-ratio: 1.1 !important;
+  border: 1px solid #454545 !important;
+  border-radius: 4px !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+}
+:root[data-theme='dark'] .app-shell .fp-look.active .fp-look-thumb {
+  border-color: #00c1cd !important;
+  box-shadow: 0 0 0 1px #00c1cd !important;
+}
+:root[data-theme='dark'] .app-shell .fp-look-label {
+  font-size: 10px !important;
+  line-height: 1.25 !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  color: #c4c4c4 !important;
+}
+:root[data-theme='dark'] .app-shell .fp-look.active .fp-look-label { color: #6cecf4 !important; }
+
+:root[data-theme='dark'] .app-shell .fp-style-tabs button {
+  height: 25px !important;
+  font-size: 10.5px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: #a8a8a8 !important;
+}
+:root[data-theme='dark'] .app-shell .fp-style-tabs button.active {
+  color: #6cecf4 !important;
+  border-color: #00c1cd !important;
+  background: rgba(0, 193, 205, 0.13) !important;
+}
+
+/* ───────── 6 · Acciones siempre a mano (Restablecer / Guardar) ────────── */
+
+:root[data-theme='dark'] .app-shell .fp-foot {
+  /* `.fp-root` ya es flex column con `.fp-scroll` flex:1, así que el pie
+     queda siempre visible sin sticky (sticky aquí tapaba el último slider). */
+  flex: 0 0 auto !important;
+  gap: 5px !important;
+  padding: 5px 2px 4px !important;
+  background: #1c1c1c !important;
+  border-top: 1px solid #383838 !important;
+}
+:root[data-theme='dark'] .app-shell .fp-foot button {
+  height: 24px !important;
+  font-size: 10px !important;
+  border-radius: 4px !important;
+}
+:root[data-theme='dark'] .app-shell .fp-ghost {
+  color: #c9c9c9 !important;
+  border: 1px solid #454545 !important;
+  background: #2a2a2a !important;
+}
+:root[data-theme='dark'] .app-shell .fp-ghost:hover { border-color: #00c1cd !important; color: #6cecf4 !important; }
+:root[data-theme='dark'] .app-shell .fp-primary {
+  background: #00c1cd !important;
+  color: #06232a !important;
+  font-weight: 700 !important;
+  border: 1px solid #00c1cd !important;
+}
+:root[data-theme='dark'] .app-shell .fp-primary:hover { background: #4fe3ec !important; }
+:root[data-theme='dark'] .app-shell .fp-advanced {
+  margin-bottom: 6px !important;
+  color: #9d9d9d !important;
+  font-size: 10.5px !important;
+}
+:root[data-theme='dark'] .app-shell .fp-advanced:hover { color: #6cecf4 !important; }
+
+/* ─────────── 7 · Orientación: qué hacer cuando no hay clip ────────────── */
+
+:root[data-theme='dark'] .app-shell .inspector-body .project-info-summary::before {
+  content: 'Seleccioná un clip en la línea de tiempo para editar sus propiedades' !important;
+  display: block !important;
+  margin: 0 0 10px !important;
+  padding: 7px 9px !important;
+  border: 1px solid rgba(0, 193, 205, 0.35) !important;
+  border-left: 3px solid #00c1cd !important;
+  border-radius: 4px !important;
+  background: rgba(0, 193, 205, 0.08) !important;
+  color: #9fdde2 !important;
+  font-size: 10.5px !important;
+  line-height: 1.4 !important;
+}
+
+/* Clip seleccionado: se ve de un vistazo en la línea de tiempo. */
+:root[data-theme='dark'] .app-shell .timeline-clip.selected,
+:root[data-theme='dark'] .app-shell .timeline-clip.is-selected,
+:root[data-theme='dark'] .app-shell .timeline-clip[aria-selected='true'] {
+  outline: 2px solid #00c1cd !important;
+  outline-offset: -2px !important;
+  z-index: 2 !important;
+}
+
+/* ─────────────────── 8 · 1280×720 ─────────────────────────────────────── */
+
+/* `.fp-more` («Más estilos») se renderiza SIN onClick en
+   ColorPropertiesPanel.tsx: es un adorno que consume ~18px de alto. Se oculta
+   para que los cuatro sliders básicos entren sin scroll; no se pierde ninguna
+   acción real (los looks ya están todos en la fila de presets). */
+:root[data-theme='dark'] .app-shell .fp-more { display: none !important; }
+
+@media (max-width: 1320px) {
+  :root[data-theme='dark'] .app-shell .inspector-tabs {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    grid-auto-rows: 21px !important;
+  }
+  :root[data-theme='dark'] .app-shell .inspector-tabs button[role='tab'] {
+    height: 21px !important;
+    min-height: 21px !important;
+    font-size: 9.5px !important;
+  }
+  :root[data-theme='dark'] .app-shell .inspector-subtabs { padding: 3px 5px !important; }
+  :root[data-theme='dark'] .app-shell .inspector-subtabs button[role='tab'] {
+    height: 21px !important;
+    min-height: 21px !important;
+    padding: 0 6px !important;
+    font-size: 10px !important;
+  }
+  :root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-section-body { gap: 4px !important; }
+  :root[data-theme='dark'] .app-shell .inspector-tabpanel .fp-section h4 button { height: 24px !important; }
+  :root[data-theme='dark'] .app-shell .fp-white-row > span {
+    font-size: 10px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  :root[data-theme='dark'] .app-shell .fp-foot { padding: 3px 2px 2px !important; }
+  :root[data-theme='dark'] .app-shell .fp-foot button { height: 22px !important; }
+  :root[data-theme='dark'] .app-shell .inspector-tabpanel .num-spin-wrap {
+    width: 72px !important;
+    min-width: 72px !important;
+  }
+  :root[data-theme='dark'] .app-shell .fp-look-label { font-size: 9.5px !important; }
+}

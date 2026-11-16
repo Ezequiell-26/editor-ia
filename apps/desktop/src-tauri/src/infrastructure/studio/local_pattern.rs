@@ -97,17 +97,32 @@ impl ContentGenerator for LocalPatternGenerator {
     }
 
     fn capabilities(&self) -> Vec<GenerationCapability> {
-        vec![GenerationCapability {
-            provider: PROVIDER_ID.to_owned(),
-            model: MODEL.to_owned(),
-            kind: StudioResourceKind::Image,
-            estimated_cost_cents: Some(0),
-            limits: vec![
-                "sólo patrones (convención pattern:/gradient:/texture:)".to_owned(),
-                "PNG 1280x720 de fuentes lavfi sintéticas".to_owned(),
-            ],
-            requires_network: false,
-        }]
+        // `graphic` es el mismo producto visto desde el plan: una imagen
+        // compuesta localmente (patrón/textura = gráfico del video).
+        vec![
+            GenerationCapability {
+                provider: PROVIDER_ID.to_owned(),
+                model: MODEL.to_owned(),
+                kind: StudioResourceKind::Image,
+                estimated_cost_cents: Some(0),
+                limits: vec![
+                    "sólo patrones (convención pattern:/gradient:/texture:)".to_owned(),
+                    "PNG 1280x720 de fuentes lavfi sintéticas".to_owned(),
+                ],
+                requires_network: false,
+            },
+            GenerationCapability {
+                provider: PROVIDER_ID.to_owned(),
+                model: MODEL.to_owned(),
+                kind: StudioResourceKind::Graphic,
+                estimated_cost_cents: Some(0),
+                limits: vec![
+                    "gráfico = patrón PNG compuesto (misma salida que image)".to_owned(),
+                    "sólo patrones (convención pattern:/gradient:/texture:)".to_owned(),
+                ],
+                requires_network: false,
+            },
+        ]
     }
 
     fn generate(
@@ -115,10 +130,12 @@ impl ContentGenerator for LocalPatternGenerator {
         request: &GenerationRequest,
         project_root: &Path,
     ) -> Result<GenerationResult, ProjectError> {
-        if request.kind != StudioResourceKind::Image {
+        if request.kind != StudioResourceKind::Image
+            && request.kind != StudioResourceKind::Graphic
+        {
             return Err(ProjectError::message(
                 ProjectErrorCode::InvalidProject,
-                "LocalPatternGenerator sólo genera imágenes",
+                "LocalPatternGenerator sólo genera imágenes/gráficos",
             ));
         }
         let Some(ffmpeg) = &self.ffmpeg else {

@@ -85,6 +85,9 @@ fn broll_filter(info: VideoInfo, cuts: &[Cut]) -> String {
     graph.join(";")
 }
 
+// clippy::too_many_arguments: bloque `spawn_blocking` del comando; las rutas
+// y los flags replican el payload IPC y se consumen una sola vez.
+#[allow(clippy::too_many_arguments)]
 fn broll_blocking(
     ffmpeg: &Path,
     ffprobe: &Path,
@@ -152,13 +155,8 @@ fn broll_blocking(
     } else {
         args.push("-an".into());
     }
+    args.extend(h264_encoder_args(ffmpeg, "veryfast", 20).map_err(CreatorError::Ffmpeg)?);
     args.extend([
-        "-c:v".into(),
-        "libx264".into(),
-        "-preset".into(),
-        "veryfast".into(),
-        "-crf".into(),
-        "20".into(),
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-movflags".into(),
@@ -189,7 +187,7 @@ pub async fn creator_interleave_broll(
 ) -> Result<CreatorOutput, ProjectError> {
     let (ffmpeg, ffprobe) = tools(&state)?;
     let input = require_file(&input_path, "El video de entrada")?;
-    let broll_dir = PathBuf::from(broll_dir.trim());
+    let broll_dir = crate::application::fs::resolve_user_file_path(&broll_dir)?;
     if !broll_dir.is_dir() {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,

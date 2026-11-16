@@ -1,11 +1,11 @@
 import type { DesktopService } from "../../services/contracts";
 import type { NativeCall } from './shared';
 import * as shared from './shared';
-import type { ExportCapabilities, ExportVerification, HardwareEncoders, LosslessResult, RenderFinishedEvent, RenderProgressEvent, RenderStarted, VariantRendered } from "../../services/contracts";
+import type { ExportCapabilities, ExportVerification, HardwareEncoders, LosslessResult, RenderDiaryEntry, RenderFinishedEvent, RenderProgressEvent, RenderStarted, VariantRendered } from "../../services/contracts";
 import { listen } from "@tauri-apps/api/event";
 import type { RenderQueueEntry } from "../../state/render-queue";
 
-export function createRenderService(call: NativeCall): Pick<DesktopService, 'exportLossless' | 'hardwareEncoders' | 'exportCapabilities' | 'verifyExport' | 'renderProjectVariant' | 'startRender' | 'startRenderTo' | 'chooseExportDirectory' | 'cancelRender' | 'activeRender' | 'pruneRenderCache' | 'renderQueueLoad' | 'renderQueueSave' | 'renderQueueClearFinished' | 'onRenderProgress' | 'onRenderFinished'> {
+export function createRenderService(call: NativeCall): Pick<DesktopService, 'exportLossless' | 'hardwareEncoders' | 'exportCapabilities' | 'verifyExport' | 'renderProjectVariant' | 'startRender' | 'startRenderTo' | 'chooseExportDirectory' | 'cancelRender' | 'activeRender' | 'pruneRenderCache' | 'renderDiary' | 'renderQueueLoad' | 'renderQueueSave' | 'renderQueueClearFinished' | 'onRenderProgress' | 'onRenderFinished'> {
   return {
     async exportLossless(input) {
       return (await call(shared.PROJECT_COMMANDS.exportLossless, { ...input })) as LosslessResult;
@@ -72,6 +72,10 @@ export function createRenderService(call: NativeCall): Pick<DesktopService, 'exp
     async pruneRenderCache() {
       const raw = await call(shared.PROJECT_COMMANDS.pruneRenderCache);
       return typeof raw === 'number' ? raw : 0;
+    },
+    async renderDiary(limit) {
+      const raw = await call(shared.PROJECT_COMMANDS.renderDiary, { limit });
+      return Array.isArray(raw) ? (raw as RenderDiaryEntry[]) : [];
     },
     async renderQueueLoad() {
       const raw = await call(shared.PROJECT_COMMANDS.renderQueueLoad);

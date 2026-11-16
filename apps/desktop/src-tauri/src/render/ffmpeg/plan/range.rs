@@ -99,10 +99,14 @@ pub(crate) fn build_plan_range(
             object.remove("panKeyframes");
         }
     }
-    let clips = project["timeline"]["clips"]
+    let mut clips = project["timeline"]["clips"]
         .as_array()
         .cloned()
         .unwrap_or_default();
+    // `transitionOut` del clip saliente entra como `transitionIn` del
+    // siguiente clip contiguo (modelo AlaukCut); el `transitionIn` propio
+    // siempre gana. La mutación ocurre antes de cualquier lectura.
+    resolve_transition_out(&mut clips);
     if clips
         .iter()
         .any(|clip| clip["mask"]["shape"].as_str() == Some("text"))
@@ -270,10 +274,12 @@ pub(crate) fn build_plan_range(
                 "hay material sin verificar; confirmá sus derechos y marcalo listo antes de exportar",
             ));
         }
-        if asset["rights"]["license"]["commercialUse"].as_str() == Some("unknown") {
+        if let Some(reason) = rights_block_reason(asset) {
             return Err(ProjectError::message(
                 ProjectErrorCode::AssetNotReady,
-                "hay material con licencia desconocida; resolvé sus derechos antes de exportar",
+                &format!(
+                    "hay material con {reason}; resolvé sus derechos antes de exportar"
+                ),
             ));
         }
         let relative = asset["source"]["path"].as_str().unwrap_or("");
@@ -352,6 +358,26 @@ pub(crate) fn build_plan_range(
         }
         let index = inputs;
         inputs += 1;
+        // Marco del monitor (`monitorFrame`): se rasteriza a PNG y entra como
+        // input extra; el clip chain lo compone dentro del layer post fit.
+        let frame_input = prepare_frame_input(
+            clip,
+            asset,
+            profile,
+            input.temp_dir,
+            &mut args,
+            &mut inputs,
+        )?;
+        // Textura de transición `textura-*`: fuente lavfi sintética
+        // (`gradients`/`cellauto`) limitada al lead; el overlay sólo es
+        // visible durante la transición.
+        let texture_input = prepare_texture_input(
+            clip,
+            profile,
+            lead_seconds,
+            &mut args,
+            &mut inputs,
+        )?;
         // Aislamiento de voz: si el clip lo pide y `prepare_voice_isolation`
         // ya generó el stem, su audio reemplaza al del material. El stem es el
         // wav del archivo completo, así que se le aplica la misma ventana
@@ -377,6 +403,21 @@ pub(crate) fn build_plan_range(
                     inputs += 1;
                     Some(stem_index)
                 } else {
+                    // AUD-012: si el clip pide aislamiento pero el stem no
+                    // existe, antes se usaba el audio original en silencio.
+                    // Sólo falla cuando el audio del clip realmente suena;
+                    // un clip muteado o tapado por un solo ajeno no bloquea.
+                    let audible = !muted
+                        && clip["audio"]["muted"].as_bool() != Some(true)
+                        && (!any_solo
+                            || track_solo
+                            || clip["audio"]["solo"].as_bool().unwrap_or(false));
+                    if audible {
+                        return Err(ProjectError::message(
+                            ProjectErrorCode::AssetNotReady,
+                            "el clip pide aislamiento de voz pero falta el stem; corré prepare_voice_isolation o desactivá voiceIsolation",
+                        ));
+                    }
                     None
                 }
             } else {
@@ -434,11 +475,21 @@ pub(crate) fn build_plan_range(
             speed_den,
             is_image,
             compose_format,
+            frame_input,
+            texture_input,
         ));
         if let Some((transform, smoothing)) = stabilization.as_ref() {
             let position = filters.len() - 1;
             let chain = filters[position].clone();
             filters[position] = with_stabilization(chain, index, transform, *smoothing);
+        }
+        // Perfil de cámara (log → Rec.709): se decodifica antes que el
+        // LUT del usuario para que el grado se aplique sobre imagen ya
+        // normalizada.
+        if let Some(camera_lut) = camera_lut_path(&clip["effects"], input.temp_dir) {
+            let position = filters.len() - 1;
+            let chain = filters[position].clone();
+            filters[position] = apply_lut_to_chain(chain, &format!("v{index}"), &camera_lut, 1.0);
         }
         if let Some((lut, intensity)) = clip_lut {
             let position = filters.len() - 1;
@@ -479,6 +530,19 @@ pub(crate) fn build_plan_range(
                 ));
             }
             overlay_source = format!("v{index}out");
+        }
+        // `zoom-in`/`zoom-out`/`spin`: escala y giro por tramos sobre el clip
+        // ya compuesto (el `setpts` final lo deja en tiempo global).
+        if let Some(graph) = animation_transform_graph(
+            &overlay_source,
+            index,
+            clip,
+            start_seconds,
+            clip_seconds,
+            profile.fps(),
+        ) {
+            filters.push(graph);
+            overlay_source = format!("v{index}anim");
         }
         let transform = &clip["transform"];
         let offset_x = offset_expression(clip, "offsetX", start_seconds, project_fps)
@@ -645,6 +709,16 @@ pub(crate) fn build_plan_range(
         base_label = next_label;
     }
 
+    // Visualizador de espectro audio-reactivo (paridad `espectro.js` de
+    // AlaukCut): clip de ajuste con `effects.spectrum` que superpone el
+    // `showfreqs` del bus de audio mezclado en su ventana de tiempo.
+    let spectrum_adjustments: Vec<&Value> = adjustment_clips
+        .iter()
+        .filter(|clip| clip["effects"]["spectrum"].is_object())
+        .copied()
+        .collect();
+    let needs_spectrum = !input.audio_only && !spectrum_adjustments.is_empty();
+
     let audio_clips: Vec<&Value> = clips
         .iter()
         .filter(|clip| {
@@ -673,7 +747,7 @@ pub(crate) fn build_plan_range(
             )
         })?;
         if asset["status"].as_str() != Some("ready")
-            || asset["rights"]["license"]["commercialUse"].as_str() == Some("unknown")
+            || rights_block_reason(asset).is_some()
         {
             return Err(ProjectError::message(
                 ProjectErrorCode::AssetNotReady,
@@ -684,12 +758,19 @@ pub(crate) fn build_plan_range(
         let path = resolve_inside_root(input.root, relative)?;
         ensure_asset_unchanged(asset, &path)?;
         // Aislamiento de voz: el stem generado por `prepare_voice_isolation`
-        // reemplaza al audio original cuando el clip lo pide.
+        // reemplaza al audio original cuando el clip lo pide. Estos clips ya
+        // pasaron el filtro de audibilidad, así que un stem ausente es un
+        // error honesto (AUD-012), no una excusa para usar el original.
         let mut audio_path = path.clone();
         if clip["audio"]["voiceIsolation"]["enabled"].as_bool() == Some(true) {
             let stem = isolation_stem_path(input.root, asset_id);
             if stem.is_file() {
                 audio_path = stem;
+            } else {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::AssetNotReady,
+                    "el clip de audio pide aislamiento de voz pero falta el stem; corré prepare_voice_isolation o desactivá voiceIsolation",
+                ));
             }
         }
         let start_seconds = clip["startFrame"].as_u64().unwrap_or(0) as f64 / project_fps;
@@ -762,7 +843,7 @@ pub(crate) fn build_plan_range(
         format!("{loudness_filter},alimiter=limit=0.95")
     };
     let silent_index;
-    let audio_out_filter;
+    let mut audio_out_filter;
     if audio_labels.is_empty() {
         silent_index = inputs;
         args.extend([
@@ -868,6 +949,22 @@ pub(crate) fn build_plan_range(
             );
         }
     }
+    // Con espectro hay que bifurcar el bus final: una copia sigue a [aout]
+    // y cada clip de ajuste con `spectrum` recibe la suya para showfreqs.
+    if needs_spectrum {
+        if let Some(prefix) = audio_out_filter.strip_suffix("[aout]") {
+            let mut pads = String::new();
+            for index in 0..spectrum_adjustments.len() {
+                pads.push_str(&format!("[spec{index}]"));
+            }
+            pads.push_str("[aout]");
+            audio_out_filter = format!(
+                "{prefix},asplit={}{}",
+                spectrum_adjustments.len() + 1,
+                pads
+            );
+        }
+    }
     filters.push(audio_out_filter.clone());
     audio_filters.push(audio_out_filter);
 
@@ -943,6 +1040,56 @@ pub(crate) fn build_plan_range(
         })?;
         filters.push(format!("[{video_label}]ass=motion.ass[motion]"));
         video_label = "motion".to_owned();
+    }
+    // Capas de espectro audio-reactivo: `showfreqs` consume la copia [specN]
+    // del bus de audio y se superpone en la ventana absoluta del clip de
+    // ajuste. `y=H-h` lo ancla abajo como en AlaukCut; `x` corre el centro.
+    for (index, clip) in spectrum_adjustments.iter().enumerate() {
+        let spec = &clip["effects"]["spectrum"];
+        let start_seconds = clip["startFrame"].as_u64().unwrap_or(0) as f64 / project_fps;
+        let clip_seconds = clip["durationFrames"].as_u64().unwrap_or(0) as f64 / project_fps;
+        if clip_seconds <= 0.0 {
+            continue;
+        }
+        let end_seconds = start_seconds + clip_seconds;
+        let mode = spec["mode"].as_str().unwrap_or("bars");
+        let (ffmpeg_mode, ascale, fscale, def1, def2) = match mode {
+            "wave" => ("line", "log", "log", "#3B82F6", "#8B5CF6"),
+            "neon" => ("line", "sqrt", "rlog", "#00FFFF", "#FF00FF"),
+            _ => ("bar", "sqrt", "log", "#FFFFFF", "#9ADCFF"),
+        };
+        let ffmpeg_color = |hex: &str, default: &str| {
+            let value = hex
+                .strip_prefix('#')
+                .filter(|value| value.len() == 6)
+                .unwrap_or_else(|| default.trim_start_matches('#'));
+            format!("0x{value}")
+        };
+        let color1 = ffmpeg_color(spec["color1"].as_str().unwrap_or(""), def1);
+        let color2 = ffmpeg_color(spec["color2"].as_str().unwrap_or(""), def2);
+        let width_frac = spec["width"].as_f64().unwrap_or(1.0).clamp(0.1, 1.0);
+        let height_frac = spec["height"].as_f64().unwrap_or(0.28).clamp(0.05, 0.6);
+        let spec_w = (((profile.width as f64) * width_frac) as u32) & !1;
+        let spec_h = (((profile.height as f64) * height_frac) as u32) & !1;
+        let spec_w = spec_w.max(2);
+        let spec_h = spec_h.max(2);
+        let intensity = spec["intensity"].as_f64().unwrap_or(1.0).clamp(0.0, 1.0);
+        let alpha_chain = if intensity < 0.999 {
+            format!(",colorchannelmixer=aa={intensity:.2}")
+        } else {
+            String::new()
+        };
+        let x_offset = spec["x"].as_f64().unwrap_or(0.0).clamp(-1.0, 1.0);
+        let y_lift = spec["y"].as_f64().unwrap_or(0.0).clamp(0.0, 0.95);
+        filters.push(format!(
+            "[spec{index}]showfreqs=s={spec_w}x{spec_h}:r={}:mode={ffmpeg_mode}:ascale={ascale}:fscale={fscale}:colors={color1}|{color2},format=rgba{alpha_chain}[specv{index}]",
+            profile.fps_arg()
+        ));
+        let next_label = format!("vspec{index}");
+        filters.push(format!(
+            "[{video_label}][specv{index}]overlay=x='(W-w)/2+{x_offset:.3}*(W-w)/2':y='H-h-{y_lift:.3}*H':enable='between(t,{start_seconds:.6},{end_seconds:.6})':eof_action=pass:shortest=0[{next_label}]"
+        ));
+        video_label = next_label;
     }
     if ass.is_empty() {
         filters.push(format!(

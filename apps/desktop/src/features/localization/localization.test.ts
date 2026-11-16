@@ -21,7 +21,7 @@ const cue = (text: string, start = 0) => ({
 });
 
 describe('Localization Studio helpers', () => {
-  it('ofrece los doce idiomas del backend y encuentra uno por código', () => {
+  it('ofrece los diecisiete idiomas del backend y encuentra uno por código', () => {
     expect(LOCALIZATION_LANGUAGES.map((language) => language.code)).toEqual([
       'es',
       'en',
@@ -35,21 +35,29 @@ describe('Localization Studio helpers', () => {
       'de',
       'it',
       'ja',
+      'ko',
+      'tr',
+      'pl',
+      'nl',
+      'cs',
     ]);
     expect(localizationLanguage('ar')?.direction).toBe('rtl');
     expect(localizationLanguage('ja')?.native).toBe('日本語');
+    expect(localizationLanguage('ko')?.native).toBe('한국어');
     expect(localizationLanguage('tl')).toBeNull();
   });
 
-  it('el doblaje SAPI excluye japonés y la clonación excluye bengalí', () => {
-    // Espejo de commands/dubbing.rs::normalize_language (sin `ja`) y de
-    // commands/voice_clone.rs::CLONE_LANGUAGES (sin `bn` entre los 12).
-    expect(DUBBING_LANGUAGE_CODES.has('ja')).toBe(false);
+  it('el doblaje SAPI cubre los 17 y la clonación excluye bengalí', () => {
+    // Espejo de dubbing/validation.rs::normalize_language (los 17) y de
+    // voice_clone.rs::CLONE_LANGUAGES (los 17 menos `bn`).
+    expect(DUBBING_LANGUAGE_CODES.has('ja')).toBe(true);
+    expect(DUBBING_LANGUAGE_CODES.has('ko')).toBe(true);
+    expect(DUBBING_LANGUAGE_CODES.has('cs')).toBe(true);
     expect(DUBBING_LANGUAGE_CODES.has('bn')).toBe(true);
-    expect(DUBBING_LANGUAGES).toHaveLength(11);
+    expect(DUBBING_LANGUAGES).toHaveLength(17);
     expect(CLONE_LANGUAGE_CODES.has('bn')).toBe(false);
     expect(CLONE_LANGUAGE_CODES.has('ja')).toBe(true);
-    expect(CLONE_LANGUAGES).toHaveLength(11);
+    expect(CLONE_LANGUAGES).toHaveLength(16);
     expect(CLONE_LANGUAGES.every((language) => language.code !== 'bn')).toBe(true);
   });
 

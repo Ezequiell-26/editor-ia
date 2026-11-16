@@ -86,13 +86,8 @@ fn render_aspect(
     } else {
         args.push("-an".into());
     }
+    args.extend(h264_encoder_args(ffmpeg, "veryfast", 20).map_err(CreatorError::Ffmpeg)?);
     args.extend([
-        "-c:v".into(),
-        "libx264".into(),
-        "-preset".into(),
-        "veryfast".into(),
-        "-crf".into(),
-        "20".into(),
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-movflags".into(),
@@ -124,7 +119,9 @@ async fn aspect_blocking(
     for aspect in aspects {
         let ffmpeg = ffmpeg.to_path_buf();
         let input = input.to_path_buf();
-        let output = output_dir.join(format!("{stem}-{}.mp4", aspect.suffix()));
+        let output = unique_output_path(
+            output_dir.join(format!("{stem}-{}.mp4", aspect.suffix())),
+        );
         set.spawn_blocking(move || {
             let first = render_aspect(
                 &ffmpeg, &input, &output, aspect, duration, has_audio, has_audio,
@@ -162,13 +159,7 @@ pub async fn creator_export_multi_aspect(
 ) -> Result<Vec<CreatorOutput>, ProjectError> {
     let (ffmpeg, ffprobe) = tools(&state)?;
     let input = require_file(&input_path, "El video de entrada")?;
-    let output_dir = PathBuf::from(output_dir.trim());
-    if output_dir.as_os_str().is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "Elegí una carpeta de salida.",
-        ));
-    }
+    let output_dir = crate::application::fs::validate_user_write_path(&output_dir)?;
     let wanted =
         aspects.unwrap_or_else(|| vec!["vertical".into(), "horizontal".into(), "square".into()]);
     let mut parsed = Vec::new();

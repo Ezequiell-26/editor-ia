@@ -1,4 +1,5 @@
 use super::*;
+use crate::render::preview_window::{frozen_motion, opacity_at};
 
 #[test]
 fn source_time_honours_trim_and_speed() {
@@ -70,6 +71,60 @@ fn live_renders_a_clip_frame_with_effects() {
         "preview real: {} {}x{}",
         result.path, result.width, result.height
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+#[ignore = "requiere FFmpeg/FFprobe en PATH"]
+fn live_frame_burns_monitor_frame() {
+    let dir = std::env::temp_dir().join(format!("editoria-preview-mf-{}", Uuid::new_v4()));
+    let media = dir.join("media");
+    std::fs::create_dir_all(&media).expect("media");
+    let video = media.join("clip.mp4");
+    let generated = Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=s=320x180:d=1",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .arg(&video)
+        .status()
+        .expect("ffmpeg");
+    assert!(generated.success());
+    let project = serde_json::json!({
+        "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 } },
+        "assets": [{
+            "id": "a", "kind": "video", "label": "Toma",
+            "source": { "path": "media/clip.mp4" }
+        }],
+        "timeline": { "clips": [{
+            "id": "c", "kind": "video", "label": "Toma", "startFrame": 0,
+            "durationFrames": 30,
+            "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 },
+            "monitorFrame": { "preset": "circle-thin", "color": "#ff00ff" }
+        }] }
+    });
+    let result = render_frame(Path::new("ffmpeg"), &dir, &project, "c", 10, false, &dir)
+        .expect("frame real con marco");
+    assert!(Path::new(&result.path).is_file());
+    assert_eq!((result.width, result.height), (320, 180));
+    // El PNG del marco es magenta puro: debe aparecer en el frame quemado.
+    let image = image::open(&result.path).expect("png legible").to_rgba8();
+    let magenta = image
+        .pixels()
+        .filter(|p| p[0] > 200 && p[2] > 200 && p[1] < 100)
+        .count();
+    assert!(magenta > 20, "el marco magenta no quedó quemado ({magenta} px)");
+    // Y el PNG intermedio no debe quedar en el directorio del frame.
+    assert!(!dir.join("monitor-frame-1.png").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3270,4 +3325,148 @@ fn graphic_clips_are_rejected() {
         Path::new("."),
     );
     assert!(result.is_err());
+}
+
+#[test]
+fn window_resolves_transition_out_into_the_next_clip() {
+    let mut project = preview_project();
+    // Clip contiguo en la misma pista: main termina en 40, next empieza ahí.
+    project["timeline"]["clips"]
+        .as_array_mut()
+        .expect("clips")
+        .push(serde_json::json!({
+            "id": "next", "trackId": "v1", "kind": "image", "label": "Siguiente",
+            "startFrame": 40, "durationFrames": 30,
+            "source": { "type": "asset", "assetId": "image" },
+            "transform": {}
+        }));
+    project["timeline"]["clips"][0]["transitionOut"] =
+        serde_json::json!({ "type": "dissolve", "frames": 12 });
+
+    // Frame 34: cola del saliente a mitad (keep 0,5) y lead del entrante a
+    // mitad (alpha 0,5) — la transición vive en los dos extremos.
+    let window = window_project(&preview_copy(&project), 34).expect("ventana");
+    let clips = window["timeline"]["clips"].as_array().expect("clips");
+    let main = clips.iter().find(|clip| clip["id"] == "main").expect("main");
+    let next = clips.iter().find(|clip| clip["id"] == "next").expect("next");
+    let keep = main["transitionOutFrozen"]["keep"]
+        .as_f64()
+        .expect("keep de salida");
+    assert!((keep - 0.5).abs() < 1e-6, "keep {keep}");
+    assert_eq!(main["transitionOutFrozen"]["mode"], "alpha");
+    assert_eq!(next["transitionIn"], serde_json::json!({}));
+    let alpha = next["transitionFrozen"]["alpha"]
+        .as_f64()
+        .expect("alfa de entrada");
+    assert!((alpha - 0.5).abs() < 1e-6, "alfa {alpha}");
+    // Ambos clips viven en v1: el entrante resuelto cuenta dentro del lead.
+    assert_eq!(composite_metadata(&project, 34).0, 1);
+
+    // Fuera de la cola (frame 20) no hay fundido de salida congelado.
+    let window = window_project(&preview_copy(&project), 20).expect("ventana");
+    let main = window["timeline"]["clips"]
+        .as_array()
+        .expect("clips")
+        .iter()
+        .find(|clip| clip["id"] == "main")
+        .expect("main")
+        .clone();
+    assert!(main["transitionOutFrozen"].is_null());
+}
+
+#[test]
+fn frame_signature_is_stable_and_sensitive() {
+    let project = serde_json::json!({ "video": { "width": 1920 }, "timeline": { "clips": [] } });
+    let a = frame_signature(&project, "clip-1", 30, false, true);
+    let b = frame_signature(&project, "clip-1", 30, false, true);
+    assert_eq!(a, b, "misma entrada → misma firma");
+    assert_ne!(a, frame_signature(&project, "clip-1", 31, false, true), "otro frame");
+    assert_ne!(a, frame_signature(&project, "clip-2", 30, false, true), "otro clip");
+    assert_ne!(a, frame_signature(&project, "clip-1", 30, true, true), "modo native");
+    assert_ne!(a, frame_signature(&project, "clip-1", 30, false, false), "modo clip solo");
+    let mut edited = project.clone();
+    edited["video"]["width"] = serde_json::json!(1080);
+    assert_ne!(a, frame_signature(&edited, "clip-1", 30, false, true), "edición invalida");
+}
+
+#[test]
+fn frame_cache_roundtrip_and_prune() {
+    let dir = std::env::temp_dir().join(format!("editoria-framecache-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("cache dir");
+    let png = dir.join("source.png");
+    std::fs::write(&png, b"png-bytes").expect("png");
+    let result = PreviewFrameResult {
+        path: png.to_string_lossy().into_owned(),
+        width: 640,
+        height: 360,
+        frame: 12,
+        time_seconds: 0.4,
+        clip_id: "clip-1".to_owned(),
+        clip_label: "Clip".to_owned(),
+        native: false,
+        decoder: "ffmpeg".to_owned(),
+        composite: true,
+        composite_mode: "window".to_owned(),
+        visible_tracks: 2,
+        captions_burned: false,
+        fallback_reason: None,
+    };
+    let signature = frame_signature(&serde_json::json!({"a":1}), "c", 1, false, true);
+
+    // Sin entrada → lookup miss.
+    assert!(cache_lookup(&dir, &signature).is_none());
+
+    let stored = cache_store(&dir, &signature, &result);
+    assert!(stored.path.contains(&signature), "path cacheado por firma");
+    assert!(Path::new(&stored.path).is_file(), "PNG copiado a la caché");
+
+    // Hit: mismos metadatos, path reescrito a la entrada vigente.
+    let hit = cache_lookup(&dir, &signature).expect("hit");
+    assert_eq!(hit.width, 640);
+    assert_eq!(hit.frame, 12);
+    assert!(hit.path.contains(&signature));
+
+    // JSON huérfano sin PNG no cuenta como hit.
+    let orphan = frame_signature(&serde_json::json!({"b":2}), "c", 1, false, true);
+    std::fs::write(dir.join(format!("frame-{orphan}.json")), "{}").expect("json");
+    assert!(cache_lookup(&dir, &orphan).is_none());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn frame_cache_prunes_to_limit() {
+    let dir = std::env::temp_dir().join(format!("editoria-frameprune-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).expect("cache dir");
+    // Sembrar CACHE_LIMIT + 2 entradas: el prune del store debe dejar
+    // como máximo CACHE_LIMIT pares png+json.
+    for i in 0..(CACHE_LIMIT + 2) {
+        let sig = format!("{i:016x}");
+        std::fs::write(dir.join(format!("frame-{sig}.png")), b"x").expect("png");
+        std::fs::write(dir.join(format!("frame-{sig}.json")), "{}").expect("json");
+    }
+    let source = dir.join(format!("frame-{:016x}.png", CACHE_LIMIT + 3));
+    std::fs::write(&source, b"real-png").expect("source png");
+    let result = PreviewFrameResult {
+        path: source.to_string_lossy().into_owned(),
+        width: 1, height: 1, frame: 0, time_seconds: 0.0,
+        clip_id: "c".to_owned(), clip_label: "c".to_owned(), native: false,
+        decoder: "ffmpeg".to_owned(), composite: false,
+        composite_mode: "none".to_owned(), visible_tracks: 0,
+        captions_burned: false, fallback_reason: None,
+    };
+    let sig = "ffffffffffffffff";
+    cache_store(&dir, sig, &result);
+    let remaining = std::fs::read_dir(&dir)
+        .expect("read_dir")
+        .flatten()
+        .filter(|e| {
+            e.file_name().to_string_lossy().starts_with("frame-")
+                && e.path().extension().and_then(|x| x.to_str()) == Some("png")
+        })
+        .count();
+    assert!(remaining <= CACHE_LIMIT, "quedaron {remaining} PNGs");
+    // El PNG recién guardado siempre sobrevive al prune.
+    assert!(dir.join(format!("frame-{sig}.png")).is_file());
+    std::fs::remove_dir_all(&dir).ok();
 }

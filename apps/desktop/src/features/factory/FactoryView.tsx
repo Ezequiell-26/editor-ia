@@ -12,7 +12,7 @@ import {
   type FactoryVariantResult,
 } from '../../state/batch-factory';
 import { useProjectStore } from '../../state/project-store';
-import { buildProjectMotionPlans } from '../motion/plan';
+import { buildProjectMotionPlans } from '../../state/motion-plan';
 import { AutopilotPanel } from './AutopilotPanel';
 
 interface FactoryImage {

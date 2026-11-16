@@ -24,7 +24,7 @@
     "thumbnails:effects": "node --experimental-strip-types packages/effect-kit/scripts/generate-thumbnails.ts",
     "loop:preflight": "node scripts/loop-preflight.mjs",
     "loop:record": "node scripts/loop-record.mjs",
-    "verify": "npm run typecheck && npm run test:serial && npm run test:extension && npm run test:web-tts",
+    "verify": "npm run typecheck && npm run test:serial && npm run test:extension && npm run test:web-tts && npm run audit:security",
     "dev": "npm --workspace @editor-ia/desktop run dev",
     "build": "npm --workspace @editor-ia/desktop run build",
     "setup:ffmpeg": "node scripts/setup-ffmpeg-dev.mjs --runtime",
@@ -35,7 +35,11 @@
     "test:web-tts": "npm --prefix extensions/web-tts-bridge test",
     "lipsync:engine": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lipsync-engine/start.ps1",
     "rules:export": "node scripts/export-platform-rules.mjs",
-    "audit:licenses": "node scripts/audit-bundle-licenses.mjs"
+    "audit:licenses": "node scripts/audit-bundle-licenses.mjs",
+    "audit:security": "node scripts/security-audit.mjs",
+    "test:studio": "node scripts/verify-studio.mjs",
+    "perf:baseline": "node scripts/perf-baseline.mjs",
+    "test:inventory": "node scripts/test-inventory.mjs"
   },
   "devDependencies": {
     "@types/node": "22.10.2",

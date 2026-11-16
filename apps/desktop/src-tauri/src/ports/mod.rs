@@ -6,10 +6,12 @@
 
 pub mod agent;
 pub mod ai;
+pub mod concat_worker;
 pub mod conversion;
 pub mod mcp;
 pub mod mcp_server;
 pub mod media;
+pub mod object_track;
 pub mod projects;
 pub mod proxies;
 pub mod render;

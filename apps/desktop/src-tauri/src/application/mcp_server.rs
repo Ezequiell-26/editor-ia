@@ -17,7 +17,8 @@ use crate::mcp::server::{
     AutoconnectResult, DetectedClient, McpServerInfo, BRIDGE_TIMEOUT, MCP_PORT,
 };
 use crate::ports::mcp_server::{
-    AiClientConfigs, McpRequestHandler, McpServerToken, McpToolInvoker,
+    AiClientConfigs, McpAuditSink, McpRequestHandler, McpServerRuntime, McpServerToken,
+    McpToolInvoker,
 };
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 
@@ -35,6 +36,14 @@ fn start_lock() -> &'static tokio::sync::Mutex<()> {
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
+/// Handle del accept loop en marcha; `None` cuando el servidor está
+/// detenido. Se guarda junto a `info_slot` para que `stop_server` pueda
+/// abortar la task real y no sólo olvidar la info publicada.
+fn runtime_slot() -> &'static Mutex<Option<Box<dyn McpServerRuntime>>> {
+    static RUNTIME: OnceLock<Mutex<Option<Box<dyn McpServerRuntime>>>> = OnceLock::new();
+    RUNTIME.get_or_init(|| Mutex::new(None))
+}
+
 pub fn status() -> Option<McpServerInfo> {
     info_slot().lock().ok().and_then(|guard| guard.clone())
 }
@@ -47,7 +56,8 @@ fn set_info(info: Option<McpServerInfo>) {
 
 /// Arranca el servidor si no está corriendo. `serve` es el adaptador de
 /// infrastructure que hace bind + accept loop; se invoca con el token y el
-/// handler ya construido.
+/// handler ya construido y devuelve el handle del listener para poder
+/// frenarlo después con `stop_server`.
 pub async fn start_server<S, F>(
     token_store: &S,
     handler: Arc<dyn McpRequestHandler>,
@@ -55,7 +65,10 @@ pub async fn start_server<S, F>(
 ) -> Result<McpServerInfo, ProjectError>
 where
     S: McpServerToken + ?Sized,
-    F: FnOnce(String, Arc<dyn McpRequestHandler>) -> Result<(), ProjectError>,
+    F: FnOnce(
+        String,
+        Arc<dyn McpRequestHandler>,
+    ) -> Result<Box<dyn McpServerRuntime>, ProjectError>,
 {
     let _start_guard = start_lock().lock().await;
     if let Some(existing) = status() {
@@ -66,9 +79,33 @@ where
         url: format!("http://127.0.0.1:{MCP_PORT}/mcp"),
         token: token.clone(),
     };
-    serve(token, handler)?;
+    let runtime = serve(token, handler)?;
+    if let Ok(mut guard) = runtime_slot().lock() {
+        *guard = Some(runtime);
+    }
     set_info(Some(info.clone()));
     Ok(info)
+}
+
+/// Frena el servidor MCP si está corriendo: aborta el accept loop (libera
+/// el puerto) y limpia la info publicada. Idempotente — sin servidor
+/// devuelve `false`. Las requests ya aceptadas terminan su respuesta en
+/// curso; las pendientes del bridge a la ventana expiran por timeout.
+pub fn stop_server() -> bool {
+    let runtime = runtime_slot()
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take());
+    if let Some(runtime) = runtime {
+        runtime.abort();
+        set_info(None);
+        return true;
+    }
+    // Estado inconsistente defensivo: info publicada sin handle no puede
+    // existir por `start_server`, pero limpiarla cuesta nada.
+    let was_published = status().is_some();
+    set_info(None);
+    was_published
 }
 
 // ---------------------------------------------------------------------------
@@ -107,16 +144,50 @@ fn read_only_snapshot() -> HashSet<String> {
 /// Implementación de `McpRequestHandler` sobre un invoker concreto.
 pub struct RpcDispatcher<I: McpToolInvoker> {
     invoker: Arc<I>,
+    audit: Option<Arc<dyn McpAuditSink>>,
+}
+
+/// Entrada de audit para una llamada `tools/call` ya resuelta. Los
+/// argumentos y el resultado pasan por los sanitizadores de
+/// `mcp::server` antes de tocar el sumidero.
+fn audit_entry(
+    name: &str,
+    args: &Value,
+    reply: &server::McpReply,
+    elapsed: std::time::Duration,
+) -> Value {
+    json!({
+        "ts": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_millis() as u64)
+            .unwrap_or(0),
+        "tool": name,
+        "args": server::sanitize_audit_args(args),
+        "ok": reply.ok,
+        "durationMs": elapsed.as_millis() as u64,
+        "result": server::sanitize_audit_text(&reply.text),
+    })
 }
 
 impl<I: McpToolInvoker> RpcDispatcher<I> {
     pub fn new(invoker: I) -> Self {
         Self {
             invoker: Arc::new(invoker),
+            audit: None,
         }
     }
 
-    async fn dispatch(invoker: &I, message: &Value) -> Option<Value> {
+    /// Activa el audit log persistente de llamadas `tools/call`.
+    pub fn with_audit(mut self, audit: Arc<dyn McpAuditSink>) -> Self {
+        self.audit = Some(audit);
+        self
+    }
+
+    async fn dispatch(
+        invoker: &I,
+        audit: Option<&Arc<dyn McpAuditSink>>,
+        message: &Value,
+    ) -> Option<Value> {
         let request = classify_request(message);
         let id = match request {
             server::RpcRequest::Notification => return None,
@@ -164,7 +235,11 @@ impl<I: McpToolInvoker> RpcDispatcher<I> {
                 if name.is_empty() {
                     Err((-32602, "falta el nombre de la herramienta".to_owned()))
                 } else {
+                    let started = std::time::Instant::now();
                     let reply = invoker.invoke(name, args, BRIDGE_TIMEOUT).await;
+                    if let Some(sink) = audit {
+                        sink.record(&audit_entry(name, args, &reply, started.elapsed()));
+                    }
                     Ok(tool_result(&reply.text, !reply.ok))
                 }
             }
@@ -183,8 +258,9 @@ impl<I: McpToolInvoker + Send + Sync + 'static> McpRequestHandler for RpcDispatc
         request: &Value,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Value>> + Send + '_>> {
         let invoker = self.invoker.clone();
+        let audit = self.audit.clone();
         let request = request.clone();
-        Box::pin(async move { Self::dispatch(&invoker, &request).await })
+        Box::pin(async move { Self::dispatch(&invoker, audit.as_ref(), &request).await })
     }
 
     fn handle_batch(
@@ -192,6 +268,7 @@ impl<I: McpToolInvoker + Send + Sync + 'static> McpRequestHandler for RpcDispatc
         items: &[Value],
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Value> + Send + '_>> {
         let invoker = self.invoker.clone();
+        let audit = self.audit.clone();
         let items = items.to_vec();
         Box::pin(async move {
             if items.is_empty() {
@@ -211,9 +288,10 @@ impl<I: McpToolInvoker + Send + Sync + 'static> McpRequestHandler for RpcDispatc
                     let mut handles = Vec::with_capacity(chunk.len());
                     for message in chunk {
                         let invoker = invoker.clone();
+                        let audit = audit.clone();
                         let cloned = message.clone();
                         handles.push(async_spawn(async move {
-                            Self::dispatch(&invoker, &cloned).await
+                            Self::dispatch(&invoker, audit.as_ref(), &cloned).await
                         }));
                     }
                     for (offset, (message, handle)) in chunk.iter().zip(handles).enumerate() {
@@ -230,7 +308,7 @@ impl<I: McpToolInvoker + Send + Sync + 'static> McpRequestHandler for RpcDispatc
                 // Los lotes mixtos pueden depender del orden (por ejemplo,
                 // editar y luego leer).
                 for (index, message) in items.iter().enumerate() {
-                    answers[index] = Self::dispatch(&invoker, message).await;
+                    answers[index] = Self::dispatch(&invoker, audit.as_ref(), message).await;
                 }
             }
 
@@ -294,3 +372,7 @@ pub fn known_client(client: &str) -> bool {
 pub fn rpc_tool_error(id: &Value, message: &str) -> Value {
     rpc_error(id, -32603, message)
 }
+
+#[cfg(test)]
+#[path = "mcp_server.tests.rs"]
+mod tests;

@@ -3,7 +3,14 @@
 **Estado:** aceptada (pipeline completo cableado y verificado E2E con
 FFmpeg real: plan/acquire/analyze/scenes/edit/render/review/deliver;
 `acquire` resuelve contra la biblioteca local y lo no cubierto falla
-`requires_provider`).
+`requires_provider`). **Implementado desde la redacción original:**
+`CompositeStageExecutor` ya existe y se inyecta en `production_advance`
+con `RenderDeps` del `AppState`; los executors cubren plan/acquire/analyze
+(`ProjectStageExecutor` + `LocalCatalogAcquisition`), scenes/edit
+(`AssemblyStageExecutor`) y render/review/deliver
+(`RenderReviewDeliverExecutor` con FFmpeg real, Quality Gate y manifest).
+Providers locales del estudio operativos (catálogo de proyecto, keyring,
+reqwest); providers remotos de generación de contenido siguen pendientes.
 **Fecha:** 2026-02 (worktree `architecture/refactor-foundation`).
 
 ## Problema
@@ -60,8 +67,17 @@ quién decidiera el avance entre etapas.
 - Las corridas sobreviven reinicios (JSON por corrida en config_dir).
 - Presupuesto, reintentos y cancelación son reglas de dominio testeadas,
   no convenciones del llamador.
-- Composición futura: un `CompositeStageExecutor` en `infrastructure` que
-  enrute cada etapa a su adaptador real (catálogo → analizador → editor →
-  render → quality gate) y se inyecte vía `AppState` cuando exista.
-- Frontend/MCP consumen el ciclo de vida; la UI de producciones es fase
-  posterior.
+- Composición: `CompositeStageExecutor` en `infrastructure/studio/` enruta
+  cada etapa a su adaptador real y se inyecta vía `AppState` (hecho).
+- Frontend/MCP consumen el ciclo de vida por IPC; la UI de producciones es
+  fase posterior.
+
+## Pendiente
+
+- Providers remotos reales de adquisición/generación (`requires_provider`
+  sigue siendo el resultado honesto cuando la biblioteca local no alcanza).
+- `cost_cents` real en providers remotos (hoy `None`; ver `PDF-100-TRACKER.md`
+  F6) para que el presupuesto de la corrida sea efectivo con servicios pagos.
+- Generadores de contenido vídeo/música/SFX (port `ContentGenerator` sin
+  implementación).
+- UI de gestión de corridas de producción.

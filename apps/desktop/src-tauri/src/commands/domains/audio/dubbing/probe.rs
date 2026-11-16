@@ -1,3 +1,8 @@
+/// ffprobe lee cabeceras del archivo de entrada; 60 s cubre archivos
+/// grandes o discos lentos. Sin deadline un sondeo colgado congelaba el
+/// comando de doblaje para siempre.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
 fn probe_json(ffprobe: &Path, path: &Path) -> Option<serde_json::Value> {
     let mut command = Command::new(ffprobe);
     command
@@ -14,7 +19,11 @@ fn probe_json(ffprobe: &Path, path: &Path) -> Option<serde_json::Value> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     hide_console(&mut command);
-    let output = command.output().ok()?;
+    let timed = crate::commands::output_with_timeout(&mut command, PROBE_TIMEOUT).ok()?;
+    if timed.timed_out {
+        return None;
+    }
+    let output = timed.into_output()?;
     serde_json::from_slice(&output.stdout).ok()
 }
 

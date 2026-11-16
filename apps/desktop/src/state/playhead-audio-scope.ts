@@ -1,8 +1,5 @@
-import {
-  curveSourceFraction,
-  type Clip,
-  type ProjectDocument,
-} from '@editor-ia/project-schema';
+import type { Clip, ProjectDocument } from '@editor-ia/project-schema';
+import { clipSourceFrameAtLocal } from './clip-source-time';
 import { fpsOf } from './project-actions';
 
 /**
@@ -64,20 +61,11 @@ function targetForClip(
 ): PlayheadScopeTarget | null {
   if (clip.source.type !== 'asset' || !('inFrame' in clip.source)) return null;
   const local = Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame));
-  const reversed = 'reverse' in clip && clip.reverse === true;
-  const localSource = reversed ? clip.durationFrames - 1 - local : local;
-  let sourceFrame: number;
-  if (clip.kind === 'video' && clip.speedCurve && 'outFrame' in clip.source) {
-    // Mismo mapeo que `buildSpeedKnots` del renderer: fracción de salida →
-    // fracción de fuente consumida.
-    const outputFraction = localSource / Math.max(1, clip.durationFrames - 1);
-    const sourceFraction = curveSourceFraction(clip.speedCurve, outputFraction);
-    sourceFrame = clip.source.inFrame + sourceFraction * (clip.source.outFrame - clip.source.inFrame);
-  } else {
-    const speed = 'speed' in clip ? clip.speed : undefined;
-    const factor = speed ? speed.num / Math.max(1, speed.den) : 1;
-    sourceFrame = clip.source.inFrame + localSource * factor;
-  }
+  // Mismo mapeo que usa la preview del monitor (`clip-source-time.ts`):
+  // reverse invierte el recorrido local y speedCurve consume la fuente por
+  // `curveSourceFraction`, el mapeo de `buildSpeedKnots` del renderer.
+  const sourceFrame = clipSourceFrameAtLocal(clip, local);
+  if (sourceFrame === null) return null;
   const centerSeconds = sourceFrame / projectFps;
   const assetSeconds = assetDurationSeconds(project, clip.source.assetId, projectFps);
 

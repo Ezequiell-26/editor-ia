@@ -4,8 +4,6 @@
 //! los builders puros en `media::timeline_export`; aquí sólo se orquesta:
 //! validar destino, expandir, construir, verificar y publicar vía port.
 
-use std::path::PathBuf;
-
 use serde_json::Value;
 
 use crate::media::timeline_export::{self, export_stem};
@@ -29,8 +27,10 @@ fn export(
     label: &str,
     build: impl FnOnce(&Value) -> Result<Built, ProjectError>,
 ) -> Result<TimelineExportOutcome, ProjectError> {
-    let dir = PathBuf::from(output_dir.trim());
-    if dir.as_os_str().is_empty() || !files.is_dir(&dir) {
+    // La carpeta llega por IPC: política de escritura de `fs_*` (absoluta,
+    // sin sistema, credenciales ni carpetas de la app).
+    let dir = crate::application::fs::validate_user_write_path(output_dir)?;
+    if !files.is_dir(&dir) {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             format!("la carpeta de destino del {dir_label} no existe").as_str(),
@@ -148,4 +148,64 @@ pub fn export_fcpxml(
             })
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ports::media::TimelineExportFiles;
+    use std::path::{Path, PathBuf};
+
+    /// Port fake: sólo importa que `export` valide el destino antes de
+    /// publicar; el contenido del proyecto no llega a usarse en estos tests.
+    struct FakeFiles;
+
+    impl TimelineExportFiles for FakeFiles {
+        fn is_dir(&self, path: &Path) -> bool {
+            path.is_dir()
+        }
+        fn publish(
+            &self,
+            dir: &Path,
+            _stem: &str,
+            extension: &str,
+            _label: &str,
+            text: &str,
+        ) -> Result<(PathBuf, u64), ProjectError> {
+            let path = dir.join(format!("out.{extension}"));
+            std::fs::write(&path, text).map_err(|_| {
+                ProjectError::message(ProjectErrorCode::Io, "no se pudo publicar")
+            })?;
+            Ok((path, text.len() as u64))
+        }
+    }
+
+    #[test]
+    fn export_rechaza_destinos_fuera_de_la_politica() {
+        let project = serde_json::json!({});
+        // Relativa: la política de escritura exige absoluta.
+        assert!(export_edl(&FakeFiles, &project, "salida").is_err());
+        // Dentro de una carpeta de credenciales.
+        let root = std::env::temp_dir().join(format!("olyvia-tl-{}", uuid::Uuid::new_v4()));
+        let ssh = root.join(".ssh");
+        std::fs::create_dir_all(&ssh).unwrap();
+        assert!(export_edl(&FakeFiles, &project, &ssh.to_string_lossy()).is_err());
+        assert!(export_otio(&FakeFiles, &project, &ssh.to_string_lossy()).is_err());
+        assert!(export_fcpxml(&FakeFiles, &project, &ssh.to_string_lossy()).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn export_acepta_carpeta_temporal_normal() {
+        let dir = std::env::temp_dir().join(format!("olyvia-tl-ok-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // El proyecto mínimo falla después, en el builder (timeline vacía) —
+        // lo que importa es que la política de ruta no lo haya frenado antes.
+        let error = match export_edl(&FakeFiles, &serde_json::json!({}), &dir.to_string_lossy()) {
+            Err(error) => error,
+            Ok(_) => panic!("un proyecto vacío no tiene clips para EDL"),
+        };
+        assert_eq!(error.code, ProjectErrorCode::EmptyTimeline);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

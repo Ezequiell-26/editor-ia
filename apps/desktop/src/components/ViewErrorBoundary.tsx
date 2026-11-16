@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { sanitizeForUi } from '../platform/tauri/shared';
 
 interface ViewErrorBoundaryProps {
   readonly children: ReactNode;
@@ -47,7 +48,9 @@ export class ViewErrorBoundary extends Component<
           El resto de Olyvia sigue funcionando. Reintentá la herramienta o volvé a Inicio para
           seguir trabajando sin cerrar la app.
         </p>
-        <pre>{error.message}</pre>
+        {/* El mensaje puede venir del backend con rutas absolutas o detalles
+            internos: se redacta antes de mostrarlo, igual que en nativeError. */}
+        <pre>{sanitizeForUi(error.message)}</pre>
         <div className="actions">
           <button type="button" className="primary" onClick={() => this.setState({ error: null })}>
             Reintentar

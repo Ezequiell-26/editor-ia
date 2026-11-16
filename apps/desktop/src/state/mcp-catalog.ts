@@ -173,13 +173,14 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   // ── Proyecto ────────────────────────────────────────────────────────
   {
     name: 'project_new',
-    description: `${WRITE} Crea un proyecto nuevo (descarta el abierto si no está guardado).`,
+    description: `${WRITE} Crea un proyecto nuevo. Con «directory» lo escribe directo en esa carpeta y lo abre sin diálogo (uso por MCP); sin «directory» abre el diálogo nativo de guardado.`,
     inputSchema: obj(
       {
         name: { type: 'string', minLength: 1, maxLength: 120 },
         width: boundedInt(2, 7680),
         height: boundedInt(2, 4320),
         fps: boundedNum(1, 240),
+        directory: { type: 'string', maxLength: 32_768 },
       },
       ['name'],
     ),
@@ -605,6 +606,17 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     annotations: { readOnlyHint: true },
   },
   {
+    name: 'media_search',
+    description: `${READ} Busca archivos de medios (imagen, audio, video) por nombre dentro de una carpeta del disco: coincidencia por substring sin distinguir mayúsculas, hasta 4 niveles, tope 200 resultados (viene «truncated» si hay más). Acepta ruta absoluta o nombre dentro de Descargas. Usala para encontrar material antes de asset_import.`,
+    inputSchema: obj({
+      folder: { type: 'string', minLength: 1, maxLength: 32_768 },
+      query: { type: 'string', minLength: 1, maxLength: 200 },
+      kind: { type: 'string', enum: ['image', 'audio', 'video'] },
+      root: { type: 'string', maxLength: 32_768 },
+    }, ['folder', 'query']),
+    annotations: { readOnlyHint: true },
+  },
+  {
     name: 'fs_list',
     description: `${READ} Lista el contenido de una carpeta del disco (subcarpetas primero) con ruta, tipo y tamaño, sin recursión. Tope 500. Usala para explorar el disco antes de importar.`,
     inputSchema: obj({
@@ -638,11 +650,12 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'fs_delete',
-    description: `${WRITE} Borra un archivo o carpeta de la PC. Las carpetas con contenido exigen recursive=true explícito. Rechaza rutas protegidas (raíz de unidad, Windows, Program Files).`,
+    description: `${WRITE} Borra un archivo o carpeta de la PC. Las carpetas con contenido exigen recursive=true explícito y confirm=true para cualquier borrado. Rechaza rutas protegidas (raíz de unidad, Windows, Program Files).`,
     inputSchema: obj({
       path: { type: 'string', minLength: 1, maxLength: 32_768 },
       recursive: { type: 'boolean' },
-    }, ['path']),
+      confirm: { type: 'boolean' },
+    }, ['path', 'confirm']),
   },
   {
     name: 'fs_move',
@@ -937,8 +950,10 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'package_project',
-    description: 'Empaqueta el proyecto y sus medios en un ZIP.',
-    inputSchema: obj({}),
+    description: 'Empaqueta el proyecto y sus medios en un ZIP. Con «path» escribe directo sin diálogo (uso por MCP); sin «path» abre el diálogo nativo de guardado.',
+    inputSchema: obj({
+      path: { type: 'string', maxLength: 32_768 },
+    }),
   },
 
   // ── Revisión por ítem ───────────────────────────────────────────────

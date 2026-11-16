@@ -132,6 +132,470 @@ fn is_open_world(name: &str) -> bool {
     )
 }
 
+// ---------------------------------------------------------------------------
+// Scopes por herramienta (least privilege sobre el Bearer token)
+// ---------------------------------------------------------------------------
+//
+// El token sólo demuestra identidad: qué puede hacer cada cliente lo decide
+// el header `X-Olyvia-Scopes` de cada request (lista separada por comas).
+// Sin header se otorgan `read`+`write`: las tools destructivas y admin
+// quedan cerradas hasta que el cliente las pida explícitamente. Las entradas
+// que escribe `client_entry` (autoconnect) ya traen `read,write,destructive`;
+// `admin` nunca se regala: queda para configuración manual.
+//
+// Jerarquía: read < write < destructive < admin. Un scope otorga todos los
+// inferiores (`scopes_satisfy` compara rango, no membresía exacta).
+
+/// Header HTTP que transporta los scopes del cliente.
+pub const MCP_SCOPES_HEADER: &str = "x-olyvia-scopes";
+/// Scopes que tiene cualquier cliente con token válido y sin header.
+pub const DEFAULT_SCOPES: &[&str] = &["read", "write"];
+/// Scopes que reciben las entradas de autoconnect (clientes del propio
+/// usuario). `admin` queda fuera a propósito.
+pub const AUTOCONNECT_SCOPES: &str = "read,write,destructive";
+/// Código JSON-RPC de "scope insuficiente" (rango -32000 de error de servidor).
+pub const SCOPE_DENIED_CODE: i64 = -32004;
+
+/// Lecturas puras: no mutan proyecto, sesión ni filesystem del usuario.
+const SCOPE_READ_TOOLS: &[&str] = &[
+    "diagnostics",
+    "app_status",
+    "project_summary",
+    "project_snapshot",
+    "timeline_clips",
+    "captions_list",
+    "assets_list",
+    "tracks_list",
+    "export_profiles",
+    "markers_list",
+    "transitions_list",
+    "media_folder_list",
+    "media_search",
+    "fs_list",
+    "fs_read",
+    "fs_check",
+    "settings_get",
+    "media_analyze",
+    "critic_run",
+    "review_build",
+    "factory_job_status",
+    "factory_job_list",
+    "production_list",
+    "production_status",
+    "studio_capabilities",
+    "quality_gate_review",
+    "production_plan_from_brief",
+    "voice_isolation_status",
+    "flow_browser_status",
+    "flow_embed_status",
+    "web_sessions_status",
+    "browser_instances",
+    "__catalog",
+];
+
+/// Escrituras acotadas y reversibles: edits de timeline, navegación,
+/// ciclo de vida del documento del proyecto y lotes de efectos.
+const SCOPE_WRITE_TOOLS: &[&str] = &[
+    "project_new",
+    "project_open",
+    "project_save",
+    "project_save_as",
+    "undo",
+    "redo",
+    "navigate",
+    "playhead",
+    "track_add",
+    "track_update",
+    "clip_add",
+    "clip_update",
+    "clip_move",
+    "clip_split",
+    "clip_effects",
+    "clip_effects_apply",
+    "clip_effects_clear",
+    "clip_effects_preset",
+    "caption_add",
+    "caption_update",
+    "caption_style_update",
+    "marker_add",
+    "transition_add",
+    "text_layer_add",
+    "text_layer_update",
+    "lower_third_add",
+    "keyframe_add",
+    "animation_preset_apply",
+    "audio_effect_eq",
+    "audio_effect_voice",
+    "audio_ducking",
+    "color_wheels_adjust",
+    "color_preset_cinematic",
+    "batch_clips_select",
+    "batch_effects_apply",
+    "batch_audio_normalize",
+    "batch_transitions_add",
+    "batch_speed_change",
+    "timeline_gaps_remove",
+    "timeline_align_clips",
+    "asset_import",
+];
+
+/// Lo que puede destruir trabajo, gastar dinero/compute o salir del
+/// sandbox del proyecto: borrados, cierres, renders, pipelines remotos,
+/// grabación de pantalla y generación con costo.
+const SCOPE_DESTRUCTIVE_TOOLS: &[&str] = &[
+    "project_close",
+    "track_delete",
+    "clip_delete",
+    "caption_delete",
+    "marker_delete",
+    "transition_remove",
+    "timeline_ripple_delete",
+    "asset_remove",
+    "factory_job_cancel",
+    "factory_run",
+    "production_create",
+    "production_start",
+    "production_advance",
+    "production_cancel",
+    "production_resume",
+    "production_pause",
+    "production_plan_from_text",
+    "run_automation",
+    "diarize",
+    "voice_isolate",
+    "voice_isolation_prepare",
+    "media_convert",
+    "subtitles_translate",
+    "subtitles_pipeline",
+    "screen_record",
+    "stickman_render",
+    "obs_scenes",
+    "flow_browser_launch",
+    "flow_browser_stop",
+    "flow_embed_open",
+    "flow_embed_close",
+    "flow_embed_nav",
+    "flow_generate_image",
+    "flow_generate_assets",
+    "export_render",
+    "export_interchange",
+    "export_lossless",
+    "remux",
+    "extract_audio",
+    "write_chapters",
+    "package_project",
+    "multicam_build",
+    "review_apply",
+    "critic_fix",
+    "audio_mix",
+];
+
+/// Las más peligrosas: ejecución de comandos arbitrarios, evaluación JS en
+/// un navegador embebido, escritura/borrado de filesystem y cambios de
+/// configuración del sistema. Nunca se otorgan por autoconnect.
+const SCOPE_ADMIN_TOOLS: &[&str] = &[
+    "run_command",
+    "flow_embed_eval",
+    "fs_write",
+    "fs_delete",
+    "fs_mkdir",
+    "fs_move",
+    "settings_set",
+    "settings_set_tools",
+];
+
+/// Scope mínimo que exige una herramienta. Las desconocidas caen en
+/// `destructive`: un nombre nuevo no abre la puerta por omisión.
+pub fn tool_required_scope(name: &str) -> &'static str {
+    if SCOPE_ADMIN_TOOLS.contains(&name) {
+        return "admin";
+    }
+    if SCOPE_DESTRUCTIVE_TOOLS.contains(&name) {
+        return "destructive";
+    }
+    if SCOPE_WRITE_TOOLS.contains(&name) {
+        return "write";
+    }
+    if SCOPE_READ_TOOLS.contains(&name) || is_read_only(name) {
+        return "read";
+    }
+    "destructive"
+}
+
+fn scope_rank(scope: &str) -> u8 {
+    match scope {
+        "read" => 1,
+        "write" => 2,
+        "destructive" => 3,
+        "admin" => 4,
+        _ => 0,
+    }
+}
+
+/// Scopes otorgados por el header `X-Olyvia-Scopes` (CSV, case-insensitive).
+/// Valores desconocidos se descartan; un header vacío equivale a ausente.
+pub fn scopes_from_header(value: &str) -> HashSet<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .map(|part| part.to_ascii_lowercase())
+        .filter(|part| scope_rank(part) > 0)
+        .collect()
+}
+
+/// Scopes efectivos de un request: los del header, o el default seguro.
+pub fn request_scopes(header: Option<&str>) -> HashSet<String> {
+    header
+        .map(scopes_from_header)
+        .filter(|scopes| !scopes.is_empty())
+        .unwrap_or_else(|| DEFAULT_SCOPES.iter().map(|s| s.to_string()).collect())
+}
+
+/// `true` si el mejor scope otorgado alcanza para el requerido.
+pub fn scopes_satisfy(granted: &HashSet<String>, required: &str) -> bool {
+    let need = scope_rank(required);
+    granted.iter().any(|scope| scope_rank(scope) >= need)
+}
+
+// ---------------------------------------------------------------------------
+// Sanitización para el audit log (nunca secretos ni args crudos)
+// ---------------------------------------------------------------------------
+
+const AUDIT_MAX_STRING: usize = 240;
+const AUDIT_MAX_TEXT: usize = 800;
+const AUDIT_MAX_ARGS_BYTES: usize = 8 * 1024;
+
+/// Claves de argumentos cuyo valor jamás va al audit log.
+fn is_sensitive_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    [
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "apikey",
+        "api_key",
+        "api-key",
+        "authorization",
+        "auth",
+        "credential",
+        "privatekey",
+        "private_key",
+        "cookie",
+        "session",
+    ]
+    .iter()
+    .any(|needle| key.contains(needle))
+}
+
+fn sanitize_audit_string(text: &str) -> Value {
+    let truncated: String = if text.chars().count() > AUDIT_MAX_STRING {
+        let mut kept: String = text.chars().take(AUDIT_MAX_STRING - 1).collect();
+        kept.push('…');
+        kept
+    } else {
+        text.to_owned()
+    };
+    // Redacción de patrones tipo credencial aunque la clave no delate:
+    // "Bearer xxx", "key=value" con nombre sensible.
+    Value::String(redact_sensitive_text(&truncated, &[]))
+}
+
+fn sanitize_audit_value(value: &Value) -> Value {
+    match value {
+        Value::String(text) => sanitize_audit_string(text),
+        Value::Array(items) => {
+            Value::Array(items.iter().take(50).map(sanitize_audit_value).collect())
+        }
+        Value::Object(map) => {
+            let mut clean = serde_json::Map::new();
+            for (key, item) in map.iter().take(100) {
+                if is_sensitive_key(key) {
+                    clean.insert(key.clone(), Value::String("[redacted]".to_owned()));
+                } else {
+                    clean.insert(key.clone(), sanitize_audit_value(item));
+                }
+            }
+            Value::Object(clean)
+        }
+        other => other.clone(),
+    }
+}
+
+/// Argumentos de una llamada para el audit log: secretos redactados,
+/// strings truncados y tope de tamaño serializado.
+pub fn sanitize_audit_args(args: &Value) -> Value {
+    let clean = sanitize_audit_value(args);
+    match serde_json::to_string(&clean) {
+        Ok(text) if text.len() <= AUDIT_MAX_ARGS_BYTES => clean,
+        _ => Value::String(format!(
+            "[args omitidos: superan {} bytes serializados]",
+            AUDIT_MAX_ARGS_BYTES
+        )),
+    }
+}
+
+/// Texto de resultado/error para el audit log: truncado y sin patrones
+/// de credenciales evidentes (`Bearer …`, `clave=valor`).
+pub fn sanitize_audit_text(text: &str) -> String {
+    let truncated: String = text.chars().take(AUDIT_MAX_TEXT).collect();
+    redact_sensitive_text(&truncated, &[])
+}
+
+/// Redacción genérica de secretos en texto libre: valores tras `Bearer`,
+/// y asignaciones `nombre=valor`/`nombre: valor` con nombre sensible.
+/// `secrets` permite tapar literales conocidos (p.ej. env vars inyectadas).
+pub fn redact_sensitive_text(text: &str, secrets: &[String]) -> String {
+    let mut out = text.to_owned();
+    for secret in secrets {
+        if secret.chars().count() >= 6 {
+            out = out.replace(secret.as_str(), "***");
+        }
+    }
+    // Bearer primero: si el pase de "clave: valor" corriera antes, en
+    // `Authorization: Bearer <tok>` taparía la palabra Bearer y dejaría
+    // el token expuesto.
+    out = redact_bearer_tokens(&out);
+    redact_labeled_secrets(&out)
+}
+
+fn is_sensitive_label(label: &str) -> bool {
+    let label = label.to_ascii_lowercase();
+    [
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "apikey",
+        "api_key",
+        "api-key",
+        "authorization",
+        "auth",
+        "credential",
+        "privatekey",
+        "private_key",
+        "cookie",
+        "session",
+        "bearer",
+    ]
+    .iter()
+    .any(|needle| label.contains(needle))
+}
+
+/// `nombre=valor` / `nombre: valor` / `nombre": "valor"` → el valor se
+/// reemplaza por `***` conservando nombre, separador y comillas.
+fn redact_labeled_secrets(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut result = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b != b'=' && b != b':' {
+            i += 1;
+            continue;
+        }
+        // Nombre hacia atrás: caracteres de identificador.
+        let mut start = i;
+        while start > 0 {
+            let c = bytes[start - 1];
+            if c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b'"' | b'\'') {
+                start -= 1;
+            } else {
+                break;
+            }
+        }
+        let label: String = text[start..i]
+            .trim_matches(|c| matches!(c, '"' | '\'' | ' '))
+            .to_owned();
+        if !is_sensitive_label(&label) {
+            i += 1;
+            continue;
+        }
+        // Valor hacia adelante: salta espacios y comilla inicial.
+        let mut j = i + 1;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j < bytes.len() && matches!(bytes[j], b'"' | b'\'') {
+            j += 1;
+        }
+        let value_start = j;
+        while j < bytes.len() {
+            let c = bytes[j];
+            if c == b'"'
+                || c == b'\''
+                || c == b','
+                || c == b'}'
+                || c == b']'
+                || c == b' '
+                || c == b'\t'
+                || c == b'\r'
+                || c == b'\n'
+            {
+                break;
+            }
+            j += 1;
+        }
+        if j == value_start {
+            i += 1;
+            continue;
+        }
+        // Conserva todo hasta el inicio del valor y tapa sólo el valor.
+        result.push_str(&text[cursor..value_start]);
+        result.push_str("***");
+        cursor = j;
+        i = j;
+    }
+    result.push_str(&text[cursor..]);
+    result
+}
+
+/// `Bearer <token>` → `Bearer ***` (cubre Authorization en texto libre).
+fn redact_bearer_tokens(text: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    let mut result = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    let mut search = 0usize;
+    while let Some(found) = lower[search..].find("bearer") {
+        let pos = search + found;
+        // Debe ser palabra completa y seguida de espacio + token.
+        let before_ok = pos == 0 || !lower.as_bytes()[pos - 1].is_ascii_alphanumeric();
+        let after = pos + 6;
+        let after_ok = after < text.len()
+            && text[after..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_whitespace());
+        if !before_ok || !after_ok {
+            search = pos + 6;
+            continue;
+        }
+        let mut token_start = after;
+        while token_start < text.len() {
+            let c = text[token_start..].chars().next().unwrap();
+            if !c.is_whitespace() {
+                break;
+            }
+            token_start += c.len_utf8();
+        }
+        let mut token_end = token_start;
+        while token_end < text.len() {
+            let c = text[token_end..].chars().next().unwrap();
+            if c.is_whitespace() || matches!(c, '"' | '\'' | ',' | '}' | ']') {
+                break;
+            }
+            token_end += c.len_utf8();
+        }
+        result.push_str(&text[cursor..pos + 6]);
+        result.push_str(" ***");
+        cursor = token_end;
+        search = token_end;
+    }
+    result.push_str(&text[cursor..]);
+    result
+}
+
 /// Catálogo fallback que sirve el backend cuando la ventana no responde.
 /// El catálogo real vive en el frontend (`mcp-catalog.ts`): así una
 /// herramienta nueva no se declara dos veces.
@@ -552,7 +1016,7 @@ pub fn studio_tools() -> Vec<Value> {
                 .filter(|item| {
                     item["name"]
                         .as_str()
-                        .is_some_and(|name| is_studio_tool(name))
+                        .is_some_and(is_studio_tool)
                 })
                 .cloned()
                 .collect()
@@ -684,14 +1148,23 @@ pub fn batch_task_error(id: &Value) -> Value {
 /// usa `type: "http"`; Antigravity usa `serverUrl`.
 pub fn client_entry(client: &str, info: &McpServerInfo) -> Option<Value> {
     match client {
+        // Las entradas de autoconnect habilitan read+write+destructive:
+        // el usuario conectó a su propio asistente a propósito. `admin`
+        // (run_command, fs_*, eval JS, settings) nunca se otorga solo.
         "claude-desktop" => Some(json!({
             "type": "http",
             "url": info.url,
-            "headers": { "Authorization": format!("Bearer {}", info.token) }
+            "headers": {
+                "Authorization": format!("Bearer {}", info.token),
+                "X-Olyvia-Scopes": AUTOCONNECT_SCOPES
+            }
         })),
         "antigravity" => Some(json!({
             "serverUrl": info.url,
-            "headers": { "Authorization": format!("Bearer {}", info.token) }
+            "headers": {
+                "Authorization": format!("Bearer {}", info.token),
+                "X-Olyvia-Scopes": AUTOCONNECT_SCOPES
+            }
         })),
         _ => None,
     }

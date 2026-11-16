@@ -15,7 +15,7 @@ import {
 import { updateClip } from '../../state/project-actions';
 import { useProjectPlayback, useProjectStore } from '../../state/project-store';
 import { useThumbnail } from '../../hooks/useThumbnail';
-import { ScopesPanel } from '../editor/ScopesPanel';
+import { ScopesPanel } from './ScopesPanel';
 import { applyGradeProjection, compileGrade, gradeFilterId } from './color-engine';
 import { GradeFilterDefs } from './GradeFilterDefs';
 import { GradeNodes } from './GradeNodes';
@@ -80,7 +80,14 @@ function ClipStripItem({
   );
 }
 
-export function ColorStudio({ clipId }: { readonly clipId: string }) {
+export function ColorStudio({
+  clipId,
+  initialCompare = false,
+}: {
+  readonly clipId: string;
+  /** Abre el visor ya en modo antes/después (atajo «Comparar A/B» del panel). */
+  readonly initialCompare?: boolean;
+}) {
   const store = useProjectStore();
   const project = store.state.project;
   const clip = project?.timeline.clips.find((item) => item.id === clipId);
@@ -89,7 +96,7 @@ export function ColorStudio({ clipId }: { readonly clipId: string }) {
   const thumbnail = useThumbnail(store.service, asset, root || null);
 
   const [tool, setTool] = useState<ToolId>('primaries');
-  const [compare, setCompare] = useState(false);
+  const [compare, setCompare] = useState(initialCompare);
   const [split, setSplit] = useState(0.5);
   const [showNodes, setShowNodes] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);

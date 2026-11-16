@@ -3,7 +3,7 @@ import type { Clip, MotionItem } from '@editor-ia/project-schema';
 import { updateMotionProps } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { MotionForm } from './MotionForm';
-import { templateById } from './templates';
+import { templateById } from '../../state/motion-templates';
 
 export function MotionClipInspector({
   clip,

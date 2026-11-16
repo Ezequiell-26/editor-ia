@@ -1,0 +1,23 @@
+format = 2
+
+[effect]
+id = "concat.blur-dissolve"
+name = "Blur Dissolve"
+kind = "transition"
+category = "Dissolve"
+order = 1
+description = "Both shots go soft towards the cut and the swap happens inside the blur, then the next one comes back into focus."
+
+[[param]]
+key = "strength"
+label = "Strength"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[transition]
+fallback = "cross-fade"
+xfade = "dissolve"
+entry = "effect.wgsl"

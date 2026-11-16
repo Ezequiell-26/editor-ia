@@ -54,3 +54,8 @@ La arquitectura objetivo está descrita en TARGET-STRUCTURE.md. Las migraciones 
 La especificación canónica de producto, UX, backend, proveedores, MCP, seguridad y roadmap está en [docs/olyvia-blueprint/README.md](../olyvia-blueprint/README.md). Los encargos están separados para HY4 (frontend) y SWE 2 (backend).
 
 La definición del instalador, pruebas de aceptación y paquete final está en [13_FINAL_PROJECT_DELIVERY_CONTRACT.md](../olyvia-blueprint/13_FINAL_PROJECT_DELIVERY_CONTRACT.md).
+
+
+## Regla de producto vigente
+
+La arquitectura técnica debe cumplir la [arquitectura maestra de Olyvia](../olyvia-blueprint/00_MASTER_ARCHITECTURE.md) y la [decisión de editor permanente](../decisions/2026-11-13-permanent-editor-surface.md). La estructura de carpetas es un destino lógico: no ejecutar reorganizaciones masivas mientras el frontend está en construcción ni crear módulos vacíos.

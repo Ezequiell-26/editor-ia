@@ -163,6 +163,20 @@ export function findFileInput(document) {
   return best;
 }
 
+/** Normaliza un nombre de modelo para comparar: minúsculas y espacios
+ * colapsados. AUD-101: la selección de modelo exige coincidencia exacta
+ * normalizada — un "contains" puede ser otra variante (Fast/Quality). */
+export function normalizeModelName(text) {
+  return String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('es');
+}
+
+export function modelNamesMatch(left, right) {
+  return normalizeModelName(left) === normalizeModelName(right);
+}
+
 export function findModelCandidates(document, model) {
   const wanted = String(model ?? '').trim().toLocaleLowerCase('es');
   if (!wanted) return [];

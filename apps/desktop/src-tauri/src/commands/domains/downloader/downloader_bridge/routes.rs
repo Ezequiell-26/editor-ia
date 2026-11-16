@@ -44,44 +44,6 @@ fn probe_route(stream: TcpStream, app: &AppHandle, body: &[u8]) {
     }
 }
 
-fn unique_destination(directory: &Path, name: &str) -> PathBuf {
-    let safe: String = name
-        .chars()
-        .map(|character| match character {
-            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
-            _ => character,
-        })
-        .collect();
-    let safe = if safe.trim().is_empty() {
-        "archivo".to_owned()
-    } else {
-        safe
-    };
-    let candidate = directory.join(&safe);
-    if !candidate.exists() {
-        return candidate;
-    }
-    let path = Path::new(&safe);
-    let stem = path
-        .file_stem()
-        .map(|value| value.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "archivo".to_owned());
-    let extension = path
-        .extension()
-        .map(|value| value.to_string_lossy().into_owned());
-    for index in 2..10_000 {
-        let name = match extension.as_deref() {
-            Some(extension) => format!("{stem} ({index}).{extension}"),
-            None => format!("{stem} ({index})"),
-        };
-        let candidate = directory.join(name);
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    directory.join(format!("{}.bin", Uuid::new_v4()))
-}
-
 fn set_job(job_state: &Arc<Mutex<Option<BridgeJob>>>, update: impl FnOnce(&mut BridgeJob)) {
     if let Ok(mut guard) = job_state.lock() {
         if let Some(job) = guard.as_mut() {
@@ -163,35 +125,4 @@ fn download_route(
         });
 }
 
-fn image_file_name(url: &str, content_type: &str) -> String {
-    let raw = url
-        .split('?')
-        .next()
-        .unwrap_or(url)
-        .rsplit('/')
-        .next()
-        .filter(|value| !value.is_empty())
-        .unwrap_or("imagen");
-    let sanitized: String = raw
-        .chars()
-        .map(|character| match character {
-            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
-            _ => character,
-        })
-        .collect();
-    let lower = sanitized.to_ascii_lowercase();
-    let has_extension = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"]
-        .iter()
-        .any(|extension| lower.ends_with(extension));
-    if has_extension {
-        return sanitized;
-    }
-    let extension = match content_type {
-        value if value.contains("png") => ".png",
-        value if value.contains("webp") => ".webp",
-        value if value.contains("gif") => ".gif",
-        value if value.contains("avif") => ".avif",
-        _ => ".jpg",
-    };
-    format!("{sanitized}{extension}")
-}
+

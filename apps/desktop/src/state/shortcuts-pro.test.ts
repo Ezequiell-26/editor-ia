@@ -15,17 +15,26 @@ import {
   type ShortcutId,
 } from './shortcuts';
 import {
+  addMotionGraphic,
+  createCompound,
+  deleteClip,
   duplicateClip,
   ensureDelivery,
+  expandCompound,
   moveClip,
   rippleDeleteClip,
+  slipClip,
+  slideClip,
+  rollClip,
   splitClip,
+  cutSideAtPlayhead,
   totalFrames,
   trimClip,
 } from './project-actions';
 import { deleteClips, moveClipsBy } from '../features/editor/timeline-edits';
 import { updateEditorPreferences } from './editor-preferences';
-import { addMarker, deleteMarker, markerAtFrame } from './markers';
+import { addMarker, deleteMarker, markerAtFrame, nextMarker, previousMarker } from './markers';
+import { applyClipAttributes, copyClipAttributes } from './clip-attributes';
 import { ProjectProvider, useProjectStore, type ProjectStoreValue } from './project-store';
 
 /**
@@ -98,6 +107,9 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     'edit.duplicateClip': [duplicateClip, store.mutate],
     'edit.rippleDelete': [rippleDeleteClip, store.update],
     'edit.deselect': [store.setSelection],
+    // Alt+C/V como en AlaukCut: atributos del clip seleccionado vía Timeline.
+    'edit.copyAttributes': [copyClipAttributes, applyClipAttributes, Timeline],
+    'edit.pasteAttributes': [applyClipAttributes, Timeline],
     'playback.playPause': [store.setPlaying],
     'playback.shuttleForward': [store.shuttlePress],
     'playback.shuttleReverse': [store.shuttlePress],
@@ -108,6 +120,17 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     'playback.goToEnd': [store.setPlayhead, totalFrames],
     'timeline.splitAtPlayhead': [splitClip, store.mutate],
     'timeline.toggleMarker': [addMarker, deleteMarker, markerAtFrame, store.update],
+    'timeline.markerNext': [nextMarker, store.setPlayhead],
+    'timeline.markerPrev': [previousMarker, store.setPlayhead],
+    // Q/W de AlaukCut (`cortarLadoDaAgulha`): corte lateral en la aguja.
+    'timeline.cutLeft': [cutSideAtPlayhead, splitClip, deleteClip, Timeline],
+    'timeline.cutRight': [cutSideAtPlayhead, splitClip, deleteClip, Timeline],
+    // Alt+G / Alt+Shift+G de AlaukCut (`compor`/`descompor`).
+    'timeline.compoundClip': [createCompound, store.mutate, Timeline],
+    'timeline.uncompoundClip': [expandCompound, store.update, Timeline],
+    // Alt+M / Alt+Shift+M de AlaukCut (`Marcadores.incluir`/`removerUltimo`).
+    'timeline.markerAdd': [addMarker, markerAtFrame, store.mutate, Timeline],
+    'timeline.markerRemoveLast': [deleteMarker, store.update, Timeline],
     // Puntos in/out de la secuencia: operan vía el handler de Timeline.tsx
     // contra los métodos del store (persisten en store.state.ioRange).
     'timeline.setInPoint': [store.setIoPoint, Timeline],
@@ -130,16 +153,25 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     // leen el registro (bindingMatches) y son reasignables desde Ajustes.
     'timeline.rippleToggle': [Timeline, updateEditorPreferences, store.setNotice],
     'timeline.panMode': [Timeline],
+    'timeline.skim': [Timeline],
     'timeline.copyClip': [Timeline],
     'timeline.pasteClip': [Timeline],
     'timeline.deleteWithRipple': [deleteClips, store.update],
     'timeline.moveGroupLeft': [moveClipsBy, store.update],
     'timeline.moveGroupRight': [moveClipsBy, store.update],
+    // B de AlaukCut (`quadroBranco`): cuadro sólido vía template motion en
+    // el handler de EditorWorkspace.tsx.
+    'timeline.insertSolid': [addMotionGraphic, store.mutate],
     'tools.select': [Timeline],
     'tools.split': [Timeline],
     'tools.selectBackward': [Timeline],
     'tools.selectForward': [Timeline],
     'tools.zoom': [Timeline],
+    // Slip/slide/roll (Y/T/N): acciones puras de project-actions disparadas
+    // por el arrastre del selector de herramienta en Timeline.tsx.
+    'tools.slip': [slipClip, Timeline],
+    'tools.slide': [slideClip, Timeline],
+    'tools.roll': [rollClip, Timeline],
   };
 }
 

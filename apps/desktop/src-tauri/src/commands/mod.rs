@@ -2,7 +2,14 @@
 //! functions: project persistence, media import, rendering, provider
 //! credentials and local narration.
 
+pub use crate::infrastructure::http::read_body_capped;
 pub use crate::infrastructure::process::hide_console;
+pub use crate::infrastructure::process::output_with_timeout;
+pub use crate::infrastructure::process::proportional_analysis_timeout;
+pub use crate::infrastructure::process::proportional_media_timeout;
+pub use crate::infrastructure::process::{MEDIA_PROBE_TIMEOUT, MEDIA_TOOL_CHECK_TIMEOUT};
+pub use crate::infrastructure::projects::allow_asset_protocol_file;
+pub use crate::infrastructure::render_diary::tail as render_diary_tail;
 
 #[path = "domains/ai/agent.rs"]
 pub mod agent;
@@ -30,6 +37,8 @@ pub mod capabilities;
 pub mod catalog;
 #[path = "domains/media/color_lut.rs"]
 pub mod color_lut;
+#[path = "domains/media/concat_worker.rs"]
+pub mod concat_worker;
 #[path = "domains/media/convert.rs"]
 pub mod convert;
 #[path = "domains/creator/creator.rs"]
@@ -52,8 +61,9 @@ pub mod edl;
 pub mod export_tools;
 #[path = "domains/integrations/extension.rs"]
 pub mod extension;
-#[path = "domains/media/face.rs"]
-pub mod face;
+// `face` vive en el dominio (`media::face`); este re-export conserva las
+// rutas `commands::face::*` que usan shorts e image_sense.
+pub use crate::media::face;
 #[path = "domains/media/fcpxml.rs"]
 pub mod fcpxml;
 #[path = "domains/projects/files.rs"]
@@ -102,12 +112,16 @@ pub mod narration;
 pub mod obs_scenes;
 #[path = "domains/media/otio.rs"]
 pub mod otio;
+#[path = "domains/media/object_track.rs"]
+pub mod object_track;
 #[path = "domains/projects/package.rs"]
 pub mod package;
 #[path = "domains/render/pipeline_profile.rs"]
 pub mod pipeline_profile;
 #[path = "domains/audio/piper.rs"]
 pub mod piper;
+#[path = "domains/audio/sfx.rs"]
+pub mod sfx;
 #[path = "domains/integrations/plugins.rs"]
 pub mod plugins;
 #[path = "domains/media/preview_frame.rs"]
@@ -147,6 +161,8 @@ pub mod subtitles;
 pub mod subtitles_pipeline;
 #[path = "domains/system/system.rs"]
 pub mod system;
+#[path = "domains/system/dual_monitor.rs"]
+pub mod dual_monitor;
 #[path = "domains/media/thumbnail.rs"]
 pub mod thumbnail;
 #[path = "domains/media/timeline_import.rs"]
@@ -163,6 +179,8 @@ pub mod visuals;
 pub mod voice_clone;
 #[path = "domains/audio/voice_isolation.rs"]
 pub mod voice_isolation;
+#[path = "domains/media/whiteboard.rs"]
+pub mod whiteboard;
 #[path = "domains/integrations/vpn.rs"]
 pub mod vpn;
 #[path = "domains/downloader/youtube_analytics.rs"]

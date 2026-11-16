@@ -1,0 +1,23 @@
+format = 2
+
+[effect]
+id = "concat.swirl"
+name = "Swirl"
+kind = "transition"
+category = "Spin"
+order = 7
+shelves = ["Distortion & Glitch"]
+description = "Both shots twist round the centre like water down a drain, and the next one untwists out of the whirl."
+
+[[param]]
+key = "twist"
+label = "Twist"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 70
+
+[transition]
+fallback = "cross-fade"
+entry = "effect.wgsl"

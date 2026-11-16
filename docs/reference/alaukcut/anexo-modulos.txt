@@ -1,0 +1,281 @@
+=== agendador.js (467 líneas)
+  exports: baldesNativos, contagem
+
+=== agente_ponte.js (5498 líneas)
+  exports: FONTES_TEXTO, OPS, PROPS_MASC, o, porProp, r
+
+=== ajuda.js (435 líneas)
+  exports: BAIXAR, TERMINAL_DE, teste
+
+=== animacoes.js (499 líneas)
+  exports: RECADO_ANEXO, digitado, r, saida
+
+=== animacoes_dados.js (429 líneas)
+  exports: ANIM_POR_ID, combinado, saida
+
+=== area_segura.js (127 líneas)
+  exports: REDES
+
+=== assistente_ui.js (1646 líneas)
+  exports: FAMILIAS, SELO, aberto, base, k
+
+=== atalhos.js (411 líneas)
+  exports: TRADUZ, conta, m
+
+=== cabecalho_mp4.js (163 líneas)
+  exports: moov
+
+=== caixa_numero.js (162 líneas)
+
+=== caixa_silencio.js (235 líneas)
+
+=== camera_inteligente.js (135 líneas)
+  exports: CURVAS
+
+=== canto_fixado.js (131 líneas)
+
+=== capturar_imagem.js (128 líneas)
+  exports: v
+
+=== contorno.js (225 líneas)
+
+=== copia_leve.js (499 líneas)
+  exports: exportarVideo, r
+
+=== cor.js (348 líneas)
+  exports: FAIXA, GRUPOS, n
+
+=== cursor_estilos.js (97 líneas)
+  exports: CORES, FORMAS
+
+=== cursor_mouse.js (290 líneas)
+
+=== curvas_predefinidas.js (332 líneas)
+
+=== decodificador.js (586 líneas)
+
+=== dialogo.js (36 líneas)
+
+=== dicas.js (86 líneas)
+
+=== editor.js (3148 líneas)
+  exports: FORMATO_LIVRE, ICONE_TRILHA, IC_MIDIA, NOMES_EFEITO, caixa, doCartao
+
+=== emojis_animados.js (240 líneas)
+
+=== escolher_onda.js (100 líneas)
+
+=== escopo_cor.js (279 líneas)
+
+=== espectro.js (86 líneas)
+  exports: CORES_ESPECTRO, cache, pend
+
+=== espiada.js (856 líneas)
+  exports: conta, desligarFonte, equilibrarFontes, exportarVideo, ligarFonte, q
+
+=== espiada_midia.js (178 líneas)
+
+=== export_diario.js (109 líneas)
+  exports: e, salvo
+
+=== exportador.js (2237 líneas)
+  exports: MAIOR_QUE_O_PROJETO, alvo, conta, relogio, subFontes, v
+
+=== exportar_formato.js (632 líneas)
+  exports: AUDIO, TIPO_DE, abrirDialogoExportar, atualizarInfoExport, comecarExportacao, exportarVideo, ultimoDoTipo
+
+=== exportar_prores.js (250 líneas)
+  exports: abrirDialogoExportar, atualizarInfoExport, exportarVideo
+
+=== exportar_resumo.js (525 líneas)
+  exports: ID_CAPA, abrirDialogoExportar, atualizarInfoExport, c, clipe, exportarVideo, midia, v
+
+=== faixas.js (1690 líneas)
+  exports: aridade, dados, n, o, proprios
+
+=== filtros_criativos_dados.js (105 líneas)
+
+=== filtros_dados.js (87 líneas)
+  exports: FILTROS_LUT, FILTROS_SAT, FILTROS_SAT_ANTES
+
+=== formas.js (434 líneas)
+  exports: ICONES
+
+=== formato_personalizado.js (175 líneas)
+
+=== gravar_tela.js (996 líneas)
+  exports: cameras, estiloCursor, molduraGrv, somPc
+
+=== help_alaukcut.js (561 líneas)
+  exports: IC, PESO, campos
+
+=== help_base.js (1127 líneas)
+
+=== historico_ui.js (507 líneas)
+  exports: ctx
+
+=== home.js (537 líneas)
+
+=== idioma.js (144 líneas)
+  exports: FABRICA, LOCALE, NOMES
+
+=== impressao.js (172 líneas)
+  exports: NAO_AFETA_IMAGEM, cabecalho, global, midias, saida
+
+=== inspetor.js (3653 líneas)
+  exports: IC_ALINHAR, LEG_COR_PADRAO, LEG_COR_ROTULO, LEG_TAM_PADRAO, NOMES_TRANSICAO, RESETAR
+
+=== inspetor_animacao.js (249 líneas)
+  exports: rolagem
+
+=== inspetor_cor.js (1047 líneas)
+  exports: COR_CANAL, COR_HSL, ESCALA, MESTRE, NEUTRO, v
+
+=== inspetor_movimento.js (209 líneas)
+  exports: PADRAO
+
+=== inspetor_rastreamento.js (376 líneas)
+  exports: IC, meu
+
+=== legendas_formato.js (251 líneas)
+
+=== lista_fontes.js (240 líneas)
+
+=== luts.js (358 líneas)
+
+=== luts_camera.js (178 líneas)
+  exports: CURVA, PARA_709, PRIMARIAS, VISUAL
+
+=== maozinha.js (425 líneas)
+  exports: ARQUIVOS, NOMES, novo
+
+=== maozinha_segundos.js (84 líneas)
+
+=== marca_texto.js (59 líneas)
+
+=== marcadores.js (741 líneas)
+  exports: batidasLigadas, desenharTrilhas, extrasDoProjeto, montagemDaIa, originais
+
+=== mascara.js (546 líneas)
+  exports: IC, IC_FERR, cursores, r
+
+=== mascara_desenho.js (495 líneas)
+  exports: CODIGO, CTX2D, PROP, TEM, m
+
+=== medidor_db.js (247 líneas)
+  exports: GEO
+
+=== menu_clipe.js (1235 líneas)
+  exports: IC, antes, ponto, r, resposta
+
+=== menu_topo.js (513 líneas)
+  exports: cfg
+
+=== midias_pastas.js (666 líneas)
+  exports: ORDEM_TIPO, p, paraIA
+
+=== molduras.js (300 líneas)
+
+=== motor.js (6172 líneas)
+  exports: CURVAS_KF, FONTE_LETREIRO_ARQUIVOS, FONTE_LETREIRO_VARIAVEIS, arquivos, locs, variaveis
+
+=== mp4_leitor_worker.js (74 líneas)
+
+=== novidades.js (3739 líneas)
+  exports: CAIXAS_BIKE, IC_GRAVAR, IDS, antes, cand, pywebview
+
+=== paineis.js (425 líneas)
+  exports: EIXOS, colunaIa, dimensionarQuadro, estado
+
+=== palco.js (670 líneas)
+  exports: OPOSTA, tela, vista
+
+=== palco_camera.js (144 líneas)
+  exports: EIXOS
+
+=== palco_mascara.js (615 líneas)
+  exports: cantos, op
+
+=== palco_rastreamento.js (194 líneas)
+  exports: DIRS
+
+=== palco_sem_fundo.js (227 líneas)
+  exports: op
+
+=== pessoa.js (479 líneas)
+  exports: novo
+
+=== placa_perdida.js (107 líneas)
+
+=== preparo_videos.js (96 líneas)
+  exports: PreparoVideos
+
+=== prerender.js (652 líneas)
+  exports: assinaturas, veredito
+
+=== prerender_nativo.js (377 líneas)
+  exports: baldes, opDesenho, veredito
+
+=== prerender_ui.js (209 líneas)
+
+=== previa.js (839 líneas)
+  exports: reg
+
+=== previa_dupla.js (314 líneas)
+  exports: destino, e, pintar
+
+=== previa_efeitos.js (628 líneas)
+  exports: OVERRIDE_IMG, PARADO_COM_EFEITO
+
+=== previa_legendas.js (183 líneas)
+  exports: leg, p
+
+=== previa_midia.js (951 líneas)
+  exports: ICONE, contagem, fontesParaMotor
+
+=== previa_nativa.js (424 líneas)
+  exports: dentro, dentroDoHttp, onde, por
+
+=== previa_stickers.js (209 líneas)
+
+=== previa_templates.js (122 líneas)
+
+=== previa_transicoes.js (262 líneas)
+  exports: BUILTIN
+
+=== prontidao.js (94 líneas)
+  exports: createImageBitmap, fetch, o
+
+=== rastreamento.js (216 líneas)
+  exports: PADRAO, SIGMA, base0, s
+
+=== regiao_efeito.js (223 líneas)
+
+=== roda_zoom.js (60 líneas)
+
+=== seletor_cor.js (150 líneas)
+  exports: EyeDropper
+
+=== sessao_nativa.js (714 líneas)
+  exports: fora, j, passo
+
+=== sons.js (153 líneas)
+
+=== suporte.js (125 líneas)
+  exports: chaves
+
+=== telas.js (327 líneas)
+  exports: extras
+
+=== templates_dados.js (682 líneas)
+  exports: LAYOUT
+
+=== timeline.js (7019 líneas)
+  exports: ALTURA_BASE, IC_RESP, IC_TIPO_MIDIA, __porPropDeSempre, _picosData, _picosPend, e
+
+=== transicoes_cine.js (130 líneas)
+  exports: TRANSICOES_CINE_NOMES
+
+=== transicoes_gl.js (35 líneas)
+  exports: TRANSICOES_GL
+

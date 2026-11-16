@@ -74,7 +74,10 @@ export function SettingsWindow({ onClose, children }: SettingsWindowProps) {
         aria-label="Configuración"
         style={{ transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px))` }}
       >
-        <header
+        {/* div y no header: dentro de role="dialog" un <header> se expone
+            como landmark banner y duplica el banner del shell (axe
+            landmark-no-duplicate-banner). */}
+        <div
           className="settings-window-bar"
           onPointerDown={startDrag}
           onPointerMove={moveDrag}
@@ -95,7 +98,7 @@ export function SettingsWindow({ onClose, children }: SettingsWindowProps) {
           >
             <Icon name="close" size={14} />
           </button>
-        </header>
+        </div>
         <div className="settings-window-body">
           <Suspense fallback={null}>{children}</Suspense>
         </div>

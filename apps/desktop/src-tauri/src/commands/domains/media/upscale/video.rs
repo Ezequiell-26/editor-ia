@@ -40,7 +40,7 @@ pub async fn upscale_video(
         ));
     }
     let model_path = model_dir(&state, spec).join(spec.files[0].file_name);
-    let input = PathBuf::from(input_path.trim());
+    let input = crate::application::fs::resolve_user_file_path(&input_path)?;
     if !input.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
@@ -107,7 +107,9 @@ pub async fn upscale_video(
     }
 
     let output = match output_path {
-        Some(path) if !path.trim().is_empty() => PathBuf::from(path.trim()),
+        Some(path) if !path.trim().is_empty() => {
+            crate::application::fs::validate_user_write_path(&path)?
+        }
         _ => {
             let stem = input
                 .file_stem()
@@ -200,9 +202,30 @@ fn upscale_video_blocking(
     })?;
     let decoder_log = decoder_child.stderr.take().map(drain_stderr);
 
-    // Encoder: frames RGBA ya ampliados → H.264 + audio original.
+    // Encoder: frames RGBA ya ampliados → H.264 + audio original. Se resuelve
+    // el primer H.264 que el binario declare y pueda iniciar (el bundle LGPL
+    // no trae libx264: AUD-067/AUD-119), con args según la familia elegida.
+    let encoder = crate::commands::sharpen::resolve_encoder(ffmpeg)?;
     let out_width = width * SCALE;
     let out_height = height * SCALE;
+    let fps = f64::from(fps_num) / f64::from(fps_den.max(1));
+    let mut encoder_args = vec![
+        "-map".to_owned(),
+        "0:v:0".to_owned(),
+        "-map".to_owned(),
+        "1:a:0?".to_owned(),
+    ];
+    encoder_args.extend(crate::commands::sharpen::video_codec_args(
+        &encoder, 16, out_width, out_height, fps,
+    ));
+    encoder_args.extend([
+        "-pix_fmt".to_owned(),
+        "yuv420p".to_owned(),
+        "-c:a".to_owned(),
+        "aac".to_owned(),
+        "-b:a".to_owned(),
+        "192k".to_owned(),
+    ]);
     let mut encoder = Command::new(ffmpeg);
     encoder
         .args([
@@ -222,10 +245,7 @@ fn upscale_video_blocking(
             "-i",
         ])
         .arg(input)
-        .args([
-            "-map", "0:v:0", "-map", "1:a:0?", "-c:v", "libx264", "-preset", "medium", "-crf",
-            "16", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
-        ]);
+        .args(&encoder_args);
     if let Some(cap) = max_seconds {
         encoder.arg("-t").arg(format!("{cap:.3}"));
     }

@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { DualMonitorView, useDualMonitorMode } from './features/editor/DualMonitorView';
 import { applyAppearance, loadAppearance } from './state/appearance';
 import './styles/tokens.css';
 import './styles/app.css';
@@ -45,6 +46,44 @@ import './styles/filmora/filmora-states.css';
 // Pulido final medido (tipografía, iconos, contraste, áreas de clic y detalles).
 // Debe ir DESPUÉS de states: corrige sus reglas sin reemplazarlas.
 import './styles/filmora/filmora-polish.css';
+// Capa visual del preset «CapCut»: sólo actúa con `data-preset="capcut"`.
+// Va última para ganar por especificidad a las capas anteriores.
+import './styles/capcut.css';
+// Layouts alternativos del editor (`layout-shorts`): debe ir DESPUÉS de
+// todas las capas porque los presets fijan la grilla con `!important`.
+import './styles/layouts.css';
+// HY4 · Lenguaje visual CapCut medido sobre las capturas de referencia.
+// ADDITIVA y última del cascade: sobreescribe tokens y geometría sin tocar
+// ninguna hoja existente. Sólo actúa con el tema oscuro; el preset opcional
+// «CapCut» y el tema claro conservan sus propias capas.
+import './styles/capcut-ui.css';
+// HY4 · Editor claro: proporciones del monitor, pestañas rotuladas y
+// legibilidad. Va después de capcut-ui.css porque fija la grilla del editor.
+import './styles/capcut-editor.css';
+// HY4 · Edición fácil: todas las pestañas del inspector visibles y el mismo
+// patrón de control (etiqueta · valor · reset) en Color y en el resto de
+// apartados. Última del cascade; no añade lógica ni contratos.
+import './styles/capcut-inspector.css';
+// Auditoría visual 2026-11-11: cero etiquetas cortadas, pestañas completas,
+// zoom continuo del timeline y acceso A/B. Última del cascade, sólo tema oscuro.
+import './styles/editor-clarity.css';
+
+// Pulido visual medido con REA + Playwright: aviso de modo navegador sin
+// recortes y controles deshabilitados legibles.
+import './styles/visual-polish.css';
+
+// Superficie mínima del editor (réplica AlaukCut). Namespace propio `.me-`:
+// no afecta a las demás vistas. Última del cascade.
+import './styles/minimal-editor.css';
+// Escenas completas medidas sobre las capturas 146–160 (biblioteca, monitor,
+// inspector de vídeo/cor/HSL, asistente, legendas, tutorial y overlays).
+// Va DESPUÉS de minimal-editor.css: flexibiliza los paneles sin tocar la
+// geometría base ya validada (32 / 1fr / 260 / 37 · 366 | 1fr | 312).
+import './styles/minimal-editor-scenes.css';
+// Composición de referencia (capturas 146–160) sobre el editor productivo.
+// ADDITIVA y ÚLTIMA de la cascada: sólo actúa en modo timeline con proyecto
+// y se desactiva en caliente con «Vista completa» (data-editor-skin='full').
+import './styles/alaukcut-reference.css';
 
 // Apply the saved chrome before the first paint so the window never flashes
 // the default palette when a custom one is stored.
@@ -55,8 +94,21 @@ if (!container) {
   throw new Error('index.html no trae el elemento #root');
 }
 
+/** Raíz dual-aware: la ventana `dual-monitor` (`?dual=1` o label Tauri)
+ *  monta sólo el monitor; cualquier otra ventana monta la app completa.
+ *  Mientras se resuelve el modo se muestra un splash mínimo para no
+ *  flashear el editor en la ventana dual. */
+function Root() {
+  const dual = useDualMonitorMode();
+  if (dual === null) {
+    return <div className="dual-monitor-boot">Olyvia</div>;
+  }
+  if (dual) return <DualMonitorView />;
+  return <App />;
+}
+
 createRoot(container).render(
   <StrictMode>
-    <App />
+    <Root />
   </StrictMode>,
 );

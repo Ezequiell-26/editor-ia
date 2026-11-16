@@ -65,7 +65,10 @@ function renderPanel(assets: Asset[] = []) {
   return { service, onNavigate };
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe('AssetsPanel · auto-montar lote', () => {
   it('importa imágenes y narración, monta el storyboard y navega al editor', async () => {
@@ -197,5 +200,53 @@ describe('AssetsPanel · proxies por lote', () => {
       name: /Proxies \(0\)/i,
     })) as HTMLButtonElement;
     expect(remaining.disabled).toBe(true);
+  });
+});
+
+describe('AssetsPanel · limpieza de caché de proxies', () => {
+  const withProxy = () =>
+    readyAsset({
+      proxy: {
+        path: 'media/proxies/proxy-cache-540p-1-120000.mp4',
+        width: 960,
+        height: 540,
+        bytes: 2_048,
+      },
+    });
+
+  it('no limpia cuando se cancela la confirmación', () => {
+    const { service } = renderPanel([withProxy()]);
+    const cleanupProxyCache = vi.spyOn(service, 'cleanupProxies');
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    fireEvent.click(screen.getByRole('button', { name: /Limpiar proxies/i }));
+
+    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(cleanupProxyCache).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Proxies \(0\)/i })).toBeTruthy();
+  });
+
+  it('borra la caché confirmada y quita referencias derivadas del proyecto', async () => {
+    const { service } = renderPanel([withProxy()]);
+    const cleanupProxyCache = vi
+      .spyOn(service, 'cleanupProxies')
+      .mockResolvedValue({ removed: 1, bytesFreed: 1_572_864 });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    fireEvent.click(screen.getByRole('button', { name: /Limpiar proxies/i }));
+
+    await waitFor(() => expect(cleanupProxyCache).toHaveBeenCalledOnce());
+    expect(
+      await screen.findByRole('button', { name: /Proxies \(1\)/i }),
+    ).toBeTruthy();
+  });
+
+  it('el buscador de medios tiene nombre accesible además del placeholder', () => {
+    // Con la biblioteca vacía el panel muestra su empty-state sin buscador.
+    renderPanel([image('foto.png')]);
+    // Un placeholder no es un nombre accesible para lectores de pantalla.
+    expect(
+      screen.getByRole('searchbox', { name: /Buscar medios por nombre, etiqueta o bin/i }),
+    ).toBeTruthy();
   });
 });

@@ -139,6 +139,28 @@ export interface ScreenRecordStatus {
   readonly bytes?: number;
   readonly webcam?: string;
   readonly streaming?: boolean;
+  /** Causa reportada por ffmpeg cuando la grabación murió sola. */
+  readonly error?: string;
+}
+
+/** Cursor estilizado para grabaciones de escritorio (se quema con ffmpeg). */
+export interface CursorOverlaySpec {
+  readonly style: 'flecha' | 'punto' | 'cruz' | 'cheia' | '3d';
+  readonly color: 'blanco' | 'negro' | 'amarillo' | 'verde';
+  readonly scale: 0.5 | 1 | 2;
+  readonly ripple: boolean;
+}
+
+/**
+ * Chroma key de la webcam durante la grabación (paridad
+ * `gravar_webcam_chroma` de AlaukCut): el filtro `chromakey` de FFmpeg se
+ * aplica a la fuente dshow antes del PiP. Misma semántica que
+ * `ChromaKeySchema` de la timeline.
+ */
+export interface WebcamChromaSpec {
+  readonly color: string;
+  readonly similarity: number;
+  readonly blend: number;
 }
 
 export interface ScreenRecordResult {
@@ -149,6 +171,8 @@ export interface ScreenRecordResult {
   readonly width?: number;
   readonly height?: number;
   readonly hasAudio?: boolean;
+  readonly cursorBurned?: boolean;
+  readonly warning?: string;
   readonly error?: string;
 }
 
@@ -174,9 +198,24 @@ export interface ObsScene {
   readonly regionHeight?: number;
   readonly webcamDevice?: string;
   readonly audioDevice?: string;
+  /**
+   * Sólo ENTRADA (obsSceneSave): URL RTMP completa que el usuario pegó —
+   * puede incluir la stream key, que el backend separa y guarda en el
+   * llavero del sistema (nunca se persiste). En las escenas devueltas por
+   * `obsSceneList`/`obsSceneSave` viene ausente.
+   */
   readonly streamUrl?: string;
+  /**
+   * Endpoint RTMP persistido SIN la clave de stream. En `ObsSceneInput`,
+   * `''` (string vacío) limpia toda la configuración de streaming de la
+   * escena (endpoint + clave del llavero).
+   */
+  readonly streamEndpoint?: string;
   readonly encoder?: 'x264' | 'nvenc' | 'qsv' | 'amf' | 'mf';
   readonly captureScreen?: boolean;
+  /** Settings used by screen_record_start; absent in older saved scenes. */
+  readonly cursorOverlay?: CursorOverlaySpec | null;
+  readonly webcamChroma?: WebcamChromaSpec | null;
 }
 
 export type ObsSceneInput = Omit<ObsScene, 'id'> & { readonly id?: string };
@@ -223,6 +262,23 @@ export interface StickmanRenderResult {
   readonly verified?: boolean;
 }
 
+/** Resultado de `whiteboard_generate` (WhiteboardOutcome del backend). */
+export interface WhiteboardRenderResult {
+  readonly videoPath: string;
+  readonly durationSeconds: number;
+  readonly width: number;
+  readonly height: number;
+  readonly fps: number;
+  readonly processingTimeMs: number;
+}
+
+/** Estado del motor Python whiteboard-animator (`whiteboard_status`). */
+export interface WhiteboardStatus {
+  readonly available: boolean;
+  readonly python?: string | null;
+  readonly reason?: string | null;
+}
+
 export interface CaptureDevices {
   readonly cameras: readonly string[];
   readonly microphones: readonly string[];
@@ -248,6 +304,45 @@ export interface ExtensionInstallStatus {
   readonly sourcePath: string | null;
   readonly preparedPath: string | null;
   readonly hint: string | null;
+}
+
+// ───────────────────────── Audit log del MCP ─────────────────────────
+// Comando `mcp_audit_tail`: últimas líneas del JSONL
+// `<config_dir>/mcp-audit.jsonl` que escribe `JsonlMcpAuditSink`. Las
+// entradas ya vienen sanitizadas del backend (secretos `[redacted]`), pero
+// el archivo es texto plano: la UI las trata como datos no confiables.
+
+/**
+ * Una línea del audit ya parseada. Los campos son opcionales porque el
+ * archivo puede venir de una versión vieja o editado a mano: la UI muestra
+ * lo que haya sin inventar.
+ */
+export interface McpAuditEntry {
+  /** Epoch ms (SystemTime UNIX) de la llamada. */
+  readonly ts?: number;
+  /** Herramienta auditada (`tools/call`); ausente en líneas de otra forma. */
+  readonly tool?: string;
+  /** Argumentos ya sanitizados (`[redacted]` en claves sensibles). */
+  readonly args?: unknown;
+  readonly ok?: boolean;
+  /** Duración de la llamada en ms (sólo entradas del dispatcher). */
+  readonly durationMs?: number;
+  /** Texto de resultado sanitizado (sólo entradas del dispatcher). */
+  readonly result?: string;
+  /** Presente cuando el scope rechazó la llamada (`denied: "scope"`). */
+  readonly denied?: string;
+  readonly requiredScope?: string;
+  readonly grantedScopes?: readonly string[];
+}
+
+/** `AuditTail` del backend (serde camelCase). */
+export interface McpAuditTail {
+  /** Entradas parseadas en orden cronológico, ya sanitizadas. */
+  readonly entries: readonly McpAuditEntry[];
+  /** Líneas no vacías que no parsearon como JSON (cuenta, no contenido). */
+  readonly skipped: number;
+  /** `true` si el archivo tiene más líneas de las devueltas. */
+  readonly truncated: boolean;
 }
 
 export type NativeInvoke = (command: string, args: Record<string, unknown>) => Promise<unknown>;

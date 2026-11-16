@@ -12,10 +12,12 @@ use crate::ports::media::MediaTools;
 use crate::ports::projects::{ProjectDocuments, ProjectSession};
 use crate::ports::render::{
     RenderDialogs, RenderEncoder, RenderEvents, RenderFiles, RenderLaunch, RenderLauncher,
-    RenderRuntime,
+    RenderRetry, RenderRuntime,
 };
 use crate::projects::service::{ProjectError, ProjectErrorCode};
-use crate::render::ffmpeg::{build_plan_range, expand_compounds, parse_profile, BuildPlanInput};
+use crate::render::ffmpeg::{
+    build_plan_range, encoder_works, expand_compounds, parse_profile, BuildPlanInput,
+};
 use crate::render::lifecycle::{safe_name, RenderProgressEvent, RenderStarted};
 use crate::render::motion::{build_motion_ass, has_visible_graphic_clips, MotionAssInput};
 
@@ -144,7 +146,23 @@ pub fn start_render(
     if let Some(encoder) = hardware_encoder.filter(|value| !value.is_empty()) {
         profile_json["hardwareEncoder"] = Value::String(encoder);
     }
-    let profile = parse_profile(&profile_json)?;
+    let mut encoder_fallback: Option<String> = None;
+    let profile = {
+        let parsed = parse_profile(&profile_json)?;
+        // Self-test del encoder de hardware pedido (patrón `tentados` de
+        // AlaukCut): si el driver/GPU no codifica de verdad, se cae al
+        // encoder de software en vez de lanzar un render condenado.
+        match parsed.hardware_encoder.as_deref() {
+            Some(hw) if !encoder_works(ffmpeg.as_path(), hw) => {
+                encoder_fallback = Some(hw.to_owned());
+                if let Some(map) = profile_json.as_object_mut() {
+                    map.remove("hardwareEncoder");
+                }
+                parse_profile(&profile_json)?
+            }
+            _ => parsed,
+        }
+    };
     let project_width = project["video"]["width"].as_u64().unwrap_or(1920) as u32;
     let project_height = project["video"]["height"].as_u64().unwrap_or(1080) as u32;
     let project_fps = project["video"]["frameRate"]["num"].as_u64().unwrap_or(30) as f64
@@ -209,6 +227,13 @@ pub fn start_render(
         deps.files.remove_dir(&temp_dir);
         return Err(error);
     }
+    // AUD-017: reserva el nombre de salida — si no existía, nadie puede
+    // crear ese archivo mientras el render corre sin que la publicación
+    // falle en vez de pisarlo.
+    if let Err(error) = deps.files.reserve_output(&final_output) {
+        deps.files.remove_dir(&temp_dir);
+        return Err(error);
+    }
     let render_output = temp_dir.join("out.mp4");
 
     let plan = match build_plan_range(
@@ -245,6 +270,10 @@ pub fn start_render(
 
     let started = Instant::now();
     if let Err(error) = deps.runtime.register(&job_id, spawned.process.clone()) {
+        // AUD-015: el hijo ya estaba spawneado; si el registro falla (otro
+        // render en curso) hay que matarlo o queda un FFmpeg huérfano
+        // escribiendo en un temp_dir que estamos por borrar.
+        spawned.process.request_cancel();
         deps.files.remove_dir(&temp_dir);
         return Err(error);
     }
@@ -257,9 +286,28 @@ pub fn start_render(
         phase: "preparando".to_owned(),
     });
 
+    // Si el encoder de hardware pasó el self-test pero la GPU se pierde a
+    // mitad del render (device-removed), el worker reintenta una vez con el
+    // encoder de software reconstruyendo el plan (patrón `placa_perdida`).
+    let retry = profile.hardware_encoder.as_ref().map(|_| RenderRetry {
+        ffmpeg: ffmpeg.clone(),
+        project: project.clone(),
+        profile_json: profile_json.clone(),
+        root: session.root.clone(),
+        temp_dir: temp_dir.clone(),
+        render_output: render_output.clone(),
+        include_captions,
+        motion_ass: (!motion_ass.is_empty()).then(|| motion_ass.clone()),
+        range,
+    });
+
     deps.launcher.launch(RenderLaunch {
         job_id: job_id.clone(),
         plan,
+        profile_name: profile.name.clone(),
+        video_codec: profile.video_codec.clone(),
+        hardware_encoder: profile.hardware_encoder.clone(),
+        encoder_fallback: encoder_fallback.clone(),
         ffprobe,
         final_output,
         temp_dir,
@@ -268,11 +316,13 @@ pub fn start_render(
         process: spawned.process,
         stdout: spawned.stdout,
         stderr: spawned.stderr,
+        retry,
     });
 
     Ok(Some(RenderStarted {
         job_id,
         profile_name: profile.name,
+        encoder_fallback,
     }))
 }
 

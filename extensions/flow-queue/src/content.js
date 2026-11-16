@@ -131,12 +131,14 @@
 
     const isOption = (element) =>
       element.matches?.('[role="menuitem"], [role="option"], [role="radio"]') ?? false;
-    const exactOption = before.find(
-      (element) =>
-        isOption(element) &&
-        adapter.accessibleName(element).trim().toLocaleLowerCase('es') ===
-          wanted.toLocaleLowerCase('es'),
-    );
+    // AUD-101: `findModelCandidates` matchea por "contiene" — un candidato
+    // aproximado puede ser otra variante (Fast/Quality/versión). El click
+    // sólo se hace con coincidencia EXACTA normalizada; si no hay, se
+    // reporta verified:false para que el usuario elija a mano en vez de
+    // generar con el modelo equivocado.
+    const isExact = (element) =>
+      adapter.modelNamesMatch(adapter.accessibleName(element), wanted);
+    const exactOption = before.find((element) => isOption(element) && isExact(element));
     if (exactOption) {
       clickElement(exactOption);
       await sleep(350);
@@ -158,15 +160,19 @@
         .findModelCandidates(document, wanted)
         .filter((element) => element !== trigger && !trigger.contains(element));
       if (options.length > 0) {
-        const exact =
-          options.find(
-            (element) =>
-              adapter.accessibleName(element).trim().toLocaleLowerCase('es') ===
-              wanted.toLocaleLowerCase('es'),
-          ) ?? options[0];
-        clickElement(exact);
-        await sleep(350);
-        return { verified: true, model: wanted, via: 'menu' };
+        const exact = options.find(isExact);
+        if (exact) {
+          clickElement(exact);
+          await sleep(350);
+          return { verified: true, model: wanted, via: 'menu' };
+        }
+        // Sólo aproximados: NO elegir el primero — pedir selección manual.
+        return {
+          verified: false,
+          model: wanted,
+          via: 'ambiguous',
+          note: `Flow mostró ${options.length} opción(es) parecidas a "${wanted}" pero ninguna coincide exacto; elegí el modelo a mano`,
+        };
       }
       if (triggerName.includes(wanted.toLocaleLowerCase('es'))) {
         return {
@@ -178,13 +184,13 @@
       }
     }
 
-    if (before.length === 1 && isOption(before[0])) {
+    if (before.length === 1 && isOption(before[0]) && isExact(before[0])) {
       clickElement(before[0]);
       await sleep(350);
       return { verified: true, model: wanted, via: 'option' };
     }
 
-    throw new Error(`no pude seleccionar "${wanted}" en Flow; elegilo a mano y reintentá`);
+    throw new Error(`no pude seleccionar "${wanted}" en Flow de forma verificable; elegilo a mano y reintentá`);
   }
 
   const MODE_LABELS = { image: 'Imagen', video: 'Video' };

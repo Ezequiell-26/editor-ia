@@ -93,14 +93,47 @@ impl ProjectEnvironment for TauriProjectEnvironment<'_> {
         path.exists()
     }
 
-    fn allow_media_root(&self, root: &Path) -> Result<(), ProjectError> {
-        self.app
-            .asset_protocol_scope()
-            .allow_directory(root, true)
-            .map_err(|_| {
-                io_error("no se pudo habilitar la vista previa de los medios del proyecto")
-            })
+    fn allow_media_root(&self, root: &Path, project: &Value) -> Result<(), ProjectError> {
+        let scope = self.app.asset_protocol_scope();
+        // AUD-027: antes se permitía el root completo de forma recursiva, lo
+        // que exponía `.olyvia-history/` (snapshots del proyecto) y cualquier
+        // archivo suelto del directororio. Ahora el scope cubre sólo
+        // `<root>/media` (donde viven assets importados, proxies
+        // `media/proxies` y stems `media/isolation`) más cada archivo fuente
+        // declarado en el proyecto (assets enlazados fuera del proyecto).
+        //
+        // Limitación honesta: el FsScope de Tauri no permite revocar allows
+        // (forbidden es permanente y gana sobre allowed), así que los paths
+        // de proyectos abiertos antes siguen servidos en la sesión. El
+        // conjunto concedido ya no es "todo el directorio del proyecto".
+        let media_root = root.join("media");
+        scope.allow_directory(&media_root, true).map_err(|_| {
+            io_error("no se pudo habilitar la vista previa de los medios del proyecto")
+        })?;
+        if let Some(assets) = project["assets"].as_array() {
+            for asset in assets {
+                let Some(rel) = asset["source"]["path"].as_str() else {
+                    continue;
+                };
+                let path = Path::new(rel);
+                let resolved = if path.is_absolute() {
+                    path.to_path_buf()
+                } else {
+                    root.join(path)
+                };
+                // Un archivo que no existe todavía no rompe el scope: el
+                // patrón es un glob, no requiere el archivo presente.
+                let _ = scope.allow_file(&resolved);
+            }
+        }
+        Ok(())
     }
+}
+
+/// Concede un archivo suelto al asset protocol (p.ej. un asset repuntado a
+/// una ruta externa sin copiar). No requiere que el archivo exista.
+pub fn allow_asset_protocol_file(app: &tauri::AppHandle, path: &Path) {
+    let _ = app.asset_protocol_scope().allow_file(path);
 }
 
 fn to_info(session: &Session) -> ProjectSessionInfo {

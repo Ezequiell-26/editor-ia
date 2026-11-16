@@ -83,4 +83,13 @@ describe('paleta de comandos · trampa de foco', () => {
       expect(accion).toHaveBeenCalledTimes(1);
     });
   });
+
+  it('el buscador tiene nombre accesible además del placeholder', () => {
+    render(conProveedor(<Pagina onClose={vi.fn()} />));
+    fireEvent.click(screen.getByRole('button', { name: 'abrir paleta' }));
+    // Un placeholder no es un nombre accesible: el aria-label debe existir.
+    expect(
+      screen.getByRole('textbox', { name: /Buscar comandos, proyectos recientes/i }),
+    ).toBeTruthy();
+  });
 });

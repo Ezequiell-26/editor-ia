@@ -61,11 +61,13 @@ describe('workspace Cargo', () => {
 });
 
 describe('rust-toolchain.toml', () => {
-  it('fija el canal estable', () => {
+  it('fija el canal estable a una version exacta', () => {
     const source = read('rust-toolchain.toml');
     const channel = source.match(/^channel\s*=\s*"([^"]+)"/m);
     expect(channel, 'channel debe estar declarado').not.toBeNull();
-    expect(channel[1]).toBe('stable');
+    // Version pineada (p.ej. "1.98.1"), no el canal flotante "stable": CI tiene
+    // que ser reproducible. rust-env.mjs resuelve el equivalente local.
+    expect(channel[1]).toMatch(/^\d+\.\d+\.\d+$/);
     expect(source).not.toMatch(/components\s*=/);
   });
 });

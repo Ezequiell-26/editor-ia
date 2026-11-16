@@ -102,6 +102,29 @@ pub(crate) fn synthesize_dub_file(
         let stdout = child.stdout.take().ok_or_else(|| {
             ProjectError::message(ProjectErrorCode::Io, "FFmpeg no expuso su progreso")
         })?;
+        // AUD-086: stderr se drena desde que arranca el proceso. Si la pipe
+        // se llena, FFmpeg se bloquea escribiendo y `wait()` no volvería
+        // nunca. Se conserva una cola acotada: el informe usa la última
+        // línea y el log completo no hace falta en memoria.
+        let stderr_thread = child.stderr.take().map(|mut handle| {
+            thread::spawn(move || {
+                const KEEP: usize = 64 * 1024;
+                let mut tail: Vec<u8> = Vec::new();
+                let mut chunk = [0u8; 8192];
+                loop {
+                    match handle.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => {
+                            tail.extend_from_slice(&chunk[..read]);
+                            if tail.len() > KEEP {
+                                tail.drain(..tail.len() - KEEP);
+                            }
+                        }
+                    }
+                }
+                String::from_utf8_lossy(&tail).into_owned()
+            })
+        });
         let progress_app = app.cloned();
         let progress_thread = thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -122,10 +145,9 @@ pub(crate) fn synthesize_dub_file(
             }
         });
         let status = child.wait();
-        let mut stderr = String::new();
-        if let Some(mut handle) = child.stderr.take() {
-            let _ = handle.read_to_string(&mut stderr);
-        }
+        let stderr = stderr_thread
+            .and_then(|handle| handle.join().ok())
+            .unwrap_or_default();
         let _ = progress_thread.join();
         if !matches!(status, Ok(status) if status.success()) {
             let _ = std::fs::remove_file(&temp_path);

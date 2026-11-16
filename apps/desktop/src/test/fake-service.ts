@@ -1,5 +1,5 @@
-import type { Asset, ProjectDocument } from'@editor-ia/project-schema';
-import { createEmptyProject } from'@editor-ia/project-schema';
+import type { Asset, ProductionPlan, ProjectDocument } from'@editor-ia/project-schema';
+import { createEmptyProductionPlan, createEmptyProject } from'@editor-ia/project-schema';
 import { FALLBACK_VISUAL_CATALOG } from'../features/visuals/visuals';
 import type {
   AlphaFramesRequest,
@@ -24,6 +24,10 @@ import type {
   MissingAssetInfo,
   MixLoudnessReport,
   NarrationResult,
+  NativeWhisperModel,
+  NativeWhisperStatus,
+  WhisperModelDownloadEvent,
+  WhisperModelDownloadProgress,
   OpenedProject,
   ProjectVersionInfo,
   ProxyCleanupResult,
@@ -41,6 +45,7 @@ import type {
   RenderStarted,
   ConvertProgress,
   CatalogEntry,
+  ProductionPlanBrief,
   ProductionRun,
   ScriptPlan,
   SystemInfo,
@@ -130,6 +135,7 @@ export interface FakeService extends DesktopService {
   };
   emitProgress(event: RenderProgressEvent): void;
   emitFinished(event: RenderFinishedEvent): void;
+  emitWhisperModelDownload(event: WhisperModelDownloadEvent): void;
   setSaveFailure(message: string | null): void;
   setImportOutcome(outcome: ImportOutcome | null): void;
   readonly deliveries: { fileName: string; bytes: Uint8Array }[];
@@ -370,6 +376,191 @@ export function fakeAudioScopeData(): AudioScopeData {
   };
 }
 
+/**
+ * Tabla de modelos whisper nativos del fake (ids reales del crate:
+ * `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`). `downloaded`
+ * se resuelve contra el set de ids ya bajados.
+ */
+function fakeWhisperModels(downloaded: ReadonlySet<string>): NativeWhisperModel[] {
+  const table: readonly { id: string; label: string; blurb: string; englishOnly: boolean; sizeBytes: number }[] = [
+    { id: 'tiny', label: 'Whisper tiny', blurb: 'El más rápido y el menos preciso. Sirve para probar el flujo.', englishOnly: false, sizeBytes: 75_000_000 },
+    { id: 'tiny.en', label: 'Whisper tiny (inglés)', blurb: 'Variante sólo inglés de tiny: un poco más precisa en ese idioma.', englishOnly: true, sizeBytes: 75_000_000 },
+    { id: 'base', label: 'Whisper base', blurb: 'Equilibrio razonable entre velocidad y precisión para la mayoría de los videos.', englishOnly: false, sizeBytes: 142_000_000 },
+    { id: 'base.en', label: 'Whisper base (inglés)', blurb: 'Variante sólo inglés de base.', englishOnly: true, sizeBytes: 142_000_000 },
+    { id: 'small', label: 'Whisper small', blurb: 'Más preciso que base; pide más CPU o GPU.', englishOnly: false, sizeBytes: 466_000_000 },
+    { id: 'small.en', label: 'Whisper small (inglés)', blurb: 'Variante sólo inglés de small.', englishOnly: true, sizeBytes: 466_000_000 },
+  ];
+  return table.map((model) => ({
+    ...model,
+    downloaded: downloaded.has(model.id),
+    path: downloaded.has(model.id) ? `C:\\fake\\whisper-models\\ggml-${model.id}.bin` : null,
+  }));
+}
+
+function fakeWhisperStatus(
+  downloaded: ReadonlySet<string>,
+  download: {
+    running: boolean;
+    modelId: string | null;
+    progress: WhisperModelDownloadProgress | null;
+    error: string | null;
+  },
+  loadedModel: string | null = null,
+  busy = false,
+): NativeWhisperStatus {
+  return {
+    engineAvailable: true,
+    modelsDir: 'C:\\fake\\whisper-models',
+    models: fakeWhisperModels(downloaded),
+    loadedModel,
+    busy,
+    download: { ...download },
+  };
+}
+
+/**
+ * Espejo acotado de `plan_from_brief` del backend: una escena por key point
+ * (o una con el objetivo), requirement `req-broll` compartida y los
+ * extras voice/music/titleCard con las mismas convenciones (`voice:`,
+ * `music:ambient`, `title:`). Sirve para tests y demos del panel.
+ */
+function fakePlanFromBrief(brief: ProductionPlanBrief): ProductionPlan {
+  const objective = brief.objective.trim();
+  if (!objective) {
+    throw new Error('el objetivo de la producción no puede estar vacío');
+  }
+  if (objective.length > 2000) {
+    throw new Error('el objetivo supera el máximo de 2000 caracteres');
+  }
+  const platform = ['youtube', 'shorts', 'reels', 'tiktok'].includes(
+    (brief.platform ?? 'youtube').toLowerCase(),
+  )
+    ? ((brief.platform ?? 'youtube').toLowerCase() as ProductionPlan['target']['platform'])
+    : 'youtube';
+  const vertical = platform === 'shorts' || platform === 'reels' || platform === 'tiktok';
+  const aspectRatio = brief.aspectRatio ?? (vertical ? '9:16' : '16:9');
+  if (!['16:9', '9:16', '1:1', '4:5'].includes(aspectRatio)) {
+    throw new Error('aspectRatio debe ser 16:9, 9:16, 1:1 o 4:5');
+  }
+  const durationSeconds = Math.min(Math.max(brief.durationSeconds ?? 30, 3), 3600);
+  const targetDurationFrames = durationSeconds * 30;
+
+  const texts = (brief.keyPoints ?? [])
+    .map((point) => point.trim())
+    .filter((point) => point.length > 0 && point.length <= 2000)
+    .slice(0, 8);
+  const sceneTexts = texts.length > 0 ? texts : [objective];
+  const requested = brief.sceneCount ?? 0;
+  const finalTexts = requested > 0 ? sceneTexts.slice(0, Math.max(requested, 1)) : sceneTexts;
+
+  const now = new Date().toISOString();
+  const plan = createEmptyProductionPlan(`plan-fake-${Date.now()}`, now, objective);
+  const requirements: ProductionPlan['requirements'][number][] = [
+    {
+      id: 'req-broll',
+      kind: 'video',
+      query: (brief.brollQuery ?? objective).slice(0, 120),
+      maxCount: Math.min(Math.max(finalTexts.length, 1), 6),
+      minCommercialUse: 'allowed',
+      preferLocal: true,
+      optional: false,
+    },
+  ];
+  const scenes: ProductionPlan['scenes'][number][] = [];
+  for (const [index, text] of finalTexts.entries()) {
+    const sceneId = `scene-${index + 1}`;
+    scenes.push({
+      id: sceneId,
+      order: index,
+      title: text.slice(0, 80),
+      intent: 'explainer',
+      targetDurationFrames: Math.floor(targetDurationFrames / finalTexts.length),
+      narrationText: text,
+      requirementIds: ['req-broll'],
+    });
+    if (brief.voice?.trim()) {
+      const reqId = `req-voz-${sceneId}`;
+      requirements.push({
+        id: reqId,
+        kind: 'voice',
+        query: text,
+        maxCount: 1,
+        minCommercialUse: 'unknown',
+        preferLocal: true,
+        optional: false,
+        voice: brief.voice.trim(),
+      });
+      scenes.push({
+        id: `voz-${sceneId}`,
+        order: scenes.length,
+        title: `${text.slice(0, 60)} (voz)`,
+        intent: 'explainer',
+        requirementIds: [reqId],
+      });
+    }
+  }
+  if (brief.titleCard) {
+    const titleText = objective.slice(0, 80);
+    requirements.push({
+      id: 'req-portada',
+      kind: 'image',
+      query: `title:${titleText}`,
+      maxCount: 1,
+      minCommercialUse: 'allowed',
+      preferLocal: true,
+      optional: false,
+    });
+    scenes.unshift({
+      id: 'portada',
+      order: 0,
+      title: titleText,
+      intent: 'explainer',
+      requirementIds: ['req-portada'],
+    });
+    scenes.forEach((scene, index) => {
+      scene.order = index;
+    });
+  }
+  if (brief.music) {
+    requirements.push({
+      id: 'req-musica',
+      kind: 'music',
+      query: 'music:ambient',
+      maxCount: 1,
+      minCommercialUse: 'allowed',
+      preferLocal: true,
+      optional: false,
+    });
+  }
+  const hasNarration = scenes.some((scene) => scene.narrationText !== undefined);
+
+  return {
+    ...plan,
+    createdAt: now,
+    updatedAt: now,
+    brief: {
+      objective,
+      keyPoints: [...(brief.keyPoints ?? [])],
+      ...(brief.audience ? { audience: brief.audience } : {}),
+      ...(brief.tone ? { tone: brief.tone } : {}),
+    },
+    target: {
+      platform,
+      aspectRatio,
+      targetDurationFrames,
+    },
+    requirements,
+    scenes,
+    subtitles: hasNarration ? { enabled: true, language: 'es' } : { enabled: false },
+    music: brief.music ? { enabled: true, query: 'music:ambient' } : { enabled: false },
+    quality: {
+      requiredChecks: ['missing-resources', 'clip-range', 'render-verify', 'rights'],
+    },
+    ...(brief.maxCostCents !== undefined ? { maxCostCents: brief.maxCostCents } : {}),
+    stage: 'plan',
+  };
+}
+
 export function createFakeService(): FakeService {
   let current: OpenedProject | null = null;
   let saveFailure: string | null = null;
@@ -388,8 +579,20 @@ export function createFakeService(): FakeService {
   const proxyProgressHandlers = new Set<(event: ProxyProgressEvent) => void>();
   const alphaFrameBatches: { token: string; startIndex: number; count: number }[] = [];
   const alphaSequences: AlphaSequenceRequest[] = [];
+  // Modelos whisper nativos del fake: `tiny` y `base` vienen descargados.
+  const whisperDownloaded = new Set(['tiny', 'base']);
+  const whisperDownloadState: {
+    running: boolean;
+    modelId: string | null;
+    progress: WhisperModelDownloadProgress | null;
+    error: string | null;
+  } = { running: false, modelId: null, progress: null, error: null };
+  const whisperDownloadHandlers = new Set<(event: WhisperModelDownloadEvent) => void>();
   // Cola de entregas persistida en memoria, como la copia JSON del backend.
   let persistedRenderQueue: RenderQueueEntry[] = [];
+  // Corridas de producción persistidas en memoria (el fake no ejecuta
+  // etapas: `advance` devuelve la corrida tal cual está).
+  const productionRuns = new Map<string, ProductionRun>();
   const calls = {
     create: 0,
     open: 0,
@@ -507,6 +710,9 @@ export function createFakeService(): FakeService {
     },
     async listMediaFolder() {
       return { directory: '', files: [] };
+    },
+    async searchMediaFolder() {
+      return { directory: '', query: '', files: [], truncated: false };
     },
     async listDirectory() {
       return { directory: '', entries: [], truncated: false };
@@ -1003,36 +1209,98 @@ export function createFakeService(): FakeService {
       return { passed: true, errors: 0, warnings: 0, findings: [] } as QualityGateReport;
     },
     async productionCreate(plan, options) {
-      return {
-        id: options?.runId ?? 'run-fake',
+      const maxCostCents = options?.maxCostCents ?? plan.maxCostCents;
+      const run: ProductionRun = {
+        id: options?.runId ?? `run-fake-${productionRuns.size + 1}`,
         planId: plan.id,
         plan,
         status: 'planned',
         currentStage: 'plan',
         stages: [],
-        maxCostCents: options?.maxCostCents,
+        ...(maxCostCents !== undefined ? { maxCostCents } : {}),
         spentCents: 0,
         maxStageAttempts: 3,
         resumes: 0,
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
-      } as ProductionRun;
+      };
+      productionRuns.set(run.id, run);
+      return run;
     },
-    async productionStatus() {
-      return null;
+    async productionStatus(runId: string) {
+      return productionRuns.get(runId) ?? null;
     },
     async productionList() {
-      return [] as readonly ProductionRun[];
+      return [...productionRuns.values()] as readonly ProductionRun[];
     },
     async productionResume(runId: string) {
-      return (await service.productionStatus(runId)) as ProductionRun;
+      const run = productionRuns.get(runId);
+      if (!run) throw new Error('corrida no encontrada');
+      const resumed: ProductionRun = {
+        ...run,
+        status: 'running',
+        resumes: run.resumes + 1,
+        updatedAt: new Date().toISOString(),
+      };
+      productionRuns.set(runId, resumed);
+      return resumed;
     },
     async productionCancel(runId: string) {
-      return (await service.productionStatus(runId)) as ProductionRun;
+      const run = productionRuns.get(runId);
+      if (!run) throw new Error('corrida no encontrada');
+      const cancelled: ProductionRun = {
+        ...run,
+        status: 'cancelled',
+        updatedAt: new Date().toISOString(),
+      };
+      productionRuns.set(runId, cancelled);
+      return cancelled;
     },
-    async productionRemove() {},
+    async productionRemove(runId: string) {
+      productionRuns.delete(runId);
+    },
     async productionAdvance(runId: string) {
-      return (await service.productionStatus(runId)) as ProductionRun;
+      // El fake no ejecuta etapas: devuelve la corrida sin mutarla.
+      const run = productionRuns.get(runId);
+      if (!run) throw new Error('corrida no encontrada');
+      return run;
+    },
+    async productionPause(runId: string) {
+      const run = productionRuns.get(runId);
+      if (!run) throw new Error('corrida no encontrada');
+      if (['done', 'cancelled', 'failed'].includes(run.status)) return run;
+      const paused: ProductionRun = {
+        ...run,
+        status: 'paused',
+        updatedAt: new Date().toISOString(),
+      };
+      productionRuns.set(runId, paused);
+      return paused;
+    },
+    async productionStart(runId: string) {
+      const run = productionRuns.get(runId);
+      if (!run) throw new Error('corrida no encontrada');
+      // El driver real arranca y la corrida pasa a `running` al avanzar;
+      // el fake no ejecuta etapas pero sí refleja ese estado inicial.
+      if (['done', 'cancelled'].includes(run.status)) return false;
+      if (run.status !== 'running') {
+        productionRuns.set(runId, {
+          ...run,
+          status: 'running',
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      return true;
+    },
+    async productionPlanFromText(_text: string, _options?: { approvedCost?: boolean }) {
+      // El provider del fake es `mock`: igual que el backend, no interpreta
+      // lenguaje natural. Los tests pueden pisar el método si lo necesitan.
+      throw new Error(
+        'el proveedor mock no interpreta lenguaje natural; configurá un proveedor real',
+      );
+    },
+    async productionPlanFromBrief(brief: ProductionPlanBrief) {
+      return fakePlanFromBrief(brief);
     },
     async catalogSearch() {
       return [] as readonly CatalogEntry[];
@@ -1151,6 +1419,16 @@ export function createFakeService(): FakeService {
         encoder: 'libx264',
       };
     },
+    async convertFile(request) {
+      return {
+        path: `${request.outputDir}\\${request.inputPath.split(/[\\/]/).pop() ?? 'salida'}-convertido.${request.target}`,
+        bytes: 1024,
+        durationSeconds: 1,
+        formatName: request.target,
+        sourceBytes: 4096,
+        encoder: request.target === 'gif' ? 'gif' : 'libmp3lame',
+      };
+    },
     async convertMediaBatch(assetIds, target, outputDir) {
       return assetIds.map((assetId) => ({
         assetId,
@@ -1246,6 +1524,9 @@ export function createFakeService(): FakeService {
     async mcpServerStatus() {
       return null;
     },
+    async mcpServerStop() {
+      return false;
+    },
     async mcpRespond() {
       return true;
     },
@@ -1304,13 +1585,14 @@ export function createFakeService(): FakeService {
       return {
         containers: [
           { container: 'mp4', videoCodecs: ['h264','h265'], audioCodecs: ['aac'] },
-          { container: 'mov', videoCodecs: ['h264','h265'], audioCodecs: ['aac'] },
+          { container: 'mov', videoCodecs: ['h264','h265','prores'], audioCodecs: ['aac'] },
           { container: 'webm', videoCodecs: ['vp9','av1'], audioCodecs: ['opus'] },
         ],
-        pixelFormats: ['yuv420p','yuv444p'],
+        pixelFormats: ['yuv420p','yuv444p','yuv422p10le','yuva444p10le'],
         videoCodecs: {
           h264: { software: ['libopenh264'], hardware: [] },
           h265: { software: ['hevc_mf'], hardware: [] },
+          prores: { software: ['prores_ks'], hardware: [] },
           vp9: { software: ['libvpx-vp9'], hardware: [] },
           av1: { software: ['libsvtav1'], hardware: [] },
         },
@@ -1444,6 +1726,9 @@ export function createFakeService(): FakeService {
       void title;
       return'C:////media////voz.wav';
     },
+    async sfxLibrary() {
+      return [];
+    },
     async probeMediaFile(path: string) {
       return {
         path,
@@ -1487,12 +1772,64 @@ export function createFakeService(): FakeService {
         source: path,
         relativePath: `media/${path.split(/[\\/]/).pop() ?? 'media.mp4'}`,
         bytes: 1024,
+        sha256: 'f'.repeat(64),
       }));
     },
     async measureVmaf(original: string, compressed: string) {
       void original;
       void compressed;
       return 91.3;
+    },
+    async concatWorkerStatus() {
+      return {
+        available: false,
+        path: null,
+        reason: 'concat-worker.exe no está compilado ni empaquetado',
+        ops: ['ping', 'probe', 'decode_frame', 'render_export', 'shutdown'],
+        running: false,
+      };
+    },
+    async concatWorkerRequest(op: string, params?: Record<string, unknown> | null) {
+      if (op === 'ping') {
+        return { ok: true, pong: true, op, echo: params ?? null };
+      }
+      if (op === 'shutdown') {
+        return { ok: true, op, shutdown: true };
+      }
+      if (op === 'render_export') {
+        // Envelope de éxito con la forma real del worker
+        // (`render_export.rs`): output + resumen del render.
+        const clips = Array.isArray(params?.clips) ? params.clips : [];
+        return {
+          ok: true,
+          output: typeof params?.output === 'string' ? params.output : 'export.mp4',
+          width: typeof params?.width === 'number' ? params.width : 0,
+          height: typeof params?.height === 'number' ? params.height : 0,
+          frame_rate: '30/1',
+          frame_rate_fps: 30,
+          frames: 0,
+          duration: '0/1',
+          duration_seconds: 0,
+          codec: typeof params?.codec === 'string' ? params.codec : 'h264',
+          audio: clips.some(
+            (clip) => typeof clip === 'object' && clip !== null && (clip as { audio?: boolean }).audio === true,
+          ),
+          audio_clips: 0,
+          audio_clips_skipped: 0,
+          transitions: clips.filter(
+            (clip) => typeof clip === 'object' && clip !== null && (clip as { transition?: unknown }).transition != null,
+          ).length,
+        };
+      }
+      return { ok: false, error: `op de prueba sin implementar: ${op}` };
+    },
+    async onConcatWorkerEvent() {
+      // Sin eventos por defecto: los tests que los necesiten pisan este
+      // método y capturan el handler.
+      return () => {};
+    },
+    async concatWorkerCancelRender() {
+      return true;
     },
     async listModels() {
       return [
@@ -1995,6 +2332,24 @@ export function createFakeService(): FakeService {
         yExpression: 'ih*0.2',
       };
     },
+    async trackObject(request) {
+      const duration = Math.max(0.1, request.endSeconds - request.startSeconds);
+      const samples = [0, 0.5, 1].map((fraction) => ({
+        time: request.startSeconds + duration * fraction,
+        centerX: request.rect.x + request.rect.w / 2,
+        centerY: request.rect.y + request.rect.h / 2,
+        size: Math.max(request.rect.w, request.rect.h),
+        confidence: 0.9,
+      }));
+      return {
+        samples,
+        frames: samples.length,
+        confident: samples.length,
+        durationSeconds: duration,
+        scaledWidth: 256,
+        scaledHeight: 144,
+      };
+    },
     async chooseImageFile(title?: string) {
       // El arnés devuelve una ruta fija; el test que necesite otra la pisa.
       void title;
@@ -2016,6 +2371,36 @@ export function createFakeService(): FakeService {
         startedAtMs: 1_700_000_000_000,
         idleMs: 1_000,
       }));
+    },
+    async mcpAuditTail(limit = 50) {
+      const all = [
+        {
+          ts: 1_700_000_000_000,
+          tool: 'diagnostics',
+          args: {},
+          ok: true,
+          durationMs: 12,
+          result: '{"status":"ok"}',
+        },
+        {
+          ts: 1_700_000_060_000,
+          tool: 'clip_delete',
+          args: { clipId: 'clip-1' },
+          ok: false,
+          denied: 'scope',
+          requiredScope: 'write',
+          grantedScopes: ['read'],
+        },
+        {
+          ts: 1_700_000_120_000,
+          tool: 'project_status',
+          args: {},
+          ok: true,
+          durationMs: 48,
+          result: 'project demo · 3 clips',
+        },
+      ];
+      return { entries: all.slice(-limit), skipped: 0, truncated: all.length > limit };
     },
     async loadDirectorMemory() {
       return null;
@@ -2046,6 +2431,46 @@ export function createFakeService(): FakeService {
           },
         ],
       };
+    },
+    async whisperModelStatus() {
+      return fakeWhisperStatus(whisperDownloaded, whisperDownloadState);
+    },
+    async whisperModelDownload(modelId: string) {
+      const entry = fakeWhisperModels(whisperDownloaded).find(
+        (model) => model.id === modelId,
+      );
+      if (!entry) {
+        throw new Error(`ese modelo whisper no existe: ${modelId}`);
+      }
+      whisperDownloaded.add(modelId);
+      const progress: WhisperModelDownloadProgress = {
+        modelId,
+        received: entry.sizeBytes,
+        total: entry.sizeBytes,
+        unpacking: false,
+        done: true,
+        percent: 100,
+      };
+      whisperDownloadState.running = false;
+      whisperDownloadState.modelId = modelId;
+      whisperDownloadState.progress = progress;
+      whisperDownloadState.error = null;
+      for (const handler of whisperDownloadHandlers) {
+        handler({ ...progress });
+      }
+      const updated = fakeWhisperModels(whisperDownloaded).find(
+        (model) => model.id === modelId,
+      );
+      if (!updated) throw new Error(`el modelo ${modelId} no quedó registrado`);
+      return updated;
+    },
+    async whisperModelDownloadCancel() {
+      whisperDownloadState.running = false;
+      whisperDownloadState.error = 'descarga cancelada por el usuario';
+    },
+    async onWhisperModelDownload(handler) {
+      whisperDownloadHandlers.add(handler);
+      return () => whisperDownloadHandlers.delete(handler);
     },
     async voiceIsolationStatus() {
       return { available: false, python: null, reason: 'fake service'};
@@ -2157,6 +2582,14 @@ export function createFakeService(): FakeService {
         hasAudio: false,
       };
     },
+    async screenRecordSnapshot() {
+      return {
+        ok: true,
+        path: 'C:\\fake\\obs-previews\\preview-adhoc.png',
+        width: 1920,
+        height: 1080,
+      };
+    },
     async subtitlesPipeline() {
       return {
         ok: true,
@@ -2199,7 +2632,8 @@ export function createFakeService(): FakeService {
           name: 'Escritorio + stream',
           fps: 30,
           captureTarget: 'desktop',
-          streamUrl: 'rtmp://live.example.com/app/key',
+          // La escena persistida expone el endpoint SIN clave (AUD-096).
+          streamEndpoint: 'rtmp://live.example.com/app',
         },
       ];
     },
@@ -2236,6 +2670,19 @@ export function createFakeService(): FakeService {
         verified: true,
       };
     },
+    async whiteboardStatus() {
+      return { available: true, python: 'python', reason: null };
+    },
+    async whiteboardGenerate() {
+      return {
+        videoPath: 'C:\\recordings\\whiteboard-test.mp4',
+        durationSeconds: 8,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        processingTimeMs: 1234,
+      };
+    },
     async systemInfo(): Promise<SystemInfo> {
       return {
         appVersion: '0.1.0-test',
@@ -2253,6 +2700,9 @@ export function createFakeService(): FakeService {
         configDir: 'C:\\Users\\tester\\AppData\\Roaming\\editor-ia',
         cacheDir: 'C:\\Users\\tester\\AppData\\Local\\editor-ia',
       };
+    },
+    async listSystemFonts(): Promise<string[]> {
+      return ['Arial', 'Segoe UI', 'Impact', 'Georgia'];
     },
     async chooseTool() {
       return service.systemInfo();
@@ -2375,6 +2825,9 @@ export function createFakeService(): FakeService {
     async pruneRenderCache() {
       return 0;
     },
+    async renderDiary() {
+      return [];
+    },
     async renderQueueLoad() {
       // Misma recuperación que el backend: lo que quedó corriendo vuelve a pending.
       persistedRenderQueue = persistedRenderQueue.map((entry) =>
@@ -2415,6 +2868,9 @@ export function createFakeService(): FakeService {
     },
     emitFinished(event) {
       for (const handler of finishedHandlers) handler(event);
+    },
+    emitWhisperModelDownload(event) {
+      for (const handler of whisperDownloadHandlers) handler(event);
     },
     setSaveFailure(message) {
       saveFailure = message;

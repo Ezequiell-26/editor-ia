@@ -16,7 +16,7 @@ import {
   lumaMateOptionLabel,
   lumaMatePick,
   type LumaMateCandidate,
-} from '../editor/luma-mate';
+} from '../../state/luma-mate';
 import {
   FALLBACK_VISUAL_CATALOG,
   assetLabel,
@@ -30,6 +30,13 @@ import {
   trackLabel,
   visualClips,
 } from './visuals';
+import {
+  VERIFICATION_LABEL,
+  canApplyTransition,
+  transitionVerification,
+  verifyVisualCatalog,
+  type VerificationEntry,
+} from './catalog-verification';
 import './visuals-view.css';
 
 interface QuickValues {
@@ -54,6 +61,12 @@ const QUICK_DEFAULTS: QuickValues = {
   sharpen: 0,
   grayscale: false,
   sepia: false,
+};
+
+/** Lo que la interfaz DECLARA. No es una medición: se cruza con el backend. */
+const DECLARED_CATALOG = {
+  transitions: FALLBACK_VISUAL_CATALOG.transitions.map(({ id, label }) => ({ id, label })),
+  effects: FALLBACK_VISUAL_CATALOG.effects.map(({ id, label }) => ({ id, label })),
 };
 
 function effectsOf(clip: Clip): ClipEffects | undefined {
@@ -87,6 +100,7 @@ export function VisualsView({
   const [quick, setQuick] = useState<QuickValues>(QUICK_DEFAULTS);
   const [audit, setAudit] = useState<VisualAudit | null>(null);
   const [busy, setBusy] = useState(false);
+  const [remeasuring, setRemeasuring] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -131,6 +145,33 @@ export function VisualsView({
   const primary = selectedClips[0] ?? null;
   const transitionSpec = catalog.transitions.find((item) => item.id === transitionType);
   const availableEffects = catalog.effects.filter((effect) => effect.available);
+
+  // Declaración de la UI vs catálogo medido por el backend. Sin medición,
+  // ninguna opción se considera verificada y la UI se niega a aplicarla.
+  const verification = useMemo(
+    () => verifyVisualCatalog(catalog, measured, DECLARED_CATALOG),
+    [catalog, measured],
+  );
+  const transitionStates = useMemo(
+    () =>
+      new Map<string, VerificationEntry>(
+        verification.entries
+          .filter((entry) => entry.kind === 'transition')
+          .map((entry) => [entry.id, entry] as const),
+      ),
+    [verification],
+  );
+  const effectStates = useMemo(
+    () =>
+      new Map<string, VerificationEntry>(
+        verification.entries
+          .filter((entry) => entry.kind === 'effect')
+          .map((entry) => [entry.id, entry] as const),
+      ),
+    [verification],
+  );
+  const activeVerification = transitionVerification(verification, transitionType);
+  const transitionVerified = canApplyTransition(verification, transitionType);
 
   // Candidatos a mate por clip seleccionado, calculados con la transición que
   // se va a escribir (el solape depende de `frames`), misma regla que el
@@ -208,6 +249,18 @@ export function VisualsView({
   function applyTransition(): void {
     if (!project || selectedClips.length === 0) {
       setError('Elegí al menos un clip visual.');
+      return;
+    }
+    // "Preguntar y desistir solo": si no está verificada, no se escribe en el
+    // proyecto. Una transición declarada pero no medida puede renderizar sin
+    // efecto y fallar en silencio recién en el export.
+    if (!transitionVerified) {
+      setError(
+        `No se aplicó «${activeVerification?.label ?? transitionType}»: ${
+          activeVerification?.reason ??
+          'la transición no está verificada contra el catálogo medido del backend.'
+        }`,
+      );
       return;
     }
     const type = transitionType as ClipTransition['type'];
@@ -304,6 +357,26 @@ export function VisualsView({
       grayscale: effects?.grayscale ?? false,
       sepia: effects?.sepia ?? false,
     });
+  }
+
+  /** Vuelve a preguntar al backend: una declaración nunca reemplaza una medición. */
+  async function remeasure(): Promise<void> {
+    setRemeasuring(true);
+    setError(null);
+    try {
+      const next = await store.service.listVisualCatalog();
+      setCatalog(next);
+      setMeasured(true);
+      store.setNotice('Catálogo medido contra el backend.');
+    } catch (failure) {
+      setCatalog(FALLBACK_VISUAL_CATALOG);
+      setMeasured(false);
+      setError(
+        failure instanceof Error ? failure.message : 'no se pudo medir el catálogo visual',
+      );
+    } finally {
+      setRemeasuring(false);
+    }
   }
 
   async function runAudit(): Promise<void> {
@@ -565,10 +638,16 @@ export function VisualsView({
             <div className="visuals-transitions-grid">
               {catalog.transitions.map((item) => {
                 const isSelected = transitionType === item.id;
+                const entry = transitionStates.get(item.id);
+                const state = entry?.state ?? 'unverified';
+                const reason = entry?.reason ?? 'Sin entrada en la verificación del catálogo.';
                 return (
                   <button
                     key={item.id}
                     type="button"
+                    aria-label={item.label}
+                    data-verification={state}
+                    title={`${item.label} · ${VERIFICATION_LABEL[state]}: ${reason}`}
                     className={`visuals-transition-card${isSelected ? ' selected' : ''}${!item.available ? ' disabled' : ''}`}
                     disabled={!item.available}
                     onClick={() => {
@@ -581,11 +660,22 @@ export function VisualsView({
                       backgroundPosition: 'center',
                     }}
                   >
+                    {state !== 'verified' ? (
+                      <span className="visuals-verification-badge" aria-hidden="true">
+                        {VERIFICATION_LABEL[state]}
+                      </span>
+                    ) : null}
                     <strong>{item.label}</strong>
                   </button>
                 );
               })}
             </div>
+
+            {activeVerification && !transitionVerified ? (
+              <p className="notice notice-warning" role="alert">
+                {`«${activeVerification.label}» · ${VERIFICATION_LABEL[activeVerification.state]}: ${activeVerification.reason}`}
+              </p>
+            ) : null}
 
             <div className="visuals-transition-controls">
               <label className="field">
@@ -607,7 +697,13 @@ export function VisualsView({
                   type="button"
                   className="primary"
                   onClick={applyTransition}
-                  disabled={selectedClips.length === 0}
+                  disabled={selectedClips.length === 0 || !transitionVerified}
+                  title={
+                    transitionVerified
+                      ? undefined
+                      : (activeVerification?.reason ??
+                        'La transición no está verificada contra el backend.')
+                  }
                 >
                   Aplicar
                 </button>
@@ -764,6 +860,61 @@ export function VisualsView({
         </div>
 
         <aside className="visuals-side">
+          <section
+            className="card visuals-card visuals-verification"
+            aria-labelledby="visuals-verification-title"
+          >
+            <div className="visuals-card-head">
+              <div>
+                <p className="eyebrow">Capacidades</p>
+                <h3 id="visuals-verification-title">
+                  {verification.measured ? 'Catálogo medido' : 'Catálogo sin verificar'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => void remeasure()}
+                disabled={remeasuring}
+              >
+                {remeasuring ? 'Midiendo…' : 'Medir de nuevo'}
+              </button>
+            </div>
+            <p className="fine-print">
+              {verification.counts.verified} de {verification.entries.length} entradas
+              verificadas · {verification.declaredTransitions} transiciones y{' '}
+              {verification.declaredEffects} efectos declarados por la interfaz.
+              {verification.measured
+                ? ' Cruzados con el catálogo que midió el backend.'
+                : ' Sin medición, las opciones se muestran pero no se aplican.'}
+            </p>
+            {verification.problems.length === 0 ? (
+              <p className="fine-print">
+                Declaración y medición coinciden: ninguna opción se ofrece sin confirmar.
+              </p>
+            ) : (
+              <>
+                <ul className="visuals-verification-problems">
+                  {verification.problems.slice(0, 6).map((entry) => (
+                    <li
+                      key={`${entry.kind}:${entry.id}`}
+                      className={`verification-${entry.state}`}
+                    >
+                      <strong>{VERIFICATION_LABEL[entry.state]}</strong>
+                      <span>{entry.label}</span>
+                      <small>{entry.reason}</small>
+                    </li>
+                  ))}
+                </ul>
+                {verification.problems.length > 6 ? (
+                  <p className="fine-print">
+                    Y {verification.problems.length - 6} entrada(s) más con el mismo estado.
+                  </p>
+                ) : null}
+              </>
+            )}
+          </section>
+
           <section className="card visuals-card">
             <div className="visuals-card-head">
               <div>
@@ -786,13 +937,27 @@ export function VisualsView({
               ))}
             </div>
             <ul className="visuals-effects">
-              {catalog.effects.map((effect) => (
-                <li key={effect.id} className={effect.available ? '' : 'missing'}>
-                  <span>{effect.label}</span>
-                  <em>{effect.category}</em>
-                  {effect.available ? null : <strong>no disponible</strong>}
-                </li>
-              ))}
+              {catalog.effects.map((effect) => {
+                const entry = effectStates.get(effect.id);
+                const state = entry?.state ?? 'unverified';
+                return (
+                  <li
+                    key={effect.id}
+                    className={`${effect.available ? '' : 'missing'} verification-${state}`}
+                  >
+                    <span>{effect.label}</span>
+                    <em>{effect.category}</em>
+                    {state === 'verified' ? null : (
+                      <strong>{VERIFICATION_LABEL[state]}</strong>
+                    )}
+                    {state === 'verified' ? null : (
+                      <small className="visuals-effect-reason">
+                        {entry?.reason ?? 'Sin verificar contra el catálogo medido.'}
+                      </small>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </section>
 

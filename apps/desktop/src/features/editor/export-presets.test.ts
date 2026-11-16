@@ -3,6 +3,7 @@ import {
   EXPORT_PRESETS_KEY,
   EXPORT_PRESETS_LIMIT,
   deleteExportPreset,
+  estimateOutputBytes,
   loadExportPresets,
   parseExportPresets,
   saveExportPreset,
@@ -86,5 +87,24 @@ describe('presets de exportación', () => {
       createdAt: new Date().toISOString(),
     };
     expect(preset.compression).toBe('compacto');
+  });
+});
+
+describe('estimateOutputBytes', () => {
+  const fullHd = { width: 1920, height: 1080, fps: 30, audioBitsPerSecond: 128_000 };
+
+  it('estima ~0,13 bits por píxel más el audio del perfil', () => {
+    // 10 s a 1080p30: vídeo ≈ 1920*1080*30*0,13 = 8.077.760 bps + 128.000
+    const bytes = estimateOutputBytes(fullHd, 10);
+    const expected = Math.round((10 * (1920 * 1080 * 30 * 0.13 + 128_000)) / 8);
+    expect(bytes).toBe(expected);
+    expect(bytes).toBeGreaterThan(10_000_000);
+  });
+
+  it('devuelve 0 con entradas inválidas', () => {
+    expect(estimateOutputBytes(fullHd, 0)).toBe(0);
+    expect(estimateOutputBytes(fullHd, -5)).toBe(0);
+    expect(estimateOutputBytes({ ...fullHd, width: 0 }, 10)).toBe(0);
+    expect(estimateOutputBytes({ ...fullHd, fps: 0 }, 10)).toBe(0);
   });
 });

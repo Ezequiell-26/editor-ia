@@ -1,0 +1,140 @@
+/*
+ * Pulido visual del shell - capa ADITIVA, última del cascade.
+ *
+ * Alcance: sólo :root[data-theme='dark']. No reemplaza el shell ni reescribe
+ * las capas premium / filmora / capcut; las sobrepone con selectores de alta
+ * especificidad, siguiendo la convención del proyecto.
+ *
+ * Evidencia (2026-11-11):
+ *  - REA ev_0879afce1dbbb11f6696bd46ee358b62c057cebd93bb319aefc4c310d465df42
+ *    sobre apps/desktop/dist (75 módulos JS parseados, 1.016.654 nodos AST).
+ *  - Medición Playwright en vivo a 1360x768: la línea del aviso de modo
+ *    navegador media 834px de texto en 427px visibles (recorte a mitad de
+ *    palabra), y 13/61 textos quedaban bajo WCAG AA por opacidad 0.45-0.5
+ *    aplicada a controles deshabilitados en modo navegador.
+ */
+
+/* ── 1 · Aviso de modo navegador: nunca cortar a mitad de palabra ───────── */
+
+:root[data-theme='dark'] .app-shell .browser-mode-banner,
+:root[data-theme='dark'] .start-window .browser-mode-banner {
+  column-gap: 10px;
+  row-gap: 4px;
+}
+
+:root[data-theme='dark'] .app-shell .browser-mode-banner-line,
+:root[data-theme='dark'] .start-window .browser-mode-banner-line {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere;
+  line-height: 1.35 !important;
+}
+
+/* El motivo completo no se pierde: se lee en el panel desplegable. */
+:root[data-theme='dark'] .browser-mode-banner-reason {
+  display: block;
+  margin: 0 0 8px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--hairline-strong-color, rgba(255, 255, 255, 0.1));
+  color: var(--ink-1, var(--color-text));
+}
+
+:root[data-theme='dark'] .browser-mode-banner-reason strong {
+  color: var(--ink-1, var(--color-text));
+}
+
+/* ── 2 · Controles deshabilitados: legibles Y claramente no interactivos ──
+ * El modo navegador deshabilita crear/abrir/plantillas. El --disabled-opacity
+ * de 0.45 (premium/launcher.css) y el 0.5 !important de filmora.css dejaban
+ * el texto casi invisible. Se sube la opacidad y se conservan dos señales
+ * explícitas de estado: cursor not-allowed y borde discontinuo.
+ */
+
+:root[data-theme='dark'] .start-screen :is(
+  .start-action-card,
+  .start-template-row,
+  .start-tool-chip,
+  .start-quick-card,
+  .start-hero-cta,
+  .start-services button
+):disabled {
+  opacity: 0.86 !important;
+  cursor: not-allowed !important;
+  border-style: dashed !important;
+  background-color: color-mix(in srgb, var(--color-panel-2) 70%, transparent) !important;
+}
+
+:root[data-theme='dark'] .start-screen :is(
+  .start-action-card,
+  .start-template-row,
+  .start-tool-chip
+):disabled :is(.start-action-desc, .start-tpl-badge, .start-tool-tag) {
+  color: #c8d2da !important;
+}
+
+/* ── 3 · Estado vacío de proyectos recientes: contenedor legible ───────── */
+
+:root[data-theme='dark'] .start-screen .start-empty-notice {
+  min-height: 132px;
+  border-style: dashed !important;
+  border-color: var(--color-border-strong) !important;
+  background: color-mix(in srgb, var(--color-text) 3%, transparent) !important;
+}
+
+:root[data-theme='dark'] .start-screen .start-empty-notice svg {
+  width: 26px !important;
+  height: 26px !important;
+  color: var(--color-accent) !important;
+  opacity: 0.9;
+}
+
+:root[data-theme='dark'] .start-screen .start-empty-notice strong {
+  letter-spacing: 0.01em;
+}
+
+/* ── 4 · Globo de primera ejecución: dejar de competir con el CTA ────────
+ * Medición a 1360x768: CTA x=361..1077, globo x=1083..1301 (6px libres).
+ * A 1280x720 el CTA termina en 1063 y el globo empieza en 1017: se pisan
+ * 46x31px. Además el globo usaba el acento al 100% de relleno, robándole
+ * jerarquía al botón principal. Se pasa a superficie oscura con borde de
+ * acento (60-30-10) y se baja cuando no hay ancho suficiente.
+ */
+
+:root[data-theme='dark'] .start-screen .start-new-project-tip {
+  background: var(--color-panel-raised) !important;
+  color: var(--color-text) !important;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+:root[data-theme='dark'] .start-screen .start-new-project-tip strong {
+  color: var(--color-accent) !important;
+}
+
+:root[data-theme='dark'] .start-screen .start-new-project-tip p {
+  color: var(--color-text-muted) !important;
+}
+
+:root[data-theme='dark'] .start-screen .start-new-project-tip-close {
+  color: var(--color-text-muted) !important;
+}
+
+:root[data-theme='dark'] .start-screen .start-new-project-tip-tail {
+  background: var(--color-panel-raised) !important;
+}
+
+@media (max-width: 1340px) {
+  :root[data-theme='dark'] .start-screen .start-new-project-tip {
+    top: 166px !important;
+  }
+
+  /* Cola hacia arriba: el rombo es un cuadrado rotado 45°, así que los
+     bordes superior e izquierdo son los dos filos que quedan arriba. */
+  :root[data-theme='dark'] .start-screen .start-new-project-tip-tail {
+    top: -7px !important;
+    left: calc(50% - 6px) !important;
+    border-top: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent) !important;
+    border-left: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent) !important;
+  }
+}

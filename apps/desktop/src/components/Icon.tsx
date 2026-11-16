@@ -40,6 +40,7 @@ export type IconName =
   | 'lock'
   | 'grid'
   | 'search'
+  | 'scan'
   | 'star'
   | 'marker'
   | 'magnet'
@@ -84,7 +85,10 @@ export type IconName =
   | 'motion'
   | 'background'
   | 'upscale'
-  | 'lab';
+  | 'camera'
+  | 'pencil'
+  | 'lab'
+  | 'layout';
 
 const paths: Record<IconName, ReactNode> = {
   home: (
@@ -340,10 +344,23 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M9 3v18M15 3v18M3 9h18M3 15h18" />
     </>
   ),
+  layout: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M14.5 4v16" />
+    </>
+  ),
   search: (
     <>
       <circle cx="10.8" cy="10.8" r="6.3" />
       <path d="m15.5 15.5 4.8 4.8" />
+    </>
+  ),
+  scan: (
+    <>
+      <circle cx="10.5" cy="10.5" r="6" />
+      <path d="M3.5 10.5h14M10.5 3.5v14" />
+      <path d="m15.2 15.2 5 5" />
     </>
   ),
   film: (
@@ -558,6 +575,18 @@ const paths: Record<IconName, ReactNode> = {
       <path d="m8 14 3-4 2 2.5 3-4" />
       <path d="M16 8h2v2" />
       <path d="m14 10 4-4" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M4 8h3l1.5-2.5h7L17 8h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+      <circle cx="12" cy="14" r="3.5" />
+    </>
+  ),
+  pencil: (
+    <>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+      <path d="m15 5 4 4" />
     </>
   ),
   lab: (

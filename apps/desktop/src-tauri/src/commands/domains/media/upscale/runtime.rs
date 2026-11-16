@@ -75,7 +75,7 @@ pub fn upscale_image(
         ));
     }
     let model_path = model_dir(&state, spec).join(spec.files[0].file_name);
-    let input = PathBuf::from(input_path.trim());
+    let input = crate::application::fs::resolve_user_file_path(&input_path)?;
     if !input.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
@@ -103,7 +103,9 @@ pub fn upscale_image(
     let output = run_realesrgan(&model_path, &image)?;
 
     let destination = match output_path {
-        Some(path) if !path.trim().is_empty() => PathBuf::from(path.trim()),
+        Some(path) if !path.trim().is_empty() => {
+            crate::application::fs::validate_user_write_path(&path)?
+        }
         _ => {
             let stem = input
                 .file_stem()

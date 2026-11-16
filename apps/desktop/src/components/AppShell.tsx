@@ -1,12 +1,23 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import { Sidebar } from './Sidebar';
+import { TooltipEnhancer } from './TooltipEnhancer';
 import { Icon, type IconName } from './Icon';
 import { MenuBar } from './MenuBar';
 import { WindowControls } from './WindowControls';
+import { SafeText } from './SafeText';
 import { AssistantDock } from '../features/assistant/AssistantDock';
 import { NAV_VIEWS, type NavView, type ViewId } from '../app/navigation';
 import { useProjectStore } from '../state/project-store';
 import { useEditorPreferences } from '../state/useEditorPreferences';
+import { setEditorLayout, useEditorLayout, type EditorLayout } from '../state/editor-layout';
+import { appCursorCss } from '../state/app-cursor';
 
 /** Último segmento de una ruta, para mostrar sólo el nombre del archivo. */
 function fileNameOf(path: string): string {
@@ -26,7 +37,6 @@ interface AppShellProps {
   readonly views?: readonly NavView[];
   readonly moreViews?: readonly NavView[];
   readonly onSelect: (id: ViewId) => void;
-  readonly onReturnToStart?: () => void;
   readonly onOpenPalette?: () => void;
   readonly onOpenShortcuts?: () => void;
   readonly onOpenTour?: () => void;
@@ -38,6 +48,8 @@ interface AppShellProps {
   readonly flush?: boolean;
   /** F2: la superficie activa es el editor (incluye las vistas embebidas). */
   readonly editorSurface?: boolean;
+  /** Vuelta al launcher (StartScreen): botón «Inicio» y entrada de menú. */
+  readonly onReturnToStart?: () => void;
 }
 
 export function AppShell({
@@ -45,7 +57,6 @@ export function AppShell({
   views = NAV_VIEWS,
   moreViews = [],
   onSelect,
-  onReturnToStart,
   onOpenPalette,
   onOpenShortcuts,
   onOpenTour,
@@ -54,6 +65,7 @@ export function AppShell({
   content,
   flush = false,
   editorSurface = false,
+  onReturnToStart,
 }: AppShellProps) {
   const store = useProjectStore();
   const project = store.state.project;
@@ -61,6 +73,14 @@ export function AppShell({
   const notice = store.state.notice;
   const preferences = useEditorPreferences();
   const [recovering, setRecovering] = useState(false);
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
+  const editorLayout = useEditorLayout();
+  // Onda de click del cursor propio (paridad `cursor_editar` de AlaukCut):
+  // sólo cuando el cursor de la app está activo y la onda habilitada.
+  const [ripples, setRipples] = useState<{ id: number; x: number; y: number }[]>([]);
+  const rippleSeq = useRef(0);
+  const customCursor = preferences.editorCursor !== 'system';
+  const layoutMenuRef = useRef<HTMLDivElement | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
   const hasClip = Boolean(project?.timeline.clips.length);
   const immersive = editorSurface && Boolean(project);
@@ -131,6 +151,23 @@ export function AppShell({
    * (el launcher muestra la misma oferta cuando está fuera). El descarte pide
    * confirmación para no perder trabajo sin guardar por un clic accidental.
    */
+  // El menú de layout se cierra al hacer clic afuera o con Escape.
+  useEffect(() => {
+    if (!layoutMenuOpen) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!layoutMenuRef.current?.contains(event.target as Node)) setLayoutMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setLayoutMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [layoutMenuOpen]);
+
   async function recoverSession(): Promise<void> {
     if (recovering) return;
     setRecovering(true);
@@ -148,14 +185,41 @@ export function AppShell({
     if (confirmed) store.dismissRecovery();
   }
 
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (!customCursor || !preferences.editorCursorRipple || event.button !== 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const id = ++rippleSeq.current;
+    setRipples((list) => [
+      ...list.slice(-11),
+      { id, x: event.clientX - rect.left, y: event.clientY - rect.top },
+    ]);
+  }
+
+  function dropRipple(id: number): void {
+    setRipples((list) => list.filter((ripple) => ripple.id !== id));
+  }
+
   return (
-    <div className={`app-shell${immersive ? ' editor-immersive' : ''}`}>
+    <div
+      className={`app-shell${immersive ? ' editor-immersive' : ''}`}
+      style={{ cursor: appCursorCss(preferences.editorCursor) }}
+      onPointerDown={handlePointerDown}
+    >
+      {ripples.map((ripple) => (
+        <span
+          key={ripple.id}
+          className="app-cursor-ripple"
+          style={{ left: ripple.x, top: ripple.y }}
+          onAnimationEnd={() => dropRipple(ripple.id)}
+        />
+      ))}
+      <TooltipEnhancer />
       <header className="topbar">
         <div className="topbar-brand" title="Olyvia" data-tour="brand">
           <img src="/olyvia-mark.png" alt="" />
           <span>Olyvia</span>
         </div>
-        {onReturnToStart && (
+        {onReturnToStart ? (
           <button
             type="button"
             className="topbar-home-btn"
@@ -166,7 +230,9 @@ export function AppShell({
             <Icon name="home" size={14} />
             <span>Inicio</span>
           </button>
-        )}
+        ) : null}
+        {/* UN SOLO EDITOR: no existe un botón que saque de la superficie de
+            edición. «Inicio» es un PANEL dentro del editor, no una pantalla. */}
         {/* F4 (parcial): desde cualquier hub o herramienta hay un retorno
             persistente al editor, sin tener que volver a buscar la puerta. */}
         {project && !editorSurface ? (
@@ -210,16 +276,74 @@ export function AppShell({
         <div className="topbar-actions">
           {/* Puerta única: con proyecto abierto, TODAS las herramientas están
               en el mapa del editor, disponible desde cualquier superficie. */}
+          {immersive && project ? (
+            <button
+              type="button"
+              className="topbar-ai-btn"
+              aria-label="Abrir edición con IA"
+              data-tooltip="Abrir el asistente dentro del editor"
+              onClick={() => window.dispatchEvent(new Event('olyvia:assistant-open'))}
+            >
+              <Icon name="sparkles" size={14} />
+              <span>Edición IA</span>
+            </button>
+          ) : null}
           {project && onOpenToolMap ? (
             <button
               type="button"
               className="icon-button topbar-tool-map-btn"
               aria-label="Mapa de herramientas"
-              data-tooltip="Todas las herramientas en el editor"
+              data-tooltip="Todas las herramientas dentro del editor"
               onClick={onOpenToolMap}
             >
-              <Icon name="grid" size={16} />
+              <Icon name="grid" size={15} />
+              <span>Herramientas</span>
             </button>
+          ) : null}
+          {/* Layout del editor (paridad `paineis.js` de AlaukCut): el mismo
+              grid redistribuido — estándar o columna vertical para Shorts. */}
+          {immersive ? (
+            <div className="topbar-layout" ref={layoutMenuRef}>
+              <button
+                type="button"
+                className={`icon-button${layoutMenuOpen ? ' active' : ''}`}
+                aria-label="Layout del editor"
+                data-tooltip="Layout del editor"
+                aria-expanded={layoutMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setLayoutMenuOpen((open) => !open)}
+              >
+                <Icon name="layout" size={16} />
+              </button>
+              {layoutMenuOpen ? (
+                <div className="layout-menu" role="menu" aria-label="Layouts del editor">
+                  <LayoutOption
+                    layout="padrao"
+                    current={editorLayout}
+                    onPick={(layout) => {
+                      setEditorLayout(layout);
+                      setLayoutMenuOpen(false);
+                    }}
+                  />
+                  <LayoutOption
+                    layout="shorts"
+                    current={editorLayout}
+                    onPick={(layout) => {
+                      setEditorLayout(layout);
+                      setLayoutMenuOpen(false);
+                    }}
+                  />
+                  <LayoutOption
+                    layout="edicion"
+                    current={editorLayout}
+                    onPick={(layout) => {
+                      setEditorLayout(layout);
+                      setLayoutMenuOpen(false);
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
           ) : null}
           <button
             type="button"
@@ -328,7 +452,7 @@ export function AppShell({
       {banner}
       {error ? (
         <div className="banner banner-error" role="alert">
-          <span>{error}</span>
+          <span><SafeText value={error} /></span>
           <button type="button" className="link" onClick={store.clearError}>
             Cerrar
           </button>
@@ -429,5 +553,74 @@ export function AppShell({
         <span className="statusbar-meta statusbar-local">FFmpeg local · sin nube</span>
       </footer>
     </div>
+  );
+}
+
+/**
+ * Opción del menú de layout con miniatura SVG (paridad de las
+ * `.layout-thumb` de AlaukCut: el dibujo ES la explicación).
+ */
+function LayoutOption({
+  layout,
+  current,
+  onPick,
+}: {
+  readonly layout: EditorLayout;
+  readonly current: EditorLayout;
+  readonly onPick: (layout: EditorLayout) => void;
+}) {
+  const active = layout === current;
+  const isShorts = layout === 'shorts';
+  const isEdicion = layout === 'edicion';
+  const label = isShorts ? 'Vertical (Shorts)' : isEdicion ? 'Edición con IA' : 'Estándar';
+  const hint = isShorts
+    ? 'Monitor a la derecha, para 9:16'
+    : isEdicion
+      ? 'Columna de IA a la derecha'
+      : 'Biblioteca · monitor · inspector';
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={active}
+      className={`layout-opcion${active ? ' activo' : ''}`}
+      onClick={() => onPick(layout)}
+    >
+      <svg className="layout-thumb" viewBox="0 0 96 54" aria-hidden="true">
+        {/* barra del topo */}
+        <rect className="lt-topo" x="0" y="0" width="96" height="6" rx="2" />
+        {isShorts ? (
+          <>
+            {/* biblioteca + inspector a la izquierda/centro, monitor 9:16 a
+                la derecha a toda la altura, timeline abajo sólo bajo ellos */}
+            <rect className="lt-painel" x="2" y="8" width="20" height="28" rx="1.5" />
+            <rect className="lt-painel" x="24" y="8" width="44" height="28" rx="1.5" />
+            <rect className="lt-pantalla" x="70" y="8" width="24" height="44" rx="1.5" />
+            <rect className="lt-timeline" x="2" y="40" width="68" height="12" rx="1.5" />
+          </>
+        ) : isEdicion ? (
+          <>
+            {/* biblioteca | monitor | inspector | IA a toda la altura;
+                la timeline pasa por debajo de todo menos la columna IA */}
+            <rect className="lt-painel" x="2" y="8" width="18" height="28" rx="1.5" />
+            <rect className="lt-pantalla" x="22" y="8" width="36" height="28" rx="1.5" />
+            <rect className="lt-painel" x="60" y="8" width="14" height="28" rx="1.5" />
+            <rect className="lt-ia" x="76" y="8" width="18" height="44" rx="1.5" />
+            <rect className="lt-timeline" x="2" y="38" width="72" height="14" rx="1.5" />
+          </>
+        ) : (
+          <>
+            <rect className="lt-painel" x="2" y="8" width="26" height="28" rx="1.5" />
+            <rect className="lt-pantalla" x="30" y="8" width="34" height="28" rx="1.5" />
+            <rect className="lt-painel" x="66" y="8" width="28" height="28" rx="1.5" />
+            <rect className="lt-timeline" x="2" y="38" width="92" height="14" rx="1.5" />
+          </>
+        )}
+      </svg>
+      <span className="layout-opcion-txt">
+        <strong>{label}</strong>
+        <small>{hint}</small>
+      </span>
+    </button>
   );
 }

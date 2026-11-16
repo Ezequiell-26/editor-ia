@@ -12,6 +12,15 @@ import os
 import sys
 from pathlib import Path
 
+# stdout may be a pipe captured by the Rust host: without this, Windows Python
+# falls back to the ANSI codepage (cp1252) and non-ASCII transcript text emits
+# bytes that are not valid UTF-8, breaking the JSON contract with the caller.
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()

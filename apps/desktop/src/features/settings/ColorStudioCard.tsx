@@ -373,9 +373,9 @@ export function ColorStudioCard() {
                 </span>
               </div>
               <div className="theme-preview-notice">Aviso: falta elegir la carpeta de salida.</div>
-              <button type="button" className="theme-preview-primary" tabIndex={-1}>
-                Exportar video
-              </button>
+              {/* Mock decorativo de la preview: span, no button — un control
+                  interactivo dentro de role="img" es nested-interactive (axe). */}
+              <span className="theme-preview-primary">Exportar video</span>
             </div>
           </div>
         </div>

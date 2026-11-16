@@ -6,91 +6,20 @@
 //! el MP4 sincronizado, valida el archivo y lo publica. La muestra nunca sale
 //! de la máquina.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use reqwest::Url;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
+
+// DTOs, validadores y naming: `application::lip_sync`.
+pub use crate::application::lip_sync::*;
 
 use crate::commands::system::resolve_tools;
 use crate::media::{probe_file, resolve_inside_root, MediaKind};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
-
-const MAX_OUTPUT_SECONDS: f64 = 900.0;
-const MAX_AUDIO_SECONDS: f64 = 900.0;
-const MAX_RESPONSE_BYTES: usize = 200 * 1024 * 1024;
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LipSyncRequest {
-    pub video_path: String,
-    pub audio_path: String,
-    pub output_dir: String,
-    /// Endpoint local completo, por ejemplo http://127.0.0.1:8000/lipsync
-    pub engine_url: String,
-    #[serde(default)]
-    pub engine: Option<String>,
-    #[serde(default)]
-    pub api_key: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LipSyncResult {
-    pub path: String,
-    pub bytes: u64,
-    pub width: u32,
-    pub height: u32,
-    pub duration_seconds: f64,
-    pub engine: String,
-}
-
-fn loopback_endpoint(value: &str) -> Result<String, ProjectError> {
-    let url = Url::parse(value.trim()).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del motor de lip-sync no es válida",
-        )
-    })?;
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del motor no puede incluir usuario ni contraseña",
-        ));
-    }
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del motor debe usar http o https",
-        ));
-    }
-    if !matches!(
-        url.host_str(),
-        Some("localhost") | Some("127.0.0.1") | Some("::1") | Some("[::1]")
-    ) {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el motor de lip-sync debe estar en loopback (localhost/127.0.0.1); no se envía el video a internet",
-        ));
-    }
-    if url.query().is_some() || url.fragment().is_some() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del motor no debe incluir query ni fragmento",
-        ));
-    }
-    Ok(url.to_string())
-}
-
-pub(crate) fn is_mp4(bytes: &[u8]) -> bool {
-    // Un MP4 contiene el box `ftyp` cerca del inicio; FFprobe hace la validación
-    // definitiva después de recibirlo.
-    bytes.len() >= 12 && bytes.windows(4).take(32).any(|window| window == b"ftyp")
-}
 
 fn probe_video(ffprobe: &Path, path: &Path) -> Result<(u32, u32, f64), ProjectError> {
     let measure = probe_file(ffprobe, path, MediaKind::Video)?;
@@ -105,6 +34,10 @@ fn probe_audio(ffprobe: &Path, path: &Path) -> Result<f64, ProjectError> {
     let measure = probe_file(ffprobe, path, MediaKind::Audio)?;
     Ok(measure.duration_seconds.unwrap_or(0.0))
 }
+
+/// Parámetros del lector capeado compartido (`commands::read_body_capped`)
+/// con la redacción propia del motor de lip-sync.
+const LIPSYNC_INTERRUPTED: &str = "la respuesta del motor de lip-sync se cortó";
 
 async fn request_lipsync(
     endpoint: &str,
@@ -146,7 +79,18 @@ async fn request_lipsync(
     })?;
     let status = response.status();
     if !status.is_success() {
-        let detail = response.text().await.unwrap_or_default();
+        // AUD-077: el cuerpo de error también se lee con tope — antes un
+        // error HTTP podía reservar memoria por todo el cuerpo.
+        let detail = crate::commands::read_body_capped(
+            response,
+            64 * 1024,
+            ProjectErrorCode::InvalidProviderResponse,
+            "el motor devolvió un error demasiado grande",
+            LIPSYNC_INTERRUPTED,
+        )
+        .await
+        .unwrap_or_default();
+        let detail = String::from_utf8_lossy(&detail);
         let safe = detail.lines().next().unwrap_or("sin detalle");
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderRejected,
@@ -157,25 +101,21 @@ async fn request_lipsync(
             ),
         ));
     }
-    let bytes = response.bytes().await.map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el motor no devolvió un video legible",
-        )
-    })?;
-    if bytes.len() > MAX_RESPONSE_BYTES {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el video sincronizado supera los 200 MB; acortá el clip",
-        ));
-    }
+    let bytes = crate::commands::read_body_capped(
+        response,
+        MAX_RESPONSE_BYTES,
+        ProjectErrorCode::InvalidProviderResponse,
+        "el video sincronizado supera los 200 MB; acortá el clip",
+        LIPSYNC_INTERRUPTED,
+    )
+    .await?;
     if !is_mp4(&bytes) {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProviderResponse,
             "el motor devolvió un archivo que no es MP4; revisá el adaptador local",
         ));
     }
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 /// Sincroniza los labios de un video del proyecto con un audio del proyecto
@@ -196,8 +136,8 @@ pub async fn lip_sync(
             "el video o el audio del lip-sync ya no están en el proyecto",
         ));
     }
-    let output_dir = PathBuf::from(request.output_dir.trim());
-    if output_dir.as_os_str().is_empty() || !output_dir.is_dir() {
+    let output_dir = crate::application::fs::validate_user_write_path(&request.output_dir)?;
+    if !output_dir.is_dir() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "la carpeta de destino del lip-sync no existe",
@@ -219,12 +159,7 @@ pub async fn lip_sync(
         ));
     }
     let audio_duration = probe_audio(&ffprobe, &audio)?;
-    if audio_duration <= 0.0 || audio_duration > MAX_AUDIO_SECONDS {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el audio del lip-sync debe durar entre 0,1 y 900 segundos",
-        ));
-    }
+    validate_audio_duration(audio_duration)?;
     let _ = app.emit(
         "lipsync-progress",
         json!({ "percent": 5.0, "stage": "Validando video y audio" }),
@@ -248,35 +183,11 @@ pub async fn lip_sync(
             return Err(error);
         }
     };
-    if width == 0 || height == 0 || duration <= 0.0 || duration > MAX_OUTPUT_SECONDS {
+    if let Err(error) = validate_output_probe(width, height, duration) {
         let _ = std::fs::remove_file(&temp);
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el motor devolvió un video sin dimensiones o duración válidas",
-        ));
+        return Err(error);
     }
-    let stem = video
-        .file_stem()
-        .map(|value| value.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "video".to_owned());
-    let safe: String = stem
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                ch.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let base = safe.trim_matches('-');
-    let base = if base.is_empty() { "video" } else { base };
-    let mut final_path = output_dir.join(format!("{base}-lipsync.mp4"));
-    let mut index = 2;
-    while final_path.exists() {
-        final_path = output_dir.join(format!("{base}-lipsync-{index}.mp4"));
-        index += 1;
-    }
+    let final_path = lipsync_output_path(&output_dir, &video);
     std::fs::rename(&temp, &final_path).map_err(|error| {
         let _ = std::fs::remove_file(&temp);
         ProjectError::message(
@@ -304,23 +215,6 @@ pub async fn lip_sync(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn loopback_endpoint_is_enforced() {
-        assert!(loopback_endpoint("http://127.0.0.1:8000/lipsync").is_ok());
-        assert!(loopback_endpoint("http://localhost:8000/lipsync").is_ok());
-        assert!(loopback_endpoint("https://example.com/lipsync").is_err());
-        assert!(loopback_endpoint("http://user:pass@127.0.0.1:8000").is_err());
-        assert!(loopback_endpoint("http://127.0.0.1:8000/lipsync?x=1").is_err());
-    }
-
-    #[test]
-    fn mp4_signature_is_checked() {
-        assert!(is_mp4(b"\x00\x00\x00\x20ftypisom"));
-        assert!(is_mp4(b"\x00\x00\x00\x08free\x00\x00\x00\x20ftypisom"));
-        assert!(!is_mp4(b"<html>no</html>"));
-        assert!(!is_mp4(b"RIFF0000WAVE"));
-    }
 
     #[tokio::test]
     #[ignore = "requiere el adaptador de lip-sync y un video/audio reales"]

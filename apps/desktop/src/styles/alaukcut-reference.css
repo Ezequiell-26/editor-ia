@@ -1,0 +1,885 @@
+/* =====================================================================
+   alaukcut-reference.css — composición de referencia (capturas 146–160)
+   =====================================================================
+
+   Objetivo: que el editor PRODUCTIVO (`EditorWorkspace` en modo `timeline`
+   con proyecto abierto) tenga la misma composición que las 15 capturas de
+   referencia: una sola barra superior, tres columnas, biblioteca compacta,
+   monitor negro, inspector de fichas y timeline de una sola fila de
+   herramientas.
+
+   Decisiones de diseño:
+   - NO reemplaza componentes ni monta una segunda superficie. Respeta
+     ADR-0006 (un solo editor) y mantiene Preview/Timeline/Inspector reales.
+   - Es una capa ADDITIVA y ÚLTIMA de la cascada. Debe importarse DESPUÉS de
+     `minimal-editor-scenes.css` en `main.tsx`.
+   - Sólo actúa con `:root:not([data-editor-skin='full'])`. El botón «Vista»
+     de `AlaukTopBar` permite volver al chrome completo sin recargar, para
+     no perder el acceso a los controles que la referencia no muestra.
+   - Los `!important` son necesarios: la cascada heredada fija geometría y
+     color con `!important` en ~52 hojas. La especificidad de este selector
+     (`:root` + `:not()` + `.app-shell` + `.editor-workspace.alaukcut`) gana
+     por orden y por peso.
+
+   Paleta medida en las capturas: fondo #17161b · panel #1f1e25 ·
+   línea #26252c · texto #e9e9ee · atenuado #8a8993 · acento #2adaba.
+   Geometría medida para 1360 px: 300 | 1fr | 300 (la réplica `.me-*` usa
+   366 | 1fr | 312 a 1080 px; acá se prioriza el monitor).
+   ===================================================================== */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut {
+  --ref-bg: #17161b;
+  --ref-panel: #1f1e25;
+  --ref-line: #26252c;
+  --ref-text: #e9e9ee;
+  --ref-muted: #8a8993;
+  --ref-faint: #5c5b64;
+  --ref-accent: #2adaba;
+  --ref-accent-ink: #06231f;
+}
+
+/* ── 1 · Barra superior única ─────────────────────────────────────────── */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut > .alauk-topbar {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 8px !important;
+  gap: 8px !important;
+  background: var(--ref-bg) !important;
+  border-bottom: 1px solid #0b0a0e !important;
+  color: var(--ref-text) !important;
+}
+
+/* Marca «AC» + «Projetos» + estado de guardado, como en las capturas. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-topbar-left::before {
+  content: 'AC';
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 18px;
+  border-radius: 3px;
+  background: var(--ref-accent);
+  color: var(--ref-accent-ink);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-projects-btn {
+  height: 22px !important;
+  padding: 0 7px !important;
+  background: var(--ref-panel) !important;
+  border-color: var(--ref-line) !important;
+  color: var(--ref-muted) !important;
+  font-size: 10px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-save-state {
+  color: var(--ref-faint) !important;
+  font-size: 9px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-topbar-project {
+  color: #b9b8c0 !important;
+  font-size: 10px !important;
+  letter-spacing: 0.04em !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-text-btn {
+  height: 22px !important;
+  padding: 0 7px !important;
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--ref-muted) !important;
+  font-size: 10px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-text-btn:hover {
+  color: var(--ref-text) !important;
+  background: var(--ref-panel) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-export {
+  height: 22px !important;
+  padding: 0 12px !important;
+  background: var(--ref-accent) !important;
+  color: var(--ref-accent-ink) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  border-radius: 4px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-icon-btn {
+  width: 22px !important;
+  height: 22px !important;
+  color: var(--ref-muted) !important;
+}
+
+/* La referencia sólo muestra dos iconos before «Automática»: deshacer,
+   rehacer, guardar y búsqueda siguen disponibles por atajo de teclado y
+   reaparecen con «Vista completa». */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-icon-btn[aria-label='Deshacer'],
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-icon-btn[aria-label='Rehacer'],
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-icon-btn[aria-label='Guardar'],
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-icon-btn[aria-label='Buscar o ejecutar un comando'] {
+  display: none !important;
+}
+
+/* ── 2 · Tres columnas (el splitter de 1 px se conserva en 0 px) ─────── */
+
+/* Proporciones medidas en la referencia 146 (1360 px): biblioteca ~365,
+   monitor ~675, inspector ~320. Se usa clamp para no aplastar el monitor
+   en ventanas angostas; debajo de 1180 px manda la media query del §8. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut > .editor-grid {
+  grid-template-columns: clamp(300px, 25vw, 360px) minmax(0, 1fr) 0 clamp(270px, 23.5vw, 330px) !important;
+  background: var(--ref-bg) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .editor-splitter {
+  width: 0 !important;
+  min-width: 0 !important;
+  border: 0 !important;
+  pointer-events: none !important;
+}
+
+/* A 1080 px una regla heredada recolocaba `.inspector` en la columna del
+   splitter (0 px) y el panel quedaba de 2 px de ancho. Se fija la posición
+   de los cinco hijos para que la grilla de tres columnas sea estable en
+   cualquier ancho, sin depender del orden del DOM ni de media queries. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut > .editor-grid > .asset-rail {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut > .editor-grid > .preview-panel {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+}
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut > .editor-grid > .editor-splitter {
+  grid-column: 3 !important;
+  grid-row: 1 !important;
+}
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut > .editor-grid > .inspector {
+  grid-column: 4 !important;
+  grid-row: 1 !important;
+  width: auto !important;
+  min-width: 0 !important;
+}
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut > .editor-grid > .timeline-panel {
+  grid-column: 1 / -1 !important;
+  grid-row: 2 !important;
+}
+
+/* ── 3 · Biblioteca: una fila de iconos, sin árbol de categorías ──────── */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .asset-rail {
+  background: var(--ref-bg) !important;
+  border-right: 1px solid var(--ref-line) !important;
+  color: var(--ref-text) !important;
+  overflow: hidden !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-tabs {
+  height: 54px !important;
+  min-height: 54px !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  padding: 2px 3px 0 !important;
+  overflow: hidden !important;
+  background: var(--ref-panel) !important;
+  border-bottom: 1px solid #0b0a0e !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-tabs > button {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  width: auto !important;
+  height: 50px !important;
+  margin: 0 !important;
+  padding: 4px 0 2px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--ref-muted) !important;
+  font-size: 8px !important;
+  line-height: 1.1 !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-tabs > button.active {
+  color: var(--ref-accent) !important;
+  border-bottom-color: var(--ref-accent) !important;
+  background: #232229 !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-tabs > button svg {
+  width: 15px !important;
+  height: 15px !important;
+  flex: none !important;
+}
+
+/* La referencia 146 muestra 9/10 pestañas con icono Y etiqueta diminuta en
+   una barra de ~44 px. `alaukcut-workspace.css` fija `flex: 0 0 46px`, que
+   gana sobre `height` porque `.rail-tabs` es ítem flex: por eso se declara
+   la base aquí y no sólo la altura. Las etiquetas se comprimen a 6.5 px
+   para que «Transiciones» / «Plantillas» entren sin truncarse; el nombre
+   completo sigue en `aria-label`/`title` y reaparece en Vista completa. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-tabs {
+  flex: 0 0 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-tabs > button {
+  height: 40px !important;
+  gap: 2px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-tabs > button svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+/* Se agrega `.asset-rail` para ganar especificidad: existe una regla legacy
+   `:root[data-theme='dark'] .app-shell.editor-immersive .asset-rail
+   .rail-tabs button span` con 10.5px !important que se inyecta DESPUÉS de
+   este archivo y empataba con el selector anterior. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .asset-rail .rail-tabs > button > span {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  text-overflow: clip !important;
+  text-align: center !important;
+  font-size: 6.5px !important;
+  line-height: 8px !important;
+  letter-spacing: -0.03em !important;
+  transform: scaleX(0.88) !important;
+}
+
+/* Debajo de 1180 px la biblioteca mide 258 px (§8): 9 etiquetas no caben
+   sin cortarse. Ahí la barra vuelve a iconos compactos, con el nombre
+   completo en aria-label/title. */
+@media (max-width: 1180px) {
+  :root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .asset-rail .rail-tabs > button > span {
+    display: none !important;
+  }
+}
+
+/* El árbol vertical (Mi proyecto / Favoritos / Tipos / Biblioteca / …) no
+   existe en la referencia: la navegación equivalente queda en las pestañas
+   de iconos y en el menú global. Se oculta, no se elimina del DOM. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-categories {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-stage {
+  display: flex !important;
+  background: var(--ref-bg) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-main {
+  flex: 1 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  background: var(--ref-bg) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-module-bar,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-facets {
+  height: 26px !important;
+  min-height: 26px !important;
+  background: var(--ref-bg) !important;
+  border-bottom: 1px solid var(--ref-line) !important;
+  font-size: 9px !important;
+  overflow: hidden !important;
+}
+
+/* ── 4 · Monitor: una sola cabecera, lienzo negro ────────────────────── */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-panel {
+  background: #0d0c0f !important;
+  border: 0 !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-stage {
+  background: #0d0c0f !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-topbar {
+  height: 30px !important;
+  min-height: 30px !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 0 8px !important;
+  background: var(--ref-bg) !important;
+  border-bottom: 1px solid var(--ref-line) !important;
+  overflow: hidden !important;
+}
+
+/* La referencia rotula el monitor («Reproductor · Línea de tiempo 01») en
+   lugar de mostrar chips de resolución/fps. Esos datos siguen en el
+   inspector y reaparecen al activar «Vista completa». */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-hud {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-topbar::before {
+  content: 'Reproductor · Línea de tiempo 01';
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  color: var(--ref-muted) !important;
+  font-size: 10px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-hud-chip {
+  height: 18px !important;
+  padding: 0 6px !important;
+  background: var(--ref-panel) !important;
+  border: 1px solid var(--ref-line) !important;
+  border-radius: 3px !important;
+  color: var(--ref-muted) !important;
+  font-size: 9px !important;
+  white-space: nowrap !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-hud-chip.strong {
+  color: var(--ref-accent) !important;
+  border-color: rgba(42, 218, 186, 0.35) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-source-tabs,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-quality-select {
+  height: 22px !important;
+  min-height: 22px !important;
+  flex: none !important;
+  background: var(--ref-panel) !important;
+  border: 1px solid var(--ref-line) !important;
+  border-radius: 3px !important;
+  color: var(--ref-muted) !important;
+  font-size: 9px !important;
+}
+
+/* Segunda fila de herramientas de preview (ratio / safe-area / 12 botones):
+   la referencia muestra una sola cabecera. Sigue disponible en «Vista
+   completa»; acá no ocupa alto para que el monitor gane espacio. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-tools {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-canvas {
+  background: #000 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .transport {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 4px 10px !important;
+  background: var(--ref-bg) !important;
+  border-top: 1px solid #0b0a0e !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .transport-button.primary-transport {
+  background: var(--ref-accent) !important;
+  color: var(--ref-accent-ink) !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+}
+
+/* ── 5 · Inspector: cabecera compacta y fichas ───────────────────────── */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector {
+  background: var(--ref-bg) !important;
+  border-left: 1px solid var(--ref-line) !important;
+  color: var(--ref-text) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-head {
+  height: 30px !important;
+  min-height: 30px !important;
+  padding: 0 10px !important;
+  background: var(--ref-panel) !important;
+  border-bottom: 1px solid var(--ref-line) !important;
+  color: var(--ref-muted) !important;
+  font-size: 10px !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-body {
+  background: var(--ref-bg) !important;
+  padding: 8px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-summary {
+  background: var(--ref-panel) !important;
+  border: 1px solid var(--ref-line) !important;
+  border-radius: 6px !important;
+  padding: 10px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-head {
+  color: var(--ref-text) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows {
+  color: var(--ref-muted) !important;
+  font-size: 10px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section {
+  background: var(--ref-panel) !important;
+  border: 1px solid var(--ref-line) !important;
+  border-radius: 6px !important;
+  margin-bottom: 8px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-tabs-wrap,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-tabpanel {
+  background: var(--ref-bg) !important;
+  border-color: var(--ref-line) !important;
+  color: var(--ref-text) !important;
+}
+
+/* ── 6 · Timeline: una fila de herramientas, sin barra flotante ──────── */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-panel {
+  background: var(--ref-bg) !important;
+  border-top: 1px solid #0b0a0e !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-toolbar {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 6px !important;
+  background: var(--ref-bg) !important;
+  border-bottom: 1px solid var(--ref-line) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-tools {
+  height: 24px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .fm-quick-tools {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-scroll,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-surface {
+  background: #141318 !important;
+  border-color: var(--ref-line) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-tabs {
+  background: var(--ref-bg) !important;
+  border-top: 1px solid var(--ref-line) !important;
+  color: var(--ref-muted) !important;
+  font-size: 9px !important;
+}
+
+/* ── 7 · Asistente flotante y marca de agua (decorativos) ─────────────── */
+
+/* Se ubica por encima del `.assistant-launcher` (40 px en la esquina
+   inferior derecha) para no tapar un botón funcional. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut::after {
+  content: '\2726';
+  position: fixed;
+  right: 22px;
+  bottom: 78px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #2b3f3c, #101014 70%);
+  border: 2px solid var(--ref-accent);
+  box-shadow: 0 0 0 4px rgba(42, 218, 186, 0.14), 0 0 26px rgba(42, 218, 186, 0.45);
+  color: var(--ref-accent);
+  font-size: 24px;
+  pointer-events: none;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut::before {
+  content: 'AC';
+  position: fixed;
+  right: 14px;
+  bottom: 8px;
+  z-index: 60;
+  color: var(--ref-accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.06em;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* ── 8 · Ventanas angostas ────────────────────────────────────────────── */
+
+@media (max-width: 1180px) {
+  :root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut > .editor-grid {
+    grid-template-columns: 258px minmax(0, 1fr) 0 262px !important;
+  }
+}
+
+@media (max-width: 980px) {
+  :root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut > .editor-grid {
+    grid-template-columns: 220px minmax(0, 1fr) 0 230px !important;
+  }
+  :root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut::after {
+    width: 64px;
+    height: 64px;
+    font-size: 17px;
+  }
+}
+
+/* =====================================================================
+   9 · MODO MINIMALISTA — densidad de las capturas 146–160
+   =====================================================================
+
+   La primera versión de esta capa corrigió la COMPOSICIÓN pero dejó la
+   DENSIDAD de Olyvia: 38 materiales, filtros, proxies, subtabs, 9 pestañas,
+   dos filas de herramientas y campos numéricos apiñados. Las capturas de
+   referencia muestran paneles con mucho aire, pocos controles y tipografía
+   pequeña. Esta sección oculta el chrome sobrante.
+
+   TODO lo que se oculta acá vuelve con el botón «Vista completa» del topbar
+   (`data-editor-skin='full'`): ningún control se elimina del DOM ni del
+   producto, sólo deja de estar visible en la vista de referencia.
+   ===================================================================== */
+
+/* ── 9.1 · Biblioteca: pestañas + Importar + grilla de miniaturas ─────── */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-module-bar,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-facets,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-browser,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-chips,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-section-head,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-foot,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .proxy-tools,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-fav-filter {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-main {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-head {
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 8px !important;
+  gap: 6px !important;
+  background: var(--ref-bg) !important;
+  border-bottom: 1px solid var(--ref-line) !important;
+}
+
+/* El contador «MEDIOS 38» no existe en la referencia. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-head > div {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-head .icon-text {
+  height: 22px !important;
+  padding: 0 9px !important;
+  font-size: 9px !important;
+  border-radius: 4px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-head .icon-text:not(.ghost) {
+  background: var(--ref-accent) !important;
+  border-color: transparent !important;
+  color: var(--ref-accent-ink) !important;
+  font-weight: 700 !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-head .ghost {
+  background: var(--ref-panel) !important;
+  border-color: var(--ref-line) !important;
+  color: var(--ref-muted) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-search {
+  height: 26px !important;
+  margin: 6px 8px !important;
+  background: var(--ref-panel) !important;
+  border: 1px solid var(--ref-line) !important;
+  border-radius: 4px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-search input {
+  font-size: 9px !important;
+  color: var(--ref-muted) !important;
+}
+
+/* Grilla de miniaturas pequeñas, como en las capturas 149/154–160. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-list {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 6px !important;
+  padding: 8px !important;
+  align-content: start !important;
+  overflow-y: auto !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-asset {
+  height: 68px !important;
+  min-height: 68px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid var(--ref-line) !important;
+  border-radius: 4px !important;
+  background: var(--ref-panel) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-asset > .rail-info {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-asset > .rail-thumb {
+  width: 100% !important;
+  height: 100% !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: #22212a !important;
+  font-size: 8px !important;
+}
+
+/* El placeholder del proyecto demo es un GIF 1×1 **blanco opaco**
+   (`R0lGODlhAQAB…`, pixel [255,255,255,255]), no transparente: al
+   estirarlo a 74×74 tapaba el fondo oscuro y dejaba tres bloques blancos.
+   Se oculta SÓLO ese placeholder por su `src`; una miniatura real (data URL
+   de imagen, blob o archivo) sigue renderizándose intacta. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-thumb > img[src^='data:image/gif;base64,R0lGODlhAQAB'] {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-thumb:has(> img[src^='data:image/gif;base64,R0lGODlhAQAB']) {
+  background: linear-gradient(150deg, #2a2934 0%, #1d1c24 100%) !important;
+}
+
+/* En lugar del pixel blanco se muestra el icono de película, centrado y
+   tenue, como las miniaturas sin frame de las capturas 149/154. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-thumb:has(> img[src^='data:image/gif;base64,R0lGODlhAQAB']) > .rail-thumb-kind {
+  display: grid !important;
+  place-items: center !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  color: var(--ref-faint) !important;
+  opacity: 0.65 !important;
+  font-size: 8px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .rail-thumb:has(> img[src^='data:image/gif;base64,R0lGODlhAQAB']) > .rail-thumb-kind svg {
+  width: 22px !important;
+  height: 22px !important;
+}
+
+/* ── 9.2 · Monitor: una cabecera, transporte limpio ──────────────────── */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-source-tabs,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-quality-select,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .fm-preview-detach-toggle,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .transport-rate {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .preview-topbar::after {
+  content: '49%';
+  flex: none !important;
+  color: var(--ref-faint) !important;
+  font-size: 9px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .transport-readout {
+  font-size: 9px !important;
+  letter-spacing: 0.02em !important;
+}
+
+/* ── 9.3 · Inspector: pestañas + un bloque, con aire ─────────────────── */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-body {
+  padding: 12px !important;
+  line-height: 1.7 !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-tabs-overflow,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-subtabs,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-subtabs-overflow,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-subtabs-more {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-tabs {
+  height: 28px !important;
+  background: transparent !important;
+  border-bottom: 1px solid var(--ref-line) !important;
+  gap: 2px !important;
+  font-size: 9px !important;
+}
+
+/* Sólo el primer bloque; el resto de secciones (audio, velocidad, filtros,
+   subtítulos, entrega, procedencia…) se aparta de la vista de referencia. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-body > .inspector-section:not(:first-of-type),
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-tabpanel > .inspector-section:not(:first-of-type),
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-tabpanel .inspector-section:not(:first-of-type) {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section {
+  padding: 14px 12px !important;
+}
+
+/* Del bloque visible se conservan el título y los dos primeros campos;
+   fuera muestras de color, ondas, rejillas numéricas y metadatos. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section > *:nth-child(n+5),
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section .color-chips,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section .inspector-grid,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section .actions.compact,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section .fine-print {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section .inspector-meta {
+  color: var(--ref-faint) !important;
+  font-size: 9px !important;
+  margin: 0 !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section h4 {
+  margin: 0 0 12px !important;
+  font-size: 11px !important;
+  color: var(--ref-text) !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-section label.field {
+  padding: 6px 0 !important;
+  font-size: 10px !important;
+  color: var(--ref-muted) !important;
+}
+
+/* El resumen de proyecto también se reduce a su ficha principal. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-thumb {
+  display: none !important;
+}
+
+/* Cada fila es `<div><dt>…</dt><dd>…</dd></div>`. La grilla `1fr auto` que
+   había aquí repartía esas filas en DOS columnas de ~70/127 px y partía el
+   texto letra por letra («P-r-o-y-e-c-t-o»). En la referencia la ficha es
+   una lista vertical de pares etiqueta/valor con mucho aire. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0 !important;
+  margin: 8px 0 0 !important;
+  font-size: 10px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows > div {
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+  width: auto !important;
+  padding: 5px 0 !important;
+  border-bottom: 1px solid var(--ref-line) !important;
+  white-space: nowrap !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows dt {
+  flex: none !important;
+  margin: 0 !important;
+  color: var(--ref-faint) !important;
+  font-size: 9px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows dd {
+  min-width: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  text-align: right !important;
+  color: var(--ref-text) !important;
+  font-size: 9px !important;
+}
+
+/* La ficha de la referencia 146 sólo muestra nombre, resolución, fps y
+   duración. La ruta absoluta de «Ubicación» es larga y se partía en dos
+   líneas; espacio de color y muestreo tampoco están en las capturas.
+   Todo sigue en el DOM y vuelve con «Vista completa». */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows > :nth-child(2),
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows > :nth-child(5),
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows > :nth-child(6),
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows > :nth-child(n+8) {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-rows dd {
+  white-space: nowrap !important;
+}
+
+/* `capcut-inspector.css` dibuja con ::before un aviso turquesa encima de la
+   ficha. En las capturas no existe: el panel derecho arranca directamente
+   con la tarjeta del proyecto. Se aparta sin borrar el componente. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .project-info-summary::before {
+  display: none !important;
+}
+
+/* El formulario de edición de proyecto (NOMBRE / FORMATO / fps / …) queda
+   debajo de la ficha: en la referencia no aparece y duplicaría la densidad. */
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .inspector-body > .inspector-section.project-info-edit-target {
+  display: none !important;
+}
+
+/* ── 9.4 · Timeline: una fila de herramientas, sin pie ───────────────── */
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-toolbar {
+  flex-wrap: nowrap !important;
+  overflow: hidden !important;
+  height: 30px !important;
+  min-height: 30px !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-tools.timeline-tools-filters,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-toolbar > .timeline-tools:nth-child(3),
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-tools-overflow,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-tabs,
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .alauk-footer {
+  display: none !important;
+}
+
+:root:not([data-editor-skin='full']) .app-shell .editor-workspace.alaukcut .timeline-scroll {
+  height: auto !important;
+}
+
+/* ── 9.5 · Botón flotante del asistente (el orbe ocupa su lugar) ─────── */
+
+:root:not([data-editor-skin='full']) .app-shell:has(.editor-workspace.alaukcut) .assistant-launcher {
+  display: none !important;
+}

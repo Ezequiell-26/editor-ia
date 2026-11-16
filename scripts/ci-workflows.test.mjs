@@ -26,8 +26,11 @@ describe('workflow de verificacion', () => {
     for (const command of [
       'npm ci',
       'npm run verify',
+      'npm run audit:licenses',
+      'npm run test:inventory',
       'npm --workspace @editor-ia/desktop run build',
       'cargo fmt --all -- --check',
+      'cargo clippy --lib -p editor-ia-desktop',
       'cargo test -p editor-ia-desktop',
     ]) {
       expect(text, `el workflow no corre ${command}`).toContain(command);
@@ -39,7 +42,7 @@ describe('workflow de verificacion', () => {
     const cargoLines = text
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter((line) => /\bcargo\s+(fmt|test|check|build|metadata)\b/.test(line));
+      .filter((line) => /\bcargo\s+(fmt|test|check|build|clippy|metadata)\b/.test(line));
     expect(cargoLines.length).toBeGreaterThan(1);
     for (const line of cargoLines) {
       expect(
@@ -62,12 +65,12 @@ describe('workflow de verificacion', () => {
     }
   });
 
-  it('declara Node y Rust estables, que es lo que fija el repo', () => {
+  it('declara Node estable y un Rust pineado a version exacta', () => {
     const text = read(WORKFLOW);
     const major = String(JSON.parse(read('package.json')).engines.node).replace(/\D/g, '');
     expect(text).toContain(`node-version: '${major}'`);
     expect(text).toContain('rust-toolchain.toml');
-    expect(read('rust-toolchain.toml')).toMatch(/channel\s*=\s*"stable"/);
+    expect(read('rust-toolchain.toml')).toMatch(/channel\s*=\s*"\d+\.\d+\.\d+"/);
     expect(text).toMatch(/cache:\s*'npm'/);
     expect(text).toMatch(/actions\/cache@/);
     expect(text).toMatch(/\.cargo\/registry/);
@@ -93,6 +96,21 @@ describe('descargas de recursos para CI', () => {
     expect(text).toContain('--retry-connrefused');
     expect(text.match(/^\s*curl\b/gm) ?? []).toHaveLength(1);
     expect(text.match(/^\s*download\s+"/gm) ?? []).toHaveLength(7);
+  });
+});
+
+describe('guardas de licencias e inventario de tests', () => {
+  it('los scripts y el baseline que el workflow invoca existen', () => {
+    for (const file of [
+      'scripts/audit-bundle-licenses.mjs',
+      'scripts/test-inventory.mjs',
+      'scripts/test-inventory.baseline.json',
+      'scripts/security-audit.mjs',
+    ]) {
+      expect(exists(file), `falta ${file}`).toBe(true);
+    }
+    const baseline = JSON.parse(read('scripts/test-inventory.baseline.json'));
+    expect(baseline.ignoredTests).toBeGreaterThan(0);
   });
 });
 

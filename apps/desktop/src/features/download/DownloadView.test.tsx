@@ -341,7 +341,7 @@ describe('descargador · delogo y Lanczos', () => {
     );
   });
 
-  it('ofrece los doce idiomas del backend al traducir subtítulos', async () => {
+  it('ofrece los diecisiete idiomas del backend al traducir subtítulos', async () => {
     renderView();
     await analyzeSample();
     fireEvent.click(
@@ -352,7 +352,7 @@ describe('descargador · delogo y Lanczos', () => {
     );
     const select = screen.getByLabelText(/Idioma de destino/i) as HTMLSelectElement;
     const labels = Array.from(select.options).map((option) => option.textContent);
-    expect(labels).toHaveLength(12);
+    expect(labels).toHaveLength(17);
     for (const label of [
       'Español',
       'Inglés',
@@ -366,6 +366,11 @@ describe('descargador · delogo y Lanczos', () => {
       'Alemán',
       'Italiano',
       'Japonés',
+      'Coreano',
+      'Turco',
+      'Polaco',
+      'Neerlandés',
+      'Checo',
     ]) {
       expect(labels).toContain(label);
     }

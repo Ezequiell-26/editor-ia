@@ -3,8 +3,6 @@
 //! Toma el PNG del preview real y calcula waveform de luma, vectorscopio YUV e
 //! histograma RGB con las mismas matrices que usa el editor FilmCraft.
 
-use std::path::PathBuf;
-
 use filmcraft_scopes::{histogram, vectorscope_yuv, waveform, Params, Signal, WaveformType};
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -44,8 +42,8 @@ pub fn analyze_scopes_frame(
     _state: State<'_, AppState>,
     request: ScopeFrameRequest,
 ) -> Result<ScopeFrameResult, ProjectError> {
-    let path = PathBuf::from(request.path.trim());
-    if path.as_os_str().is_empty() || !path.is_file() {
+    let path = crate::application::fs::resolve_user_file_path(&request.path)?;
+    if !path.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "el frame para los scopes no está en disco",

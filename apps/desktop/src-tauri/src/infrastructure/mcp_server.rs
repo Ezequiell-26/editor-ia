@@ -2,12 +2,12 @@
 //! bridge `mcp-call` hacia la ventana con pending map, detección de
 //! clientes externos y el listener HTTP en 127.0.0.1.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
@@ -17,13 +17,14 @@ use tokio::sync::{oneshot, Semaphore};
 use uuid::Uuid;
 
 use crate::mcp::server::{
-    client_entry, header_value, is_json_content_type, known_clients, merge_olyvia_entry,
-    request_content_length, AutoconnectResult, DetectedClient, McpReply, McpServerInfo,
-    BODY_READ_TIMEOUT, HEADER_READ_TIMEOUT, MAX_BODY_BYTES, MAX_CONNECTIONS, MAX_HEADER_BYTES,
-    MCP_KEYRING_SERVICE, MCP_KEYRING_USER, MCP_PORT,
+    classify_request, client_entry, header_value, is_json_content_type, known_clients,
+    merge_olyvia_entry, request_content_length, request_scopes, rpc_error, tool_required_scope,
+    AutoconnectResult, DetectedClient, McpReply, McpServerInfo, RpcRequest, BODY_READ_TIMEOUT,
+    HEADER_READ_TIMEOUT, MAX_BODY_BYTES, MAX_CONNECTIONS, MAX_HEADER_BYTES, MCP_KEYRING_SERVICE,
+    MCP_KEYRING_USER, MCP_PORT, MCP_SCOPES_HEADER, SCOPE_DENIED_CODE,
 };
 use crate::ports::mcp_server::{
-    AiClientConfigs, McpRequestHandler, McpServerToken, McpToolInvoker,
+    AiClientConfigs, McpAuditSink, McpRequestHandler, McpServerToken, McpToolInvoker,
 };
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 
@@ -294,6 +295,381 @@ impl AiClientConfigs for EnvAiClientConfigs {
 }
 
 // ---------------------------------------------------------------------------
+// Comparación constant-time del token (port de concat-server/token.rs)
+// ---------------------------------------------------------------------------
+
+/// `true` si `presented` es `expected`, en tiempo que depende sólo del
+/// largo de `expected`: un atacante en el socket no aprende nada de qué
+/// byte difiere por la velocidad del rechazo.
+fn secure_token_eq(presented: &str, expected: &str) -> bool {
+    let a = presented.as_bytes();
+    let b = expected.as_bytes();
+    let mut difference = a.len() ^ b.len();
+    for (index, byte) in b.iter().enumerate() {
+        let other = a.get(index).copied().unwrap_or(0);
+        difference |= usize::from(byte ^ other);
+    }
+    std::hint::black_box(difference) == 0
+}
+
+// ---------------------------------------------------------------------------
+// Throttle anti-fuerza-bruta (port de concat-server/throttle.rs)
+// ---------------------------------------------------------------------------
+//
+// El listener sólo escucha en 127.0.0.1, así que todos los peers son la
+// misma dirección: el libro queda efectivamente global por servidor, que
+// es justo lo que hace falta contra un proceso local probando tokens.
+
+/// Fallos de token perdonados antes de empezar a esperar.
+const THROTTLE_FREE_FAILURES: u32 = 3;
+/// Primera espera, duplicada en cada fallo siguiente.
+const THROTTLE_FIRST_WAIT: Duration = Duration::from_millis(250);
+/// Espera máxima.
+const THROTTLE_LONGEST_WAIT: Duration = Duration::from_secs(60);
+/// Cuántas direcciones se recuerdan como máximo.
+const THROTTLE_MAX_PEERS: usize = 4096;
+/// Cuánto se recuerda a un peer que dejó de fallar.
+const THROTTLE_MEMORY: Duration = Duration::from_secs(600);
+
+#[derive(Clone, Copy)]
+struct Strikes {
+    failures: u32,
+    until: Instant,
+    last: Instant,
+}
+
+#[derive(Default)]
+struct Throttle {
+    peers: Mutex<HashMap<std::net::IpAddr, Strikes>>,
+}
+
+impl Throttle {
+    /// Cuánto debe esperar todavía `peer` antes de que se lea su token.
+    fn wait(&self, peer: std::net::IpAddr) -> Option<Duration> {
+        let peers = self.peers.lock().unwrap_or_else(|p| p.into_inner());
+        let strikes = peers.get(&peer)?;
+        strikes
+            .until
+            .checked_duration_since(Instant::now())
+            .filter(|left| !left.is_zero())
+    }
+
+    fn failed(&self, peer: std::net::IpAddr) {
+        let now = Instant::now();
+        let mut peers = self.peers.lock().unwrap_or_else(|p| p.into_inner());
+        if peers.len() >= THROTTLE_MAX_PEERS && !peers.contains_key(&peer) {
+            peers.retain(|_, strikes| now.duration_since(strikes.last) < THROTTLE_MEMORY);
+            if peers.len() >= THROTTLE_MAX_PEERS {
+                if let Some(oldest) = peers
+                    .iter()
+                    .min_by_key(|(_, strikes)| strikes.last)
+                    .map(|(peer, _)| *peer)
+                {
+                    peers.remove(&oldest);
+                }
+            }
+        }
+        let strikes = peers.entry(peer).or_insert(Strikes {
+            failures: 0,
+            until: now,
+            last: now,
+        });
+        strikes.failures = strikes.failures.saturating_add(1);
+        strikes.last = now;
+        strikes.until = now + throttle_wait_after(strikes.failures);
+    }
+
+    fn succeeded(&self, peer: std::net::IpAddr) {
+        self.peers
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&peer);
+    }
+}
+
+fn throttle_wait_after(failures: u32) -> Duration {
+    if failures <= THROTTLE_FREE_FAILURES {
+        return Duration::ZERO;
+    }
+    let doublings = (failures - THROTTLE_FREE_FAILURES - 1).min(16);
+    THROTTLE_FIRST_WAIT
+        .saturating_mul(1 << doublings)
+        .min(THROTTLE_LONGEST_WAIT)
+}
+
+fn auth_throttle() -> &'static Throttle {
+    static THROTTLE: OnceLock<Throttle> = OnceLock::new();
+    THROTTLE.get_or_init(Throttle::default)
+}
+
+// ---------------------------------------------------------------------------
+// Audit log persistente (JSONL append-only)
+// ---------------------------------------------------------------------------
+
+/// Tope del archivo de audit antes de rotar a `mcp-audit.1.jsonl`.
+const AUDIT_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Sumidero JSONL: una línea por llamada, en `<config_dir>/mcp-audit.jsonl`.
+/// Nunca propaga errores: si el disco falla, la llamada sigue igual.
+pub struct JsonlMcpAuditSink {
+    path: PathBuf,
+}
+
+impl JsonlMcpAuditSink {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl McpAuditSink for JsonlMcpAuditSink {
+    fn record(&self, entry: &Value) {
+        if let Ok(meta) = std::fs::metadata(&self.path) {
+            if meta.len() > AUDIT_MAX_BYTES {
+                let rotated = self.path.with_file_name("mcp-audit.1.jsonl");
+                let _ = std::fs::rename(&self.path, rotated);
+            }
+        }
+        if let Some(parent) = self.path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let Ok(mut line) = serde_json::to_string(entry) else {
+            return;
+        };
+        line.push('\n');
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+        {
+            use std::io::Write;
+            let _ = file.write_all(line.as_bytes());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Enforcement de scopes por conexión
+// ---------------------------------------------------------------------------
+
+/// Decorador del handler real: exige el scope de cada `tools/call` según
+/// el header `X-Olyvia-Scopes` de la conexión y audita los rechazos.
+/// Las llamadas permitidas las audita el dispatcher (con duración y
+/// resultado); acá sólo se anotan las denegadas.
+pub struct ScopedMcpHandler {
+    inner: Arc<dyn McpRequestHandler>,
+    scopes: HashSet<String>,
+    audit: Option<Arc<dyn McpAuditSink>>,
+}
+
+impl ScopedMcpHandler {
+    pub fn new(
+        inner: Arc<dyn McpRequestHandler>,
+        scopes: HashSet<String>,
+        audit: Option<Arc<dyn McpAuditSink>>,
+    ) -> Self {
+        Self {
+            inner,
+            scopes,
+            audit,
+        }
+    }
+
+    /// Si `request` es un `tools/call` sin scope suficiente, devuelve
+    /// (nombre, args, id) para rechazarlo.
+    fn denied_call(&self, request: &Value) -> Option<(String, Value, Value)> {
+        if request.get("method").and_then(Value::as_str) != Some("tools/call") {
+            return None;
+        }
+        let name = request["params"]["name"].as_str()?;
+        let required = tool_required_scope(name);
+        if crate::mcp::server::scopes_satisfy(&self.scopes, required) {
+            return None;
+        }
+        Some((
+            name.to_owned(),
+            request["params"]["arguments"].clone(),
+            request.get("id").cloned().unwrap_or(Value::Null),
+        ))
+    }
+
+    fn audit_denied(&self, name: &str, args: &Value, required: &str) {
+        if let Some(sink) = &self.audit {
+            sink.record(&json!({
+                "ts": std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|value| value.as_millis() as u64)
+                    .unwrap_or(0),
+                "tool": name,
+                "args": crate::mcp::server::sanitize_audit_args(args),
+                "ok": false,
+                "denied": "scope",
+                "requiredScope": required,
+                "grantedScopes": self.scopes.iter().collect::<Vec<_>>(),
+            }));
+        }
+    }
+
+    fn denied_response(id: &Value, name: &str, required: &str) -> Value {
+        rpc_error(
+            id,
+            SCOPE_DENIED_CODE,
+            &format!(
+                "la herramienta `{name}` requiere el scope `{required}`; pedilo con el header {MCP_SCOPES_HEADER}"
+            ),
+        )
+    }
+}
+
+impl McpRequestHandler for ScopedMcpHandler {
+    fn handle(&self, request: &Value) -> Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+        if let Some((name, args, id)) = self.denied_call(request) {
+            let required = tool_required_scope(&name);
+            self.audit_denied(&name, &args, required);
+            let response = Self::denied_response(&id, &name, required);
+            return Box::pin(async move { Some(response) });
+        }
+        self.inner.handle(request)
+    }
+
+    fn handle_batch(&self, items: &[Value]) -> Pin<Box<dyn Future<Output = Value> + Send + '_>> {
+        // Separa lo permitido (al handler real, que preserva su
+        // paralelismo de lecturas) de lo denegado (error por ítem).
+        let mut allowed: Vec<Value> = Vec::new();
+        // denied[i] = respuesta de error para el ítem i-ésimo original.
+        let mut denied: HashMap<usize, Value> = HashMap::new();
+        for (index, item) in items.iter().enumerate() {
+            // Las notificaciones no producen respuesta en ninguno de los
+            // dos niveles; ni se miran ni se reenvían.
+            if matches!(classify_request(item), RpcRequest::Notification) {
+                continue;
+            }
+            if let Some((name, args, id)) = self.denied_call(item) {
+                let required = tool_required_scope(&name);
+                self.audit_denied(&name, &args, required);
+                denied.insert(index, Self::denied_response(&id, &name, required));
+            } else {
+                allowed.push(item.clone());
+            }
+        }
+        let inner = self.inner.clone();
+        let allowed_len = allowed.len();
+        let items = items.to_vec();
+        Box::pin(async move {
+            let responses = if allowed_len == 0 {
+                Vec::new()
+            } else {
+                inner
+                    .handle_batch(&allowed)
+                    .await
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            // Recompone el array en el orden original: las notificaciones
+            // no emiten nada; los permitidos consumen la próxima respuesta
+            // del handler interno en el mismo orden en que se enviaron.
+            let mut merged: Vec<Value> = Vec::new();
+            let mut next = responses.into_iter();
+            for (index, item) in items.iter().enumerate() {
+                if let Some(error) = denied.get(&index) {
+                    merged.push(error.clone());
+                    continue;
+                }
+                if matches!(classify_request(item), RpcRequest::Notification) {
+                    continue;
+                }
+                if let Some(response) = next.next() {
+                    merged.push(response);
+                }
+            }
+            Value::Array(merged)
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Discovery file (`automation.json`, como concat-server/discovery.rs)
+// ---------------------------------------------------------------------------
+
+/// Nombre del archivo de descubrimiento dentro del config dir de la app.
+pub const AUTOMATION_FILE: &str = "automation.json";
+/// Layout del archivo; un lector rechaza otra versión.
+pub const AUTOMATION_VERSION: u32 = 1;
+
+/// Tools publicadas en el discovery file: el catálogo fallback más las
+/// tools de estudio que ejecuta el backend (mínimo garantizado; la
+/// ventana puede publicar más vía `tools/list`).
+fn automation_tool_names() -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    let mut push = |name: &str| {
+        if !name.is_empty() && !names.iter().any(|existing| existing == name) {
+            names.push(name.to_owned());
+        }
+    };
+    if let Some(items) = crate::mcp::server::tools().as_array() {
+        for item in items {
+            if let Some(name) = item["name"].as_str() {
+                push(name);
+            }
+        }
+    }
+    for tool in crate::mcp::server::studio_tools() {
+        if let Some(name) = tool["name"].as_str() {
+            push(name);
+        }
+    }
+    names
+}
+
+/// Contenido del discovery file: endpoint, token, versión y tools.
+/// El token va en claro igual que en Concat: el config dir ya es
+/// per-user y el archivo sólo sirve para que un adaptador local
+/// (p.ej. `motion-mcp` u otro cliente stdio) encuentre al servidor.
+pub fn automation_listing(info: &McpServerInfo) -> Value {
+    json!({
+        "version": AUTOMATION_VERSION,
+        "url": info.url,
+        "token": info.token,
+        "pid": std::process::id(),
+        "app": "olyvia",
+        "appVersion": env!("CARGO_PKG_VERSION"),
+        "protocolVersion": "2025-06-18",
+        "scopesHeader": MCP_SCOPES_HEADER,
+        "tools": automation_tool_names(),
+    })
+}
+
+/// Escribe `automation.json` en `dir` de forma atómica (staging + rename),
+/// como hace Concat: un lector nunca ve medio archivo.
+pub fn write_automation_file(dir: &Path, info: &McpServerInfo) -> Result<(), ProjectError> {
+    std::fs::create_dir_all(dir).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo crear el directorio de configuración para automation.json",
+        )
+    })?;
+    let path = dir.join(AUTOMATION_FILE);
+    let text = serde_json::to_string_pretty(&automation_listing(info)).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo serializar automation.json",
+        )
+    })?;
+    let staging = dir.join(format!(".{AUTOMATION_FILE}.{}.tmp", std::process::id()));
+    std::fs::write(&staging, text).map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "no se pudo escribir automation.json")
+    })?;
+    if let Err(error) = std::fs::rename(&staging, &path) {
+        let _ = std::fs::remove_file(&staging);
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo publicar automation.json: {error}"),
+        ));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Listener HTTP
 // ---------------------------------------------------------------------------
 
@@ -312,7 +688,23 @@ async fn serve(
     mut stream: tokio::net::TcpStream,
     handler: Arc<dyn McpRequestHandler>,
     token: String,
+    audit: Option<Arc<dyn McpAuditSink>>,
 ) {
+    // Anti-fuerza-bruta antes de leer nada: un peer en espera no llega
+    // ni a enviar su token. En loopback todos comparten IpAddr, así que
+    // el throttle actúa como límite global del servidor.
+    let peer = stream.peer_addr().ok().map(|addr| addr.ip());
+    if let Some(ip) = peer {
+        if auth_throttle().wait(ip).is_some() {
+            write_response(
+                &mut stream,
+                429,
+                "{\"error\":\"demasiados intentos; esperá antes de reintentar\"}",
+            )
+            .await;
+            return;
+        }
+    }
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 8192];
     let header_end;
@@ -354,7 +746,17 @@ async fn serve(
         return;
     }
     let expected = format!("Bearer {token}");
-    if header_value(&head, "authorization").as_deref() != Some(expected.as_str()) {
+    let authorized = header_value(&head, "authorization")
+        .map(|presented| secure_token_eq(&presented, &expected))
+        .unwrap_or(false);
+    if let Some(ip) = peer {
+        if authorized {
+            auth_throttle().succeeded(ip);
+        } else {
+            auth_throttle().failed(ip);
+        }
+    }
+    if !authorized {
         write_response(&mut stream, 401, "{\"error\":\"token inválido\"}").await;
         return;
     }
@@ -434,10 +836,14 @@ async fn serve(
             return;
         }
     };
+    // Scopes por conexión: el header `X-Olyvia-Scopes` decide qué tools
+    // puede ejecutar este cliente; sin header, read+write.
+    let scopes = request_scopes(header_value(&head, MCP_SCOPES_HEADER).as_deref());
+    let scoped = Arc::new(ScopedMcpHandler::new(handler, scopes, audit));
     let response = if let Some(items) = value.as_array() {
-        handler.handle_batch(items).await
+        scoped.handle_batch(items).await
     } else {
-        match handler.handle(&value).await {
+        match scoped.handle(&value).await {
             Some(answer) => answer,
             None => {
                 write_response(&mut stream, 202, "{}").await;
@@ -448,9 +854,30 @@ async fn serve(
     write_response(&mut stream, 200, &response.to_string()).await;
 }
 
+/// Handle del accept loop del servidor MCP. `abort` mata la task que
+/// hace `listener.accept()`: al soltarse el `TcpListener` el puerto
+/// 31417 queda libre para un próximo `start_mcp_server`.
+pub struct McpListenerHandle {
+    task: tauri::async_runtime::JoinHandle<()>,
+}
+
+impl crate::ports::mcp_server::McpServerRuntime for McpListenerHandle {
+    fn abort(&self) {
+        self.task.abort();
+    }
+}
+
 /// Bind del listener en 127.0.0.1:MCP_PORT + accept loop con límite de
 /// conexiones concurrentes. Lo llama `application::mcp_server::start_server`.
-pub fn serve_mcp(token: String, handler: Arc<dyn McpRequestHandler>) -> Result<(), ProjectError> {
+/// `audit` es el sumidero JSONL compartido: el dispatcher audita las
+/// llamadas ejecutadas y el wrapper de scopes las denegadas.
+/// Devuelve el handle del listener: sin él no hay forma de frenar el
+/// servidor (`application::mcp_server::stop_server`).
+pub fn serve_mcp(
+    token: String,
+    handler: Arc<dyn McpRequestHandler>,
+    audit: Option<Arc<dyn McpAuditSink>>,
+) -> Result<McpListenerHandle, ProjectError> {
     let listener = std::net::TcpListener::bind(("127.0.0.1", MCP_PORT)).map_err(|_| {
         ProjectError::message(
             ProjectErrorCode::Io,
@@ -464,7 +891,7 @@ pub fn serve_mcp(token: String, handler: Arc<dyn McpRequestHandler>) -> Result<(
         ProjectError::message(ProjectErrorCode::Io, "no se pudo preparar el listener MCP")
     })?;
     let connection_slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
-    tauri::async_runtime::spawn(async move {
+    let task = tauri::async_runtime::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else {
                 break;
@@ -486,13 +913,21 @@ pub fn serve_mcp(token: String, handler: Arc<dyn McpRequestHandler>) -> Result<(
             };
             let handler = handler.clone();
             let token = token.clone();
+            let audit = audit.clone();
             tauri::async_runtime::spawn(async move {
                 let _permit = permit;
-                serve(stream, handler, token).await;
+                serve(stream, handler, token, audit).await;
             });
         }
     });
-    Ok(())
+    Ok(McpListenerHandle { task })
+}
+
+/// Quita `automation.json` del config dir al detener el servidor: un
+/// cliente stdio que lo lea después no debe encontrar un endpoint muerto.
+/// Archivo ausente no es error.
+pub fn remove_automation_file(dir: &Path) {
+    let _ = std::fs::remove_file(dir.join(AUTOMATION_FILE));
 }
 
 #[cfg(test)]
@@ -527,5 +962,221 @@ mod tests {
             assert!(!client.label.is_empty());
             assert!(client.download_url.starts_with("https://"));
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Token constant-time, throttle, scopes, audit y discovery
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn secure_token_eq_accepts_only_the_exact_token() {
+        assert!(secure_token_eq("Bearer abc123", "Bearer abc123"));
+        assert!(!secure_token_eq("Bearer abc12", "Bearer abc123"));
+        assert!(!secure_token_eq("Bearer abc1234", "Bearer abc123"));
+        assert!(!secure_token_eq("bearer abc123", "Bearer abc123"));
+        assert!(!secure_token_eq("", "Bearer abc123"));
+    }
+
+    #[test]
+    fn throttle_waits_only_after_free_failures_and_caps() {
+        assert_eq!(throttle_wait_after(1), Duration::ZERO);
+        assert_eq!(throttle_wait_after(THROTTLE_FREE_FAILURES), Duration::ZERO);
+        assert_eq!(
+            throttle_wait_after(THROTTLE_FREE_FAILURES + 1),
+            THROTTLE_FIRST_WAIT
+        );
+        assert_eq!(
+            throttle_wait_after(THROTTLE_FREE_FAILURES + 2),
+            THROTTLE_FIRST_WAIT * 2
+        );
+        assert_eq!(throttle_wait_after(1000), THROTTLE_LONGEST_WAIT);
+    }
+
+    #[test]
+    fn throttle_tracks_failures_per_peer_and_clears_on_success() {
+        let throttle = Throttle::default();
+        let peer: std::net::IpAddr = "127.0.0.1".parse().unwrap();
+        let other: std::net::IpAddr = "127.0.0.2".parse().unwrap();
+        for _ in 0..THROTTLE_FREE_FAILURES {
+            throttle.failed(peer);
+            assert_eq!(throttle.wait(peer), None, "perdonado");
+        }
+        throttle.failed(peer);
+        assert!(throttle.wait(peer).is_some());
+        assert_eq!(throttle.wait(other), None, "sólo el que falló");
+        throttle.succeeded(peer);
+        assert_eq!(throttle.wait(peer), None);
+    }
+
+    /// Handler fake: responde echo a todo request con id.
+    struct EchoHandler;
+
+    impl McpRequestHandler for EchoHandler {
+        fn handle(
+            &self,
+            request: &Value,
+        ) -> Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            let id = request.get("id").cloned().unwrap_or(Value::Null);
+            let method = request["method"].clone();
+            Box::pin(async move {
+                Some(crate::mcp::server::rpc_result(
+                    &id,
+                    json!({ "echo": method }),
+                ))
+            })
+        }
+
+        fn handle_batch(
+            &self,
+            items: &[Value],
+        ) -> Pin<Box<dyn Future<Output = Value> + Send + '_>> {
+            let items = items.to_vec();
+            Box::pin(async move {
+                Value::Array(
+                    items
+                        .iter()
+                        .map(|item| {
+                            crate::mcp::server::rpc_result(
+                                &item.get("id").cloned().unwrap_or(Value::Null),
+                                json!({ "echo": item["method"].clone() }),
+                            )
+                        })
+                        .collect(),
+                )
+            })
+        }
+    }
+
+    fn scoped(scopes_header: Option<&str>) -> ScopedMcpHandler {
+        ScopedMcpHandler::new(
+            Arc::new(EchoHandler),
+            crate::mcp::server::request_scopes(scopes_header),
+            None,
+        )
+    }
+
+    fn call_request(id: i64, tool: &str) -> Value {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": { "name": tool, "arguments": {} }
+        })
+    }
+
+    #[tokio::test]
+    async fn default_scopes_deny_destructive_and_admin_tools() {
+        let handler = scoped(None); // read+write
+                                    // Lectura y escritura pasan al handler interno.
+        for tool in ["diagnostics", "clip_update", "project_save"] {
+            let request = call_request(1, tool);
+            let response = handler.handle(&request).await.expect("response");
+            assert!(response.get("result").is_some(), "{tool} debió pasar");
+        }
+        // Destructiva y admin rebotan con scope error.
+        for (tool, required) in [
+            ("clip_delete", "destructive"),
+            ("export_render", "destructive"),
+            ("production_cancel", "destructive"),
+            ("run_command", "admin"),
+            ("fs_write", "admin"),
+        ] {
+            let request = call_request(2, tool);
+            let response = handler.handle(&request).await.expect("response");
+            assert_eq!(
+                response["error"]["code"],
+                json!(SCOPE_DENIED_CODE),
+                "{tool} debió ser denegada"
+            );
+            assert!(
+                response["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains(required),
+                "{tool}: mensaje sin scope requerido"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_scopes_unlock_destructive_but_not_admin() {
+        let handler = scoped(Some("read,write,destructive"));
+        let ok = handler
+            .handle(&call_request(1, "clip_delete"))
+            .await
+            .unwrap();
+        assert!(ok.get("result").is_some());
+        let denied = handler
+            .handle(&call_request(2, "run_command"))
+            .await
+            .unwrap();
+        assert_eq!(denied["error"]["code"], json!(SCOPE_DENIED_CODE));
+
+        let admin = scoped(Some("admin"));
+        let ok = admin.handle(&call_request(3, "run_command")).await.unwrap();
+        assert!(ok.get("result").is_some(), "admin cubre todo");
+    }
+
+    #[tokio::test]
+    async fn batch_preserves_order_and_denies_per_item() {
+        let handler = scoped(None);
+        let items = vec![
+            call_request(1, "diagnostics"),
+            call_request(2, "clip_delete"), // denegada
+            json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+            call_request(3, "clip_update"),
+            call_request(4, "run_command"), // denegada
+        ];
+        let response = handler.handle_batch(&items).await;
+        let array = response.as_array().expect("batch array");
+        // 4 respuestas: diag ok, clip_delete error, clip_update ok,
+        // run_command error (la notificación no produce nada).
+        assert_eq!(array.len(), 4);
+        assert!(array[0].get("result").is_some());
+        assert_eq!(array[1]["error"]["code"], json!(SCOPE_DENIED_CODE));
+        assert_eq!(array[1]["id"], json!(2));
+        assert!(array[2].get("result").is_some());
+        assert_eq!(array[3]["error"]["code"], json!(SCOPE_DENIED_CODE));
+        assert_eq!(array[3]["id"], json!(4));
+    }
+
+    #[test]
+    fn jsonl_audit_sink_appends_parseable_lines() {
+        let dir = std::env::temp_dir().join(format!("olyvia-audit-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("mcp-audit.jsonl");
+        let sink = JsonlMcpAuditSink::new(path.clone());
+        sink.record(&json!({ "tool": "diagnostics", "ok": true }));
+        sink.record(&json!({ "tool": "clip_delete", "ok": false, "denied": "scope" }));
+        let text = std::fs::read_to_string(&path).expect("audit file");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        let first: Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(first["tool"], json!("diagnostics"));
+        let second: Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(second["denied"], json!("scope"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn automation_file_lists_endpoint_token_and_tools() {
+        let dir = std::env::temp_dir().join(format!("olyvia-auto-{}", uuid::Uuid::new_v4()));
+        let info = McpServerInfo {
+            url: "http://127.0.0.1:31417/mcp".to_owned(),
+            token: "tok-123".to_owned(),
+        };
+        write_automation_file(&dir, &info).expect("writes automation.json");
+        let path = dir.join(AUTOMATION_FILE);
+        let text = std::fs::read_to_string(&path).expect("automation.json");
+        let listing: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(listing["version"], json!(AUTOMATION_VERSION));
+        assert_eq!(listing["url"], json!(info.url));
+        assert_eq!(listing["token"], json!("tok-123"));
+        assert_eq!(listing["pid"], json!(std::process::id()));
+        assert_eq!(listing["app"], json!("olyvia"));
+        let tools = listing["tools"].as_array().expect("tools array");
+        assert!(tools.iter().any(|t| t == "diagnostics"));
+        assert!(tools.iter().any(|t| t == "production_cancel"));
+        assert!(listing["scopesHeader"].as_str().unwrap().contains("scopes"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

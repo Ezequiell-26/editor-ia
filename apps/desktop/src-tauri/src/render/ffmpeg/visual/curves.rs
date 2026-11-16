@@ -131,7 +131,7 @@ pub(crate) fn grade_filters(
                 (1.0 + gamma_rgb[2]).clamp(0.1, 10.0)
             ));
         }
-        filters.push(eq);
+        filters.push(crate::render::ffmpeg::rewrite_eq_filters(&eq));
     }
     if lift_rgb.iter().any(|value| value.abs() > 0.001)
         || gain_rgb.iter().any(|value| value.abs() > 0.001)

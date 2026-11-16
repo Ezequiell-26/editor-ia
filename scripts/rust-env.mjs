@@ -11,7 +11,7 @@
  *   node scripts/rust-env.mjs -- cargo build -p editor-ia-desktop
  */
 
-import { cpSync, existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -222,6 +222,49 @@ function ensureCargoHome() {
   return fallback;
 }
 
+/**
+ * rust-toolchain.toml fija `channel` a una versión exacta (p.ej. "1.98.1") para
+ * que CI sea reproducible. En esta máquina RUSTUP_HOME vive en una unidad de
+ * caché de sólo lectura y el toolchain pineado no está instalado, así que el
+ * proxy de rustup intenta descargarlo y falla con "Acceso denegado". Se busca
+ * un toolchain ya instalado cuyo `rustc --version` coincida con el pin y se
+ * exporta RUSTUP_TOOLCHAIN para usarlo; si no hay coincidencia no se toca nada
+ * y rustup falla con su error habitual (en CI el pin se instala solo).
+ */
+function pinnedChannelOverride(environment) {
+  if (environment.RUSTUP_TOOLCHAIN) return null;
+  let channel = null;
+  try {
+    const toml = readFileSync(join(process.cwd(), 'rust-toolchain.toml'), 'utf8');
+    channel = toml.match(/^channel\s*=\s*"([^"]+)"/m)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+  if (!/^\d+\.\d+\.\d+$/.test(channel ?? '')) return null;
+  const pinned = channel;
+
+  const rustupHome = environment.RUSTUP_HOME ?? join(homedir(), '.rustup');
+  const toolchainsDir = join(rustupHome, 'toolchains');
+  let entries = [];
+  try {
+    entries = readdirSync(toolchainsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const matches = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const rustc = join(toolchainsDir, entry.name, 'bin', process.platform === 'win32' ? 'rustc.exe' : 'rustc');
+    const probe = spawnSync(rustc, ['--version'], { encoding: 'utf8' });
+    const version = /^rustc (\d+\.\d+\.\d+)/.exec(probe.stdout ?? '')?.[1];
+    if (version === pinned) matches.push(entry.name);
+  }
+  // Preferir el toolchain con el nombre exacto del pin (1.98.1-<triple>) sobre
+  // uno de canal (stable-<triple>) que casualmente tenga la misma versión.
+  const toolchain = matches.find((name) => name.startsWith(`${pinned}-`)) ?? matches[0] ?? null;
+  return toolchain ? { toolchain, channel: pinned } : null;
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const dashdash = argv.indexOf('--');
@@ -287,8 +330,34 @@ function main() {
     );
   }
 
+  // Crates que compilan C/C++ con cmake (p.ej. whisper-rs-sys vía
+  // concat-speech-min) rompían el configure: cmake elegía el generador
+  // "Visual Studio 18 2026" sin detectar compiladores, y `cc`/vswhere podía
+  // elegir un MSVC incompleto (sin msvcprt.lib). Se fija Ninja —presente en
+  // PATH— y las herramientas del toolchain que discoverRustEnv ya verificó.
+  // Los ??= respetan overrides explícitos del usuario.
+  const msvcBin = info.env.PATH_PREPEND.split(';')[0];
+  if (!environment.CMAKE_GENERATOR) environment.CMAKE_GENERATOR = 'Ninja';
+  const cl = join(msvcBin, 'cl.exe');
+  const link = join(msvcBin, 'link.exe');
+  if (existsSync(cl)) {
+    environment.CC_x86_64_pc_windows_msvc ??= cl;
+    environment.CXX_x86_64_pc_windows_msvc ??= cl;
+  }
+  if (existsSync(link)) {
+    environment.CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER ??= link;
+  }
+
   // El ejecutable de test de la lib no recibe `rustc-link-arg-bins` de
   // tauri-build, así que build.rs le agrega el manifiesto sólo en esta corrida.
+  const pinned = pinnedChannelOverride(environment);
+  if (pinned) {
+    environment.RUSTUP_TOOLCHAIN = pinned.toolchain;
+    console.error(
+      `rust-env: rust-toolchain.toml fija ${pinned.channel}; se usa el toolchain local equivalente ${pinned.toolchain}`,
+    );
+  }
+
   const cargoAt = command.findIndex((part) => /(^|[\\/])cargo(?:\.exe)?$/i.test(part));
   const subcommand =
     cargoAt >= 0

@@ -268,10 +268,10 @@ pub fn check_project(project: &Value) -> Vec<QualityFinding> {
     let total_frames = clips
         .iter()
         .filter(|(_, clip)| clip_enabled(clip))
-        .filter_map(|(_, clip)| {
+        .map(|(_, clip)| {
             let start = u64_at(clip, "startFrame").unwrap_or(0);
             let duration = u64_at(clip, "durationFrames").unwrap_or(0);
-            Some(start.saturating_add(duration))
+            start.saturating_add(duration)
         })
         .max()
         .unwrap_or(0);

@@ -2,7 +2,7 @@
 //! (MIT/Apache-2.0). La LUT es un artefacto portable para otras apps; no
 //! modifica el render de Editor IA.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use filmcraft_color::Lut3d;
 use serde::{Deserialize, Serialize};
@@ -75,8 +75,8 @@ fn safe_title(title: Option<&str>) -> String {
 
 #[tauri::command]
 pub fn export_look_lut(request: LookLutRequest) -> Result<LookLutResult, ProjectError> {
-    let dir = PathBuf::from(request.output_dir.trim());
-    if dir.as_os_str().is_empty() || !dir.is_dir() {
+    let dir = crate::application::fs::validate_user_write_path(&request.output_dir)?;
+    if !dir.is_dir() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "la carpeta de destino de la LUT no existe",

@@ -197,6 +197,13 @@ fn clip_needs_alpha(
             return true;
         }
     }
+    // `transitionOut` disolución atenúa el alfa del clip en su cola; los
+    // fundidos a color del mismo campo mezclan RGB y no lo necesitan.
+    if clip["transitionOut"]["type"].as_str() == Some("dissolve")
+        && clip["transitionOut"]["frames"].as_f64().unwrap_or(0.0) > 0.0
+    {
+        return true;
+    }
     let effects = &clip["effects"];
     if let Some(glow) = effects.get("glow").filter(|value| value.is_object()) {
         if number(glow, "intensity").unwrap_or(0.6) > 0.001 {

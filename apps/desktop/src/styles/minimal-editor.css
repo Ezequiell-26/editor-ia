@@ -1,0 +1,1252 @@
+/*
+ * Réplica del editor AlaukCut (referencia 1360x768 adjuntada por el usuario).
+ *
+ * Namespace propio `.me-` + raíz `.minimal-editor`: ningún selector afecta a
+ * las demás vistas ni a las capas premium / filmora / capcut. Se importa al
+ * final del cascade en main.tsx.
+ *
+ * Medidas y colores tomados de la imagen con PIL (no estimados):
+ *   topbar 32px · cuerpo 419px · timeline 260px · pie 37px
+ *   columnas 366px | 1fr | 312px
+ *   #101014 topbar · #17161b paneles · #1f1e25 tarjetas · #000 monitor
+ *   acento #2adaba · borde #26252c · texto #e9e9ee · secundario #8a8993
+ */
+
+.minimal-editor {
+  --me-bg: #101014;
+  --me-panel: #17161b;
+  --me-panel-2: #1f1e25;
+  --me-border: #26252c;
+  --me-monitor: #000000;
+  --me-text: #e9e9ee;
+  --me-muted: #8a8993;
+  --me-faint: #5d5c66;
+  --me-accent: #2adaba;
+  --me-accent-ink: #06231f;
+
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 100 !important;
+  display: grid !important;
+  grid-template-rows: 32px minmax(0, 1fr) 260px 37px !important;
+  grid-template-columns: none !important;
+  gap: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  background: var(--me-bg) !important;
+  color: var(--me-text) !important;
+  font-family: var(--font-ui, 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif) !important;
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * La referencia no tiene menú, rail lateral, barra de estado ni dock del
+ * asistente: cuando el editor mínimo está montado, la superficie ocupa toda
+ * la ventana. `:has()` evita tocar el AppShell desde React y deja el resto
+ * de las vistas intacto.
+ */
+.app-shell:has(.minimal-editor) {
+  height: 100vh !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+.app-shell:has(.minimal-editor) > .topbar,
+.app-shell:has(.minimal-editor) > .app-statusbar,
+.app-shell:has(.minimal-editor) > .app-body > .sidebar,
+.app-shell:has(.minimal-editor) > .app-body > .content-flush,
+.app-shell:has(.minimal-editor) .assistant-dock,
+.app-shell:has(.minimal-editor) > .banner,
+.app-shell:has(.minimal-editor) > .recovery-banner {
+  display: none !important;
+}
+.app-shell:has(.minimal-editor) > .app-body {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+.app-shell:has(.minimal-editor) > .app-body > main.content {
+  position: relative !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  background: var(--me-bg, #101014) !important;
+}
+/* El lanzador flotante del asistente no existe en la referencia. */
+body:has(.minimal-editor) .assistant-launcher,
+.app-shell:has(.minimal-editor) .assistant-launcher { display: none !important; }
+/* Gana a las capas del entry dinámico que fijan el fondo del workspace. */
+.app-shell:has(.minimal-editor) .minimal-editor.editor-workspace {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 100 !important;
+  background: var(--me-bg) !important;
+}
+
+.minimal-editor *,
+.minimal-editor *::before,
+.minimal-editor *::after { box-sizing: border-box; }
+
+.minimal-editor button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.minimal-editor .me-a11y-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── 1 · Barra superior (32px) ─────────────────────────────────────────── */
+
+.minimal-editor .me-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 32px;
+  padding: 0 10px 0 8px;
+  background: var(--me-bg);
+  border-bottom: 1px solid #0b0a0e;
+  position: relative;
+}
+
+.minimal-editor .me-topbar-left,
+.minimal-editor .me-topbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+.minimal-editor .me-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid #3b3a42;
+  border-radius: 3px;
+  background: #0b0b0e;
+  color: var(--me-accent);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.minimal-editor .me-brand { font-size: 11px; font-weight: 600; color: #d7d7de; white-space: nowrap; }
+.minimal-editor .me-topbar-link { color: #a9a8b0; font-size: 10px; white-space: nowrap; }
+.minimal-editor .me-crumb { color: var(--me-faint); font-size: 10px; white-space: nowrap; }
+
+.minimal-editor .me-topbar-project {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #b9b8c0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.minimal-editor .me-topbar-right { margin-left: auto; gap: 8px; }
+.minimal-editor .me-icon-btn,
+.minimal-editor .me-text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid #2a2931;
+  border-radius: 4px;
+  background: #1c1b22;
+  color: #b7b6bf;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.minimal-editor .me-icon-btn { padding: 0 6px; }
+.minimal-editor .me-text-btn:hover,
+.minimal-editor .me-icon-btn:hover { background: #24232b; color: #e6e6ec; }
+
+.minimal-editor .me-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 12px;
+  border-radius: 4px;
+  background: var(--me-accent);
+  color: var(--me-accent-ink);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.minimal-editor .me-export:hover:not(:disabled) { background: #3ae9c7; }
+.minimal-editor .me-export:disabled { opacity: 0.65; cursor: not-allowed; }
+
+/* Controles de ventana nativos reutilizados, sin su caja propia. */
+.minimal-editor .me-topbar-right .window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.minimal-editor .me-topbar-right .window-controls button {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  color: #8d8c95;
+}
+.minimal-editor .me-topbar-right .window-controls button:hover { background: #24232b; color: #fff; }
+
+/* ── 2 · Cuerpo de tres columnas ───────────────────────────────────────── */
+
+.minimal-editor .me-body {
+  display: grid;
+  grid-template-columns: 366px minmax(0, 1fr) 312px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.minimal-editor .me-left {
+  display: grid;
+  grid-template-rows: 32px 34px minmax(0, 1fr) 74px;
+  min-height: 0;
+  background: var(--me-panel-2);
+  border-right: 1px solid #0b0a0e;
+}
+
+.minimal-editor .me-tabs {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
+  background: #141318;
+  border-bottom: 1px solid #0b0a0e;
+}
+.minimal-editor .me-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: var(--me-muted);
+  border-bottom: 2px solid transparent;
+}
+.minimal-editor .me-tab span {
+  display: block;
+  max-width: 100%;
+  font-size: 7px;
+  letter-spacing: -0.15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+.minimal-editor .me-tab { gap: 1px; }
+.minimal-editor .me-tab:hover { color: #d4d3da; background: #1a1920; }
+.minimal-editor .me-tab.active { color: var(--me-accent); border-bottom-color: var(--me-accent); }
+
+.minimal-editor .me-left-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-bottom: 1px solid #0b0a0e;
+}
+.minimal-editor .me-import-btn,
+.minimal-editor .me-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid #2c2b33;
+  border-radius: 4px;
+  background: #1f1e25;
+  color: #c8c7cf;
+  font-size: 10px;
+}
+.minimal-editor .me-import-btn {
+  background: var(--me-accent);
+  border-color: transparent;
+  color: var(--me-accent-ink);
+  font-weight: 700;
+}
+.minimal-editor .me-import-btn:hover { background: #3ae9c7; }
+.minimal-editor .me-filter-btn:hover { background: #2a2931; }
+.minimal-editor .me-filter-btn.me-square { width: 24px; padding: 0; }
+
+.minimal-editor .me-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 8px 18px;
+  text-align: center;
+}
+.minimal-editor .me-import-art {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 44px;
+  margin-bottom: 4px;
+}
+.minimal-editor .me-import-card {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 32px;
+  border: 1px solid #2f4c4a;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #1d3a38, #142523);
+  color: var(--me-accent);
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.minimal-editor .me-import-arrow {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--me-accent);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+}
+.minimal-editor .me-empty strong { font-size: 13px; font-weight: 700; color: #f2f2f6; }
+.minimal-editor .me-empty p { margin: 0; color: var(--me-muted); font-size: 10px; line-height: 1.55; }
+
+.minimal-editor .me-left-foot { padding: 0 8px 8px; }
+.minimal-editor .me-left-hint {
+  margin: 0 0 6px;
+  text-align: center;
+  color: var(--me-faint);
+  font-size: 9px;
+}
+.minimal-editor .me-left-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  height: 46px;
+  padding: 5px;
+  border: 1px solid #2a2931;
+  border-radius: 7px;
+  background: var(--me-panel-2);
+}
+.minimal-editor .me-left-cards button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 4px;
+  color: #c2c1ca;
+  font-size: 9px;
+}
+.minimal-editor .me-left-cards button:first-child { border-right: 1px solid #333239; }
+.minimal-editor .me-left-cards button:hover { background: #2a2932; }
+.minimal-editor .me-card-icon { color: var(--me-accent); }
+.minimal-editor .me-card-icon.red { color: #e4655f; }
+
+/* ── 3 · Monitor central ───────────────────────────────────────────────── */
+
+.minimal-editor .me-center {
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr) 32px;
+  min-width: 0;
+  min-height: 0;
+  background: #0d0c0f;
+  border-right: 1px solid #0b0a0e;
+}
+.minimal-editor .me-center-head {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: #cfced6;
+  font-size: 10px;
+  border-bottom: 1px solid #0b0a0e;
+}
+.minimal-editor .me-monitor-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 10px 26px 6px 34px;
+}
+.minimal-editor .me-ruler-top {
+  position: absolute;
+  top: 4px;
+  left: 34px;
+  right: 26px;
+  display: flex;
+  justify-content: space-between;
+  color: #4b4a52;
+  font-size: 8px;
+  border-bottom: 1px solid #1c1b21;
+  padding-bottom: 2px;
+}
+.minimal-editor .me-ruler-left {
+  position: absolute;
+  left: 6px;
+  top: 22px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  width: 24px;
+  color: #4b4a52;
+  font-size: 8px;
+  border-right: 1px solid #1c1b21;
+  padding-right: 3px;
+}
+.minimal-editor .me-monitor {
+  position: relative;
+  height: 88%;
+  aspect-ratio: 16 / 9;
+  width: auto;
+  max-width: 100%;
+  background: var(--me-monitor);
+  border: 1px solid #0a0a0c;
+  box-shadow: 0 0 0 1px #111014;
+  overflow: hidden;
+}
+
+/* El preview real se conserva, pero sin su chrome denso. */
+.minimal-editor .me-monitor .preview-stage {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  border: 0;
+  box-shadow: none;
+}
+.minimal-editor .me-monitor .preview-topbar,
+.minimal-editor .me-monitor .preview-bottombar,
+.minimal-editor .me-monitor .preview-transport,
+.minimal-editor .me-monitor .preview-status,
+.minimal-editor .me-monitor .preview-empty,
+.minimal-editor .me-monitor .preview-hud,
+.minimal-editor .me-monitor .preview-tools,
+.minimal-editor .me-monitor .preview-source-tabs { display: none !important; }
+.minimal-editor .me-monitor .preview-canvas { width: 100%; height: 100%; border: 0; background: #000; }
+
+.minimal-editor .me-monitor-foot {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 10px;
+  border-top: 1px solid #0b0a0e;
+}
+.minimal-editor .me-timecode { color: var(--me-accent); font-size: 9px; font-family: var(--font-mono, monospace); }
+.minimal-editor .me-transport { display: flex; align-items: center; gap: 8px; justify-self: center; }
+.minimal-editor .me-transport button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #2b2a32;
+  border-radius: 50%;
+  background: #1c1b21;
+  color: #b9b8c0;
+}
+.minimal-editor .me-transport button:hover { background: #2a2932; color: #fff; }
+.minimal-editor .me-monitor-meta {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--me-faint);
+  font-size: 9px;
+}
+.minimal-editor .me-monitor-meta b { color: #a6a5ae; font-weight: 600; }
+
+/* ── 4 · Panel de detalles ─────────────────────────────────────────────── */
+
+.minimal-editor .me-right {
+  display: grid;
+  grid-template-rows: 32px 62px 30px minmax(0, 1fr) 34px;
+  min-height: 0;
+  padding: 0 12px 8px;
+  background: var(--me-panel);
+}
+.minimal-editor .me-right-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #26252c;
+}
+.minimal-editor .me-right-head > span { color: var(--me-accent); font-size: 11px; font-weight: 600; }
+.minimal-editor .me-right-head button {
+  padding: 2px 7px;
+  border: 1px solid #2c2b33;
+  border-radius: 3px;
+  color: #8e8d96;
+  font-size: 9px;
+}
+.minimal-editor .me-proj-card {
+  align-self: center;
+  padding: 9px 12px;
+  border: 1px solid #26252c;
+  border-radius: 7px;
+  background: var(--me-panel-2);
+}
+.minimal-editor .me-proj-card strong { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 700; }
+.minimal-editor .me-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.minimal-editor .me-chips span {
+  padding: 2px 6px;
+  border: 1px solid #2f2e36;
+  border-radius: 3px;
+  color: #8e8d96;
+  font-size: 9px;
+}
+.minimal-editor .me-section-title {
+  margin: 0;
+  align-self: end;
+  padding-bottom: 6px;
+  color: #777680;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+}
+.minimal-editor .me-cards-list { display: flex; flex-direction: column; gap: 7px; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.minimal-editor .me-feature {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--me-panel-2);
+  text-align: left;
+}
+.minimal-editor .me-feature:hover { border-color: #34333c; background: #24232b; }
+.minimal-editor .me-feature-icon { color: var(--me-accent); }
+.minimal-editor .me-feature-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.minimal-editor .me-feature-text strong { color: #dddce4; font-size: 10px; font-weight: 700; }
+.minimal-editor .me-feature-text small { color: #7b7a84; font-size: 9px; line-height: 1.35; }
+.minimal-editor .me-feature > svg { color: #4e4d56; justify-self: end; }
+.minimal-editor .me-assistant {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  align-self: center;
+  padding: 5px 8px;
+  border-top: 1px solid #26252c;
+  color: #c9c8d0;
+  font-size: 10px;
+  font-weight: 600;
+}
+.minimal-editor .me-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--me-accent); }
+
+/* P4 · el Inspector productivo real ocupa la tercera columna del cuerpo.
+   `.inspector` trae su propio cromo (head "Detalles" + tabs por selección);
+   el wrapper le da la fila completa y deja el acceso al asistente abajo. */
+.minimal-editor .me-inspector {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--me-panel-2);
+  border-left: 1px solid #0b0a0e;
+}
+.minimal-editor .me-inspector > .inspector {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+/* P5 · el rail de assets productivo real ocupa la primera columna del
+   cuerpo. `.asset-rail` trae su propio cromo (tabs, búsqueda, rejilla);
+   el wrapper le da la fila completa dentro del ancho de 366 px. */
+.minimal-editor .me-library {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--me-panel-2);
+  border-right: 1px solid #0b0a0e;
+}
+.minimal-editor .me-library > .asset-rail {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.minimal-editor .me-inspector > .me-assistant {
+  flex: none;
+  align-self: stretch;
+}
+
+/* ── 5 · Timeline ──────────────────────────────────────────────────────── */
+
+/* UN SOLO EDITOR · la timeline del shell mínimo es la Timeline productiva
+   real (`.timeline` de app.css): ocupa la misma fila de 260 px del grid y
+   su raíz usa height:100% — hace falta un padre flex con altura definida. */
+.minimal-editor .me-timeline-real {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--me-panel);
+  border-top: 1px solid #0b0a0e;
+}
+/* La Timeline real trae una superficie de ancho variable (~11 000 px con
+   muchos clips): sin min-width:0 en la cadena flex/grid, el min-content
+   estira la columna implícita del shell y todos los paneles desbordan el
+   viewport (medido en vivo: columna de 11 625 px). */
+.minimal-editor > * { min-width: 0 !important; min-height: 0 !important; }
+.minimal-editor .me-timeline-real > .timeline {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.minimal-editor .me-timeline {
+  display: grid;
+  grid-template-rows: 32px 20px minmax(0, 1fr);
+  min-height: 0;
+  background: var(--me-panel);
+  border-top: 1px solid #0b0a0e;
+}
+.minimal-editor .me-tl-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  border-bottom: 1px solid #222128;
+}
+.minimal-editor .me-tl-tools-left,
+.minimal-editor .me-tl-tools-right { display: flex; align-items: center; gap: 3px; }
+.minimal-editor .me-tl-tools-left > button,
+.minimal-editor .me-tl-tools-right > button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  color: #7d7c86;
+}
+.minimal-editor .me-tl-tools-left > button:hover,
+.minimal-editor .me-tl-tools-right > button:hover { background: #24232b; color: #e2e1e9; }
+.minimal-editor .me-tl-tools-left > button.me-tl-accent,
+.minimal-editor .me-tl-tools-right > button.me-tl-accent {
+  background: #1b3a37;
+  color: var(--me-accent);
+}
+/* La referencia no muestra esta pestaña: se conserva en el DOM y en el árbol
+   de accesibilidad (App.test.tsx la busca por rol), pero no ocupa lugar. */
+.minimal-editor .me-tl-tabs {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.minimal-editor .me-tl-tabs button {
+  padding: 0;
+  background: transparent;
+  color: #9a99a2;
+  font-size: 9px;
+}
+.minimal-editor .me-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 6px;
+  color: #7d7c86;
+}
+.minimal-editor .me-zoom i {
+  display: block;
+  width: 68px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--me-accent) 42%, #3a3942 42%);
+  position: relative;
+}
+.minimal-editor .me-zoom i::after {
+  content: '';
+  position: absolute;
+  left: 40%;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d7d6de;
+}
+
+.minimal-editor .me-tl-ruler {
+  position: relative;
+  border-bottom: 1px solid #222128;
+  background: #141318;
+  cursor: crosshair;
+}
+.minimal-editor .me-tl-ruler span {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  color: #5f5e68;
+  font-size: 8px;
+  font-family: var(--font-mono, monospace);
+}
+.minimal-editor .me-tl-ruler span::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -4px;
+  width: 1px;
+  height: 4px;
+  background: #3a3942;
+}
+
+.minimal-editor .me-tl-tracks { display: grid; grid-template-columns: 20px minmax(0, 1fr); min-height: 0; }
+.minimal-editor .me-tl-headers { border-right: 1px solid #222128; background: #141318; }
+.minimal-editor .me-tl-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 50%;
+  border-bottom: 1px solid #1e1d23;
+  color: #5f5e68;
+}
+.minimal-editor .me-track-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--me-accent); }
+.minimal-editor .me-tl-lanes { position: relative; min-width: 0; }
+.minimal-editor .me-tl-lane { height: 50%; border-bottom: 1px solid #1e1d23; }
+.minimal-editor .me-tl-empty {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  color: #5f5e68;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.minimal-editor .me-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #dedde5;
+  z-index: 3;
+}
+.minimal-editor .me-playhead::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: -4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #dedde5;
+}
+.minimal-editor .me-clip {
+  position: absolute;
+  top: 12%;
+  height: 30%;
+  border: 1px solid #2f6d64;
+  border-radius: 3px;
+  background: #1d4a45;
+  z-index: 2;
+}
+
+/* ── 6 · Pie negro ─────────────────────────────────────────────────────── */
+
+.minimal-editor .me-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 14px;
+  background: #000;
+  border-top: 1px solid #050507;
+}
+.minimal-editor .me-watermark {
+  color: var(--me-accent);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  opacity: 0.9;
+}
+
+/* ── 7 · Ajustes de viewport angosto ───────────────────────────────────── */
+
+@media (max-width: 1180px) {
+  .minimal-editor .me-body { grid-template-columns: 300px minmax(0, 1fr) 270px; }
+  .minimal-editor .me-crumb { display: none; }
+}
+
+/* ── 8 · Controles reales (additivo, no altera la geometría medida) ───── */
+
+/* El zoom escala el contenido: sin recorte, los clips se saldrían del panel. */
+.minimal-editor .me-tl-ruler,
+.minimal-editor .me-tl-lanes { overflow: hidden; }
+.minimal-editor .me-zoom button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.minimal-editor .me-zoom button:hover { color: var(--me-accent); }
+.minimal-editor .me-zoom i::after { left: var(--me-zoom-knob, 40%); }
+
+/* Regla de seek accesible por teclado. */
+.minimal-editor .me-tl-ruler:focus-visible,
+.minimal-editor .me-clip:focus-visible,
+.minimal-editor .me-zoom button:focus-visible,
+.minimal-editor .me-media-item:focus-visible {
+  outline: 2px solid var(--me-accent);
+  outline-offset: 1px;
+}
+
+/* Clips reales seleccionables. */
+.minimal-editor .me-clip { padding: 0; cursor: pointer; }
+.minimal-editor .me-clip.selected {
+  border-color: var(--me-accent);
+  box-shadow: 0 0 0 1px var(--me-accent) inset;
+}
+/* UI-002: miniatura y forma de onda reales del clip, sólo si hay datos. */
+.minimal-editor .me-clip-thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.6;
+  pointer-events: none;
+}
+.minimal-editor .me-clip-wave {
+  position: absolute;
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+  pointer-events: none;
+}
+.minimal-editor .me-clip-wave rect { fill: #9fd8c8; }
+/* UI-002: campo numérico editable del inspector (sólo con clip real). */
+.minimal-editor .me-num-input {
+  width: 3.2em;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  outline: none;
+}
+.minimal-editor .me-num-input:focus-visible {
+  outline: 1px solid var(--me-accent);
+  border-radius: 2px;
+}
+.minimal-editor .me-num-input::-webkit-outer-spin-button,
+.minimal-editor .me-num-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.minimal-editor .me-num-input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+.minimal-editor .me-media-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: #5f5e68;
+  background: #1f1e25;
+}
+.minimal-editor .me-media-grid-compact .me-media-item { min-height: 42px; }
+
+/* Estado real del proyecto en el pie. */
+.minimal-editor .me-footer-status {
+  position: absolute;
+  left: 14px;
+  color: #5f5e68;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+/* Consentimiento de derechos y avisos: sólo aparecen tras una interacción. */
+.minimal-editor .me-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 6, 9, 0.72);
+}
+.minimal-editor .me-consent {
+  width: min(420px, calc(100vw - 48px));
+  padding: 22px 24px 18px;
+  border: 1px solid #2c2b33;
+  border-radius: 12px;
+  background: #17161b;
+  color: #e9e9ee;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6);
+}
+.minimal-editor .me-consent-eyebrow {
+  margin: 0 0 6px;
+  color: var(--me-accent);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.minimal-editor .me-consent h2 { margin: 0 0 10px; font-size: 17px; }
+.minimal-editor .me-consent p { margin: 0 0 18px; color: #a9a8b2; font-size: 12px; line-height: 1.55; }
+.minimal-editor .me-consent-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.minimal-editor .me-consent-actions button {
+  padding: 8px 14px;
+  border-radius: 7px;
+  border: 1px solid #34333c;
+  background: transparent;
+  color: #e9e9ee;
+  font-size: 12px;
+  cursor: pointer;
+}
+.minimal-editor .me-consent-confirm { border-color: var(--me-accent) !important; color: var(--me-accent) !important; }
+.minimal-editor .me-consent-actions button:focus-visible { outline: 2px solid var(--me-accent); outline-offset: 2px; }
+.minimal-editor .me-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 52px;
+  z-index: 9999;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 9px 12px;
+  border: 1px solid #2c2b33;
+  border-radius: 8px;
+  background: #1f1e25;
+  color: #e9e9ee;
+  font-size: 11px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+}
+.minimal-editor .me-toast button {
+  border: 0;
+  background: none;
+  color: #a9a8b2;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* ── 9 · Chrome AlaukCut dentro de EditorWorkspace (P6 + P8) ─────────────
+   Mismo lenguaje visual que `.me-topbar`/`.me-footer` pero con clases
+   propias (`.alauk-*`) y variables locales: no depende del scope
+   `.minimal-editor` ni del grid del shell réplica.
+   P8: `.alaukcut-chrome` se aplica en TODOS los modos; `.alaukcut` (la
+   geometría de tres columnas de alaukcut-reference.css) sigue acotada al
+   modo timeline, donde la grilla de herramientas no compite con ella. */
+
+.editor-workspace.alaukcut-chrome {
+  --alauk-bg: #101014;
+  --alauk-panel: #17161b;
+  --alauk-panel-2: #1f1e25;
+  --alauk-border: #26252c;
+  --alauk-text: #e9e9ee;
+  --alauk-muted: #8a8993;
+  --alauk-faint: #5d5c66;
+  --alauk-accent: #2adaba;
+  --alauk-accent-ink: #06231f;
+  /* P7 · tema AlaukCut por VARIABLES: los componentes del editor consumen
+     `--color-*` (tokens.css + presets data-theme/data-preset del usuario).
+     Re-definirlas dentro del workspace aplica la paleta AlaukCut a TODO
+     el cromo (monitor, transporte, timeline, inspector, rail) sin tocar
+     el tema del usuario fuera del editor. */
+  --color-bg: #101014;
+  --color-surface: #17161b;
+  --color-panel: #17161b;
+  --color-panel-2: #1f1e25;
+  --color-panel-3: #26252c;
+  --color-panel-raised: #24232b;
+  --color-surface-raised: #1f1e25;
+  --color-border: #26252c;
+  --color-border-strong: #2a2931;
+  --color-text: #e9e9ee;
+  --color-text-muted: #8a8993;
+  --color-text-secondary: #6f6e78;
+  --color-text-faint: #5d5c66;
+  --color-empty: #5d5c66;
+  --color-accent: #2adaba;
+  --color-accent-light: #4fe8d4;
+  --color-accent-strong: #1ec7ae;
+  --color-accent-ink: #06231f;
+  --color-cta: #2adaba;
+  /* Aliases de tema (filmora/comercial/olyvia) que algunas reglas
+     `!important` consumen directo — el preset custom del usuario los
+     fija en rojo; dentro del editor mandan los valores AlaukCut. */
+  --fm-accent: #2adaba;
+  --fm-accent-hover: #4fe8d4;
+  --fm-accent-ink: #06231f;
+  --fm-bar: #17161b;
+  --fm-bar-2: #17161b;
+  --fm2-canvas: #17161b;
+  --chrome-2: #17161b;
+  --commercial-accent: #2adaba;
+  --olyvia-accent: #2adaba;
+  --olyvia-panel: #17161b;
+  /* Hijos del workspace en CUALQUIER modo: [AlaukTopBar, EditorModeTabs
+     (oculto en immersive), editor-grid o editor-mode-panel, AlaukFooter,
+     avisos]. Filas explícitas para que topbar/footer no caigan en filas
+     implícitas del grid base. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.alauk-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 32px;
+  padding: 0 10px 0 8px;
+  background: var(--alauk-bg);
+  border-bottom: 1px solid #0b0a0e;
+  flex: none;
+}
+.alauk-topbar-left,
+.alauk-topbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.alauk-projects-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid #2a2931;
+  border-radius: 4px;
+  background: #1c1b22;
+  color: #b7b6bf;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.alauk-projects-btn:hover { background: #24232b; color: #e6e6ec; }
+.alauk-save-state { color: var(--alauk-faint); font-size: 9px; white-space: nowrap; }
+.alauk-topbar-project {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #b9b8c0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+.alauk-topbar { position: relative; }
+.alauk-topbar-right { margin-left: auto; gap: 8px; }
+.alauk-text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid #2a2931;
+  border-radius: 4px;
+  background: #1c1b22;
+  color: #b7b6bf;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.alauk-text-btn:hover { background: #24232b; color: #e6e6ec; }
+.alauk-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--alauk-accent);
+  color: var(--alauk-accent-ink);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.alauk-export:hover { background: #3ae9c7; }
+.alauk-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--alauk-muted);
+  cursor: pointer;
+}
+.alauk-icon-btn:hover:not(:disabled) { background: #24232b; color: var(--alauk-text); }
+.alauk-icon-btn:disabled { opacity: 0.4; cursor: default; }
+/* Los controles de ventana (.window-controls) traen su propio estilo;
+   acá sólo se les da aire dentro de la barra de 32 px. */
+.alauk-topbar-right .window-controls { margin-left: 4px; }
+
+/* P8 · el chrome del AppShell se retira en TODOS los modos y estados: el
+   chrome AlaukCut es la única barra del editor. AlaukTopBar absorbe sus
+   acciones esenciales (undo/redo/save/buscar/ajustes/herramientas/export/
+   ventana); el resto del menú clásico sigue alcanzable por Ctrl+K y atajos.
+
+   P8-b · antes esto sólo cubría `.topbar`, y `.editor-immersive` (que oculta
+   rail + statusbar) exigía un proyecto abierto. Resultado: sin proyecto la
+   app arrancaba con el rail clásico y DOS barras de estado — la única
+   superficie de edición convivía con el cromo viejo. Se ocultan acá los tres
+   elementos y se colapsa la columna del rail, con o sin proyecto. NO se
+   fuerza `editor-immersive`: esa clase además oculta las pestañas de modos
+   en timeline, que sin proyecto son la única forma de llegar a las
+   herramientas (ADR-0006 §3).
+
+   El toggle «Vista» (`data-editor-skin='full'`) es el escape hatch: en modo
+   completo el cromo clásico vuelve a estar disponible. Por eso estas reglas
+   se acotan a `:root:not([data-editor-skin='full'])`; ninguna función de la
+   app queda huérfana dentro del editor unificado. */
+:root:not([data-editor-skin='full']) .app-shell:has(.editor-workspace.alaukcut-chrome) > .topbar,
+:root:not([data-editor-skin='full']) .app-shell:has(.editor-workspace.alaukcut-chrome) > .app-body > .sidebar,
+:root:not([data-editor-skin='full']) .app-shell:has(.editor-workspace.alaukcut-chrome) > .app-statusbar {
+  display: none !important;
+}
+:root:not([data-editor-skin='full']) .app-shell:has(.editor-workspace.alaukcut-chrome) > .app-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.alauk-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--alauk-bg);
+  border-top: 1px solid #0b0a0e;
+  color: var(--alauk-muted);
+  font-size: 10px;
+  flex: none;
+}
+.alauk-footer-save { color: var(--alauk-faint); font-size: 9px; white-space: nowrap; }
+
+/* ── 10 · Tema AlaukCut del monitor + transporte (P6-b) ──────────────────
+   Sólo recolorea el chrome existente dentro de `.editor-workspace.alaukcut-chrome`
+   (modo timeline): paleta #17161b/#1f1e25 + acento #2adaba. No toca
+   geometría ni funcionalidad — el Transport real conserva scrub, rate y
+   readout (superset del pie de AlaukCut). */
+
+/* `!important` sólo donde el tema `data-theme='dark'` de capcut-ui.css
+   fija literales con !important (monitor #1a1a1a, colores de transporte).
+   El resto del cromo ya toma la paleta de las variables --color-* del
+   bloque `.alaukcut`. */
+.app-shell .editor-workspace.alaukcut-chrome .preview-panel,
+.app-shell .editor-workspace.alaukcut-chrome .preview-stage {
+  background: #0d0c0f !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport {
+  background: #17161b !important;
+  border-top: 1px solid #0b0a0e;
+  padding: 6px 10px;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-button {
+  color: #8a8993 !important;
+  border-radius: 4px;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-button:hover:not(:disabled) {
+  color: #e9e9ee !important;
+  background: #24232b !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-button.primary-transport {
+  background: #2adaba !important;
+  border-color: transparent;
+  color: #06231f !important;
+  box-shadow: none;
+}
+.app-shell .editor-workspace.alaukcut-chrome .primary-transport:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-rate {
+  background: #1f1e25;
+  border-color: #26252c;
+  color: #8a8993;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-rate:hover {
+  color: #e9e9ee;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-time,
+.app-shell .editor-workspace.alaukcut-chrome .transport-frames {
+  color: #8a8993;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-scrub {
+  background: #2a2931 !important;
+}
+/* Superficies del cromo: capcut-ui fija #262626/#303030 con !important
+   bajo `data-theme='dark'` — el tema AlaukCut los reemplaza con la
+   misma precedencia (más especificidad + más tarde en la cascada). */
+.app-shell .editor-workspace.alaukcut-chrome .asset-rail,
+.app-shell .editor-workspace.alaukcut-chrome .rail-main,
+.app-shell .editor-workspace.alaukcut-chrome .rail-stage,
+.app-shell .editor-workspace.alaukcut-chrome .inspector,
+.app-shell .editor-workspace.alaukcut-chrome .inspector-head,
+.app-shell .editor-workspace.alaukcut-chrome .inspector-tabs-wrap {
+  background: #17161b !important;
+  color: #e9e9ee !important;
+  border-color: #26252c !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .rail-tabs,
+.app-shell .editor-workspace.alaukcut-chrome .rail-module-bar {
+  background: #1f1e25 !important;
+  border-bottom-color: #0b0a0e !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .timeline-panel,
+.app-shell .editor-workspace.alaukcut-chrome .timeline-surface,
+.app-shell .editor-workspace.alaukcut-chrome .timeline-scroll {
+  background: #17161b !important;
+  border-color: #26252c !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .inspector-head {
+  color: #8a8993 !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .timeline-panel {
+  border-top: 1px solid #0b0a0e;
+}

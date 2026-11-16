@@ -17,6 +17,17 @@ for (const label of VIEWS) {
     await enterApp(page);
     await clickNav(page, label);
     await expect(page.locator('main.content')).not.toBeEmpty();
+    // AI Hub consulta el proveedor de forma async; sin Tauri el fetch rechaza
+    // y aparece el aviso de error. Esperar a que ese estado asiente para que
+    // el screenshot sea determinista.
+    if (label === 'AI Hub') {
+      await expect(page.locator('.localization-provider')).toContainText(
+        'No se pudo leer el proveedor',
+      );
+    }
+    // Esperar a que las webfonts asienten: si una fuente llega tarde, el wrap
+    // del texto cambia y las tarjetas se recorren unos píxeles (diff fantasma).
+    await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(400);
     await expect(page).toHaveScreenshot(`${label}.png`, {
       animations: 'disabled',

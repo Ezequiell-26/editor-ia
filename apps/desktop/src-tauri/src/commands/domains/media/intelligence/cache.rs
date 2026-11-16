@@ -3,7 +3,15 @@ struct PassOutput {
     success: bool,
 }
 
-fn run_pass(ffmpeg: &Path, path: &Path, args: &[&str]) -> Result<PassOutput, ProjectError> {
+/// Una pasada de medición sobre el medio completo con deadline: si FFmpeg se
+/// cuelga a mitad del stream, el `kill` del timeout libera el hilo en vez de
+/// dejar el comando de análisis esperando para siempre.
+fn run_pass(
+    ffmpeg: &Path,
+    path: &Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> Result<PassOutput, ProjectError> {
     let mut command = Command::new(ffmpeg);
     command
         .args(["-hide_banner", "-nostats", "-i"])
@@ -12,11 +20,20 @@ fn run_pass(ffmpeg: &Path, path: &Path, args: &[&str]) -> Result<PassOutput, Pro
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     crate::commands::hide_console(&mut command);
-    let output = command.output().map_err(|_| {
+    let timed = crate::commands::output_with_timeout(&mut command, timeout).map_err(|_| {
         ProjectError::message(
             ProjectErrorCode::Io,
             "no se pudo iniciar FFmpeg para analizar el material",
         )
+    })?;
+    if timed.timed_out {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "FFmpeg no terminó a tiempo al analizar el material; el proceso fue interrumpido",
+        ));
+    }
+    let output = timed.into_output().ok_or_else(|| {
+        ProjectError::message(ProjectErrorCode::Io, "FFmpeg no devolvió la medición")
     })?;
     Ok(PassOutput {
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
@@ -68,8 +85,20 @@ fn analyze_luma(ffmpeg: &Path, path: &Path, duration: f64) -> (Option<f64>, Opti
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         crate::commands::hide_console(&mut command);
-        let output = command.output();
-        let Ok(output) = output else { continue };
+        // Un frame suelto debe ser instantáneo; el deadline sólo cubre un
+        // seek sobre disco colgado. Timeout o fallo → se salta la muestra.
+        let Ok(timed) = crate::commands::output_with_timeout(
+            &mut command,
+            crate::commands::MEDIA_PROBE_TIMEOUT,
+        ) else {
+            continue;
+        };
+        if timed.timed_out {
+            continue;
+        }
+        let Some(output) = timed.into_output() else {
+            continue;
+        };
         if !output.status.success() {
             continue;
         }

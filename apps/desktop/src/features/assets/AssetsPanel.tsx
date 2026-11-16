@@ -7,6 +7,7 @@ import {
 } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
+import { SafeText } from '../../components/SafeText';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import { useFileDrop } from '../../hooks/useFileDrop';
@@ -63,6 +64,13 @@ function statusLabel(status: Asset['status']): string {
   return { ready: 'listo', unverified: 'sin verificar', missing: 'faltante', failed: 'fallido' }[
     status
   ];
+}
+
+function formatProxyBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} kB`;
+  return `${bytes} B`;
 }
 
 function mediaSummary(asset: Asset): string {
@@ -354,6 +362,7 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   const [imageSeconds, setImageSeconds] = useState(5);
   const [busy, setBusy] = useState(false);
   const [proxyBusy, setProxyBusy] = useState(false);
+  const [proxyCleanupBusy, setProxyCleanupBusy] = useState(false);
   const [proxyDone, setProxyDone] = useState(0);
   const [proxyTotal, setProxyTotal] = useState(0);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -413,6 +422,46 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
       ]);
     } finally {
       setProxyBusy(false);
+    }
+  }
+
+  async function clearProxyCache(): Promise<void> {
+    if (!project || proxyBusy || proxyCleanupBusy || !store.service.available) return;
+    const confirmationMessage =
+      '¿Limpiar los proxies de este proyecto? Se borrarán solo las versiones ligeras de preview; ' +
+      'los medios originales y la exportación final no cambian. Podés volver a generarlos.';
+    if (!window.confirm(confirmationMessage)) return;
+
+    setProxyCleanupBusy(true);
+    setWarnings([]);
+    try {
+      const result = await store.service.cleanupProxies();
+      if (store.state.project?.id === project.id) {
+        store.mutate(
+          (current) => ({
+            project: current.assets
+              .filter(
+                (asset) =>
+                  asset.kind === 'video' && 'proxy' in asset && Boolean(asset.proxy),
+              )
+              .reduce((next, asset) => setAssetProxy(next, asset.id, undefined), current),
+          }),
+          { history: false },
+        );
+        const countLabel = result.removed === 1 ? 'archivo' : 'archivos';
+        const freed = formatProxyBytes(result.bytesFreed);
+        store.setNotice(
+          result.removed > 0
+            ? `Caché de proxies limpiada: ${result.removed} ${countLabel} · ${freed} liberados.`
+            : 'No había archivos de proxy para limpiar.',
+        );
+      }
+    } catch (failure) {
+      setWarnings([
+        failure instanceof Error ? failure.message : 'no se pudo limpiar la caché de proxies',
+      ]);
+    } finally {
+      setProxyCleanupBusy(false);
     }
   }
 
@@ -715,7 +764,12 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
               type="button"
               className="ghost icon-text"
               onClick={() => void createProxies()}
-              disabled={proxyBusy || pendingProxies.length === 0 || !store.service.available}
+              disabled={
+                proxyBusy ||
+                proxyCleanupBusy ||
+                pendingProxies.length === 0 ||
+                !store.service.available
+              }
               title="Crea versiones ligeras para la preview de todos los videos que aún no tienen proxy"
             >
               <Icon name="film" size={14} />
@@ -724,6 +778,16 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
                   ? `Proxies ${proxyDone}/${proxyTotal}…`
                   : `Proxies (${pendingProxies.length})`}
               </span>
+            </button>
+            <button
+              type="button"
+              className="ghost icon-text"
+              onClick={() => void clearProxyCache()}
+              disabled={proxyBusy || proxyCleanupBusy || !store.service.available}
+              title="Elimina solo los archivos derivados de preview de este proyecto; los originales permanecen intactos."
+            >
+              <Icon name="trash" size={14} />
+              <span>{proxyCleanupBusy ? 'Limpiando caché…' : 'Limpiar proxies'}</span>
             </button>
             <button
               type="button"
@@ -817,7 +881,7 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
       {warnings.length > 0 ? (
         <div className="notice notice-warning" role="status">
           {warnings.map((warning) => (
-            <p key={warning}>{warning}</p>
+            <p key={warning}><SafeText value={warning} /></p>
           ))}
         </div>
       ) : null}
@@ -954,6 +1018,8 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
                   type="search"
                   value={assetQuery}
                   placeholder="Buscar medios..."
+                  aria-label="Buscar medios por nombre, etiqueta o bin"
+                  title="Buscar medios por nombre, etiqueta o bin"
                   onChange={(event) => setAssetQuery(event.target.value)}
                 />
               </div>

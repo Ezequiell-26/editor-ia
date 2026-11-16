@@ -17,6 +17,50 @@ export interface SavedExportPreset {
 
 export const EXPORT_PRESETS_KEY = 'editoria.export-presets.v1';
 export const EXPORT_PRESETS_LIMIT = 20;
+
+/**
+ * Estimación de peso del archivo exportado (paridad `bytesPrevistos` de
+ * `exportar_resumo.js` de AlaukCut): ~0,13 bits por píxel de video más el
+ * bitrate de audio declarado por el perfil. Es una aproximación para el
+ * usuario — el tamaño real depende del contenido.
+ */
+export const OUTPUT_VIDEO_BITS_PER_PIXEL = 0.13;
+/**
+ * ProRes 4:2:2 10-bit no comprime: ~2,5 bits por píxel por cuadro (entre LT
+ * ~2 y HQ ~3,5 según el perfil del codec). Sin este factor la estimación
+ * quedaría 20× por debajo del archivo real.
+ */
+export const PRORES_BITS_PER_PIXEL = 2.5;
+/**
+ * ProRes 4444 10-bit con alfa: ~4 bits por píxel por cuadro (4444 XQ
+ * llega a ~6). Se usa sólo cuando el perfil declara `yuva444p10le`.
+ */
+export const PRORES_4444_BITS_PER_PIXEL = 4;
+
+export function estimateOutputBytes(
+  input: {
+    readonly width: number;
+    readonly height: number;
+    readonly fps: number;
+    readonly audioBitsPerSecond: number;
+  },
+  durationSeconds: number,
+  videoBitsPerPixel: number = OUTPUT_VIDEO_BITS_PER_PIXEL,
+): number {
+  if (
+    !Number.isFinite(durationSeconds) ||
+    durationSeconds <= 0 ||
+    input.width <= 0 ||
+    input.height <= 0 ||
+    input.fps <= 0
+  ) {
+    return 0;
+  }
+  const bitsPerSecond =
+    input.width * input.height * input.fps * videoBitsPerPixel +
+    Math.max(0, input.audioBitsPerSecond);
+  return Math.round((durationSeconds * bitsPerSecond) / 8);
+}
 const COMPRESSION_VALUES = ['equilibrado', 'rapido', 'compacto', 'maximo', 'custom'] as const;
 
 interface PresetStorage {

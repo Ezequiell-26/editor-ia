@@ -9,7 +9,7 @@
 //! completa del usuario queda del lado de la interfaz nativa.
 
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -30,8 +30,10 @@ fn file_name(path: &Path) -> String {
 }
 
 pub fn read_project_file(path: &Path) -> Result<String, ProjectError> {
-    let metadata = match fs::metadata(path) {
-        Ok(metadata) => metadata,
+    // Open once and inspect/read the same handle. A path-based metadata + read
+    // sequence could race with a replacement or a file growing after the check.
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err(ProjectError::message(
                 ProjectErrorCode::NotFound,
@@ -41,9 +43,20 @@ pub fn read_project_file(path: &Path) -> Result<String, ProjectError> {
                 ),
             ));
         }
-        Err(error) => return Err(io_error(&error)),
+        Err(error) => {
+            // Opening a directory can fail on Windows before a File handle is
+            // returned; preserve the public "not a project file" error.
+            if fs::metadata(path).is_ok_and(|metadata| !metadata.is_file()) {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::NotFound,
+                    &format!("la ruta elegida no es un archivo: {}", file_name(path)),
+                ));
+            }
+            return Err(io_error(&error));
+        }
     };
 
+    let metadata = file.metadata().map_err(|error| io_error(&error))?;
     if !metadata.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
@@ -63,10 +76,23 @@ pub fn read_project_file(path: &Path) -> Result<String, ProjectError> {
         ));
     }
 
-    let bytes = match fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(error) => return Err(io_error(&error)),
-    };
+    // Limit the actual read too: metadata can become stale while another
+    // process writes to the file. One extra byte is enough to detect overflow.
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    let mut reader = file.take(MAX_PROJECT_FILE_BYTES + 1);
+    reader
+        .read_to_end(&mut bytes)
+        .map_err(|error| io_error(&error))?;
+    if bytes.len() as u64 > MAX_PROJECT_FILE_BYTES {
+        return Err(ProjectError::message(
+            ProjectErrorCode::FileTooLarge,
+            &format!(
+                "{} supera el limite de {} bytes",
+                file_name(path),
+                MAX_PROJECT_FILE_BYTES
+            ),
+        ));
+    }
 
     String::from_utf8(bytes).map_err(|_| {
         ProjectError::message(
@@ -79,6 +105,20 @@ pub fn read_project_file(path: &Path) -> Result<String, ProjectError> {
 /// Escribe temporal + `rename`. Un error deja el archivo anterior intacto y
 /// borra el temporal; nunca se pisa el destino con una escritura a medias.
 pub fn write_project_file(path: &Path, contents: &str) -> Result<u64, ProjectError> {
+    // Keep the write boundary symmetric with `read_project_file`: never create
+    // a project that this same application would refuse to reopen.
+    if contents.len() as u64 > MAX_PROJECT_FILE_BYTES {
+        return Err(ProjectError::message(
+            ProjectErrorCode::FileTooLarge,
+            &format!(
+                "{} pesa {} bytes y un proyecto no puede pasar de {}",
+                file_name(path),
+                contents.len(),
+                MAX_PROJECT_FILE_BYTES
+            ),
+        ));
+    }
+
     let directory = path.parent().ok_or_else(|| {
         ProjectError::message(
             ProjectErrorCode::Io,
@@ -125,3 +165,7 @@ fn io_error(error: &std::io::Error) -> ProjectError {
         ),
     )
 }
+
+#[cfg(test)]
+#[path = "storage.tests.rs"]
+mod tests;

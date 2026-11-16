@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { EffectRenderer, effectRegistry, type EffectStack } from '@editor-ia/effect-kit';
 
 export interface EffectCanvasProps {
@@ -8,10 +8,11 @@ export interface EffectCanvasProps {
   readonly frameRate: number;
   readonly active: boolean;
   readonly className?: string;
+  readonly style?: CSSProperties;
 }
 
 /** jsdom no implementa WebGL; en tests el canvas se omite sin romper la vista. */
-const WEBGL_AVAILABLE =
+export const WEBGL_AVAILABLE =
   typeof navigator === 'undefined' || !/jsdom/i.test(navigator.userAgent);
 
 function sourceSize(source: HTMLVideoElement | HTMLImageElement): [number, number] {
@@ -47,6 +48,7 @@ export function EffectCanvas({
   frameRate,
   active,
   className,
+  style,
 }: EffectCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<EffectRenderer | null>(null);
@@ -187,5 +189,12 @@ export function EffectCanvas({
       </div>
     );
   }
-  return <canvas ref={canvasRef} className={className ?? 'effect-canvas'} aria-label="Preview de efectos" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className={className ?? 'effect-canvas'}
+      style={style}
+      aria-label="Preview de efectos"
+    />
+  );
 }

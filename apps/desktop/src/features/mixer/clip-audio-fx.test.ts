@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EffectInstance } from '@editor-ia/effect-kit';
-import { clipAudioFxSpec, PREVIEW_AUDIO_FX } from './clip-audio-fx';
+import { clipAudioFxSpec, clipVoiceFxSpec, PREVIEW_AUDIO_FX } from './clip-audio-fx';
 
 function instance(
   effectId: string,
@@ -98,5 +98,130 @@ describe('clipAudioFxSpec', () => {
     expect(PREVIEW_AUDIO_FX.has('audio.dynaudnorm')).toBe(false);
     // Los 30 efectos del catálogo tienen equivalente en preview.
     expect(PREVIEW_AUDIO_FX.size).toBe(30);
+  });
+});
+
+describe('clipVoiceFxSpec', () => {
+  it('devuelve vacío sin audio o con audio neutro', () => {
+    expect(clipVoiceFxSpec(undefined)).toEqual([]);
+    expect(clipVoiceFxSpec({})).toEqual([]);
+    expect(clipVoiceFxSpec({ highPassHz: 20, lowPassHz: 1_000 })).toEqual([]);
+    expect(clipVoiceFxSpec({ eqLowDb: 0, eqMidDb: 0, eqHighDb: 0 })).toEqual([]);
+  });
+
+  it('mapea high-pass, low-pass y EQ en el orden del export', () => {
+    const specs = clipVoiceFxSpec({
+      highPassHz: 80,
+      lowPassHz: 16_000,
+      eqLowDb: -2,
+      eqMidDb: 3,
+      eqHighDb: 2,
+    });
+    expect(specs.map((spec) => spec.effectId)).toEqual([
+      'clip.hpf',
+      'clip.lpf',
+      'clip.eq3',
+    ]);
+    expect(specs[0]!.params.freq).toBe(80);
+    expect(specs[1]!.params.freq).toBe(16_000);
+    expect(specs[2]!.params).toEqual({ low: -2, mid: 3, high: 2 });
+  });
+
+  it('emite EQ si una sola banda tiene ganancia', () => {
+    const specs = clipVoiceFxSpec({ eqMidDb: 1.5 });
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.effectId).toBe('clip.eq3');
+    expect(specs[0]!.params).toEqual({ low: 0, mid: 1.5, high: 0 });
+  });
+
+  it('mapea de-esser, puerta y compresor con los parámetros del export', () => {
+    const specs = clipVoiceFxSpec({
+      deesser: true,
+      gateDb: -40,
+      compressor: true,
+    });
+    expect(specs.map((spec) => spec.effectId)).toEqual([
+      'audio.deesser',
+      'audio.gate',
+      'audio.compressor',
+    ]);
+    expect(specs[0]!.params).toEqual({ intensity: 0.4, max: 0.5, freq: 0.5 });
+    // agate=-40dB → umbral lineal 10^(-40/20) = 0.01.
+    expect(specs[1]!.params.threshold).toBeCloseTo(0.01);
+    expect(specs[1]!.params.attack).toBe(5);
+    expect(specs[1]!.params.release).toBe(120);
+    expect(specs[2]!.params).toEqual({
+      threshold: -18,
+      ratio: 3,
+      attack: 5,
+      release: 100,
+      makeup: 2,
+    });
+  });
+
+  it('la puerta ausente o no finita no emite spec', () => {
+    expect(clipVoiceFxSpec({ gateDb: Number.NaN })).toEqual([]);
+    expect(clipVoiceFxSpec({})).toEqual([]);
+  });
+
+  it('mapea los efectos de voz a presets de la cadena de pila', () => {
+    expect(clipVoiceFxSpec({ voiceEffect: 'deep' })).toEqual([
+      { effectId: 'audio.voice_deep', params: { pitch: 0.86 } },
+    ]);
+    expect(clipVoiceFxSpec({ voiceEffect: 'chipmunk' })).toEqual([
+      { effectId: 'audio.voice_chipmunk', params: { pitch: 1.22 } },
+    ]);
+    expect(clipVoiceFxSpec({ voiceEffect: 'robot' })).toEqual([
+      { effectId: 'audio.voice_robot', params: { rate: 32, depth: 0.45 } },
+    ]);
+    expect(clipVoiceFxSpec({ voiceEffect: 'echo' })).toEqual([
+      { effectId: 'audio.echo', params: { delay: 500, decay: 0.4 } },
+    ]);
+    expect(clipVoiceFxSpec({ voiceEffect: 'cave' })).toEqual([
+      { effectId: 'audio.echo', params: { delay: 1_200, decay: 0.35 } },
+    ]);
+  });
+
+  it('radio emite su propia cadena HP/LP/compresor detrás de los filtros', () => {
+    const specs = clipVoiceFxSpec({
+      highPassHz: 80,
+      voiceEffect: 'radio',
+    });
+    expect(specs.map((spec) => spec.effectId)).toEqual([
+      'clip.hpf',
+      'clip.hpf',
+      'clip.lpf',
+      'audio.compressor',
+    ]);
+    expect(specs[0]!.params.freq).toBe(80);
+    expect(specs[1]!.params.freq).toBe(350);
+    expect(specs[2]!.params.freq).toBe(3_200);
+    expect(specs[3]!.params.ratio).toBe(4);
+  });
+
+  it('denoise emite clip.denoise con nr en dB entre el EQ y el de-esser', () => {
+    const specs = clipVoiceFxSpec({
+      eqMidDb: 2,
+      denoise: 0.5,
+      deesser: true,
+    });
+    expect(specs.map((spec) => spec.effectId)).toEqual([
+      'clip.eq3',
+      'clip.denoise',
+      'audio.deesser',
+    ]);
+    // afftdn=nr={denoise*30} → 0.5·30 = 15 dB.
+    expect(specs[1]!.params).toEqual({ nr: 15 });
+  });
+
+  it('denoise ausente, cero o no finito no emite spec', () => {
+    expect(clipVoiceFxSpec({})).toEqual([]);
+    expect(clipVoiceFxSpec({ denoise: 0 })).toEqual([]);
+    expect(clipVoiceFxSpec({ denoise: Number.NaN })).toEqual([]);
+  });
+
+  it('denoise se acota a [0,1] antes de convertir a dB', () => {
+    expect(clipVoiceFxSpec({ denoise: 2 })[0]!.params.nr).toBe(30);
+    expect(clipVoiceFxSpec({ denoise: -1 })).toEqual([]);
   });
 });

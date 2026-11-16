@@ -16,7 +16,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use md5::Md5;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager, State};

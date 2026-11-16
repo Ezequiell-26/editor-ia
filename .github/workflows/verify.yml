@@ -57,17 +57,39 @@ jobs:
       - name: Typecheck estricto y toda la suite
         run: npm run verify
 
+      - name: Auditoria de licencias del bundle (GPL/FFmpeg incluido)
+        run: npm run audit:licenses
+
+      - name: Inventario de tests ignorados (techo del baseline)
+        run: npm run test:inventory
+
       - name: Build de produccion del escritorio
         run: npm --workspace @editor-ia/desktop run build
 
       - name: Formato de Rust
         run: node scripts/rust-env.mjs -- cargo fmt --all -- --check
 
+      # Gate duro: la baseline llegó a 0 warnings (2026-11-13); -D warnings
+      # hace fallar el CI ante cualquier lint nuevo.
+      - name: Clippy del crate
+        run: node scripts/rust-env.mjs -- cargo clippy --lib -p editor-ia-desktop -- -D warnings
+
       - name: Build del binario Tauri con recursos de Windows
         run: node scripts/rust-env.mjs -- cargo build -p editor-ia-desktop
 
       - name: Tests del crate
         run: node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop
+
+      # Crates vendorados de Concat (workspace propio en vendor/concat): se
+      # corren los livianos, sin dependencias nativas ni builds de terceros.
+      # Excluidos a propósito: concat-render (wgpu, ~decenas de crates GPU),
+      # concat-media (ffmpeg-the-third + resvg: linkea FFmpeg y rasteriza SVG),
+      # concat-speech-min (whisper-rs compila whisper.cpp con cmake) y
+      # concat-text (su test emoji_sequences_draw_as_one_picture depende de la
+      # fuente emoji a color del sistema y falla en esta máquina; gate local
+      # pendiente de investigación). Detalle en docs/verification/.
+      - name: Tests de los crates livianos de vendor/concat
+        run: node scripts/rust-env.mjs -- cargo test --manifest-path vendor/concat/Cargo.toml -p concat-core -p concat-project -p concat-effects -p concat-log
 
       - name: Instala FFmpeg para el render de humo
         run: choco install ffmpeg -y --no-progress
@@ -76,3 +98,13 @@ jobs:
         env:
           EDITOR_IA_RUN_RENDER_TESTS: '1'
         run: node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop render_live -- --ignored --nocapture
+
+      # E2E contra el dev server de Vite (Playwright levanta `npm run dev` en
+      # el puerto 3000 y usa el Chrome del sistema del runner, sin descargar
+      # navegadores). Se excluye css-audit: sus screenshots son pixel-perfect
+      # (maxDiffPixelRatio 0) contra snapshots generados en la Chrome local y
+      # no son portables entre builds de Chrome; ese spec sigue siendo gate
+      # local (`npm --prefix apps/desktop run test:e2e`).
+      - name: E2E de la interfaz con Playwright
+        working-directory: apps/desktop
+        run: npx playwright test --grep-invert css-audit

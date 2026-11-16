@@ -300,6 +300,24 @@
 [data-tooltip]:focus-visible::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+  /* dicas.js: el globo aparece tras 340 ms de hover; al salir se oculta
+     sin delay porque la transición usa el estado sin hover. */
+  transition-delay: 340ms;
+}
+
+/* dicas.js: flip — TooltipEnhancer agrega .tooltip-flip cuando el elemento
+   está a <48 px del borde inferior del viewport; el globo sale hacia
+   arriba. La sidebar usa posición propia (sus reglas son más específicas
+   y el enhancer no le pone la clase). */
+[data-tooltip].tooltip-flip::after {
+  top: auto;
+  bottom: calc(100% + 7px);
+  transform: translateX(-50%) translateY(2px);
+}
+
+[data-tooltip].tooltip-flip:hover::after,
+[data-tooltip].tooltip-flip:focus-visible::after {
+  transform: translateX(-50%) translateY(0);
 }
 
 .sidebar [data-tooltip]::after {
@@ -2582,6 +2600,74 @@
 
 .mcp-detail-hint {
   padding: 10px 0;
+}
+
+/* Audit log del servidor MCP (mcp_audit_tail) */
+
+.mcp-audit-limit {
+  min-width: 130px;
+}
+
+.mcp-audit-list {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.mcp-audit-row {
+  display: grid;
+  gap: 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-panel-2);
+}
+
+.mcp-audit-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mcp-audit-time {
+  color: var(--color-empty);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.mcp-audit-tool {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.mcp-audit-duration {
+  color: var(--color-empty);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+
+.mcp-audit-result {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-audit-row .mcp-schema {
+  margin-top: 2px;
 }
 
 /* Reduced motion + responsive */

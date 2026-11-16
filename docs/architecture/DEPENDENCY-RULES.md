@@ -78,8 +78,20 @@ La cohesión y el acoplamiento importan más que la longitud.
 
 ## 6. Automatización
 
-Las reglas se verifican en `scripts/architecture-rules.test.mjs` (12 checks,
-corre dentro de `npm run verify`):
+Las reglas se verifican en dos tests dentro de `npm run verify`:
+
+- `scripts/architecture-rules.test.mjs` (12 checks): ciclos entre features,
+  `@tauri-apps/api` confinado a `platform/tauri`, dirección
+  `commands -> application -> ports` en Rust, pureza de dominio y contrato IPC.
+- `scripts/dependency-rules.test.mjs` (7 checks): `platform/**` sin imports
+  runtime hacia `components/state/features/app/hooks/lib`; `shared/**` y
+  `application/**` TS (forward-looking) sin imports ascendentes ni React/Tauri;
+  sin barrel files `export *` en `features/**` ni `packages/*/src`;
+  `packages/*` como librerías puras (sin React, `@tauri-apps` ni imports a
+  `apps/*`, ni en código ni en `package.json`); `application/**`/`ports/**` de
+  Rust sin `std::process::Command`.
+
+Detalle de lo que enforcea cada test:
 
 - Frontend: `features/**`, `components/**`, `hooks/**`, `lib/**` y `state/**`
   no importan `@tauri-apps/api`; sólo `platform/tauri/**` toca el transporte.
@@ -92,5 +104,12 @@ corre dentro de `npm run verify`):
   `projects/`/`media/` no ejecutan procesos ni usan Tauri; los `#[path]`
   declarados apuntan a archivos existentes; el registro IPC no tiene
   handlers duplicados y mantiene el conteo mínimo.
+
+Reglas de este documento que siguen siendo **manuales** (deuda conocida, sin
+gate para no congelar el estado actual): imports privados entre features
+(regla TS.3), dirección `platform -> contracts` más allá de lo ya gateado,
+tamaño de módulos (regla práctica §4) y "FFmpeg sólo vía
+`infrastructure/ffmpeg`" (regla Rust.6: los comandos lanzan procesos hoy).
+Cuando una de esas reglas tenga baseline, se agrega al test correspondiente.
 
 Una regla nueva se agrega al test, no a la memoria del equipo.

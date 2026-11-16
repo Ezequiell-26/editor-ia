@@ -170,6 +170,7 @@ function density(value: unknown): Density {
 function preset(value: unknown): ThemePresetId {
   return value === 'olyvia' ||
     value === 'filmora' ||
+    value === 'capcut' ||
     value === 'resolve' ||
     value === 'mint' ||
     value === 'ember' ||
@@ -282,6 +283,9 @@ export function applyAppearance(
   root.dataset.reduceMotion = String(appearance.reduceMotion);
   root.dataset.statusbar = appearance.showStatusbar ? 'visible' : 'hidden';
   root.dataset.sidebar = appearance.sidebarLabels ? 'labels' : 'rail';
+  // Preset activo: la capa visual `styles/capcut.css` sólo se aplica cuando el
+  // usuario elige el tema CapCut, sin afectar al resto de los presets.
+  root.dataset.preset = appearance.preset;
 }
 
 /**

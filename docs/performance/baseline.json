@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "fixture": "render_live_5s_pan_astats_and_bezier_opacity_match_preview",
+  "idleTest": "merge_olyvia_entry_preserves_other_servers_and_settings",
+  "command": "node scripts/perf-baseline.mjs --test render_live_5s_pan_astats_and_bezier_opacity_match_preview --runs 3",
+  "env": {
+    "EDITOR_IA_RUN_RENDER_TESTS": "1"
+  },
+  "machine": "DESKTOP-8OVHDA0",
+  "createdAt": "2026-11-13T10:28:11.007Z",
+  "commit": "c6a23a872ed1d4cbfbda1e9215a4bb3d59354b12",
+  "dirty": true,
+  "thresholds": {
+    "timeRegression": 0.2,
+    "rssRegression": 0.25
+  },
+  "wallTimeMs": 3969,
+  "peakRssBytes": 372584448,
+  "idleRssBytes": 69284212,
+  "mcp": {
+    "measured": false,
+    "reason": "no solicitado (--with-mcp)"
+  },
+  "runs": [
+    {
+      "run": 1,
+      "wallTimeMs": 4287,
+      "rssBytes": 376614912
+    },
+    {
+      "run": 2,
+      "wallTimeMs": 3931,
+      "rssBytes": 364322816
+    },
+    {
+      "run": 3,
+      "wallTimeMs": 3689,
+      "rssBytes": 376815616
+    }
+  ]
+}

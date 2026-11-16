@@ -1,0 +1,31 @@
+[package]
+name = "concat-worker"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93"
+publish = false
+description = "Proceso worker de Concat: probe y decode de medios por JSON-lines, aislado de la app para que ffmpeg-the-third no colisione con ffmpeg-sys-next."
+
+# Workspace PROPIO: este crate no es miembro del workspace de Olyvia ni del
+# workspace de vendor/concat. Al tener su propio `[workspace]` resuelve sus
+# propias dependencias y genera su propio Cargo.lock/target, así
+# `ffmpeg-sys-the-third` (concat-media) nunca comparte grafo de build con
+# `ffmpeg-sys-next` (video-rs) que usa la app de escritorio. Ver
+# apps/desktop/src-tauri/Cargo.toml y docs del plan Concat.
+[workspace]
+
+[dependencies]
+# concat-core: Rational/FrameRate/Frame — vocabulario de tiempo y píxeles.
+concat-core = { path = "../../vendor/concat/crates/concat-core" }
+# concat-media: probe + Decoder (FFmpeg in-process vía ffmpeg-the-third).
+# Es la razón de ser del proceso separado: linkea ffmpeg-sys-the-third.
+concat-media = { path = "../../vendor/concat/crates/concat-media" }
+# concat-vision SIN `infer`: `stabilize` (tracking de cámara, aritmética
+# pura — sin ONNX Runtime). La feature queda apagable pero nadie la
+# habilita; ver vendor/concat/NOTICE.md.
+concat-vision = { path = "../../vendor/concat/crates/concat-vision" }
+# Protocolo JSON-lines stdin/stdout.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# PNG del frame decodificado (puro Rust; concat-media sólo expone JPEG).
+png = "0.18"

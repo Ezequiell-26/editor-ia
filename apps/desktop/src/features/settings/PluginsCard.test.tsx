@@ -100,6 +100,43 @@ describe('tarjeta de plugins', () => {
     window.removeEventListener('olyvia:run-command', listener);
   });
 
+  it('ejecuta los pasos en orden y cancela el resto si uno falla', async () => {
+    const service = createFakeService();
+    const chained: PluginInfo = {
+      ...OFFICIAL,
+      commands: [
+        {
+          id: 'flujo',
+          label: 'Flujo completo',
+          steps: ['primero', 'segundo', 'tercero'],
+        },
+      ],
+    };
+    service.listPlugins = async () => [chained];
+    const order: string[] = [];
+    const listener = (event: Event): void => {
+      const detail = (event as CustomEvent<{
+        text: string;
+        onResult?: (reply: string, ok?: boolean) => void;
+      }>).detail;
+      order.push(detail.text);
+      // El primer paso tarda: el segundo no puede despacharse antes.
+      window.setTimeout(() => detail.onResult?.('ok', detail.text !== 'segundo'), 20);
+    };
+    window.addEventListener('olyvia:run-command', listener);
+    render(
+      <ProjectProvider service={service}>
+        <PluginsCard />
+      </ProjectProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Flujo completo' }));
+    await waitFor(() => expect(order).toEqual(['primero', 'segundo']));
+    // 'segundo' respondió con ok=false: 'tercero' nunca se despacha.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(order).toEqual(['primero', 'segundo']);
+    window.removeEventListener('olyvia:run-command', listener);
+  });
+
   it('instala desde una carpeta y avisa', async () => {
     const service = createFakeService();
     service.listPlugins = async () => [];

@@ -11,9 +11,15 @@ import { FrameRateSchema } from './time.ts';
  */
 
 export const ContainerSchema = z.enum(['mp4', 'mov', 'webm']);
-export const VideoCodecSchema = z.enum(['h264', 'h265', 'vp9', 'av1']);
+export const VideoCodecSchema = z.enum(['h264', 'h265', 'vp9', 'av1', 'prores']);
 export const AudioCodecSchema = z.enum(['aac', 'opus']);
-export const PixelFormatSchema = z.enum(['yuv420p', 'yuv444p', 'rgb24']);
+export const PixelFormatSchema = z.enum([
+  'yuv420p',
+  'yuv444p',
+  'yuv422p10le',
+  'yuva444p10le',
+  'rgb24',
+]);
 /** Any simplified integer ratio: 16:9, 9:16, 4:3, 21:9, 683:384… */
 export const AspectRatioSchema = z
   .string()
@@ -29,14 +35,16 @@ export const VideoPresetSchema = z.enum([
   'slow',
   'slower',
 ]);
-export const FitModeSchema = z.enum(['contain', 'cover']);
+export const FitModeSchema = z.enum(['contain', 'cover', 'blur']);
 
 const CONTAINER_MATRIX: Record<z.infer<typeof ContainerSchema>, {
   video: readonly string[];
   audio: readonly string[];
 }> = {
   mp4: { video: ['h264', 'h265'], audio: ['aac'] },
-  mov: { video: ['h264', 'h265'], audio: ['aac'] },
+  // ProRes sólo viaja en MOV (paridad `exportar_prores.js` de AlaukCut, que usa
+  // un ffmpeg dedicado a .mov); en MP4 queda fuera de la matriz.
+  mov: { video: ['h264', 'h265', 'prores'], audio: ['aac'] },
   webm: { video: ['vp9', 'av1'], audio: ['opus'] },
 };
 
@@ -80,7 +88,9 @@ export const RenderProfileSchema = z
     bitrate: BitrateSchema,
     /** x264/x265 speed preset. `veryfast` keeps exports responsive. */
     videoPreset: VideoPresetSchema.default('veryfast'),
-    /** `contain` shows the whole canvas (bars); `cover` fills and center-crops. */
+    /** `contain` shows the whole canvas (bars); `cover` fills and center-crops;
+     * `blur` fills with a blurred copy of the clip and centers it on top
+     * (fondo desenfocado, paridad `rastreamento.js` de AlaukCut). */
     fit: FitModeSchema.default('contain'),
     pixelFormat: PixelFormatSchema,
     audioSampleRate: z.number().int().gte(8_000).lte(192_000),
@@ -117,6 +127,32 @@ export const RenderProfileSchema = z
         code: z.ZodIssueCode.custom,
         path: ['audioCodec'],
         message: `${item.audioCodec} cannot be carried in a ${item.container} container`,
+      });
+    }
+    // 4:2:2/4:4:4 10-bit son los formatos nativos de ProRes; con cualquier
+    // otro códec el pipeline no los emitiría y el perfil mentiría.
+    if (
+      (item.pixelFormat === 'yuv422p10le' || item.pixelFormat === 'yuva444p10le') &&
+      item.videoCodec !== 'prores'
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['pixelFormat'],
+        message: '10-bit 4:2:2/4:4:4 is only emitted by the ProRes encoder',
+      });
+    }
+    // Y ProRes no acepta los formatos de entrega 8-bit: prores_ks sólo emite
+    // 4:2:2 10-bit o 4:4:4 10-bit con alfa (paridad `exp-alfa` de
+    // `exportar_prores.js` de AlaukCut).
+    if (
+      item.videoCodec === 'prores' &&
+      item.pixelFormat !== 'yuv422p10le' &&
+      item.pixelFormat !== 'yuva444p10le'
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['pixelFormat'],
+        message: 'prores requires pixelFormat yuv422p10le or yuva444p10le',
       });
     }
   });

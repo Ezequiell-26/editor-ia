@@ -1,5 +1,9 @@
 # Reconciliación main ↔ architecture/refactor-foundation
 
+> **SUPERSEDED por `RECONCILIATION-2026-11-11.md` (2026-11-12).** Este documento
+> queda como registro histórico de la reconciliación medida el 2026-11-08; el
+> estado vigente de sincronización con `main` está en el documento fechado.
+
 Medido el 2026-11-08 (worktree `editor-ia-architecture`). Base común:
 `a7cff32638e670a1265d74e86e641abc7dc32764`.
 

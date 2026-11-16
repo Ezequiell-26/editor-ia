@@ -4,6 +4,8 @@ import { Icon } from '../../components/Icon';
 import { useProjectStore } from '../../state/project-store';
 import type {
   CaptureDevices,
+  CursorOverlaySpec,
+  WebcamChromaSpec,
   ObsScene,
   ObsSceneInput,
   ScreenRecordPreview,
@@ -13,6 +15,8 @@ import type {
 
 type CaptureTarget = 'desktop' | 'window' | 'region';
 type Encoder = 'x264' | 'nvenc' | 'qsv' | 'amf' | 'mf';
+type CursorStyleChoice = 'off' | CursorOverlaySpec['style'];
+type CursorColor = CursorOverlaySpec['color'];
 
 interface RecordForm {
   captureTarget: CaptureTarget;
@@ -23,9 +27,17 @@ interface RecordForm {
   regionHeight: string;
   fps: string;
   webcamDevice: string;
+  webcamChroma: boolean;
+  webcamChromaColor: string;
+  webcamChromaSimilarity: string;
+  webcamChromaBlend: string;
   audioDevice: string;
   streamUrl: string;
   encoder: Encoder;
+  cursorStyle: CursorStyleChoice;
+  cursorColor: CursorColor;
+  cursorScale: string;
+  cursorRipple: boolean;
   outputDir: string;
 }
 
@@ -38,9 +50,17 @@ const EMPTY_FORM: RecordForm = {
   regionHeight: '1080',
   fps: '30',
   webcamDevice: '',
+  webcamChroma: false,
+  webcamChromaColor: '#00ff00',
+  webcamChromaSimilarity: '0.3',
+  webcamChromaBlend: '0.1',
   audioDevice: '',
   streamUrl: '',
   encoder: 'x264',
+  cursorStyle: 'off',
+  cursorColor: 'blanco',
+  cursorScale: '1',
+  cursorRipple: true,
   outputDir: '',
 };
 
@@ -49,7 +69,12 @@ function num(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function formToSceneInput(form: RecordForm, name: string, id?: string): ObsSceneInput {
+function formToSceneInput(
+  form: RecordForm,
+  name: string,
+  id?: string,
+  existing?: ObsScene,
+): ObsSceneInput {
   const fps = num(form.fps);
   const regionX = num(form.regionX);
   const regionY = num(form.regionY);
@@ -70,9 +95,67 @@ function formToSceneInput(form: RecordForm, name: string, id?: string): ObsScene
         }
       : {}),
     ...(form.webcamDevice ? { webcamDevice: form.webcamDevice } : {}),
+    ...(form.webcamChroma && form.webcamDevice
+      ? {
+          webcamChroma: {
+            color: form.webcamChromaColor.trim() || '#00ff00',
+            similarity: Number(form.webcamChromaSimilarity) || 0.3,
+            blend: Number(form.webcamChromaBlend) || 0.1,
+          } satisfies WebcamChromaSpec,
+        }
+      : {}),
     ...(form.audioDevice ? { audioDevice: form.audioDevice } : {}),
-    ...(form.streamUrl.trim() ? { streamUrl: form.streamUrl.trim() } : {}),
+    // AUD-096: el campo puede traer la URL completa (con clave → el backend
+    // la manda al llavero) o sólo el endpoint (se conserva la clave
+    // guardada). Vacío + escena con stream = limpieza explícita.
+    ...(form.streamUrl.trim()
+      ? { streamUrl: form.streamUrl.trim() }
+      : existing && (existing.streamEndpoint || existing.streamUrl)
+        ? { streamEndpoint: '' }
+        : {}),
     encoder: form.encoder,
+    ...(form.cursorStyle !== 'off' && form.captureTarget === 'desktop'
+      ? {
+          cursorOverlay: {
+            style: form.cursorStyle,
+            color: form.cursorColor,
+            scale: (Number(form.cursorScale) || 1) as CursorOverlaySpec['scale'],
+            ripple: form.cursorRipple,
+          },
+        }
+      : {}),
+    captureScreen: true,
+  };
+}
+
+/**
+ * Parámetros que `screen_record_snapshot` acepta: las fuentes de video de la
+ * grabación (pantalla/ventana/región + webcam con chroma PiP). Audio,
+ * encoder, cursor y destino no aplican a un frame suelto.
+ */
+function formToSnapshotInput(form: RecordForm) {
+  return {
+    fps: num(form.fps) ?? 30,
+    ...(form.captureTarget !== 'desktop' ? { captureTarget: form.captureTarget } : {}),
+    ...(form.windowTitle.trim() ? { windowTitle: form.windowTitle.trim() } : {}),
+    ...(form.captureTarget === 'region'
+      ? {
+          regionX: num(form.regionX) ?? 0,
+          regionY: num(form.regionY) ?? 0,
+          regionWidth: num(form.regionWidth) ?? 0,
+          regionHeight: num(form.regionHeight) ?? 0,
+        }
+      : {}),
+    ...(form.webcamDevice ? { webcamDevice: form.webcamDevice } : {}),
+    ...(form.webcamChroma && form.webcamDevice
+      ? {
+          webcamChroma: {
+            color: form.webcamChromaColor.trim() || '#00ff00',
+            similarity: Number(form.webcamChromaSimilarity) || 0.3,
+            blend: Number(form.webcamChromaBlend) || 0,
+          },
+        }
+      : {}),
     captureScreen: true,
   };
 }
@@ -87,9 +170,19 @@ function sceneToForm(scene: ObsScene): RecordForm {
     regionHeight: String(scene.regionHeight ?? 1080),
     fps: String(scene.fps ?? 30),
     webcamDevice: scene.webcamDevice ?? '',
+    webcamChroma: Boolean(scene.webcamDevice && scene.webcamChroma),
+    webcamChromaColor: scene.webcamChroma?.color ?? '#00ff00',
+    webcamChromaSimilarity: String(scene.webcamChroma?.similarity ?? 0.3),
+    webcamChromaBlend: String(scene.webcamChroma?.blend ?? 0.1),
     audioDevice: scene.audioDevice ?? '',
-    streamUrl: scene.streamUrl ?? '',
+    // La escena persistida trae el endpoint SIN clave; streamUrl queda sólo
+    // como fallback para datos legacy en memoria (fake service, tests).
+    streamUrl: scene.streamEndpoint ?? scene.streamUrl ?? '',
     encoder: scene.encoder ?? 'x264',
+    cursorStyle: scene.cursorOverlay?.style ?? 'off',
+    cursorColor: scene.cursorOverlay?.color ?? 'blanco',
+    cursorScale: String(scene.cursorOverlay?.scale ?? 1),
+    cursorRipple: scene.cursorOverlay?.ripple ?? true,
     outputDir: '',
   };
 }
@@ -110,7 +203,11 @@ export function RecordView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
   const [scenes, setScenes] = useState<readonly ObsScene[]>([]);
   const [sceneName, setSceneName] = useState('');
   const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{ readonly id: string; readonly url: string } | null>(null);
+  const [preview, setPreview] = useState<{
+    readonly id: string;
+    readonly url: string;
+    readonly label: string;
+  } | null>(null);
   const [lastResult, setLastResult] = useState<ScreenRecordResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,9 +279,28 @@ export function RecordView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
             }
           : {}),
         ...(form.webcamDevice ? { webcamDevice: form.webcamDevice } : {}),
+        ...(form.webcamChroma && form.webcamDevice
+          ? {
+              webcamChroma: {
+                color: form.webcamChromaColor.trim() || '#00ff00',
+                similarity: Number(form.webcamChromaSimilarity) || 0.3,
+                blend: Number(form.webcamChromaBlend) || 0,
+              },
+            }
+          : {}),
         ...(form.audioDevice ? { audioDevice: form.audioDevice } : {}),
         ...(form.streamUrl.trim() ? { streamUrl: form.streamUrl.trim() } : {}),
         encoder: form.encoder,
+        ...(form.cursorStyle !== 'off' && form.captureTarget === 'desktop'
+          ? {
+              cursorOverlay: {
+                style: form.cursorStyle,
+                color: form.cursorColor,
+                scale: (Number(form.cursorScale) || 1) as CursorOverlaySpec['scale'],
+                ripple: form.cursorRipple,
+              },
+            }
+          : {}),
         captureScreen: true,
       });
       setStatus(started);
@@ -225,7 +341,10 @@ export function RecordView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
     setBusy(true);
     setError(null);
     try {
-      await service.obsSceneSave(formToSceneInput(form, name, editingSceneId ?? undefined));
+      const existing = scenes.find((s) => s.id === editingSceneId);
+      await service.obsSceneSave(
+        formToSceneInput(form, name, editingSceneId ?? undefined, existing),
+      );
       setSceneName('');
       setEditingSceneId(null);
       setNotice('Escena guardada.');
@@ -262,7 +381,33 @@ export function RecordView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
     try {
       const result: ScreenRecordPreview = await service.obsScenePreview(id);
       if (result.ok && result.path) {
-        setPreview({ id, url: service.absoluteFileUrl(result.path) });
+        setPreview({ id, url: service.absoluteFileUrl(result.path), label: 'la escena' });
+      } else {
+        setError(result.error ?? 'No se pudo generar el preview.');
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Preview de la grabación ad-hoc: captura un frame con la configuración
+   * actual del formulario («Grabación rápida») sin grabar ni streamear.
+   */
+  async function previewRecording(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await service.screenRecordSnapshot(formToSnapshotInput(form));
+      if (result.ok && result.path) {
+        setPreview({
+          id: 'adhoc',
+          url: service.absoluteFileUrl(result.path),
+          label: 'la grabación',
+        });
       } else {
         setError(result.error ?? 'No se pudo generar el preview.');
       }
@@ -379,6 +524,46 @@ export function RecordView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
               ))}
             </select>
           </label>
+          {form.webcamDevice ? (
+            <>
+              <label className="field field-checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.webcamChroma}
+                  onChange={(e) => patch('webcamChroma', e.target.checked)}
+                />
+                <span>Chroma key en la cámara (fondo verde)</span>
+              </label>
+              {form.webcamChroma ? (
+                <>
+                  <label className="field">
+                    <span>Color a eliminar</span>
+                    <input
+                      value={form.webcamChromaColor}
+                      onChange={(e) => patch('webcamChromaColor', e.target.value)}
+                      placeholder="#00ff00"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Tolerancia (0–1)</span>
+                    <input
+                      value={form.webcamChromaSimilarity}
+                      onChange={(e) => patch('webcamChromaSimilarity', e.target.value)}
+                      inputMode="decimal"
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Dureza del borde (0–1)</span>
+                    <input
+                      value={form.webcamChromaBlend}
+                      onChange={(e) => patch('webcamChromaBlend', e.target.value)}
+                      inputMode="decimal"
+                    />
+                  </label>
+                </>
+              ) : null}
+            </>
+          ) : null}
           <label className="field">
             <span>Micrófono / audio</span>
             <select value={form.audioDevice} onChange={(e) => patch('audioDevice', e.target.value)}>
@@ -400,6 +585,59 @@ export function RecordView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
               <option value="mf">MediaFoundation</option>
             </select>
           </label>
+          {form.captureTarget === 'desktop' ? (
+            <>
+              <label className="field">
+                <span>Cursor en el vídeo</span>
+                <select
+                  value={form.cursorStyle}
+                  onChange={(e) => patch('cursorStyle', e.target.value as CursorStyleChoice)}
+                >
+                  <option value="off">Desactivado</option>
+                  <option value="flecha">Flecha</option>
+                  <option value="cheia">Flecha gruesa</option>
+                  <option value="3d">Flecha 3D</option>
+                  <option value="punto">Punto</option>
+                  <option value="cruz">Cruz de mira</option>
+                </select>
+              </label>
+              {form.cursorStyle !== 'off' ? (
+                <>
+                  <label className="field">
+                    <span>Color del cursor</span>
+                    <select
+                      value={form.cursorColor}
+                      onChange={(e) => patch('cursorColor', e.target.value as CursorColor)}
+                    >
+                      <option value="blanco">Blanco</option>
+                      <option value="negro">Negro</option>
+                      <option value="amarillo">Amarillo</option>
+                      <option value="verde">Verde</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Tamaño del cursor</span>
+                    <select
+                      value={form.cursorScale}
+                      onChange={(e) => patch('cursorScale', e.target.value)}
+                    >
+                      <option value="0.5">Chico (50 %)</option>
+                      <option value="1">Normal</option>
+                      <option value="2">Grande (200 %)</option>
+                    </select>
+                  </label>
+                  <label className="field field-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.cursorRipple}
+                      onChange={(e) => patch('cursorRipple', e.target.checked)}
+                    />
+                    <span>Anillo en cada click</span>
+                  </label>
+                </>
+              ) : null}
+            </>
+          ) : null}
           <label className="field">
             <span>Stream RTMP (opcional)</span>
             <input
@@ -454,14 +692,24 @@ export function RecordView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
               Abrir carpeta
             </button>
           ) : null}
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => void previewRecording()}
+            disabled={busy || !service.available || status.recording}
+          >
+            Vista previa
+          </button>
         </div>
         {lastResult?.ok ? (
           <p className="fine-print">
             Última grabación: {lastResult.output} · {lastResult.durationSecs ?? '?'} s ·{' '}
             {lastResult.width ?? '?'}×{lastResult.height ?? '?'}
             {lastResult.hasAudio ? ' · con audio' : ' · sin audio'}
+            {lastResult.cursorBurned ? ' · cursor quemado' : ''}
           </p>
         ) : null}
+        {lastResult?.warning ? <p className="fine-print">{lastResult.warning}</p> : null}
       </div>
 
       <div className="compress-slot">
@@ -520,8 +768,8 @@ export function RecordView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
                   <strong>{scene.name}</strong>
                   <span className="fine-print">
                     {scene.captureTarget ?? 'desktop'} · {scene.fps ?? 30} fps
-                    {scene.streamUrl ? ' · RTMP' : ''}
-                    {scene.webcamDevice ? ' · webcam' : ''}
+                    {scene.streamEndpoint || scene.streamUrl ? ' · RTMP' : ''}
+                    {scene.webcamDevice ? ' · webcam' : ''}{scene.webcamChroma ? ' · chroma key' : ''}{scene.cursorOverlay ? ' · cursor personalizado' : ''}
                   </span>
                 </div>
                 <div className="record-scene-actions">
@@ -566,17 +814,17 @@ export function RecordView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
             ))}
           </ul>
         )}
-
-        {preview ? (
-          <figure className="record-preview">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={preview.url} alt="Vista previa de la escena" />
-            <figcaption className="fine-print">
-              Frame real capturado de la escena (sin grabar).
-            </figcaption>
-          </figure>
-        ) : null}
       </div>
+
+      {preview ? (
+        <figure className="record-preview">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview.url} alt={`Vista previa de ${preview.label}`} />
+          <figcaption className="fine-print">
+            Frame real capturado de {preview.label} (sin grabar).
+          </figcaption>
+        </figure>
+      ) : null}
     </section>
   );
 }

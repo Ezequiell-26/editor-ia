@@ -9,8 +9,6 @@
 //! El parseo vive en `crate::media::timeline_import` y la orquestación en
 //! `application::timeline_import`.
 
-use std::path::PathBuf;
-
 use serde::Deserialize;
 use serde_json::Value;
 use tauri::{AppHandle, State};
@@ -68,7 +66,9 @@ pub async fn import_timeline(
         ));
     };
     let root = session.root.clone();
-    let path = PathBuf::from(request.path.trim());
+    // El archivo de timeline lo elige el usuario (diálogo o MCP): política
+    // de lectura de `fs_*` — absoluta, fuera de credenciales.
+    let path = crate::application::fs::resolve_user_file_path(&request.path)?;
     if !path.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,

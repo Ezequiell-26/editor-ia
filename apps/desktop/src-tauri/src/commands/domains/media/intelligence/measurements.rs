@@ -12,6 +12,9 @@ struct AnalysisMeasurements {
 
 /// Corre las mediciones en paralelo y con una sola pasada de audio.
 /// `include_samples` desactiva luma/saturación para Automático, que no las usa.
+// clippy::too_many_arguments: corridas ffmpeg de medición; umbrales y flags
+// son opciones del análisis que se pasan a cada pasada.
+#[allow(clippy::too_many_arguments)]
 fn measure_media(
     ffmpeg: &Path,
     path: &Path,
@@ -28,6 +31,9 @@ fn measure_media(
     );
     let scene_filter_value = scene_filter(threshold);
     let detectors = "blackdetect=d=0.15:pix_th=0.10,freezedetect=n=-60dB:d=0.5";
+    // Las tres pasadas decodifican el medio completo: deadline proporcional a
+    // la duración para que un FFmpeg colgado no congele el análisis.
+    let pass_timeout = crate::commands::proportional_analysis_timeout(duration_seconds);
     let (scene_pass, detector_pass, audio_pass, luma_pass) = std::thread::scope(|scope| {
         let scene = if kind == "video" {
             Some(scope.spawn(|| {
@@ -35,6 +41,7 @@ fn measure_media(
                     ffmpeg,
                     path,
                     &["-an", "-vf", &scene_filter_value, "-f", "null", "-"],
+                    pass_timeout,
                 )
             }))
         } else {
@@ -43,7 +50,12 @@ fn measure_media(
         let detectors_pass =
             if kind == "video" {
                 Some(scope.spawn(|| {
-                    run_pass(ffmpeg, path, &["-an", "-vf", detectors, "-f", "null", "-"])
+                    run_pass(
+                        ffmpeg,
+                        path,
+                        &["-an", "-vf", detectors, "-f", "null", "-"],
+                        pass_timeout,
+                    )
                 }))
             } else {
                 None
@@ -53,6 +65,7 @@ fn measure_media(
                 ffmpeg,
                 path,
                 &["-vn", "-af", &audio_filter, "-f", "null", "-"],
+                pass_timeout,
             )
         });
         let luma = if kind == "video" && include_samples && duration_seconds > 0.5 {

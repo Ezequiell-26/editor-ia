@@ -31,6 +31,22 @@ export function createStudioService(call: NativeCall): DesktopServiceStudio {
     async productionAdvance(runId) {
       return (await call(STUDIO_COMMANDS.productionAdvance, { runId })) as ProductionRun;
     },
+    async productionPause(runId) {
+      return (await call(STUDIO_COMMANDS.productionPause, { runId })) as ProductionRun;
+    },
+    async productionStart(runId) {
+      return (await call(STUDIO_COMMANDS.productionStart, { runId })) as boolean;
+    },
+    async productionPlanFromText(text, options) {
+      return (await call(STUDIO_COMMANDS.productionPlanFromText, {
+        request: { text, approvedCost: options?.approvedCost ?? false },
+      })) as ProductionPlan;
+    },
+    async productionPlanFromBrief(brief) {
+      return (await call(STUDIO_COMMANDS.productionPlanFromBrief, {
+        request: brief,
+      })) as ProductionPlan;
+    },
     async catalogSearch(query) {
       return (await call(STUDIO_COMMANDS.catalogSearch, { query })) as readonly CatalogEntry[];
     },

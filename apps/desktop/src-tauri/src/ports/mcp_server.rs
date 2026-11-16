@@ -37,6 +37,24 @@ pub trait McpRequestHandler: Send + Sync {
     fn handle_batch(&self, items: &[Value]) -> Pin<Box<dyn Future<Output = Value> + Send + '_>>;
 }
 
+/// Handle del listener HTTP del servidor MCP embebido. `abort` corta el
+/// accept loop y libera el puerto; las requests ya aceptadas terminan su
+/// respuesta en curso. Lo devuelve el adaptador de infrastructure que hace
+/// el bind (`serve_mcp`) y lo guarda `application::mcp_server` para poder
+/// frenar el servidor con `stop_server`.
+pub trait McpServerRuntime: Send {
+    fn abort(&self);
+}
+
+/// Sumidero de auditoría de llamadas `tools/call` del servidor MCP
+/// embebido. Cada registro es un objeto JSON ya sanitizado (la
+/// sanitización es responsabilidad del caller, ver `mcp::server`).
+/// La implementación nunca debe propagar errores: auditar no puede
+/// romper una llamada.
+pub trait McpAuditSink: Send + Sync {
+    fn record(&self, entry: &Value);
+}
+
 /// Detección y escritura de configuración de clientes de IA externos
 /// (Claude Desktop, Antigravity).
 pub trait AiClientConfigs {

@@ -71,7 +71,7 @@ export interface ProjectStoreValue {
   openProjectAt(path: string): Promise<boolean>;
   saveNow(): Promise<boolean>;
   saveAs(): Promise<boolean>;
-  packageProject(): Promise<boolean>;
+  packageProject(outputPath?: string): Promise<boolean>;
   closeProject(): void;
   /** Proyecto vivo del store, incluso antes del prâ”œâ”‚ximo render. */
   getProject(): ProjectDocument | null;
@@ -85,6 +85,12 @@ export interface ProjectStoreValue {
   ): boolean;
   undo(): void;
   redo(): void;
+  /**
+   * Restaura el snapshot `undo[index]` como proyecto actual. Los estados
+   * posteriores pasan a la pila de rehacer en orden, así que rehacer
+   * reconstruye el camino hacia adelante. Índice inválido = no-op.
+   */
+  undoTo(index: number): void;
   setSelection(selection: Selection): void;
   /** Marca in/out de la secuencia en el playhead actual. */
   setIoPoint(edge: 'in' | 'out'): void;

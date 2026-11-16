@@ -277,7 +277,9 @@ impl<'a> RenderReviewDeliverExecutor<'a> {
                                 match measure.pix_fmt.as_deref() {
                                     Some(
                                         "yuv420p" | "yuvj420p" | "nv12" | "yuv420p10le"
-                                        | "p010le" | "yuv422p" | "yuv444p",
+                                        | "p010le" | "yuv422p" | "yuv444p"
+                                        | "yuv422p10le" | "yuv444p10le"
+                                        | "yuva444p10le",
                                     ) => {}
                                     Some(other) => findings.push(finding(
                                         QualityCheckKind::Color,

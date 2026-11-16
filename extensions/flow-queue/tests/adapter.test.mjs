@@ -13,6 +13,8 @@ import {
   findSettingsButton,
   hasVisibleProgress,
   isVisible,
+  modelNamesMatch,
+  normalizeModelName,
   setPromptValue,
   waitForResult,
 } from '../src/lib/adapter.js';
@@ -192,4 +194,47 @@ test('does not accept a result until the progress indicator disappears', async (
   });
   assert.equal(result.element.id, 'result');
   assert.ok(sleeps >= 2);
+});
+
+test('modelNamesMatch exige igualdad normalizada, no "contiene" (AUD-101)', () => {
+  // Exacta con diferencias de caso/espacios: matchea.
+  assert.equal(modelNamesMatch('Nano Banana 2.1', '  nano banana   2.1 '), true);
+  assert.equal(normalizeModelName('Imagen 4 Ultra'), 'imagen 4 ultra');
+
+  // Prefijo/subcadena: NO matchea — son variantes distintas del modelo.
+  assert.equal(modelNamesMatch('Nano Banana 2', 'Nano Banana 2.1'), false);
+  assert.equal(modelNamesMatch('Veo 3', 'Veo 3 Fast'), false);
+  assert.equal(modelNamesMatch('Imagen 4', 'Imagen 4 Ultra'), false);
+  assert.equal(modelNamesMatch('', 'Nano Banana 2'), false);
+});
+
+test('findModelCandidates sigue devolviendo aproximados; el match exacto los filtra', () => {
+  const { document } = setup(`
+    <button aria-haspopup="menu">Nano Banana 2</button>
+    <div role="menuitem">Nano Banana 2</div>
+    <div role="menuitem">Nano Banana 2.1</div>
+    <div role="menuitem">Imagen 4 Ultra</div>
+  `);
+
+  const candidates = findModelCandidates(document, 'Nano Banana 2');
+  // El botón trigger y los dos menuitems "contienen" el texto buscado.
+  assert.equal(candidates.length, 3);
+
+  // El match exacto incluye el trigger (botón) y el menuitem exacto —
+  // en applyModel el trigger se descarta con isOption y queda sólo la opción.
+  const exact = candidates.filter((element) =>
+    modelNamesMatch(accessibleName(element), 'Nano Banana 2'),
+  );
+  assert.equal(exact.length, 2);
+  assert.ok(
+    exact.some(
+      (element) =>
+        element.getAttribute('role') === 'menuitem' &&
+        element.textContent.trim() === 'Nano Banana 2',
+    ),
+  );
+  // La variante "2.1" NO pasa el filtro exacto.
+  assert.ok(
+    !exact.some((element) => element.textContent.trim() === 'Nano Banana 2.1'),
+  );
 });

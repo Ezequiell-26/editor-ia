@@ -1,0 +1,1041 @@
+0x0
+  DOC 00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+  DOC Unknown exception
+  DOC bad allocation
+0x1800015d0
+  DOC string too long
+0x1800016e0
+  DOC 00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x180001810
+  DOC 00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x1800018c0
+  DOC 00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x180001a56
+  DOC 00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x180001ce0
+  DOC REPLACED BY
+  DOC called while Python error indicator not set.
+  DOC failed to normalize the active exception.
+0x180001f90
+  DOC <EMPTY MESSAGE>
+  DOC <MESSAGE UNAVAILABLE DUE TO ANOTHER EXCEPTION>
+  DOC <MESSAGE UNAVAILABLE>
+0x1800031e0
+  DOC pybind11::detail::error_string
+0x1800033e0
+  DOC REPLACED BY
+  DOC called while Python error indicator not set.
+  DOC failed to normalize the active exception.
+0x180003740
+  DOC Internal error: pybind11::detail::error_fetch_and_normalize::restore() called a second time. ORIGINAL ERROR:
+0x1800039d0
+  DOC initialization failed
+0x180003c10
+  DOC __module__
+  DOC __name__
+0x180003e00
+0x180004190
+0x180004780
+  DOC pybind11::detail::get_python_state_dict() FAILED
+0x180004a50
+  DOC __module__
+  DOC __pybind11_internals_v11_msvc_md_mscver19__
+  DOC get_internals: create_pp_content_once() produced nullptr
+0x180005df0
+  DOC __pybind11_module_local_v11_msvc_md_mscver19__
+  DOC invalid hash bucket count
+  DOC pybind11::detail::atomic_get_or_create_in_state_dict() FAILED
+0x180006c60
+  DOC class
+  DOC enum
+  DOC pybind11::
+0x180006ff0
+  DOC loader_life_support: internal error
+0x1800077c0
+  SIG ({object}) -> None
+  DOC invalid hash bucket count
+  DOC unordered_map/set too long
+0x180007d70
+  DOC pybind11::detail::get_type_info: type has multiple pybind11-registered bases
+0x180008007
+  DOC pybind11::detail::instance::get_value_and_holder: type is not a pybind11 base of the given instance (#define P
+0x180008050
+  DOC instance allocation failed: new instance has no pybind11-registered base types
+0x1800083b4
+  DOC numpy.bool
+  DOC numpy.bool_
+0x180008470
+  DOC ' to Python object (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to convert call argument '
+0x180008700
+  DOC arg(): cannot specify an unnamed argument after a kw_only() annotation or args() argument
+  DOC self
+0x1800089b0
+  DOC arg(): cannot specify an unnamed argument after a kw_only() annotation or args() argument
+  DOC arg(): could not convert default argument into a Python object (type not registered yet?). #define PYBIND11_DE
+  DOC self
+0x180008d20
+  DOC Exception escaped from default exception translator!
+0x180008ec0
+  DOC %.200s.__init__() must be called when overriding __init__
+0x1800099bf
+  DOC __pybind11_internals_v11_msvc_md_mscver19__
+0x180009abf
+  DOC pybind11::detail::atomic_get_or_create_in_state_dict() FAILED
+0x180009e70
+  DOC : No constructor defined!
+0x18000a445
+  DOC pybind11_object_dealloc(): Tried to deallocate unregistered instance!
+0x18000a452
+  DOC FATAL: Internal consistency check failed: Invalid clear_patients() call.
+0x18000a460
+  DOC PyType_Ready failed in make_object_base_type():
+  DOC __module__
+  DOC make_object_base_type(): error allocating type!
+0x18000a6a0
+  DOC pybind11_builtins.pybind11_detail_function_record_v1_msvc_md_mscver19
+  DOC pybind11_detail_function_record_v1_msvc_md_mscver19
+0x18000a760
+  DOC UNEXPECTED CALL OF function_record_PyTypeObject_methods::tp_new_impl
+0x18000a780
+  DOC UNEXPECTED CALL OF function_record_PyTypeObject_methods::tp_alloc_impl
+0x18000a7a0
+  DOC UNEXPECTED CALL OF function_record_PyTypeObject_methods::tp_init_impl
+0x18000a7c0
+  DOC UNEXPECTED CALL OF function_record_PyTypeObject_methods::tp_free_impl
+0x18000a7e0
+  DOC is not pickleable.
+  DOC FATAL: function_record_PyTypeObject reduce_ex_impl(): cannot obtain cpp_func_rec.
+  DOC __import__('importlib').import_module('
+0x18000aec0
+  DOC !@%{}-
+0x18000b260
+  DOC !@%{}-
+  DOC Internal error while parsing type signature (1)
+  DOC __module__
+0x18000c800
+  DOC " with a function of the same name
+  DOC Cannot overload existing non-function object "
+  DOC Internal error while parsing type signature (2)
+0x18000d010
+  DOC arguments. The following argument types are supported:
+  DOC Did you forget to `#include <pybind11/stl.h>`? Or <pybind11/complex.h>,
+  DOC Invoked with:
+0x18000f4f6
+  DOC std::
+0x18000f521
+  DOC Did you forget to `#include <pybind11/stl.h>`? Or <pybind11/complex.h>,
+0x18000f820
+  DOC __pybind11_module_cache
+0x18000fbe0
+  DOC __pybind11_module_cache
+  DOC __spec__
+  DOC name
+0x1800100a0
+  DOC module spec is missing a name
+  DOC name
+0x180010440
+  DOC map/set too long
+0x1800104b3
+  DOC dict_items
+  DOC dict_keys
+  DOC dict_values
+0x180010630
+  DOC MOTOR_PRAZO_PRESO
+0x1800106e0
+  DOC %Y-%m-%d %H:%M:%S
+  DOC MOTOR_PRAZO_PRESO
+  DOC {"quando": "%s", "o_que": "motor C++ preso", "chamada": "%s", "passo": "%s", "ha_segundos": %.1f, "prazo": %.1
+0x180010b40
+  DOC parado
+0x180010bc0
+  DOC a placa foi removida (HRESULT 0x887A0005) [prova]
+0x180010d70
+  DOC D$HH
+  DOC Intel
+  DOC NVIDIA
+0x1800114b0
+0x180011610
+  DOC destino de camada desconhecido:
+0x180011780
+0x180011990
+  DOC alpha
+  DOC chroma
+  DOC chroma_cor
+0x180012690
+  DOC alpha
+  DOC chroma
+  DOC chroma_cor
+0x180012b90
+  DOC o motor esta' ocupado com outro trabalho
+0x180013180
+  DOC MOTOR_TETO_FONTES
+0x180013470
+  DOC 0x80070008
+  DOC 0x8007000E
+0x180013610
+  DOC GetCurrentMediaType
+  DOC MFCreateAttributes
+  DOC MFCreateDXGIDeviceManager
+0x1800146d0
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+  DOC onde
+0x180015040
+  DOC aditiva
+  DOC altura
+  DOC apenas
+0x180016130
+  DOC altura
+  DOC faixa
+  DOC glow
+0x180016c80
+  DOC alfa
+  DOC altura
+  DOC faixas
+0x180017620
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+  DOC a imagem do desenho veio com bytes que nao batem com largura x altura x 4
+0x180019860
+0x180019b40
+  DOC Map do texto
+  DOC staging do texto
+0x18001a0c0
+  DOC o recorte da pessoa veio com bytes que nao batem com largura x altura x 4
+  DOC o recorte da pessoa veio sem tamanho
+  DOC pessoa
+0x18001a6a0
+  DOC nao entregou o quadro em
+  DOC LerCamadas chamado sem a trava do motor (porta sem SoUmNoMotor)
+  DOC a mascara veio com bytes que nao batem com w x h x 4
+0x180022270
+  DOC desenhar_quadro
+  DOC parado
+  DOC quadro: desenhando e descendo da placa
+0x1800225e0
+  DOC erro
+0x180022b00
+  DOC desenhar_ms
+  DOC erro
+  DOC ler_ms
+0x180023350
+  DOC altura
+  DOC carimbo
+  DOC diag_video
+0x180023a40
+  DOC aleatoria
+  DOC desenhar_e_sincronizar
+  DOC ler_e_decodificar
+0x180024d90
+  DOC media_ms
+  DOC mediana_ms
+  DOC p95_ms
+0x180025330
+  DOC MOTOR_ANEL
+  DOC abrir_s
+  DOC abriu_agora
+0x1800265c0
+  DOC nao consegui criar a textura do quadro
+  DOC o codificador nao soltou textura em 20 s
+  DOC pedaco: desenhando
+0x180026d20
+  DOC fechar_produtor
+  DOC parado
+0x180026e30
+  DOC MOTOR_ANEL
+  DOC abrir_codificacao
+  DOC export: abrindo o codificador
+0x180027200
+  DOC AddBuffer
+  DOC MFCreateDXGISurfaceBuffer
+  DOC MFCreateSample
+0x180028050
+  DOC MOTOR_PROVA_PLACA_CAI_FECHAR
+  DOC MOTOR_TETO_FONTES
+  DOC _apertos_de_memoria
+0x180029500
+  DOC cancelar_codificacao
+  DOC parado
+0x180029860
+  DOC 0x%08X
+  DOC erro
+  DOC motivo
+0x18002a260
+  DOC codificar_planos
+  DOC parado
+0x18002a320
+  DOC 3.11
+  DOC Python version mismatch: module was compiled for Python %s, but the interpreter version is incompatible: %s.
+  DOC __pybind11_internals_v11_msvc_md_mscver19__
+0x18002a5c0
+  DOC __pybind11_internals_v11_msvc_md_mscver19__
+  DOC __spec__
+  DOC name
+0x18002a8d0
+  SIG () -> @collections.abc.Sequence@list@[str]
+  SIG () -> None
+  DOC EditorAlanCpp - motor nativo (Etapa F). F3: esqueleto e placa.
+  DOC Este motor grava a tela? Existir esta funcao ja' e' a resposta -- modulo antigo nao a tem e o app diz que a gr
+  DOC O modo que esta' valendo agora (ver definir_codificador).
+0x18002df70
+  DOC nome
+  DOC padrao
+0x18002e3f0
+  DOC canais
+  DOC pico
+  DOC quadros
+0x18002ef80
+0x18002f2a0
+  DOC altura
+  DOC glow
+  DOC glow2
+0x1800315e0
+0x1800316a0
+0x180031810
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x180031960
+0x180031b40
+0x180031b80
+0x180031cc0
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x180031f20
+  DOC )98&F
+  DOC 10_0
+  DOC 10_1
+0x1800337c0
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x180033940
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x180033c00
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x180033d70
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x180033f60
+  DOC acabamento
+0x180034050
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x180034310
+  DOC SONDA: separa o custo de ATIVAR o MFT do custo de dizer os tipos. Decide se manter o MFT vivo entre pedacos va
+  DOC medir_abertura_em_partes
+0x1800344d0
+  DOC SONDA: a sequencia inteira do MFT direto, passo a passo, com HRESULT.
+  DOC sondar_mft_direto
+0x180034690
+  DOC SONDA: produz pedacos com o MFT vivo entre eles e mede cada um.
+  DOC medir_produtor_de_pedacos
+0x180034870
+  DOC Desenha os planos e devolve o pedaco H.264 Annex-B (SPS+IDR).
+  DOC produzir_pedaco
+0x180034b00
+  DOC Comeca a gravar. Devolve "" quando deu certo, ou a explicacao do erro -- nunca falso calado.
+  DOC captura_iniciar
+0x180034d50
+  SIG ({@typing.SupportsInt | typing.SupportsIndex@int@}, {bool}, {bool}) -> None
+  DOC O estilo do ponteiro na proxima gravacao (0 sem, 1 normal, 2 o dobro, 3 o triplo), com circulo de destaque e a
+  DOC captura_cursor
+0x180034f10
+  SIG () -> str
+0x180035080
+  SIG () -> @collections.abc.Mapping@dict@[str, @typing.SupportsFloat | typing.SupportsIndex@float@]
+0x1800351f0
+  SIG () -> str
+0x180035360
+  SIG () -> None
+0x1800354d0
+  SIG () -> list
+  DOC As entradas de som ATIVAS, com nome amigavel e id estavel. Vem do WASAPI: o `dshow` do FFmpeg nao existe no pa
+  DOC audio_entradas
+0x180035630
+  SIG ({str}, {str}) -> str
+  DOC audio_iniciar
+0x1800357d0
+  SIG () -> @typing.SupportsFloat | typing.SupportsIndex@float@
+0x180035940
+  SIG () -> dict
+  DOC O pico e a media quadratica de cada canal do microfone desde a ultima leitura (0..1), e ZERA a conta. Mede mes
+  DOC audio_nivel
+0x180035ac0
+  SIG () -> dict
+  DOC A saida de som padrao do Windows (nome amigavel e id). `id` vazio = nao ha' saida de som ligada.
+  DOC som_pc_saida
+0x180035c20
+  SIG ({str}) -> str
+  DOC Comeca a gravar em `saida` (.wav) o que toca na saida padrao. Devolve "" ou a explicacao do erro.
+  DOC som_pc_iniciar
+0x180035da0
+  SIG () -> dict
+  DOC O mesmo medidor do `audio_nivel`, para o som do computador.
+  DOC som_pc_nivel
+0x180035f20
+  DOC A mesma conta do medidor sobre bytes dados. So' para a PROVA medir cada formato do WASAPI com um seno conhecid
+  DOC audio_nivel_de_bytes
+0x1800360e0
+  SIG () -> bool
+  DOC Este motor grava webcam? Existir esta funcao ja' e' a resposta -- modulo antigo nao a tem, e a tela oferece so
+  DOC webcam_suportada
+0x180036240
+  SIG () -> list
+  DOC As cameras conectadas, com o nome amigavel e o LINK SIMBOLICO como id -- que sobrevive a desconectar e reconec
+  DOC webcam_cameras
+0x1800363f0
+  DOC Liga a camera e comeca a entregar quadros. Ainda NAO grava: a contagem 3-2-1 acontece entre abrir e gravar, e
+  DOC webcam_abrir
+0x1800365a0
+  SIG ({str}, {@typing.SupportsInt | typing.SupportsIndex@int@}) -> str
+  DOC webcam_gravar_iniciar
+0x180036740
+  DOC A janelinha do espelho: arrastavel, redimensionavel e FORA da captura -- sem isso ela apareceria cravada no vi
+  DOC webcam_previa_mostrar
+0x1800368f0
+  SIG () -> @collections.abc.Mapping@dict@[str, @typing.SupportsFloat | typing.SupportsIndex@float@]
+  DOC Onde a previa ficou depois de arrastada e redimensionada. E' o que faz o clipe da webcam nascer no editor no l
+  DOC webcam_previa_retangulo
+0x180036ac0
+  DOC Liga, desliga ou ajusta o recorte do fundo verde NA JANELINHA. O arquivo da camera continua cru; quem recorta
+  DOC webcam_chroma
+0x180036cc0
+  SIG () -> @collections.abc.Mapping@dict@[str, @typing.SupportsFloat | typing.SupportsIndex@float@]
+  DOC A cor do fundo verde (ou azul) medida na borda do quadro mais novo da camera: ok, r, g, b, fracao. ok = 0 quan
+  DOC webcam_chroma_sugerir
+0x180036e40
+  DOC A conta da janelinha sobre um quadro BGRA dado; devolve RGBA sem pre-multiplicar. So' para a PROVA comparar co
+  DOC chroma_na_cpu
+0x180037060
+0x180037130
+  DOC Liga, troca ou desliga a MOLDURA da janelinha. A janela vira a caixa do modelo sem mexer no clipe; o arquivo d
+  DOC webcam_moldura
+0x180037340
+  SIG () -> list
+  DOC Por onde a janelinha andou ENQUANTO GRAVAVA: (quadro do arquivo da camera, x, y, largura, altura) do retangulo
+  DOC USVWATAUAVAWH
+  DOC webcam_previa_trilha
+0x1800374a0
+  SIG ({@typing.SupportsInt | typing.SupportsIndex@int@}) -> None
+  DOC SO' PROVA: liga a trilha da janelinha num relogio que a prova controla (sem camera e sem gravacao). Negativo d
+  DOC webcam_trilha_de_prova
+0x180037620
+  DOC A conta da moldura da janelinha sobre um quadro BGRA pre-multiplicado do tamanho da janela; devolve BGRA pre-m
+  DOC moldura_na_cpu
+0x180037860
+  DOC SO' PROVA: entrega um quadro a' janelinha como se viesse da camera.
+  DOC webcam_previa_injetar
+0x180037a10
+  SIG () -> dict
+  DOC SO' PROVA: o ultimo desenho da janelinha, BGRA pre-multiplicado. A primeira chamada liga a foto; a partir dai'
+  DOC webcam_previa_foto
+0x180037b70
+  SIG () -> bool
+  DOC O motor limpa o quadro com a COR QUE O PLANO MANDAR (a tela infinita) em vez de preto fixo? Existir esta funca
+  DOC fundo_suportado
+0x180037cd0
+  SIG ({@typing.SupportsFloat | typing.SupportsIndex@float@}) -> @typing.SupportsFloat | typing.SupportsIndex@float@
+  DOC Quanto cache de textura o motor usaria numa placa com esta VRAM (MB). Existe para a conta poder ser CONFERIDA
+  DOC teto_cache_mb
+0x180037e60
+  SIG () -> bool
+  DOC O motor sabe o CHROMA KEY ("Remover plano de fundo")? Existir esta funcao ja' e' a resposta. Modulo antigo nao
+  DOC chroma_suportado
+0x180037fc0
+  SIG () -> bool
+  DOC O motor desenha o passe de acabamento (nitidez, bloom, grao, TV velha, cromatica)? Existir esta funcao ja' e'
+  DOC acabamento_suportado
+0x180038120
+  SIG () -> @collections.abc.Sequence@list@[str]
+  DOC QUAIS efeitos o passe de acabamento desenha (02/10/2026, item 84). Inverter, glitch e lapis chegaram depois do
+  DOC acabamento_efeitos
+0x180038280
+  SIG () -> bool
+  DOC O motor desenha o filtro MANTER UMA COR (o uManter do camada.hlsl; 15/10/2026)? Existir esta funcao ja' e' a r
+  DOC manter_suportado
+0x1800383e0
+  SIG () -> bool
+  DOC O motor desenha o HSL POR COR da aba Cor (o uHsl do camada.hlsl, com cor[0] = 2; item 155, 18/10/2026)? Existi
+  DOC hsl_suportado
+0x180038540
+  SIG () -> bool
+  DOC O motor desenha o CANTO FIXADO (a matriz da camada com perspectiva: a terceira linha vira o divisor no camada.
+  DOC canto_suportado
+0x1800386a0
+  SIG () -> bool
+  DOC O motor desenha a MASCARA DE EDICAO (Dividir, Pelicula, Circulo, Retangulo, Estrela, Coracao e o alfa do Texto
+  DOC mascara_suportada
+0x180038800
+  SIG () -> bool
+  DOC O motor desenha a CORRECAO DE COR do clipe (a aba Cor: rodas Lift, Gamma, Gain e Offset, curvas, saturacao, ma
+  DOC cor_suportada
+0x180038960
+  SIG () -> bool
+  DOC O motor desenha o LOWER THIRD DESCRITO (a lista do que o canvas do faixas.js desenhou, repetida em Direct2D; 0
+  DOC desenho_suportado
+0x180038ac0
+  DOC A bancada do desenho descrito: desenha a lista num alvo transparente e devolve RGBA8 nao pre-multiplicado, par
+  DOC desenhar_desenho
+0x180038c80
+  SIG () -> bool
+  DOC O motor desenha o ATRAS DA PESSOA (o recorte da pessoa do video de baixo em t5, cortando o alfa da camada; 07/
+  DOC pessoa_suportada
+0x180038de0
+  SIG () -> bool
+  DOC O motor desenha o SEM FUNDO (o recorte do PROPRIO clipe em t5, no modo 2 do uOclA: fica so' a pessoa; 18/10/20
+  DOC sem_fundo_suportado
+0x180038f40
+  SIG () -> bool
+  DOC O motor desenha o VIDEO COM FUNDO TRANSPARENTE EM COR + MASCARA (as duas metades de um H.264 comum viram um pi
+  DOC empilhado_suportado
+0x1800390a0
+  SIG () -> bool
+  DOC O motor desenha a LUT DE ARQUIVO do clipe (.cube e as de camera, o atlas do cubo em t4; item 112, 06/10/2026)?
+  DOC lut3_suportada
+0x180039200
+  SIG () -> bool
+  DOC O motor faz o DESFOQUE DE FUNDO (o fundo borrado da 'Tela: desfocar' e do cartao de template, 01/10/2026)? Exi
+  DOC desfoque_suportado
+0x180039360
+  SIG () -> bool
+  DOC O motor desenha o CLIPE ISOLADO (particulas, flash, queda e acabamento DENTRO de um clipe, 28/09/2026)? Existi
+  DOC isolar_suportado
+0x1800394c0
+  SIG () -> bool
+  DOC O motor desenha o passe de REGIAO (Blur e Remocao de marca d'agua)? Existir esta funcao ja' e' a resposta, pel
+  DOC regiao_suportada
+0x180039620
+  SIG () -> @collections.abc.Sequence@list@[str]
+  DOC Quais transicoes o motor nativo sabe desenhar. O frontend PERGUNTA esta lista em vez de manter a dele: duas li
+  DOC transicoes_suportadas
+0x180039780
+  SIG () -> dict
+  DOC Compila TODOS os shaders de transicao agora e devolve nome -> erro (vazio = compilou). `transicoes_suportadas`
+  DOC provar_transicoes
+0x180039a40
+  DOC CAMINHO A: desenha uma linha da legenda Jumper JA' POSICIONADA. O layout continua sendo do motor (as posicoes
+  DOC raster_legenda_jumper
+0x180039cd0
+  DOC CAMINHO A, primeiro passo: desenha UMA palavra com o DirectWrite, com a fonte lida do arquivo do proprio app.
+  DOC raster_texto_teste
+0x180039ef0
+  SIG () -> dict
+  DOC Abre o Direct3D 11 (uma vez por processo) e diz quem e' a placa.
+  DOC placa
+0x18003a080
+  SIG () -> bool
+  DOC Deu para abrir a placa? Sem levantar erro.
+  DOC abriu
+0x18003a1e0
+  DOC A BANCADA DO F4: desenha UM retangulo com o shader HLSL da camada e
+  DOC desenhar_teste
+0x18003a420
+  DOC F5: desenha o QUADRO INTEIRO a partir do plano capturado do motor.
+  DOC desenhar_quadro
+0x18003a5e0
+  SIG () -> dict
+  DOC Quantas fontes de video estao abertas, o teto e quantas ja' sairam.
+  DOC fontes_de_video
+0x18003a740
+  DOC Os primeiros carimbos de tempo que o decodificador nativo enxerga.
+  DOC diag_video
+0x18003a900
+  DOC G-1a: quanto custa DESENHAR um quadro, com a placa obrigada a terminar antes de o relogio parar. O `desenhar`
+  DOC medir_desenho
+0x18003aaf0
+  DOC Mostra a janela da previa sobre o app, em pixels de DISPOSITIVO relativos ao cliente da janela. Devolve '' se
+  DOC previa_janela_mostrar
+0x18003acb0
+  SIG () -> None
+  DOC Esconde sem destruir: voltar a mostrar nao paga a criacao de novo.
+  DOC previa_janela_esconder
+0x18003ae40
+  DOC G-1b: desenha o plano DIRETO no fundo da janela nativa e apresenta. Mesmo leitor de camadas do export -- o que
+  DOC previa_desenhar_na_janela
+0x18003b020
+  DOC SO' PARA PROVA: desenha no fundo da janela e le' de volta em RGBA, sem apresentar. E' o unico jeito de compara
+  DOC previa_janela_provar
+0x18003b200
+  DOC ESQUELETO: pinta a janela de uma cor solida e apresenta.
+  DOC previa_janela_pintar
+0x18003b3c0
+  SIG () -> str
+  DOC O que esta' de pe', para a prova perguntar em vez de supor.
+  DOC previa_janela_estado
+0x18003b550
+  DOC A CODIFICACAO EM PARTES: abre o codificador do export uma vez.
+  DOC abrir_codificacao
+0x18003b730
+  SIG ({list}) -> None
+  DOC Desenha e codifica um lote de planos na codificacao aberta.
+  DOC codificar_lote
+0x18003b8d0
+  SIG () -> dict
+  DOC Fecha o arquivo e devolve o mesmo relatorio do codificar_planos.
+  DOC fechar_codificacao
+0x18003ba60
+  SIG () -> None
+  DOC Solta a codificacao aberta sem fechar o arquivo.
+  DOC cancelar_codificacao
+0x18003bbf0
+  SIG () -> bool
+  DOC A placa foi removida/reiniciada (DXGI_ERROR_DEVICE_REMOVED)?
+  DOC placa_caiu
+0x18003bd80
+  SIG () -> dict
+  DOC Solta tudo o que nasceu na placa que caiu e abre uma nova.
+  DOC reabrir_placa
+0x18003bf10
+  DOC F6: desenha cada plano e CODIFICA na placa, sem o quadro descer para a memoria comum. Devolve qual codificador
+  DOC codificar_planos
+0x18003c100
+  SIG () -> dict
+  DOC Em que passo o C++ esta', ha' quanto tempo, e se o vigia o declarou preso. Nao pega trava nenhuma.
+  DOC onde_esta
+0x18003c260
+  SIG ({@typing.SupportsFloat | typing.SupportsIndex@float@}, {bool}) -> bool
+  DOC SO' PARA PROVA: fica parado num passo pelo tempo pedido.
+  DOC provar_preso
+0x18003c400
+  DOC SO' PARA PROVA: cor conhecida, entrega, LIXO por cima (direto ou pelo anel). Confere-se o arquivo depois.
+  DOC provar_textura_reaproveitada
+0x18003c5d0
+0x18003fe00
+  DOC invalid string position
+0x18003fe3d
+  DOC ->
+0x180040ef0
+  DOC 00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x180040f60
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x180041330
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x1800414a0
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x1800416c0
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x1800417d0
+  SIG () -> str
+  DOC Fecha o arquivo direito (o `moov` no lugar).
+0x180041ce0
+  DOC vector too long
+0x180046ff0
+  DOC $&3
+  DOC ativar_mft
+  DOC dizer_os_tipos
+0x1800478f0
+  DOC CreateTexture2D (a textura preta da sonda)
+  DOC abrir_s
+  DOC bgra
+0x180048d20
+  DOC memoria
+  DOC modo do codificador desconhecido:
+  DOC placa
+0x180049270
+0x180049bd0
+0x18004a0b0
+  DOC circulo
+  DOC linha
+  DOC poligono
+0x18004a360
+  DOC altura
+  DOC dispositivo
+  DOC indice
+0x18004be50
+  DOC microfone
+  DOC nome
+  DOC padrao
+0x18004d2d0
+  DOC D$PH
+  DOC nome
+0x18004e7e0
+  DOC nome
+0x18004fc60
+0x180050a90
+0x180051a90
+  DOC altura
+  DOC bgra
+  DOC largura
+0x1800524d0
+  DOC bloom
+  DOC canelado
+  DOC cromatica
+0x180052f70
+0x1800541b0
+  DOC abertas
+  DOC apertos_de_memoria
+  DOC arquivos
+0x180055c40
+  DOC batidas
+  DOC chamada
+  DOC chamada_presa
+0x180056bf0
+  DOC parado
+  DOC prova: parado de proposito
+  DOC provar_preso
+0x180056df0
+  DOC Finalize (o arquivo pode ter saido pela metade)
+  DOC nao criei a textura da prova
+  DOC nao criei o alvo da prova
+0x180057700
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x1800577f0
+0x180057a00
+0x180057c30
+  DOC circulo
+  DOC linha
+  DOC poligono
+0x180057da0
+0x1800584c0
+0x1800585f0
+  DOC parado
+  DOC prova: parado de proposito
+  DOC provar_preso
+0x180059cb0
+  DOC deque<T> too long
+0x18005a1f0
+  DOC to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+  DOC Unable to cast Python instance of type
+0x18005aa50
+  DOC Unexpected PYBIND11_BYTES_AS_STRING() failure.
+  DOC Unexpected PyByteArray_AsString() failure.
+0x18005ad70
+  DOC vector<bool> too long
+0x18005d690
+  DOC 0x%08lX
+0x18005d860
+  DOC %04X:%04X:%08X:%08lX|
+0x18005dbc0
+  DOC 10_0
+  DOC 10_1
+  DOC 11_0
+0x18005ef30
+  DOC \$ WH
+0x18005f9e0
+  DOC '. Procurei em:
+  DOC /shaders/
+  DOC C:/Users/alan1/AlaukCut-leva-3110/nativo/src
+0x180060950
+  DOC MOTOR_SHADER_SEM_OTIMIZAR
+  DOC o shader nao compilou:
+  DOC sem detalhe
+0x180060ae0
+  DOC CreateShaderResourceView
+  DOC CreateTexture2D
+0x180060fe0
+  DOC MOTOR_TRANSICOES_EM_PROVA
+0x1800610a0
+  DOC MOTOR_CACHE_MB
+0x1800612b0
+  DOC vista da textura pronta
+0x1800617e0
+  DOC CreatePixelShader(t)
+  DOC ps_5_0
+  DOC transicao.hlsl
+0x180061bf0
+  DOC CreateVertexShader(t)
+  DOC VSTransicao
+  DOC transicao.hlsl
+0x180061f10
+  DOC nao esta' na tabela kTransicoes
+0x180061fe0
+  DOC alvo A/B CreateTexture2D
+  DOC alvo A/B RTV
+  DOC alvo A/B SRV
+0x180062150
+  DOC CreatePixelShader(desf)
+  DOC CreateVertexShader(desf)
+  DOC PSDesfoque
+0x180062920
+  DOC nao esta' guardada e veio sem pixels
+  DOC nao esta' guardado e veio sem pixels
+  DOC ' chegou sem os dois alvos desenhados
+0x1800678f0
+  DOC CreateBuffer(iso)
+0x180067a40
+  DOC alvo CreateTexture2D
+  DOC staging CreateTexture2D
+0x180069370
+  DOC 0x%08lX
+0x180069660
+  DOC #>u,%M
+0x1800696e0
+  DOC #>u,%M
+0x180069740
+  DOC O1A[
+  DOC codificador de hardware sem nome
+  DOC codificador por SOFTWARE do Windows
+0x180069a40
+  DOC O1A[
+  DOC vids
+0x180069dc0
+  DOC $&3
+  DOC AddStream
+  DOC BeginWriting
+0x18006b1d0
+  DOC AddBuffer
+  DOC MFCreateDXGISurfaceBuffer
+  DOC MFCreateSample
+0x18006b4c0
+  DOC AddBuffer
+  DOC CreateTexture2D do anel da gravacao
+  DOC MFCreateDXGISurfaceBuffer
+0x18006bb80
+  DOC Finalize (o arquivo pode ter saido pela metade)
+0x18006bc50
+  DOC $&3
+  DOC ativar_mft
+  DOC dizer_os_tipos
+0x18006c3f0
+  DOC $&3
+  DOC 00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+  DOC 1_ativou
+0x18006fa10
+  DOC de 8 faixas erradas;
+  DOC .HNKd
+  DOC 8 de 8 faixas certas
+0x180070a20
+  DOC qNV12
+0x1800715d0
+  DOC MOTOR_CODIFICADOR
+  DOC memoria
+  DOC placa
+0x1800717b0
+  DOC ProcessOutput (codificador por software)
+  DOC o codificador por software mudou a saida e nao aceitou de volta
+  DOC sem memoria para a saida do codificador por software
+0x180071bd0
+  DOC O1A[
+0x180071d20
+0x180071f70
+  DOC bytes, cabecalho
+  DOC codificadores de hardware desta maquina aceitou codificar (
+  DOC | cor declarada: BT.709
+0x180073990
+  DOC #>u,%M
+  DOC $&3
+  DOC .HNKd
+0x180075180
+  DOC | imagem conferida
+  DOC | imagem: nao deu para conferir (
+  DOC #>u,%M
+0x180076300
+  DOC codificador por software do Windows:
+0x180076530
+  DOC aloca_saida
+  DOC bytes_ate_agora
+  DOC bytes_do_ultimo_pedaco
+0x180076fe0
+  DOC s (nenhum evento do MFT)
+  DOC AddBuffer
+  DOC GetEvent
+0x180077fc0
+  DOC CreateTexture2D (a textura preta da sonda)
+  DOC abrir_s
+  DOC bgra
+0x180079110
+  DOC O1A[
+  DOC qMJPG
+  DOC vids
+0x18007b600
+  DOC vector too long
+0x18007c9d0
+  DOC CreateTexture2D do quadro
+  DOC DuplicateOutput
+  DOC esta tela nao aceita captura (DXGI_ERROR_UNSUPPORTED) -- costuma ser sessao remota ou driver sem suporte
+0x18007d910
+  DOC nao ha' gravacao em andamento
+0x18007dc10
+  DOC AcquireNextFrame
+0x18007ea50
+  DOC nao ha' o que pausar
+0x18007eb00
+  DOC nao ha' o que retomar
+0x18007ebb0
+  DOC cursor_copia
+  DOC cursor_desenhados
+  DOC cursor_recusas
+0x1800811b0
+  DOC nao consegui criar o arquivo de audio
+0x18008154f
+  DOC RIFF
+  DOC WAVEfmt
+  DOC data
+0x180082190
+  DOC Activate
+  DOC GetMixFormat
+  DOC GetService(IAudioCaptureClient)
+0x180084890
+  DOC ja' ha' captura de audio em andamento
+0x180084df0
+  DOC microfone
+0x180085790
+  DOC ja' ha' captura de audio em andamento
+0x18008dec0
+  DOC .HNKd
+  DOC GetCurrentMediaType
+  DOC MFCreateAttributes
+0x18008e850
+  DOC CreateTexture2D da webcam
+  DOC a camera nao esta' aberta
+  DOC ja' existe uma gravacao de webcam em andamento
+0x18008eb90
+  DOC nao ha' gravacao de webcam
+0x18008fb30
+  DOC aberta
+  DOC altura
+  DOC camera_fps
+0x1800904c0
+  DOC nao ha' o que pausar
+0x180090570
+  DOC nao ha' o que retomar
+0x180090760
+  DOC nao abri a janela da previa
+0x180090a20
+  DOC altura
+  DOC clipe_altura
+  DOC clipe_largura
+0x180091a80
+  DOC canal
+  DOC fracao
+  DOC sem_quadro
+0x180093820
+  DOC ALAUKCUT_PREVIA_FORCAR_PLANO_B
+  DOC ALAUKCUT_PREVIA_SEM_PROTECAO
+  DOC CreateWindowEx da previa falhou
+0x180094980
+  DOC ReadSample
+0x1800964c0
+  DOC GetCurrentMediaType
+  DOC MFCreateAttributes
+  DOC MFCreateDXGIDeviceManager
+0x180096cc0
+  DOC GetBufferByIndex
+  DOC IMFDXGIBuffer::GetResource
+  DOC ReadSample
+0x180097460
+  DOC D2D1CreateFactory
+  DOC DWriteCreateFactory
+0x1800975a0
+  DOC ID2D1Device
+  DOC ID2D1DeviceContext
+  DOC IDXGIDevice
+0x180097c40
+  DOC AddFontFile
+  DOC CreateFontCollectionFromFontSet
+  DOC CreateFontSet
+0x180097e60
+  DOC Map do texto
+  DOC staging do texto
+0x180098210
+  DOC paradas do degrade
+  DOC pincel da palavra
+  DOC pincel de degrade
+0x1800988b0
+  DOC AV;mP
+  DOC CreateTextFormat (familia certa?)
+0x180098fb0
+  DOC IDXGISurface da faixa
+  DOC bitmap da faixa
+  DOC textura da faixa
+0x180099180
+  DOC CommandList(vertical)
+  DOC EndDraw da faixa
+  DOC EndDraw(vertical)
+0x180099850
+  DOC CommandList(dissolver)
+  DOC EndDraw(dissolver)
+  DOC apagar o dissolver
+0x180099b70
+  DOC Close(bisel)
+  DOC CommandList(glow)
+  DOC CreateCommandList
+0x18009bd70
+  DOC AV;mP
+  DOC CreateDxgiSurfaceRenderTarget
+  DOC CreateSolidColorBrush
+0x18009c750
+0x18009caa0
+  DOC a imagem do desenho nao veio e nao estava guardada:
+  DOC imagem do desenho
+0x18009cea0
+  DOC CreateTextLayout(desenho)
+  DOC EndDraw da sombra(desenho)
+  DOC desenho(fechar)
+0x18009d8a0
+  DOC EndDraw do desenho
+0x18009de90
+  DOC textura do desenho na placa
+0x18009eda0
+  DOC CreateStrokeStyle(ef)
+  DOC D2D1CreateFactory(ef)
+  DOC DWriteCreateFactory(ef)
+0x18009f0c0
+  DOC CreateCommandList(mat)
+  DOC CreateTextFormat(mat)
+  DOC CreateTextLayout(mat)
+0x18009f5c0
+  DOC pincel da linha
+0x18009f6e0
+  DOC EndDraw do brilho
+  DOC EndDraw do efeito
+  DOC IDXGISurface(ef)
+0x1800a0a10
+  DOC 00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+  DOC CreateWindowEx falhou (
+  DOC Hnao achei a janela do app (o app subiu?)
+0x1800a0dc0
+  DOC a janela ainda esta' subindo
+0x1800a0f60
+  DOC CreateSwapChainForHwnd
+  DOC GetAdapter
+  DOC IDXGIDevice
+0x1800a14d0
+  DOC GetBuffer
+0x1800a1610
+  DOC Present
+  DOC a cadeia nao esta' de pe'
+0x1800a16e0
+  DOC CreateRenderTargetView
+  DOC GetBuffer
+  DOC Present
+0x1800a1920
+  DOC GetBuffer(prova)
+  DOC Map da prova
+  DOC a cadeia nao esta' de pe'
+0x1800a1c40
+  DOC cadeia=
+  DOC erro=
+  DOC janela=
+0x1800a6d40
+  DOC Caught an unknown nested exception!
+0x1800a6da0
+  DOC Caught an unknown exception!
+0x1800a77d0
+  DOC <repr raised Error>
+0x1800a9c20
+  DOC desenho falhou:
+  DOC erro
+0x1800a9dc0
+  DOC erro
+  DOC o motor nativo falhou ao desenhar:
+0x1800a9e70
+  DOC erro
+  DOC pronta
+0x1800aa4e0
+  DOC initialization failed
+0x1800ad000
+  DOC nao abri o arquivo de saida:
+0x1800ad0d0
+  DOC nao abri a placa da tela:
+0x1800ad620
+  DOC nao abri o arquivo da webcam:
+0x1800ad6d0
+  DOC nao abri a placa para a webcam:

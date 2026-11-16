@@ -4,11 +4,12 @@
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::application::mcp_server::{self, RpcDispatcher};
 use crate::infrastructure::mcp_server::{
-    respond_pending, serve_mcp, EnvAiClientConfigs, KeyringMcpServerToken,
+    respond_pending, serve_mcp, write_automation_file, EnvAiClientConfigs, JsonlMcpAuditSink,
+    KeyringMcpServerToken,
 };
 use crate::infrastructure::mcp_studio::StudioMcpInvoker;
 use crate::mcp::server::{AutoconnectResult, DetectedClient, McpServerInfo};
@@ -19,18 +20,47 @@ use crate::state::AppState;
 #[tauri::command]
 pub async fn start_mcp_server(app: AppHandle) -> Result<McpServerInfo, ProjectError> {
     let token_store = KeyringMcpServerToken;
+    // Audit log JSONL y discovery file viven en el config dir de la app,
+    // igual que `mcp-servers.json` y `settings.json`.
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("editor-ia"));
+    let audit: Arc<dyn crate::ports::mcp_server::McpAuditSink> =
+        Arc::new(JsonlMcpAuditSink::new(config_dir.join("mcp-audit.jsonl")));
     // Las tools del estudio las ejecuta el backend; el resto va a la ventana.
     let invoker = StudioMcpInvoker::new(app);
-    let handler: Arc<dyn McpRequestHandler> = Arc::new(RpcDispatcher::new(invoker));
-    mcp_server::start_server(&token_store, handler, |token, handler| {
-        serve_mcp(token, handler)
+    let handler: Arc<dyn McpRequestHandler> =
+        Arc::new(RpcDispatcher::new(invoker).with_audit(audit.clone()));
+    let info = mcp_server::start_server(&token_store, handler, |token, handler| {
+        serve_mcp(token, handler, Some(audit))
+            .map(|runtime| Box::new(runtime) as Box<dyn crate::ports::mcp_server::McpServerRuntime>)
     })
-    .await
+    .await?;
+    // Discovery file para clientes stdio que no pueden recibir config
+    // (como el `automation.json` de Concat): endpoint + token + tools.
+    write_automation_file(&config_dir, &info)?;
+    Ok(info)
 }
 
 #[tauri::command]
 pub fn mcp_server_status() -> Option<McpServerInfo> {
     mcp_server::status()
+}
+
+/// Frena el servidor MCP embebido: aborta el accept loop (libera el
+/// puerto 31417), limpia el discovery file `automation.json` para que un
+/// cliente stdio no encuentre un endpoint muerto y devuelve si había
+/// algo que detener. Idempotente.
+#[tauri::command]
+pub fn mcp_server_stop(app: AppHandle) -> bool {
+    let stopped = mcp_server::stop_server();
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .unwrap_or_else(|_| std::env::temp_dir().join("editor-ia"));
+    crate::infrastructure::mcp_server::remove_automation_file(&config_dir);
+    stopped
 }
 
 /// Cliente de IA externo (Claude Desktop, Antigravity…) que Olyvia sabe

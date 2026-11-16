@@ -1,0 +1,25 @@
+[package]
+name = "concat-speech-min"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "On-device speech transcription for Olyvia: whisper.cpp in-process over 16 kHz mono samples, extracted from Concat's concat-speech (transcribe.rs only)."
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+
+# Model downloads: blocking GETs on their own thread, as in Concat.
+ureq = "2"
+sha2 = "0.10"
+
+# whisper.cpp in-process, built from source by cmake at build time.
+# `raw-api` for ggml's backend registry (cpu_backend in transcribe.rs).
+whisper-rs = { version = "0.16", features = ["raw-api"] }
+
+# What a run says about itself: which model loaded, how long a run took.
+log = { version = "0.4", features = ["std"] }
+
+[lints]
+workspace = true

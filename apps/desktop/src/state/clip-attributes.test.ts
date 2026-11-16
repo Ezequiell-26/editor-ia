@@ -11,8 +11,10 @@ import {
 } from './project-actions';
 import {
   applyClipAttributes,
+  attributeGroupsOf,
   copyClipAttributes,
   pasteAttributesToColor,
+  pickClipAttributes,
 } from './clip-attributes';
 
 const NOW = '2025-01-01T00:00:00.000Z';
@@ -64,6 +66,7 @@ describe('atributos de clip', () => {
       effects: { brightness: 0.2, fadeInFrames: 60 },
       motion: { type: 'zoom-in', intensity: 0.1 },
       colorTag: 'rose',
+      monitorFrame: { preset: 'circle-halo', color: '#35e0ff' },
       audio: {
         gainDb: -4,
         highPassHz: 80,
@@ -76,6 +79,7 @@ describe('atributos de clip', () => {
     expect(attributes?.effects?.brightness).toBe(0.2);
     expect(attributes?.motion?.type).toBe('zoom-in');
     expect(attributes?.colorTag).toBe('rose');
+    expect(attributes?.monitorFrame).toEqual({ preset: 'circle-halo', color: '#35e0ff' });
     expect(attributes?.audio?.gainDb).toBe(-4);
     expect(attributes?.audio?.muted).toBeUndefined();
     expect(attributes?.audio?.gainKeyframes).toBeUndefined();
@@ -110,6 +114,7 @@ describe('atributos de clip', () => {
       },
       animationIn: { type: 'fade', durationFrames: 40 },
       colorTag: 'teal',
+      monitorFrame: { preset: 'polaroid' },
       audio: { gainDb: -2 },
     });
     const source = styled.timeline.clips.find((clip) => clip.id === sourceAdded.clipId)!;
@@ -122,6 +127,7 @@ describe('atributos de clip', () => {
     expect(target.mask?.keyframes?.map((keyframe) => keyframe.frame)).toEqual([10]);
     expect(target.animationIn?.durationFrames).toBe(30);
     expect(target.colorTag).toBe('teal');
+    expect(target.monitorFrame?.preset).toBe('polaroid');
     expect(target.motion?.type).toBe('pan-right');
     expect(target.audio?.gainDb).toBe(-2);
   });
@@ -214,5 +220,60 @@ describe('atributos de clip', () => {
     expect('effects' in green ? green.effects : undefined).toBeUndefined();
     const lockedClip = byId(locked.clipId);
     expect('effects' in lockedClip ? lockedClip.effects : undefined).toBeUndefined();
+  });
+});
+
+describe('grupos de atributos (colarAtributos de AlaukCut)', () => {
+  it('attributeGroupsOf lista los grupos presentes y pickClipAttributes filtra', () => {
+    const attributes = {
+      effects: { brightness: 0.2 },
+      colorTag: 'rose' as const,
+      audio: { gainDb: -3 },
+    };
+    expect(attributeGroupsOf(attributes)).toEqual(['efectos', 'color', 'audio']);
+
+    const soloColor = pickClipAttributes(attributes, new Set(['color']));
+    expect(soloColor).toEqual({ colorTag: 'rose' });
+    expect(soloColor.effects).toBeUndefined();
+    expect(soloColor.audio).toBeUndefined();
+
+    const efectosAudio = pickClipAttributes(
+      attributes,
+      new Set(['efectos', 'audio']),
+    );
+    expect(efectosAudio.effects).toEqual({ brightness: 0.2 });
+    expect(efectosAudio.audio).toEqual({ gainDb: -3 });
+    expect(efectosAudio.colorTag).toBeUndefined();
+  });
+
+  it('pickClipAttributes conserva monitorFrame aunque valga undefined (borrado)', () => {
+    const attributes = { monitorFrame: undefined as never };
+    expect(attributeGroupsOf(attributes)).toContain('color');
+    const picked = pickClipAttributes(attributes, new Set(['color']));
+    expect('monitorFrame' in picked).toBe(true);
+  });
+
+  it('el pegado por grupos aplica sólo lo tildado al clip destino', () => {
+    const project = base();
+    const asset = videoAsset();
+    const source = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0 });
+    const v2 = addTrack(source.project, 'video', 'V2');
+    const targetAsset = videoAsset();
+    const target = addClipFromAsset(addAsset(v2.project, targetAsset), targetAsset, {
+      atFrame: 0,
+      trackId: v2.trackId,
+    });
+    const withAttrs = updateClip(target.project, source.clipId, {
+      effects: { brightness: 0.3 },
+      colorTag: 'blue',
+    });
+    const attributes = copyClipAttributes(
+      withAttrs.timeline.clips.find((clip) => clip.id === source.clipId)!,
+    )!;
+    const picked = pickClipAttributes(attributes, new Set(['color']));
+    const next = applyClipAttributes(withAttrs, target.clipId, picked);
+    const clip = next.timeline.clips.find((item) => item.id === target.clipId)!;
+    expect(clip.colorTag).toBe('blue');
+    expect('effects' in clip ? clip.effects : undefined).toBeUndefined();
   });
 });

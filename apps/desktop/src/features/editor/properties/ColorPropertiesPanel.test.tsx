@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createEmptyProject, type ClipEffects } from '@editor-ia/project-schema';
 import { ProjectProvider, useProjectStore } from '../../../state/project-store';
 import { addAsset, addClipFromAsset } from '../../../state/project-actions';
@@ -10,6 +10,27 @@ import { GRADE_PRESETS_KEY } from '../../color/grade-presets';
 import { ColorPropertiesPanel, type PropertiesMode } from './ColorPropertiesPanel';
 
 const NOW = '2026-11-07T00:00:00.000Z';
+
+// ColorStudio monta el grafo de nodos (@xyflow/react), que pide ResizeObserver.
+// Mismo stub que ColorStudio.test.tsx: en jsdom no existe la API del navegador.
+beforeAll(() => {
+  const globals = globalThis as unknown as { ResizeObserver?: unknown; matchMedia?: unknown };
+  if (typeof globals.ResizeObserver === 'undefined') {
+    class ResizeObserverStub {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    globals.ResizeObserver = ResizeObserverStub;
+  }
+  if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+    window.matchMedia = ((query: string) => ({
+      matches: false, media: query, onchange: null,
+      addListener: () => {}, removeListener: () => {},
+      addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+  }
+});
 
 afterEach(() => {
   cleanup();
@@ -123,9 +144,71 @@ describe('ColorPropertiesPanel · capturas 118 / 127', () => {
     expect(screen.getAllByRole('status').map((el) => el.textContent).join(' ')).toMatch(/guardado/i);
   });
 
+  it('Paleta: muestra la paleta medida del archivo fuente del clip', async () => {
+    renderPanel('color', 'palette');
+    // El fake devuelve palette ['#888888'], temperatura warm y cuadro a 1.5 s.
+    const swatch = await screen.findByTitle('#888888');
+    expect(swatch).toBeTruthy();
+    expect(screen.getByText('Cálida')).toBeTruthy();
+    expect(screen.getByText('1.5 s')).toBeTruthy();
+    expect(
+      screen.getByText(/no es una paleta generada por IA/i),
+    ).toBeTruthy();
+  });
+
+  it('Paleta: un clip de audio avisa que no hay medio visual que medir', () => {
+    const base = createEmptyProject('Propiedades', NOW);
+    const asset = readyAsset({
+      kind: 'audio',
+      label: 'locucion.wav',
+      source: { type: 'local', path: 'media/locucion.wav' },
+      media: { durationFrames: 300, sampleRate: 48000, channels: 2 },
+    } as Partial<ReturnType<typeof readyAsset>>);
+    const result = addClipFromAsset(addAsset(base, asset), asset, {
+      atFrame: 0,
+      durationFrames: 120,
+    });
+    const service = createFakeService();
+    render(
+      <ProjectProvider
+        service={service}
+        initial={{
+          project: result.project,
+          opened: { project: result.project, label: 't', path: 'C:\\t', root: 'C:\\t' },
+        }}
+      >
+        <ColorPropertiesPanel clipId={result.clipId} mode="color" subTab="palette" />
+      </ProjectProvider>,
+    );
+    expect(
+      screen.getByText(/archivo fuente del clip/i),
+    ).toBeTruthy();
+  });
+
   it('Máscara de color ofrece capas reales', () => {
     renderPanel('mask', 'layers');
     expect(screen.getByText('Capas de gradación')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Añadir capa de gradación de color/i })).toBeTruthy();
+  });
+});
+
+describe('ColorPropertiesPanel · comparación A/B de CapCut', () => {
+  it('«A/B» abre el estudio ya en modo antes/después', () => {
+    renderPanel('color', 'basic');
+    fireEvent.click(screen.getByRole('button', { name: 'Comparar antes y después' }));
+    // El visor entra en modo comparación. La línea divisoria sólo se monta
+    // cuando hay miniatura real; en jsdom no la hay, pero el estado sí cambia.
+    expect(screen.getByText('ANTES / DESPUÉS')).toBeTruthy();
+    expect(document.querySelector('.cg-studio')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Volver a propiedades/i })).toBeTruthy();
+  });
+
+  it('«Estudio avanzado» abre el visor sin comparar y se puede volver', () => {
+    renderPanel('color', 'basic');
+    fireEvent.click(screen.getByRole('button', { name: /Estudio avanzado de color/i }));
+    expect(screen.getByText('GRADE EN VIVO')).toBeTruthy();
+    expect(screen.queryByRole('slider', { name: 'Posición de comparación' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Volver a propiedades/i }));
+    expect(screen.getByRole('button', { name: 'Comparar antes y después' })).toBeTruthy();
   });
 });

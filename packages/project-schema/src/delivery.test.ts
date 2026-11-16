@@ -78,6 +78,9 @@ describe('RenderProfileSchema', () => {
     expect(
       RenderProfileSchema.safeParse(profile({ fit: 'cover' })).data?.fit,
     ).toBe('cover');
+    expect(
+      RenderProfileSchema.safeParse(profile({ fit: 'blur' })).data?.fit,
+    ).toBe('blur');
     expect(RenderProfileSchema.safeParse(profile({ fit: 'stretch' })).success).toBe(false);
     expect(
       RenderProfileSchema.safeParse(
@@ -113,6 +116,60 @@ describe('RenderProfileSchema', () => {
         profile({ container: 'webm', videoCodec: 'vp9', audioCodec: 'opus' }),
       ).success,
     ).toBe(true);
+  });
+
+  it('accepts prores only inside a mov container with 4:2:2 10-bit', () => {
+    expect(
+      RenderProfileSchema.safeParse(
+        profile({
+          container: 'mov',
+          videoCodec: 'prores',
+          pixelFormat: 'yuv422p10le',
+        }),
+      ).success,
+    ).toBe(true);
+
+    // ProRes no cabe en MP4.
+    expect(
+      RenderProfileSchema.safeParse(
+        profile({ videoCodec: 'prores', pixelFormat: 'yuv422p10le' }),
+      ).success,
+    ).toBe(false);
+
+    // yuv422p10le sólo lo emite ProRes.
+    expect(
+      RenderProfileSchema.safeParse(profile({ pixelFormat: 'yuv422p10le' })).success,
+    ).toBe(false);
+
+    // ProRes sin su pixel format nativo también se rechaza.
+    expect(
+      RenderProfileSchema.safeParse(
+        profile({ container: 'mov', videoCodec: 'prores', pixelFormat: 'yuv420p' }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('accepts ProRes 4444 with alpha only for prores in mov', () => {
+    // Paridad `exp-alfa` de exportar_prores.js: yuva444p10le es válido.
+    expect(
+      RenderProfileSchema.safeParse(
+        profile({
+          container: 'mov',
+          videoCodec: 'prores',
+          pixelFormat: 'yuva444p10le',
+        }),
+      ).success,
+    ).toBe(true);
+
+    // yuva444p10le sin ProRes se rechaza (igual que yuv422p10le).
+    expect(
+      RenderProfileSchema.safeParse(profile({ pixelFormat: 'yuva444p10le' })).success,
+    ).toBe(false);
+    expect(
+      RenderProfileSchema.safeParse(
+        profile({ container: 'mov', videoCodec: 'h264', pixelFormat: 'yuva444p10le' }),
+      ).success,
+    ).toBe(false);
   });
 
   it('defaults the quality gate to requiring every asset ready', () => {

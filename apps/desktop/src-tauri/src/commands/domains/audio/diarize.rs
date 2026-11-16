@@ -6,50 +6,33 @@
 //!
 //! El comando devuelve tramos con hablante; el mapeo a subtítulos vive en el
 //! frontend (`state/speakers.ts`), que decide por solapamiento.
+//!
+//! DTOs, parsers de respuesta y validación de la config viven en
+//! `application::diarize`; acá queda el keyring de Windows y las llamadas HTTP.
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use keyring::Entry;
-use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::State;
 
+use crate::commands::system::resolve_tools;
+use crate::media::{probe_file, MediaKind};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::{AppState, DiarizeSettings};
 
-const KEYRING_SERVICE: &str = "editor-ia.diarize";
-const KEYRING_USER: &str = "diarize";
-const DEEPGRAM_URL: &str = "https://api.deepgram.com";
-const ASSEMBLY_URL: &str = "https://api.assemblyai.com";
-const POLL_ATTEMPTS: u32 = 100;
-const POLL_SECONDS: u64 = 3;
+// DTOs, constantes, parsers y validación: `application::diarize`.
+pub use crate::application::diarize::*;
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiarizeProviderInfo {
-    pub kind: String,
-    pub base_url: String,
-    pub language: String,
-    pub has_key: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SpeakerSegment {
-    /// Segundos desde el inicio del material.
-    pub start: f64,
-    pub end: f64,
-    pub text: String,
-    pub speaker: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DiarizeResult {
-    pub provider: String,
-    pub segments: Vec<SpeakerSegment>,
-}
+/// Tope de subida, alineado con el límite de audio pre-grabado de los
+/// proveedores (~2 GB). Por encima, el costo y la espera dejan de ser
+/// razonables para el audio de un clip del editor.
+const MAX_DIARIZE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Tope de duración medido con ffprobe cuando está disponible.
+const MAX_DIARIZE_SECONDS: f64 = 4.0 * 3600.0;
+/// Tope de la respuesta JSON del proveedor: las transcripciones de horas
+/// de audio no deberían acercarse a esto.
+const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 
 fn keyring_entry() -> Result<Entry, ProjectError> {
     Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|_| {
@@ -92,38 +75,12 @@ pub async fn save_diarize_provider(
     language: String,
     api_key: Option<String>,
 ) -> Result<DiarizeProviderInfo, ProjectError> {
-    let kind = match kind.as_str() {
-        "deepgram" => "deepgram",
-        "assemblyai" => "assemblyai",
-        _ => "none",
-    };
-    let base_url = base_url.trim().trim_end_matches('/').to_owned();
-    if !base_url.is_empty()
-        && !(base_url.starts_with("https://") || base_url.starts_with("http://"))
-    {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "la URL base tiene que empezar con https://",
-        ));
-    }
-    let language = {
-        let trimmed = language.trim();
-        if trimmed.is_empty() {
-            "es".to_owned()
-        } else {
-            trimmed.to_owned()
-        }
-    };
+    let config = normalize_diarize_config(&kind, &base_url, &language)?;
 
     if let Some(secret) = api_key {
         let trimmed = secret.trim();
         if !trimmed.is_empty() {
-            if trimmed.chars().count() < 8 {
-                return Err(ProjectError::message(
-                    ProjectErrorCode::ProviderUnavailable,
-                    "la clave parece demasiado corta",
-                ));
-            }
+            validate_api_key(trimmed)?;
             keyring_entry()?.set_password(trimmed).map_err(|_| {
                 ProjectError::message(
                     ProjectErrorCode::KeyringUnavailable,
@@ -137,68 +94,33 @@ pub async fn save_diarize_provider(
         ProjectError::message(ProjectErrorCode::Io, "el estado interno no está disponible")
     })?;
     settings.diarize = DiarizeSettings {
-        kind: kind.to_owned(),
-        base_url,
-        language,
+        kind: config.kind,
+        base_url: config.base_url,
+        language: config.language,
     };
     state.save_settings(&settings)?;
     Ok(provider_info(&settings.diarize))
 }
 
-fn parse_deepgram(value: &Value) -> Vec<SpeakerSegment> {
-    value["results"]["utterances"]
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| {
-                    let start = item["start"].as_f64()?;
-                    let end = item["end"].as_f64()?;
-                    let text = item["transcript"].as_str()?.trim().to_owned();
-                    let speaker = item["speaker"]
-                        .as_u64()
-                        .map(|number| number.to_string())
-                        .or_else(|| item["speaker"].as_str().map(str::to_owned))?;
-                    if text.is_empty() || end <= start {
-                        return None;
-                    }
-                    Some(SpeakerSegment {
-                        start,
-                        end,
-                        text,
-                        speaker,
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
+/// Lee el cuerpo por chunks con tope estricto (`commands::read_body_capped`,
+/// el helper compartido de `infrastructure::http`).
+const DIARIZE_INTERRUPTED: &str = "la respuesta del proveedor se cortó";
 
-fn parse_assemblyai(value: &Value) -> Vec<SpeakerSegment> {
-    value["utterances"]
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| {
-                    // AssemblyAI devuelve milisegundos.
-                    let start = item["start"].as_f64()? / 1000.0;
-                    let end = item["end"].as_f64()? / 1000.0;
-                    let text = item["text"].as_str()?.trim().to_owned();
-                    let speaker = item["speaker"].as_str()?.trim().to_owned();
-                    if text.is_empty() || end <= start || speaker.is_empty() {
-                        return None;
-                    }
-                    Some(SpeakerSegment {
-                        start,
-                        end,
-                        text,
-                        speaker,
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+/// Igual que `response.json()` pero con tope de bytes antes de parsear.
+async fn read_json_capped(
+    response: reqwest::Response,
+    unreadable: &str,
+) -> Result<Value, ProjectError> {
+    let bytes = crate::commands::read_body_capped(
+        response,
+        MAX_RESPONSE_BYTES,
+        ProjectErrorCode::InvalidProviderResponse,
+        "la respuesta del proveedor de diarización supera el límite",
+        DIARIZE_INTERRUPTED,
+    )
+    .await?;
+    serde_json::from_slice(&bytes)
+        .map_err(|_| ProjectError::message(ProjectErrorCode::InvalidProviderResponse, unreadable))
 }
 
 async fn deepgram(
@@ -206,7 +128,8 @@ async fn deepgram(
     base_url: &str,
     key: &str,
     language: &str,
-    bytes: Vec<u8>,
+    body: reqwest::Body,
+    content_length: u64,
 ) -> Result<Vec<SpeakerSegment>, ProjectError> {
     let base = if base_url.trim().is_empty() {
         DEEPGRAM_URL
@@ -220,7 +143,8 @@ async fn deepgram(
         .post(url)
         .header("Authorization", format!("Token {key}"))
         .header("Content-Type", "application/octet-stream")
-        .body(bytes)
+        .header("Content-Length", content_length.to_string())
+        .body(body)
         .timeout(Duration::from_secs(600))
         .send()
         .await
@@ -237,12 +161,8 @@ async fn deepgram(
             &format!("Deepgram respondió {status}"),
         ));
     }
-    let value: Value = response.json().await.map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "Deepgram devolvió una respuesta que no entiendo",
-        )
-    })?;
+    let value =
+        read_json_capped(response, "Deepgram devolvió una respuesta que no entiendo").await?;
     Ok(parse_deepgram(&value))
 }
 
@@ -251,7 +171,8 @@ async fn assemblyai(
     base_url: &str,
     key: &str,
     language: &str,
-    bytes: Vec<u8>,
+    body: reqwest::Body,
+    content_length: u64,
 ) -> Result<Vec<SpeakerSegment>, ProjectError> {
     let base = if base_url.trim().is_empty() {
         ASSEMBLY_URL
@@ -262,7 +183,8 @@ async fn assemblyai(
         .post(format!("{base}/v2/upload"))
         .header("authorization", key)
         .header("Content-Type", "application/octet-stream")
-        .body(bytes)
+        .header("Content-Length", content_length.to_string())
+        .body(body)
         .timeout(Duration::from_secs(600))
         .send()
         .await
@@ -278,12 +200,7 @@ async fn assemblyai(
             "AssemblyAI rechazó el archivo",
         ));
     }
-    let uploaded: Value = upload.json().await.map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "AssemblyAI no devolvió la URL de subida",
-        )
-    })?;
+    let uploaded = read_json_capped(upload, "AssemblyAI no devolvió la URL de subida").await?;
     let audio_url = uploaded["upload_url"].as_str().ok_or_else(|| {
         ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
@@ -307,12 +224,7 @@ async fn assemblyai(
                 &format!("AssemblyAI no aceptó el trabajo: {error}"),
             )
         })?;
-    let created: Value = created.json().await.map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "AssemblyAI no devolvió el id del trabajo",
-        )
-    })?;
+    let created = read_json_capped(created, "AssemblyAI no devolvió el id del trabajo").await?;
     let id = created["id"].as_str().ok_or_else(|| {
         ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
@@ -334,12 +246,7 @@ async fn assemblyai(
                     &format!("AssemblyAI no respondió al estado: {error}"),
                 )
             })?;
-        let value: Value = poll.json().await.map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::ProviderUnavailable,
-                "AssemblyAI devolvió un estado ilegible",
-            )
-        })?;
+        let value = read_json_capped(poll, "AssemblyAI devolvió un estado ilegible").await?;
         match value["status"].as_str() {
             Some("completed") => return Ok(parse_assemblyai(&value)),
             Some("error") => {
@@ -360,11 +267,11 @@ async fn assemblyai(
 #[tauri::command]
 pub async fn diarize_audio(
     state: State<'_, AppState>,
-    path: String,
+    asset_id: String,
     language: Option<String>,
 ) -> Result<DiarizeResult, ProjectError> {
     let settings = state.settings_snapshot()?;
-    let diarize = settings.diarize;
+    let diarize = settings.diarize.clone();
     if diarize.kind == "none" {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
@@ -377,24 +284,71 @@ pub async fn diarize_audio(
             "falta la clave del proveedor de diarización",
         )
     })?;
-    let source = PathBuf::from(path.trim());
-    if !source.is_file() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::NotFound,
-            "el archivo no existe",
-        ));
-    }
-    let bytes = std::fs::read(&source).map_err(|_| {
+    // AUD-087: el audio viaja a un proveedor externo, así que el comando no
+    // acepta una ruta arbitraria — recibe el id del asset, lo resuelve
+    // dentro del proyecto abierto y exige kind video/audio con archivo
+    // presente (misma política que la onda de `audio.rs`).
+    let session = state.require_session()?;
+    let (_kind, source) = crate::commands::audio::resolve_audio_asset(&session, &asset_id)?;
+    // Límites antes de subir: el archivo viaja a un proveedor externo y su
+    // respuesta puede ser grande; nada de eso debe leerse sin tope.
+    let metadata = std::fs::metadata(&source).map_err(|_| {
         ProjectError::message(ProjectErrorCode::Io, "no pude leer el archivo de audio")
     })?;
+    if metadata.len() > MAX_DIARIZE_BYTES {
+        return Err(ProjectError::message(
+            ProjectErrorCode::FileTooLarge,
+            "el audio supera el máximo de 2 GB para diarización",
+        ));
+    }
+    let (_, ffprobe, _) = resolve_tools(&settings);
+    if let Some(ffprobe) = ffprobe {
+        if let Ok(measure) = probe_file(&ffprobe, &source, MediaKind::Audio) {
+            if measure
+                .duration_seconds
+                .is_some_and(|duration| duration > MAX_DIARIZE_SECONDS)
+            {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::FileTooLarge,
+                    "el audio supera las 4 horas máximas para diarización",
+                ));
+            }
+        }
+    }
+    let content_length = metadata.len();
+    // Subida por streaming: el archivo no se carga entero en RAM.
+    let file = tokio::fs::File::open(&source).await.map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "no pude leer el archivo de audio")
+    })?;
+    let body = reqwest::Body::from(file);
     let language = language
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .unwrap_or(diarize.language.clone());
     let client = reqwest::Client::new();
     let segments = match diarize.kind.as_str() {
-        "deepgram" => deepgram(&client, &diarize.base_url, &key, &language, bytes).await?,
-        "assemblyai" => assemblyai(&client, &diarize.base_url, &key, &language, bytes).await?,
+        "deepgram" => {
+            deepgram(
+                &client,
+                &diarize.base_url,
+                &key,
+                &language,
+                body,
+                content_length,
+            )
+            .await?
+        }
+        "assemblyai" => {
+            assemblyai(
+                &client,
+                &diarize.base_url,
+                &key,
+                &language,
+                body,
+                content_length,
+            )
+            .await?
+        }
         other => {
             return Err(ProjectError::message(
                 ProjectErrorCode::ProviderUnavailable,
@@ -417,46 +371,42 @@ pub async fn diarize_audio(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
 
-    #[test]
-    fn parses_deepgram_utterances() {
-        let value: Value = serde_json::from_str(
-            r#"{"results":{"utterances":[
-                {"speaker":0,"start":0.1,"end":2.4,"transcript":"Hola"},
-                {"speaker":1,"start":2.4,"end":5.0,"transcript":"Qué tal"}
-            ]}}"#,
-        )
-        .unwrap();
-        let segments = parse_deepgram(&value);
-        assert_eq!(segments.len(), 2);
-        assert_eq!(segments[0].speaker, "0");
-        assert!((segments[1].end - 5.0).abs() < 1e-9);
+    /// Sirve una respuesta HTTP/1.1 cruda en loopback y devuelve la URL.
+    /// Mismo patrón que `lip_sync::tests::spawn_raw_server`.
+    fn spawn_raw_server(head: &'static str, body: Vec<u8>) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\n");
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(b"\r\n\r\n");
+                let _ = stream.write_all(&body);
+                let _ = stream.flush();
+            }
+        });
+        format!("http://{addr}/")
     }
 
-    #[test]
-    fn parses_assemblyai_utterances_in_seconds() {
-        let value: Value = serde_json::from_str(
-            r#"{"utterances":[
-                {"speaker":"A","start":100,"end":2400,"text":"Hola"},
-                {"speaker":"B","start":2400,"end":5000,"text":"Qué tal"}
-            ]}"#,
-        )
-        .unwrap();
-        let segments = parse_assemblyai(&value);
-        assert_eq!(segments.len(), 2);
-        assert!((segments[0].start - 0.1).abs() < 1e-9);
-        assert_eq!(segments[1].speaker, "B");
+    async fn fetch(url: &str) -> reqwest::Response {
+        reqwest::Client::new()
+            .get(url)
+            .send()
+            .await
+            .expect("respuesta del servidor de prueba")
     }
 
-    #[test]
-    fn ignores_empty_or_inverted_segments() {
-        let value: Value = serde_json::from_str(
-            r#"{"results":{"utterances":[
-                {"speaker":0,"start":2.0,"end":1.0,"transcript":"mal"},
-                {"speaker":0,"start":0.0,"end":1.0,"transcript":"  "}
-            ]}}"#,
-        )
-        .unwrap();
-        assert!(parse_deepgram(&value).is_empty());
+    #[tokio::test]
+    async fn read_json_capped_parses_small_json() {
+        let url = spawn_raw_server("Connection: close", b"{\"a\":1}".to_vec());
+        let response = fetch(&url).await;
+        let value = read_json_capped(response, "ilegible")
+            .await
+            .expect("json válido");
+        assert_eq!(value["a"], 1);
     }
 }

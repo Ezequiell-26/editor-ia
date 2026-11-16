@@ -18,6 +18,7 @@ import {
 } from '../../state/audio-mix';
 import { sampleTrackGain, sampleTrackPan } from '../../state/track-automation';
 import type { ClipFxSpec } from './clip-audio-fx';
+import { reversedWindowSampleRange, type ReversedAudioPlan } from './reverse-window';
 
 /**
  * Utilidades de mezcla de la preview y la vista Mezcla.
@@ -417,6 +418,291 @@ function buildPitchStage(ctx: AudioContext): PitchStage {
     },
   };
 }
+
+
+/**
+ * Reducción de ruido por sustracción espectral para `clip.audio.denoise`
+ * (el `afftdn` del export no tiene equivalente declarativo en Web Audio).
+ * STFT de 2048 con hop 1024 y ventana raíz-Hann en análisis y síntesis
+ * (el producto es Hann, que cumple COLA al 50 % de solape), perfil de
+ * ruido por mínimo con deriva hacia arriba (~2 s), oversubtraction y
+ * piso de ganancia modulados por `nr` (0–30 dB, igual que
+ * `afftdn=nr=`). No es sample-exacto: es una aproximación que reduce el
+ * piso de ruido estacionario sin tocar el gain de la voz. Si el worklet
+ * no está disponible el stage pasa seco.
+ */
+const DENOISE_WORKLET = `
+const N = 2048;
+const HOP = 1024;
+const BINS = N / 2 + 1;
+const CH = 2;
+
+function fftInPlace(re, im, inverse) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i += 1) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      const tr = re[i]; re[i] = re[j]; re[j] = tr;
+      const ti = im[i]; im[i] = im[j]; im[j] = ti;
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const half = len >> 1;
+    const ang = ((inverse ? 2 : -2) * Math.PI) / len;
+    const wpr = Math.cos(ang);
+    const wpi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let wr = 1;
+      let wi = 0;
+      for (let j = 0; j < half; j += 1) {
+        const a = i + j;
+        const b = a + half;
+        const vr = re[b] * wr - im[b] * wi;
+        const vi = re[b] * wi + im[b] * wr;
+        re[b] = re[a] - vr;
+        im[b] = im[a] - vi;
+        re[a] += vr;
+        im[a] += vi;
+        const nwr = wr * wpr - wi * wpi;
+        wi = wr * wpi + wi * wpr;
+        wr = nwr;
+      }
+    }
+  }
+  if (inverse) {
+    for (let i = 0; i < n; i += 1) {
+      re[i] /= n;
+      im[i] /= n;
+    }
+  }
+}
+
+class SpectralDenoise extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return [{ name: 'nr', defaultValue: 0, minValue: 0, maxValue: 30, automationRate: 'k-rate' }];
+  }
+  constructor() {
+    super();
+    this.win = new Float32Array(N);
+    for (let i = 0; i < N; i += 1) this.win[i] = Math.sin((Math.PI * i) / N);
+    this.q = [[], []];
+    this.qBase = 0;
+    this.nextStart = 0;
+    this.emitPos = 0;
+    this.olaBase = -HOP;
+    this.ola = [new Float32Array(N + HOP), new Float32Array(N + HOP)];
+    this.norm = new Float32Array(N + HOP);
+    this.re = [new Float32Array(N), new Float32Array(N)];
+    this.im = [new Float32Array(N), new Float32Array(N)];
+    this.noise = [
+      new Float32Array(BINS).fill(Number.MAX_VALUE),
+      new Float32Array(BINS).fill(Number.MAX_VALUE),
+    ];
+    // gs arranca en 1 (transparente): la ganancia baja rápido hacia el
+    // objetivo y recupera lento, igual que una puerta de ruido real.
+    this.gs = [new Float32Array(BINS).fill(1), new Float32Array(BINS).fill(1)];
+    this.outq = [[], []];
+    this.frames = 0;
+  }
+  processFrame(nrDb) {
+    const s = this.nextStart;
+    const off = s - this.qBase;
+    const win = this.win;
+    const amount = nrDb / 30;
+    const beta = 0.5 + 5 * amount;
+    const floor = 0.22 - 0.19 * amount;
+    const o = s - this.olaBase;
+    for (let c = 0; c < CH; c += 1) {
+      const q = this.q[c];
+      const re = this.re[c];
+      const im = this.im[c];
+      for (let i = 0; i < N; i += 1) {
+        re[i] = q[off + i] * win[i];
+        im[i] = 0;
+      }
+      fftInPlace(re, im, false);
+      const noise = this.noise[c];
+      const gs = this.gs[c];
+      for (let k = 0; k < BINS; k += 1) {
+        const mr = re[k];
+        const mi = im[k];
+        const m2 = mr * mr + mi * mi;
+        const mag = Math.sqrt(m2);
+        // Mínimo con deriva lenta hacia arriba: el perfil sigue al piso
+        // de ruido sin dejar que las ráfagas de voz lo inflen.
+        if (mag < noise[k]) noise[k] = mag;
+        else noise[k] += (mag - noise[k]) * 0.02;
+        const n2 = noise[k] * noise[k] * 4.0;
+        let g = 1 - (beta * n2) / (m2 + 1e-6);
+        if (g < floor) g = floor;
+        else if (g > 1) g = 1;
+        gs[k] += (g - gs[k]) * (g < gs[k] ? 0.5 : 0.25);
+      }
+      for (let k = 0; k < BINS; k += 1) {
+        const g = gs[k];
+        re[k] *= g;
+        im[k] *= g;
+        if (k > 0 && k < N / 2) {
+          re[N - k] *= g;
+          im[N - k] *= g;
+        }
+      }
+      fftInPlace(re, im, true);
+      const ola = this.ola[c];
+      for (let i = 0; i < N; i += 1) ola[o + i] += re[i] * win[i];
+    }
+    const norm = this.norm;
+    for (let i = 0; i < N; i += 1) norm[o + i] += win[i] * win[i];
+    const e = this.emitPos - this.olaBase;
+    for (let c = 0; c < CH; c += 1) {
+      const out = this.outq[c];
+      const ola = this.ola[c];
+      for (let i = 0; i < HOP; i += 1) {
+        const idx = e + i;
+        const d = norm[idx];
+        out.push(d > 1e-6 ? ola[idx] / d : 0);
+      }
+    }
+    for (let c = 0; c < CH; c += 1) this.q[c].splice(0, HOP);
+    this.qBase += HOP;
+    this.nextStart += HOP;
+    this.emitPos += HOP;
+    this.frames += 1;
+    for (let c = 0; c < CH; c += 1) {
+      this.ola[c].copyWithin(0, HOP);
+      this.ola[c].fill(0, N);
+    }
+    this.norm.copyWithin(0, HOP);
+    this.norm.fill(0, N);
+    this.olaBase += HOP;
+  }
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    const output = outputs[0];
+    if (!input || !input[0] || !output || !output[0]) return true;
+    const nrParam = parameters.nr;
+    const nrDb = Math.min(30, Math.max(0, nrParam && nrParam.length ? nrParam[0] : 0));
+    const inL = input[0];
+    const inR = input.length > 1 ? input[1] : input[0];
+    const n = inL.length;
+    if (nrDb <= 0.001) {
+      const outL = output[0];
+      const outR = output.length > 1 ? output[1] : output[0];
+      for (let i = 0; i < n; i += 1) {
+        outL[i] = inL[i];
+        if (outR !== outL) outR[i] = inR[i];
+      }
+      return true;
+    }
+    const q0 = this.q[0];
+    const q1 = this.q[1];
+    for (let i = 0; i < n; i += 1) {
+      q0.push(inL[i]);
+      q1.push(inR[i]);
+    }
+    while (this.qBase + q0.length >= this.nextStart + N) {
+      this.processFrame(nrDb);
+    }
+    const drain = (srcQ, dst) => {
+      const m = Math.min(srcQ.length, n);
+      if (dst) {
+        for (let i = 0; i < m; i += 1) dst[i] = srcQ[i];
+        for (let i = m; i < n; i += 1) dst[i] = 0;
+      }
+      srcQ.splice(0, m);
+    };
+    drain(this.outq[0], output[0]);
+    drain(this.outq[1], output.length > 1 ? output[1] : null);
+    return true;
+  }
+}
+registerProcessor('spectral-denoise', SpectralDenoise);
+`;
+
+const denoiseModuleLoads = new WeakMap<AudioContext, Promise<boolean>>();
+
+/** Carga el worklet de denoise una sola vez por AudioContext. */
+function ensureDenoiseModule(ctx: AudioContext): Promise<boolean> {
+  let promise = denoiseModuleLoads.get(ctx);
+  if (!promise) {
+    promise = (async () => {
+      try {
+        const url = URL.createObjectURL(
+          new Blob([DENOISE_WORKLET], { type: 'text/javascript' }),
+        );
+        await ctx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    denoiseModuleLoads.set(ctx, promise);
+  }
+  return promise;
+}
+
+interface DenoiseStage {
+  readonly inlet: GainNode;
+  readonly outlet: GainNode;
+  readonly setNr: (value: number) => void;
+  readonly dispose: () => void;
+}
+
+/**
+ * Inserta el denoise espectral entre `inlet` y `outlet` cuando el worklet
+ * está listo; si `addModule` falla el audio pasa seco (la preview queda
+ * sin reducción de ruido, igual que antes de este efecto).
+ */
+function buildDenoiseStage(ctx: AudioContext): DenoiseStage {
+  const inlet = ctx.createGain();
+  const outlet = ctx.createGain();
+  let node: AudioWorkletNode | null = null;
+  let nr = 0;
+  let disposed = false;
+  const applyParam = () => {
+    const param = node?.parameters.get('nr');
+    if (param) param.value = nr;
+  };
+  void ensureDenoiseModule(ctx).then((ok) => {
+    if (disposed) return;
+    if (ok) {
+      try {
+        node = new AudioWorkletNode(ctx, 'spectral-denoise');
+        inlet.connect(node);
+        node.connect(outlet);
+        applyParam();
+        return;
+      } catch {
+        // Cae al passthrough de abajo.
+      }
+    }
+    try {
+      inlet.connect(outlet);
+    } catch {
+      // Contexto cerrado.
+    }
+  });
+  return {
+    inlet,
+    outlet,
+    setNr: (value) => {
+      nr = value;
+      applyParam();
+    },
+    dispose: () => {
+      disposed = true;
+      try {
+        node?.disconnect();
+      } catch {
+        // Ya estaba desconectado.
+      }
+    },
+  };
+}
+
 
 /**
  * Construye los nodos Web Audio de los efectos soportados
@@ -1274,6 +1560,54 @@ function buildClipFxChain(
           });
           break;
         }
+        case 'clip.hpf':
+        case 'clip.lpf': {
+          // highpass/lowpass del clip (`clip.audio`): BiquadFilter de 2
+          // polos como el filtro de FFmpeg (Q=1/√2, Butterworth).
+          const filter = ctx.createBiquadFilter();
+          filter.type = spec.effectId === 'clip.hpf' ? 'highpass' : 'lowpass';
+          filter.Q.value = Math.SQRT1_2;
+          tail.connect(filter);
+          tail = filter;
+          setters.push((params) => {
+            filter.frequency.value = Math.min(20_000, Math.max(20, params.freq ?? 1_000));
+          });
+          break;
+        }
+        case 'clip.eq3': {
+          // equalizer=f=100|1000|8000:t=q:w=1 del clip → tres peaking con
+          // Q≈1 (el `w=1` de FFmpeg es un ancho de ~1 octava).
+          const bands = [100, 1_000, 8_000].map((freq) => {
+            const band = ctx.createBiquadFilter();
+            band.type = 'peaking';
+            band.frequency.value = freq;
+            band.Q.value = 1;
+            return band;
+          });
+          tail.connect(bands[0]!);
+          bands[0]!.connect(bands[1]!);
+          bands[1]!.connect(bands[2]!);
+          tail = bands[2]!;
+          setters.push((params) => {
+            bands[0]!.gain.value = Math.min(12, Math.max(-12, params.low ?? 0));
+            bands[1]!.gain.value = Math.min(12, Math.max(-12, params.mid ?? 0));
+            bands[2]!.gain.value = Math.min(12, Math.max(-12, params.high ?? 0));
+          });
+          break;
+        }
+        case 'clip.denoise': {
+          // afftdn → sustracción espectral en AudioWorklet (STFT 2048,
+          // hop 1024, perfil de ruido por mínimo). `nr` llega en dB
+          // (denoise·30, igual que el export).
+          const stage = buildDenoiseStage(ctx);
+          tail.connect(stage.inlet);
+          tail = stage.outlet;
+          disposers.push(stage.dispose);
+          setters.push((params) => {
+            stage.setNr(Math.min(30, Math.max(0, params.nr ?? 0)));
+          });
+          break;
+        }
         default:
           break;
       }
@@ -1821,4 +2155,359 @@ export function resetPreviewAudio(): void {
   chains.clear();
   pendingParams.clear();
   pendingMasterGainDb = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Audio de clips `reverse`: buffer invertido por Web Audio.
+//
+// El `<audio>`/`<video>` no puede reproducir hacia atrás de forma fiable, así
+// que para un clip `reverse` la preview decodifica el archivo una vez, invierte
+// la ventana de fuente que el clip consume y la reproduce con un
+// `AudioBufferSourceNode` hacia adelante. El buffer entra a la misma cadena de
+// pista que el elemento (ganancia de clip → FX → paneo → entrada), así fader,
+// EQ, medidores y scopes lo ven igual que al resto del audio.
+//
+// Límites honestos: la decodificación es del archivo completo (Web Audio no
+// decodifica parcial), por eso hay topes de bytes y de duración; un clip
+// `reverse` con `speedCurve` o más largo que el tope sigue en silencio.
+// ---------------------------------------------------------------------------
+
+/** Tope del archivo fuente a decodificar (comprimido). */
+const MAX_REVERSE_DECODE_BYTES = 96 * 1024 * 1024;
+/** Tope de duración decodificada: ~180 s estéreo ≈ 140 MB de PCM float. */
+const MAX_REVERSE_DECODE_SECONDS = 180;
+/** Deriva (segundos de buffer) que dispara re-seek del buffer source. */
+const REVERSED_DRIFT_SECONDS = 0.12;
+
+const reverseDecodeInflight = new Map<string, Promise<AudioBuffer | null>>();
+const reversedSessions = new Map<string, ReversedSession>();
+
+interface ReversedSession {
+  readonly ctx: AudioContext;
+  readonly trackId: string;
+  readonly buffer: AudioBuffer;
+  readonly gain: GainNode;
+  fx: ClipFxChain | undefined;
+  fxSignature: string;
+  pan: ClipPanChain | undefined;
+  clipPan: number;
+  source: AudioBufferSourceNode | null;
+  startedAt: number;
+  offsetAtStart: number;
+  rate: number;
+}
+
+/** Contexto vivo del motor (crea el grafo master si hace falta). */
+export function previewAudioContext(): AudioContext | null {
+  return ensureContext();
+}
+
+/**
+ * Decodifica `url` a `AudioBuffer` una sola vez por llamada concurrente.
+ * Devuelve `null` si no hay Web Audio, el archivo supera los topes o la
+ * decodificación falla — el clip queda en silencio, como antes.
+ */
+export function decodePreviewAudio(url: string): Promise<AudioBuffer | null> {
+  const pending = reverseDecodeInflight.get(url);
+  if (pending) return pending;
+  const promise = (async (): Promise<AudioBuffer | null> => {
+    const ctx = ensureContext();
+    if (!ctx || typeof fetch !== 'function') return null;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength === 0 || bytes.byteLength > MAX_REVERSE_DECODE_BYTES) {
+        return null;
+      }
+      const buffer = await ctx.decodeAudioData(bytes);
+      if (
+        !buffer ||
+        buffer.numberOfChannels === 0 ||
+        buffer.duration <= 0 ||
+        buffer.duration > MAX_REVERSE_DECODE_SECONDS
+      ) {
+        return null;
+      }
+      return buffer;
+    } catch {
+      return null;
+    } finally {
+      reverseDecodeInflight.delete(url);
+    }
+  })();
+  reverseDecodeInflight.set(url, promise);
+  return promise;
+}
+
+/**
+ * Construye el buffer invertido de la ventana de fuente del plan: el primer
+ * sample reproducido es el último de la ventana (el clip `reverse` arranca
+ * por el final de su fuente). El buffer fuente decodificado puede liberarse
+ * después: éste es el único que retiene la sesión.
+ */
+export function createReversedWindowBuffer(
+  ctx: AudioContext,
+  source: AudioBuffer,
+  plan: ReversedAudioPlan,
+): AudioBuffer | null {
+  const range = reversedWindowSampleRange(plan, source.sampleRate);
+  if (!range) return null;
+  const from = Math.min(range.from, source.length);
+  const to = Math.min(range.to, source.length);
+  const length = to - from;
+  if (length < 8) return null;
+  const channels = Math.min(2, Math.max(1, source.numberOfChannels));
+  const out = ctx.createBuffer(channels, length, source.sampleRate);
+  for (let channel = 0; channel < channels; channel += 1) {
+    const srcData = source.getChannelData(Math.min(channel, source.numberOfChannels - 1));
+    const dst = out.getChannelData(channel);
+    for (let index = 0; index < length; index += 1) {
+      dst[index] = srcData[to - 1 - index] ?? 0;
+    }
+  }
+  return out;
+}
+
+function reversedDisconnectSource(session: ReversedSession): void {
+  if (!session.source) return;
+  try {
+    session.source.onended = null;
+    session.source.stop();
+  } catch {
+    // Ya estaba detenido.
+  }
+  try {
+    session.source.disconnect();
+  } catch {
+    // Ya estaba desconectado.
+  }
+  session.source = null;
+}
+
+/** Reenruta `gain → (fx | pan | entrada de pista)` según la topología viva. */
+function rewireReversed(session: ReversedSession): void {
+  const chain = chains.get(session.trackId);
+  if (!chain) return;
+  try {
+    session.gain.disconnect();
+  } catch {
+    // Ya estaba desconectado.
+  }
+  if (session.fx) {
+    try {
+      session.fx.output.disconnect();
+    } catch {
+      // Ya estaba desconectado.
+    }
+  }
+  const panIn = session.pan ? session.pan.splitter : chain.input;
+  try {
+    if (session.fx) {
+      session.gain.connect(session.fx.input);
+      session.fx.output.connect(panIn);
+    } else {
+      session.gain.connect(panIn);
+    }
+    if (session.pan) {
+      try {
+        session.pan.merger.disconnect();
+      } catch {
+        // Ya estaba desconectado.
+      }
+      session.pan.merger.connect(chain.input);
+    }
+  } catch {
+    // WebView2 sin Web Audio completo: la voz queda muda, no rompe la app.
+  }
+}
+
+function reversedTeardownFx(session: ReversedSession): void {
+  if (!session.fx) return;
+  try {
+    session.fx.input.disconnect();
+    session.fx.output.disconnect();
+  } catch {
+    // Ya estaban desconectados.
+  }
+  session.fx.dispose();
+  session.fx = undefined;
+  session.fxSignature = '';
+}
+
+function reversedTeardownPan(session: ReversedSession): void {
+  if (!session.pan) return;
+  try {
+    session.pan.merger.disconnect();
+    session.pan.splitter.disconnect();
+  } catch {
+    // Ya estaban desconectados.
+  }
+  session.pan = undefined;
+  session.clipPan = 0;
+}
+
+/** Actualiza FX del clip; reconstruye la cadena sólo si cambió la receta. */
+function reversedApplyFx(session: ReversedSession, specs: readonly ClipFxSpec[]): void {
+  const signature = specs.map((spec) => spec.effectId).join('|');
+  if (session.fx && session.fx.signature === signature) {
+    session.fx.apply(specs);
+    return;
+  }
+  reversedTeardownFx(session);
+  if (specs.length > 0) {
+    session.fx = buildClipFxChain(session.ctx, specs) ?? undefined;
+    session.fx?.apply(specs);
+  }
+  rewireReversed(session);
+}
+
+/** Paneo por clip: cadena splitter→gains→merger sólo cuando |pan| > 0. */
+function reversedApplyPan(session: ReversedSession, pan: number): void {
+  const wants = Math.abs(pan) > 0.001;
+  if (session.pan && wants) {
+    applyClipPan(session.pan, pan);
+    session.clipPan = pan;
+    return;
+  }
+  if (!session.pan && wants) {
+    session.pan = buildClipPanChain(session.ctx, pan) ?? undefined;
+    session.clipPan = pan;
+  } else if (session.pan && !wants) {
+    reversedTeardownPan(session);
+  } else {
+    session.clipPan = pan;
+    return;
+  }
+  rewireReversed(session);
+}
+
+function reversedPlay(session: ReversedSession, offsetSec: number, rate: number): void {
+  reversedDisconnectSource(session);
+  const offset = Math.max(0, Math.min(offsetSec, session.buffer.duration - 0.005));
+  const remaining = session.buffer.duration - offset;
+  if (remaining <= 0.005 || rate <= 0) return;
+  const source = session.ctx.createBufferSource();
+  source.buffer = session.buffer;
+  source.playbackRate.value = rate;
+  source.connect(session.gain);
+  const when = session.ctx.currentTime + 0.03;
+  source.start(when, offset, remaining);
+  source.onended = () => {
+    if (session.source === source) session.source = null;
+  };
+  session.source = source;
+  session.startedAt = when;
+  session.offsetAtStart = offset;
+  session.rate = rate;
+}
+
+export interface PreviewReversedSyncState {
+  /** Offset dentro del buffer invertido, en segundos de buffer. */
+  readonly offsetSec: number;
+  /** playbackRate del buffer (> 0; ≤ 0 deja la voz en silencio). */
+  readonly rate: number;
+  /** Ganancia del clip en dB (keyframes incluidos). */
+  readonly gainDb: number;
+  readonly pan: number;
+  readonly fx: readonly ClipFxSpec[];
+}
+
+export interface PreviewReversedVoice {
+  sync(state: PreviewReversedSyncState): void;
+  stop(): void;
+}
+
+function reversedSync(session: ReversedSession, state: PreviewReversedSyncState): void {
+  session.gain.gain.value = gainFromDb(clampGainDb(state.gainDb));
+  reversedApplyFx(session, state.fx);
+  reversedApplyPan(session, state.pan);
+  if (state.rate <= 0.001) {
+    reversedDisconnectSource(session);
+    return;
+  }
+  const offset = Math.max(0, Math.min(state.offsetSec, session.buffer.duration - 0.005));
+  const expected = session.source
+    ? session.offsetAtStart + (session.ctx.currentTime - session.startedAt) * session.rate
+    : Number.NaN;
+  const drift = session.source ? Math.abs(offset - expected) : Number.POSITIVE_INFINITY;
+  const rateDrift = session.source
+    ? Math.abs(state.rate - session.rate) / Math.max(0.01, session.rate)
+    : 0;
+  if (!session.source || drift > REVERSED_DRIFT_SECONDS || rateDrift > 0.05) {
+    reversedPlay(session, offset, state.rate);
+  }
+}
+
+/** Cierra la sesión de una clave (clip) si existe. */
+export function stopPreviewReversedAudio(key: string): void {
+  const session = reversedSessions.get(key);
+  if (!session) return;
+  reversedSessions.delete(key);
+  reversedDisconnectSource(session);
+  try {
+    session.gain.disconnect();
+  } catch {
+    // Ya estaba desconectado.
+  }
+  reversedTeardownFx(session);
+  reversedTeardownPan(session);
+}
+
+/**
+ * Arranca la voz invertida de un clip `reverse` en la pista `trackId`.
+ * `buffer` es la ventana ya invertida (ver `createReversedWindowBuffer`).
+ * Devuelve `null` si no hay Web Audio o la pista no tiene cadena.
+ */
+export function startPreviewReversedAudio(opts: {
+  readonly key: string;
+  readonly trackId: string;
+  readonly buffer: AudioBuffer;
+  readonly offsetSec: number;
+  readonly rate: number;
+  readonly gainDb: number;
+  readonly pan: number;
+  readonly fx: readonly ClipFxSpec[];
+}): PreviewReversedVoice | null {
+  const ctx = ensureContext();
+  if (!ctx || opts.buffer.numberOfChannels === 0 || opts.buffer.duration <= 0) {
+    return null;
+  }
+  const chain = ensureChain(opts.trackId);
+  if (!chain) return null;
+  if (ctx.state === 'suspended') {
+    void ctx.resume().catch(() => {});
+  }
+  stopPreviewReversedAudio(opts.key);
+  const session: ReversedSession = {
+    ctx,
+    trackId: opts.trackId,
+    buffer: opts.buffer,
+    gain: ctx.createGain(),
+    fx: undefined,
+    fxSignature: '',
+    pan: undefined,
+    clipPan: 0,
+    source: null,
+    startedAt: 0,
+    offsetAtStart: 0,
+    rate: 0,
+  };
+  reversedSessions.set(opts.key, session);
+  reversedApplyFx(session, opts.fx);
+  reversedApplyPan(session, opts.pan);
+  rewireReversed(session);
+  reversedSync(session, {
+    offsetSec: opts.offsetSec,
+    rate: opts.rate,
+    gainDb: opts.gainDb,
+    pan: opts.pan,
+    fx: opts.fx,
+  });
+  return {
+    sync: (state) => {
+      if (reversedSessions.get(opts.key) === session) reversedSync(session, state);
+    },
+    stop: () => stopPreviewReversedAudio(opts.key),
+  };
 }

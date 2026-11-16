@@ -259,7 +259,15 @@ impl ProjectVersioning for LocalProjectVersioning {
                 version,
             });
         }
-        let backup = snapshot_project(&project, "before-restore");
+        // AUD-018: el backup previo es obligatorio — si `.olyvia-history/`
+        // no se puede escribir, restaurar pisaría el proyecto sin red de
+        // seguridad. Mejor fallar que perder la versión actual.
+        let backup = snapshot_project(&project, "before-restore").ok_or_else(|| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo crear el backup previo a la restauración; se canceló para no perder el proyecto actual",
+            )
+        })?;
         let temporary = project.with_extension("editoria.restore.tmp");
         fs::copy(&version_path, &temporary).map_err(|_| {
             ProjectError::message(ProjectErrorCode::Io, "no se pudo preparar la restauración")
@@ -271,7 +279,7 @@ impl ProjectVersioning for LocalProjectVersioning {
         Ok(RestoreProjectVersionResult {
             restore_mode: "in-place".to_owned(),
             project_path: absolute(&project),
-            backup_path: backup.map(|path| absolute(&path)),
+            backup_path: Some(absolute(&backup)),
             version,
         })
     }

@@ -50,6 +50,21 @@ function cacheWaveformPeaks(key: string, value: Waveform): void {
 const pending = new Map<string, Promise<Waveform | null>>();
 const failed = new Set<string>();
 
+// Puntias calientes/clipeadas (paridad `tracarOnda` de AlaukCut): el audio
+// float puede superar 0 dBFS y se codifica en el mismo número de pico —
+// >1 no es amplitud, es marcador: 1.25 = caliente, 1.5 = clipeado.
+export const WAVE_HOT_LEVEL = 1.25;
+export const WAVE_CLIP_LEVEL = 1.5;
+const HOT_RAW_THRESHOLD = 0.98;
+
+export function encodeWavePeak(raw: number, loudest: number): number {
+  if (loudest <= 0.00001) return 0;
+  const shape = Math.min(1, Math.sqrt(raw / loudest));
+  if (raw > 1) return WAVE_CLIP_LEVEL;
+  if (raw >= HOT_RAW_THRESHOLD) return Math.max(shape, WAVE_HOT_LEVEL);
+  return shape;
+}
+
 /**
  * Reduces a decoded channel into normalized peak buckets. Kept pure so the
  * timeline can be tested without Web Audio.
@@ -71,7 +86,7 @@ export function computePeaks(samples: Float32Array, buckets = DEFAULT_BUCKETS): 
   }
   const loudest = peaks.reduce((max, value) => (value > max ? value : max), 0);
   if (loudest <= 0.00001) return peaks;
-  return peaks.map((value) => Math.min(1, Math.sqrt(value / loudest)));
+  return peaks.map((value) => encodeWavePeak(value, loudest));
 }
 
 /** Cuts the asset-level waveform down to the clip's source window. */
@@ -130,16 +145,38 @@ async function decodeNativePeaks(
     // ya vienen con ese tamaño y son los que se dibujan.
     if (result.peaks.length === 0) return null;
     const amplitudes = result.peaks.map((peak) =>
-      Math.min(1, Math.max(Math.abs(peak.min), Math.abs(peak.max))),
+      Math.max(Math.abs(peak.min), Math.abs(peak.max)),
     );
     const loudest = amplitudes.reduce((max, value) => (value > max ? value : max), 0);
     if (loudest <= 0.00001) return amplitudes;
-    return amplitudes.map((value) => Math.min(1, Math.sqrt(value / loudest)));
+    return amplitudes.map((value) => encodeWavePeak(value, loudest));
   } catch {
     // Asset no listo, sin FFmpeg o sin stream de audio: cae al fallback
     // WebAudio (navegador) o al render sin onda (honesto).
     return null;
   }
+}
+
+/**
+ * Segundos que cubre `durationFrames` del asset. La cadencia real es la del
+ * medio (`media.frameRate`); los assets de audio no la guardan y su
+ * `durationFrames` se computó con el FPS del proyecto al importarlos
+ * (`media/mod.rs::build_asset`), así que el fallback correcto es el FPS del
+ * proyecto — no 30 (AUD-039: en 24 fps se subestimaba 20% y en 60 se duplicaba).
+ */
+export function waveformDurationSeconds(
+  durationFrames: number,
+  mediaRate: { readonly num: number; readonly den: number } | undefined,
+  projectFps?: number,
+): number {
+  if (durationFrames <= 0) return Number.POSITIVE_INFINITY;
+  const rate =
+    mediaRate && mediaRate.num > 0
+      ? mediaRate.num / Math.max(1, mediaRate.den)
+      : projectFps !== undefined && projectFps > 0
+        ? projectFps
+        : 30;
+  return durationFrames / rate;
 }
 
 /**
@@ -152,6 +189,7 @@ export function useWaveform(
   root: string | null,
   asset: Asset | null,
   buckets = DEFAULT_BUCKETS,
+  projectFps?: number,
 ): Waveform | null {
   const media = asset && 'media' in asset ? asset.media : undefined;
   const mediaFrames = media && 'durationFrames' in media ? media.durationFrames : 0;
@@ -159,9 +197,7 @@ export function useWaveform(
     media && 'frameRate' in media
       ? (media as { frameRate?: { num: number; den: number } }).frameRate
       : undefined;
-  const mediaFps = frameRate ? frameRate.num / Math.max(1, frameRate.den) : 30;
-  const durationSeconds =
-    mediaFrames > 0 && mediaFps > 0 ? mediaFrames / mediaFps : Number.POSITIVE_INFINITY;
+  const durationSeconds = waveformDurationSeconds(mediaFrames, frameRate, projectFps);
   // Los límites sólo valen cuando la duración es conocida. Un audio generado o
   // importado sin bloque `media` daba `Infinity`, se descartaba la vía nativa y
   // el clip quedaba sin onda; FFmpeg mide el archivo solo, así que se intenta.

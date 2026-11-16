@@ -109,9 +109,9 @@ fn split_chapters_blocking(
             index + 1,
             safe_name(&chapter.title)
         );
-        let output = output_dir.join(name);
+        let output = unique_output_path(output_dir.join(name));
         let duration = (chapter.end - chapter.start).max(0.1);
-        let args = vec![
+        let mut args = vec![
             "-ss".into(),
             format!("{:.3}", chapter.start),
             "-i".into(),
@@ -124,12 +124,9 @@ fn split_chapters_blocking(
             "0:a?".into(),
             "-map_chapters".into(),
             "-1".into(),
-            "-c:v".into(),
-            "libx264".into(),
-            "-preset".into(),
-            "veryfast".into(),
-            "-crf".into(),
-            "20".into(),
+        ];
+        args.extend(h264_encoder_args(ffmpeg, "veryfast", 20).map_err(CreatorError::Ffmpeg)?);
+        args.extend([
             "-pix_fmt".into(),
             "yuv420p".into(),
             "-c:a".into(),
@@ -139,7 +136,7 @@ fn split_chapters_blocking(
             "-movflags".into(),
             "+faststart".into(),
             output.to_string_lossy().into_owned(),
-        ];
+        ]);
         run_ffmpeg(ffmpeg, &args, &workspace.path)?;
         outputs.push(metadata_output(
             output,
@@ -160,13 +157,7 @@ pub async fn creator_split_chapters(
 ) -> Result<Vec<CreatorOutput>, ProjectError> {
     let (ffmpeg, ffprobe) = tools(&state)?;
     let input = require_file(&input_path, "El video de entrada")?;
-    let output_dir = PathBuf::from(output_dir.trim());
-    if output_dir.as_os_str().is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "Elegí una carpeta de salida.",
-        ));
-    }
+    let output_dir = crate::application::fs::validate_user_write_path(&output_dir)?;
     tauri::async_runtime::spawn_blocking(move || {
         split_chapters_blocking(&ffmpeg, &ffprobe, &input, &output_dir)
     })

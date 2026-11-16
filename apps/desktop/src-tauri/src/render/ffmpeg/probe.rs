@@ -12,6 +12,13 @@
 
 use super::*;
 
+/// La prueba funcional codifica 0,1 s de lavfi; el init de GPU/driver puede
+/// tardar ~2 s. 60 s es margen amplio: sin deadline un driver colgado
+/// congelaba la detección de encoders para siempre.
+const ENCODER_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// `ffmpeg -encoders` sólo lista compilados; 30 s es de sobra.
+const ENCODERS_LIST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HardwareEncoders {
@@ -19,6 +26,14 @@ pub struct HardwareEncoders {
     pub hevc: Option<String>,
     pub av1: Option<String>,
     pub vp9: Option<String>,
+    /// Encoder H.264/HEVC de software que el binario sí tiene. Los modos
+    /// `Software` de conversión y el fallback sin hardware lo necesitan:
+    /// `libx264`/`libx265` son GPL y no viajan en el bundle LGPL (AUD-084).
+    /// No se serializan: la UI de capacidades sólo muestra los de hardware.
+    #[serde(skip_serializing)]
+    pub h264_software: Option<String>,
+    #[serde(skip_serializing)]
+    pub hevc_software: Option<String>,
     pub checked: bool,
 }
 
@@ -27,6 +42,14 @@ pub(crate) const HW_H264: &[&str] = &["h264_nvenc", "h264_qsv", "h264_amf", "h26
 pub(crate) const HW_HEVC: &[&str] = &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox"];
 pub(crate) const HW_AV1: &[&str] = &["av1_nvenc", "av1_qsv", "av1_amf"];
 pub(crate) const HW_VP9: &[&str] = &["vp9_qsv", "vp9_amf"];
+
+/// Encoders de software en orden de preferencia. `libx264`/`libx265` encabezan
+/// la lista por calidad cuando el FFmpeg del usuario sí los trae; en el bundle
+/// LGPL el siguiente es Media Foundation (tolera dimensiones que los fallback
+/// CPU rechazan — `libkvazaar` exige múltiplo de 8) y el CPU puro queda como
+/// último recurso. Mismo orden que `screen_record::h264_software_video_args`.
+pub(crate) const SW_H264: &[&str] = &["libx264", "h264_mf", "libopenh264"];
+pub(crate) const SW_HEVC: &[&str] = &["libx265", "hevc_mf", "libkvazaar"];
 
 /// La detección inicializa encoders de verdad (hasta 2 s). El hardware no
 /// cambia durante la sesión, así que se guarda por ruta de FFmpeg; si el
@@ -79,10 +102,11 @@ pub(crate) fn encoder_works(ffmpeg: &Path, encoder: &str) -> bool {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    crate::commands::hide_console(&mut command);
-    command
-        .status()
-        .map(|status| status.success())
+    crate::infrastructure::process::hide_console(&mut command);
+    crate::infrastructure::process::output_with_timeout(&mut command, ENCODER_PROBE_TIMEOUT)
+        .map(|timed| {
+            !timed.timed_out && timed.status.map(|status| status.success()).unwrap_or(false)
+        })
         .unwrap_or(false)
 }
 
@@ -100,22 +124,39 @@ pub fn detect_hardware(ffmpeg: &Path) -> HardwareEncoders {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    crate::commands::hide_console(&mut command);
-    let Ok(output) = command.output() else {
+    crate::infrastructure::process::hide_console(&mut command);
+    let Ok(timed) =
+        crate::infrastructure::process::output_with_timeout(&mut command, ENCODERS_LIST_TIMEOUT)
+    else {
         return HardwareEncoders {
             h264: None,
             hevc: None,
             av1: None,
             vp9: None,
+            h264_software: None,
+            hevc_software: None,
             checked: false,
         };
     };
-    let text = String::from_utf8_lossy(&output.stdout);
+    if timed.timed_out {
+        return HardwareEncoders {
+            h264: None,
+            hevc: None,
+            av1: None,
+            vp9: None,
+            h264_software: None,
+            hevc_software: None,
+            checked: false,
+        };
+    }
+    let text = String::from_utf8_lossy(&timed.stdout);
     HardwareEncoders {
         h264: first_working(ffmpeg, &text, HW_H264),
         hevc: first_working(ffmpeg, &text, HW_HEVC),
         av1: first_working(ffmpeg, &text, HW_AV1),
         vp9: first_working(ffmpeg, &text, HW_VP9),
+        h264_software: first_working(ffmpeg, &text, SW_H264),
+        hevc_software: first_working(ffmpeg, &text, SW_HEVC),
         checked: true,
     }
 }
@@ -146,12 +187,18 @@ pub fn hardware_h264(ffmpeg: &Path) -> Option<String> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    crate::commands::hide_console(&mut command);
-    let output = command.output().ok()?;
-    if !output.status.success() {
+    crate::infrastructure::process::hide_console(&mut command);
+    let timed =
+        crate::infrastructure::process::output_with_timeout(&mut command, ENCODERS_LIST_TIMEOUT)
+            .ok()?;
+    if timed.timed_out {
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    let status = timed.status?;
+    if !status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&timed.stdout);
     first_working(ffmpeg, &text, HW_H264)
 }
 

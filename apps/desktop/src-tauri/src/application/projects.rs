@@ -124,7 +124,7 @@ fn describe(
     opened: OpenedProject,
 ) -> Result<OpenedProjectView, ProjectError> {
     let view = OpenedProjectView::from(opened);
-    environment.allow_media_root(Path::new(&view.root))?;
+    environment.allow_media_root(Path::new(&view.root), &view.project)?;
     Ok(view)
 }
 

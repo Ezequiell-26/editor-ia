@@ -347,14 +347,14 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
    * proyecto: es una exportaci├│n derivada y no debe marcar `dirty` ni entrar
    * en el historial de deshacer.
    */
-  const packageProject = useCallback(async (): Promise<boolean> => {
+  const packageProject = useCallback(async (outputPath?: string): Promise<boolean> => {
     const snapshot = stateRef.current;
     if (!snapshot.project) {
       return false;
     }
     try {
       const bundle = await buildDeliveryPackage(snapshot.project);
-      const saved = await service.saveDeliveryPackage(bundle.bytes, bundle.fileName);
+      const saved = await service.saveDeliveryPackage(bundle.bytes, bundle.fileName, outputPath);
       if (!saved) {
         return false;
       }
@@ -520,6 +520,35 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
         error: null,
       };
     });
+  }, []);
+
+  const undoTo = useCallback((index: number) => {
+    const restore = (current: StoreState): StoreState => {
+      const target = current.undo[index];
+      if (!current.project || target === undefined || !Number.isInteger(index)) {
+        return current;
+      }
+      return {
+        ...current,
+        project: target,
+        undo: current.undo.slice(0, index),
+        // Orden de rehacer: el estado inmediatamente posterior al restaurado
+        // queda primero (es el próximo que `redo` aplicaría).
+        redo: [...current.undo.slice(index + 1), current.project].slice(
+          0,
+          historyLimitRef.current,
+        ),
+        phase: 'dirty',
+        error: null,
+      };
+    };
+    const snapshot = restore(stateRef.current);
+    if (snapshot === stateRef.current) {
+      return;
+    }
+    editVersionRef.current += 1;
+    stateRef.current = snapshot;
+    setState(restore);
   }, []);
 
   const redo = useCallback(() => {
@@ -758,6 +787,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       update,
       undo,
       redo,
+      undoTo,
       setSelection,
       setIoPoint,
       clearIoRange,
@@ -813,6 +843,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       state,
       statusText,
       undo,
+      undoTo,
       update,
     ],
   );

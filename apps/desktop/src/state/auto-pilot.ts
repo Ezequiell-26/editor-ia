@@ -2,6 +2,7 @@ import type { ProjectDocument } from '@editor-ia/project-schema';
 import type { AudioPeaks, DesktopService } from '../services/project-service';
 import { runAutoCleanup, type AutoCleanupReport } from './auto-cleanup';
 import { ensureDelivery, newId, updateAudioMix } from './project-actions';
+import { buildProjectMotionPlans } from './motion-plan';
 import { chooseExportProfile } from './render-profile';
 import { measureAdaptiveProfile, type AdaptiveProfile } from './adaptive';
 
@@ -150,6 +151,16 @@ export async function runAutoPilot(input: AutoPilotInput): Promise<AutoPilotRepo
     throw new Error('el proyecto no tiene un perfil de render: agregá uno antes del piloto');
   }
 
+  // Los clips gráficos necesitan sus planes de motion en ASS; sin ellos el
+  // render nativo falla. Se calculan una vez: el lazo de loudness y el quality
+  // check solo tocan audio.master y renderProfiles, no la geometría del motion.
+  const motionBundle = buildProjectMotionPlans(delivered);
+  if (motionBundle.errors.length > 0) {
+    throw new Error(motionBundle.errors[0]);
+  }
+  const motionPlans =
+    Object.keys(motionBundle.plans).length > 0 ? motionBundle.plans : undefined;
+
   // 3. Escribir el proyecto limpio y renderizar desde disco.
   const stem = options.fileStem ?? slug(delivered.name);
   const written = await service.writeProjectVariant({
@@ -163,6 +174,7 @@ export async function runAutoPilot(input: AutoPilotInput): Promise<AutoPilotRepo
     profileId,
     outputPath,
     includeCaptions: options.includeCaptions ?? true,
+    ...(motionPlans ? { motionPlans } : {}),
   });
 
   // Lazo cerrado: si el archivo quedó lejos del objetivo, se corrige el master
@@ -190,6 +202,7 @@ export async function runAutoPilot(input: AutoPilotInput): Promise<AutoPilotRepo
         profileId,
         outputPath,
         includeCaptions: options.includeCaptions ?? true,
+        ...(motionPlans ? { motionPlans } : {}),
       });
       try {
         measuredLufs = (await service.measureFileLoudness(rendered.path)).integratedLufs;
@@ -226,6 +239,7 @@ export async function runAutoPilot(input: AutoPilotInput): Promise<AutoPilotRepo
           profileId: reference.id,
           outputPath: referencePath,
           includeCaptions: options.includeCaptions ?? true,
+          ...(motionPlans ? { motionPlans } : {}),
         });
         vmaf = await service.measureVmaf(referencePath, rendered.path);
         if (vmaf !== null && vmaf < targetVmaf) {
@@ -250,6 +264,7 @@ export async function runAutoPilot(input: AutoPilotInput): Promise<AutoPilotRepo
             profileId: improved.id,
             outputPath,
             includeCaptions: options.includeCaptions ?? true,
+            ...(motionPlans ? { motionPlans } : {}),
           });
           adjustedProfileId = improved.id;
           try {

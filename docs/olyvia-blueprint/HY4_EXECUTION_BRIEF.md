@@ -73,3 +73,7 @@ Además de los documentos de lectura originales, leer:
 6. docs/olyvia-blueprint/16_FEATURE_ACCEPTANCE_MATRIX.md
 
 No termines entregando sólo wireframes, análisis o una lista de tareas. Ejecuta todas las fases de frontend que correspondan a tu ownership hasta que la UI esté conectada a los servicios reales, probada y documentada. Entrega capturas antes/después, pruebas visuales y lista exacta de endpoints. No modifiques la parte nativa Tauri para resolver la ventana redimensionable: registra el contrato a SWE 2.
+
+## Addendum obligatorio — editor permanente (2026-11-13)
+
+Antes de implementar o reorganizar el frontend, leer también `docs/olyvia-blueprint/17_PERMANENT_EDITOR_FRONTEND_BUILD_PLAN.md`. Este plan es el procedimiento ejecutable para completar el frontend con una única sesión de editor, preview y timeline persistentes, Tool Registry único y activación contextual. Respetar la decisión canónica `docs/decisions/2026-11-13-permanent-editor-surface.md`: terminar y aprobar el frontend antes de iniciar la unificación funcional global. Comenzar por F0 (mapa real de montaje/rutas) y no hacer una reestructuración masiva.

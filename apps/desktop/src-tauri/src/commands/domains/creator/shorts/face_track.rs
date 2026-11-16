@@ -46,19 +46,44 @@ pub async fn analyze_face_track(
             "FFmpeg no está disponible para analizar rostros",
         ));
     };
+    // AUD-030: el análisis de rostros lanza FFmpeg+modelo por sample y puede
+    // tardar; va a spawn_blocking para no congelar el runtime async.
+    let ffprobe_path = ffprobe.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        analyze_face_track_blocking(app, input, duration, request.start_seconds, ffmpeg, ffprobe_path)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "el análisis de rostros se interrumpió antes de terminar",
+        )
+    })?
+}
+
+fn analyze_face_track_blocking(
+    app: AppHandle,
+    input: std::path::PathBuf,
+    duration: f64,
+    start_seconds: f64,
+    ffmpeg: std::path::PathBuf,
+    ffprobe: Option<std::path::PathBuf>,
+) -> Result<FaceTrackResult, ProjectError> {
+    let state = app.state::<AppState>();
+    let state = state.inner();
     let spec = model_by_id("seeta-face").ok_or_else(|| {
         ProjectError::message(
             ProjectErrorCode::NotFound,
             "el catálogo no tiene el modelo de rostros",
         )
     })?;
-    if !is_model_downloaded(&state, spec) {
+    if !is_model_downloaded(state, spec) {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "descargá el modelo de rostros (1,2 MB) en Ajustes → Capacidades",
         ));
     }
-    if !verify_model_hash(&state, spec) {
+    if !verify_model_hash(state, spec) {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
             "el modelo de rostros no coincide con su checksum; volvé a descargarlo",
@@ -67,7 +92,7 @@ pub async fn analyze_face_track(
     let model_path = spec
         .files
         .first()
-        .map(|file| model_file(&state, spec, file))
+        .map(|file| model_file(state, spec, file))
         .ok_or_else(|| {
             ProjectError::message(
                 ProjectErrorCode::NotFound,
@@ -79,7 +104,7 @@ pub async fn analyze_face_track(
         &ffmpeg,
         &model_path,
         &input,
-        request.start_seconds,
+        start_seconds,
         duration,
     )?;
     let track = face::smooth_track(&samples);

@@ -119,11 +119,25 @@ pub(crate) fn video_codec_args(
     height: u32,
     fps: f64,
 ) -> Vec<String> {
+    video_codec_args_preset(encoder, crf, width, height, fps, "slow")
+}
+
+/// Igual que `video_codec_args` pero con el preset x264/x265 explícito:
+/// las herramientas de compresión piden `faster` (medición propia) y el
+/// resto del pipeline conserva `slow`.
+pub(crate) fn video_codec_args_preset(
+    encoder: &str,
+    crf: u32,
+    width: u32,
+    height: u32,
+    fps: f64,
+    preset: &str,
+) -> Vec<String> {
     let mut args: Vec<String> = vec!["-c:v".to_owned(), encoder.to_owned()];
-    if encoder == "libx264" {
+    if encoder == "libx264" || encoder == "libx265" {
         args.extend([
             "-preset".to_owned(),
-            "slow".to_owned(),
+            preset.to_owned(),
             "-crf".to_owned(),
             crf.to_string(),
         ]);

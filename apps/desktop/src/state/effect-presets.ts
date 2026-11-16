@@ -96,5 +96,6 @@ export function applyEffectPreset(
   if (current.fadeOutFrames !== undefined) kept.fadeOutFrames = current.fadeOutFrames;
   if (current.lutFile !== undefined) kept.lutFile = current.lutFile;
   if (current.lutIntensity !== undefined) kept.lutIntensity = current.lutIntensity;
+  if (current.cameraProfile !== undefined) kept.cameraProfile = current.cameraProfile;
   return { ...kept, ...preset.settings };
 }

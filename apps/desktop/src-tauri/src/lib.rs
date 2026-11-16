@@ -22,6 +22,7 @@ pub mod projects;
 pub mod render;
 pub mod state;
 pub mod studio;
+pub mod vendor_concat;
 
 #[cfg_attr(test, allow(dead_code))]
 static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -100,6 +101,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
                 app.state::<state::AppState>().cancel_all_renders();
                 commands::downloader::cancel_active_download();
+                // AUD-024: los Chrome/Edge lanzados por browser_instances
+                // quedaban huérfanos con su perfil y puerto CDP al salir.
+                commands::browser_instances::stop_all_browser_instances();
                 commands::agent::remove_watchdog_silent(
                     &infrastructure::agent::SchtasksWatchdog::new(),
                 );
@@ -370,8 +374,12 @@ pub fn run() {
                         let inner = embed_handle.clone();
                         let marker = std::env::temp_dir().join("olyvia-embed-test.txt");
                         let _ = embed_handle.run_on_main_thread(move || {
-                            let result = commands::flow_embed::flow_embed_open(inner, url);
-                            let _ = std::fs::write(&marker, format!("{result:?}"));
+                            // flow_embed_open es async (salta al main thread
+                            // para crear la ventana): se ejecuta en el runtime.
+                            tauri::async_runtime::spawn(async move {
+                                let result = commands::flow_embed::flow_embed_open(inner, url).await;
+                                let _ = std::fs::write(&marker, format!("{result:?}"));
+                            });
                         });
                     });
                 }
@@ -391,6 +399,10 @@ pub fn run() {
         ) {
             app_handle.state::<state::AppState>().cancel_all_renders();
             commands::downloader::cancel_active_download();
+            commands::browser_instances::stop_all_browser_instances();
+            // Cierre ordenado del concat-worker: responde {"op":"shutdown"}
+            // y espera acotada antes de que el proceso muera (idempotente).
+            application::concat_worker::shutdown();
         }
     });
 }

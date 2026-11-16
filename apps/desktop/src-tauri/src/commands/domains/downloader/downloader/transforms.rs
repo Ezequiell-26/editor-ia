@@ -1,3 +1,6 @@
+// clippy::too_many_arguments: pipeline de transforms; cada flag es una
+// etapa opcional del request de descarga ya normalizado.
+#[allow(clippy::too_many_arguments)]
 fn process_video(
     progress: ProgressSink<'_>,
     ffmpeg: &Path,
@@ -247,6 +250,28 @@ fn cinematic_video(
     .map(|(path, _, _)| path)
 }
 
+/// (ancho, alto, fps) para el bitrate de los encoders sin CRF. Si ffprobe
+/// no puede medir, 1080p30 — bitrate conservador ~13 Mbps en el fallback.
+fn probe_dims(ffprobe: Option<&Path>, input: &Path) -> (u32, u32, f64) {
+    let Some(ffprobe) = ffprobe else {
+        return (1920, 1080, 30.0);
+    };
+    crate::media::probe_file(ffprobe, input, crate::media::MediaKind::Video)
+        .ok()
+        .map(|measure| {
+            (
+                measure.width.unwrap_or(1920),
+                measure.height.unwrap_or(1080),
+                f64::from(measure.frame_rate_num.unwrap_or(30))
+                    / f64::from(measure.frame_rate_den.unwrap_or(1).max(1)),
+            )
+        })
+        .unwrap_or((1920, 1080, 30.0))
+}
+
+// clippy::too_many_arguments: compresión de un video; los parámetros son las
+// opciones del request de descarga (crf/tamaño/codec/hdr).
+#[allow(clippy::too_many_arguments)]
 fn compress_video(
     progress: ProgressSink<'_>,
     ffmpeg: &Path,
@@ -274,19 +299,23 @@ fn compress_video(
     // Medición sintética 1080p/5 s: medium 4,75 s · fast 4,35 s · faster
     // 3,41 s. `faster` recorta ~28 % con un tamaño casi igual; el CRF sigue
     // controlando la calidad y el peso final.
-    let preset = "faster";
-    let codec_name = if preserve_hdr {
-        if codec == "av1" {
-            "libaom-av1"
-        } else {
-            "libx265"
-        }
+    //
+    // Codec pedido → encoder real del binario. `libx264`/`libx265` son GPL y
+    // no viajan en el bundle LGPL: h264 se resuelve con el sondeo de
+    // sharpen (GPU primero, software después) y h265 con la detección de
+    // hardware+software de `detect_hardware`. AV1 queda en libaom-av1.
+    let encoder = if codec == "av1" {
+        "libaom-av1".to_owned()
+    } else if codec == "h264" {
+        crate::commands::sharpen::resolve_encoder(ffmpeg)
+            .map_err(|error| error.message)?
     } else {
-        match codec {
-            "h264" => "libx264",
-            "av1" => "libaom-av1",
-            _ => "libx265",
-        }
+        let detected = crate::render::ffmpeg::detect_hardware_cached(ffmpeg);
+        detected
+            .hevc
+            .clone()
+            .or_else(|| detected.hevc_software.clone())
+            .unwrap_or_else(|| "libx265".to_owned())
     };
     let codec_label = if preserve_hdr {
         "H.265 HDR"
@@ -320,15 +349,11 @@ fn compress_video(
         "0",
         "-map_chapters",
         "0",
-        "-c:v",
-        codec_name,
     ]);
-    if codec == "av1" {
-        command.args(["-cpu-used", "6", "-row-mt", "1"]);
-    } else if !preserve_hdr {
-        command.args(["-preset", preset]);
-    }
-    if let Some(target_size_mb) = target_size_mb {
+    // Presupuesto de tamaño objetivo: válido para cualquier encoder (todos
+    // aceptan -b:v/-maxrate/-bufsize). Las validaciones de duración y el
+    // piso de bitrate son las mismas de antes.
+    let size_args: Option<Vec<String>> = if let Some(target_size_mb) = target_size_mb {
         let duration = source_duration
             .filter(|duration| *duration > 0.1)
             .ok_or_else(|| {
@@ -348,19 +373,44 @@ fn compress_video(
             ));
         }
         let video_kbps = video_kbps.min(100_000.0);
-        command.args([
+        Some(vec![
             "-b:v".into(),
             format!("{video_kbps:.0}k"),
             "-maxrate".into(),
             format!("{:.0}k", video_kbps * 1.35),
             "-bufsize".into(),
             format!("{:.0}k", video_kbps * 2.0),
-        ]);
-    } else if codec == "av1" {
-        command.args(["-crf", "32", "-b:v", "0"]);
+        ])
     } else {
-        let crf_value = crf.unwrap_or(24).to_string();
-        command.args(["-crf", &crf_value]);
+        None
+    };
+    if codec == "av1" {
+        command.args(["-c:v", encoder.as_str(), "-cpu-used", "6", "-row-mt", "1"]);
+        if let Some(bitrate) = size_args {
+            command.args(&bitrate);
+        } else {
+            command.args(["-crf", "32", "-b:v", "0"]);
+        }
+    } else if let Some(bitrate) = size_args {
+        command.args(["-c:v", encoder.as_str()]);
+        // `-preset` sólo existe en la familia x26x; el resto (nvenc, mf,
+        // openh264, kvazaar…) va directo por bitrate.
+        if !preserve_hdr
+            && (encoder.starts_with("libx264") || encoder.starts_with("libx265"))
+        {
+            command.args(["-preset", "faster"]);
+        }
+        command.args(&bitrate);
+    } else {
+        // Modo calidad: rate control según la familia del encoder resuelto
+        // (x26x → preset+CRF; nvenc/amf/qsv → sus flags; openh264/mf/kvazaar
+        // → bitrate por píxeles×fps). HDR conserva el preset medium de x265.
+        let (width, height, fps) = probe_dims(ffprobe, input);
+        let preset = if preserve_hdr { "medium" } else { "faster" };
+        let crf_value = crf.unwrap_or(24);
+        command.args(crate::commands::sharpen::video_codec_args_preset(
+            &encoder, crf_value, width, height, fps, preset,
+        ));
     }
     if preserve_hdr {
         let transfer = color

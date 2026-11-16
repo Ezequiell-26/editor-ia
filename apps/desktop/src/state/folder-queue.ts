@@ -31,6 +31,14 @@ export interface FolderQueueOptions {
   /** Ancho/alto de salida; si falta, se usa el del material. */
   readonly width?: number | undefined;
   readonly height?: number | undefined;
+  /**
+   * QUEUE-140: el usuario declara explícitamente que tiene derechos de uso
+   * comercial sobre el material de la carpeta. Es OBLIGATORIO: sin la
+   * declaración la corrida se rechaza antes de copiar nada — el pipeline
+   * no puede montar un asset `unverified`/`unknown` y marcar `allowed`
+   * sin que el usuario lo dijera registraba una declaración ficticia.
+   */
+  readonly rightsConfirmed?: boolean | undefined;
 }
 
 export interface FolderQueueItem {
@@ -58,6 +66,7 @@ type QueueService = Pick<
   | 'writeProjectFile'
   | 'renderProjectVariant'
   | 'audioPeaksPath'
+  | 'deletePath'
 >;
 
 const VIDEO_EXTENSIONS = /\.(mp4|mov|mkv|webm|m4v|avi)$/i;
@@ -74,6 +83,17 @@ function slug(name: string): string {
   return clean.length > 0 ? clean.slice(0, 60) : 'entrega';
 }
 
+/**
+ * AUD-136: el stem de entrega incluye la extensión de origen — `escena.mov`
+ * y `escena.mp4` producen `escena-mov`/`escena-mp4` y ya no comparten
+ * `escena.editoria.json` ni `escena.mp4` como destinos.
+ */
+function deliveryStem(name: string): string {
+  const base = slug(name);
+  const extension = name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') ?? '';
+  return extension.length > 0 ? `${base}-${extension}` : base;
+}
+
 function even(value: number | null | undefined, fallback: number): number {
   const base = Math.round(value ?? fallback);
   return Math.max(2, base % 2 === 0 ? base : base - 1);
@@ -86,6 +106,7 @@ function joinPath(directory: string, file: string): string {
 function buildProject(input: {
   label: string;
   relativePath: string;
+  sha256: string;
   bytes: number;
   width: number;
   height: number;
@@ -99,9 +120,14 @@ function buildProject(input: {
     kind: 'video',
     source: { type: 'local', path: input.relativePath },
     status: 'ready',
-    integrity: { sha256: '0'.repeat(64), bytes: Math.max(1, Math.round(input.bytes)) },
+    integrity: { sha256: input.sha256, bytes: Math.max(1, Math.round(input.bytes)) },
     rights: {
-      license: { id: 'user-declared', commercialUse: 'allowed' },
+      // Sólo se llega acá con `rightsConfirmed` — la declaración es real.
+      license: {
+        id: 'user-declared',
+        commercialUse: 'allowed',
+        notes: 'Declarado por el usuario al procesar la carpeta.',
+      },
       provenance: { origin: 'user-imported', acquiredAt: new Date().toISOString() },
     },
     media: {
@@ -119,12 +145,41 @@ function buildProject(input: {
   return withClip.project;
 }
 
+/**
+ * AUD-136: dos archivos distintos pueden sanear al mismo stem (`toma final`
+ * y `toma-final`). Sin desambiguar compartirían `.editoria.json` y `.mp4`:
+ * el segundo pisaba el proyecto del primero y su limpieza podía borrar el
+ * JSON ajeno. Cada corrida asigna stems únicos con sufijo incremental.
+ */
+function uniqueStem(base: string, used: ReadonlySet<string>): string {
+  let stem = base;
+  let index = 2;
+  while (used.has(stem)) {
+    stem = `${base}-${index}`;
+    index += 1;
+  }
+  return stem;
+}
+
 async function processFile(
   service: QueueService,
   file: { path: string; name: string },
   options: FolderQueueOptions,
+  stem: string,
 ): Promise<FolderQueueItem> {
-  const stem = slug(file.name);
+  // AUD-139: la copia a `media/` y el `.editoria.json` se crean antes de
+  // que el render termine — si cualquier paso posterior falla, los archivos
+  // creados por ESTA operación se borran en vez de quedar huérfanos.
+  const createdPaths: string[] = [];
+  const cleanupCreated = async (): Promise<void> => {
+    for (const path of createdPaths.splice(0)) {
+      try {
+        await service.deletePath(path);
+      } catch {
+        // Limpieza best-effort: un resto huérfano no debe tapar el error real.
+      }
+    }
+  };
   try {
     const probe = await service.probeMediaFile(file.path);
     if (!probe.videoCodec) {
@@ -141,11 +196,24 @@ async function processFile(
       paths: [file.path],
     });
     if (!copied) return { ...file, status: 'failed', message: 'no se pudo copiar el material' };
+    createdPaths.push(joinPath(options.outputDir, copied.relativePath.replaceAll('/', '\\')));
+    // AUD-135: el proyecto declara `ready` sólo con un SHA-256 real del
+    // archivo copiado; un digest ausente o inválido frena el archivo en
+    // vez de escribir una huella ficticia en el documento.
+    if (!/^[0-9a-f]{64}$/i.test(copied.sha256)) {
+      await cleanupCreated();
+      return {
+        ...file,
+        status: 'failed',
+        message: 'no se pudo verificar el hash del material copiado',
+      };
+    }
 
     let project = buildProject({
       label: file.name.replace(/\.[^.]+$/, ''),
       relativePath: copied.relativePath,
-      bytes: probe.bytes,
+      sha256: copied.sha256,
+      bytes: copied.bytes,
       width,
       height,
       durationSeconds: probe.durationSeconds,
@@ -174,6 +242,7 @@ async function processFile(
     project = ensureDelivery(cleanup.project);
     const renderProfile = chooseExportProfile(project);
     if (!renderProfile) {
+      await cleanupCreated();
       return { ...file, status: 'failed', message: 'el proyecto no tiene perfil de render' };
     }
 
@@ -182,6 +251,7 @@ async function processFile(
       fileName: `${stem}.editoria.json`,
       project,
     });
+    createdPaths.push(written.path);
     const rendered = await service.renderProjectVariant({
       projectPath: written.path,
       profileId: renderProfile.id,
@@ -208,6 +278,7 @@ async function processFile(
         : `MP4 de ${seconds} s verificado`,
     };
   } catch (error) {
+    await cleanupCreated();
     return {
       ...file,
       status: 'failed',
@@ -221,14 +292,24 @@ export async function runFolderQueue(
   options: FolderQueueOptions,
   onProgress?: (item: FolderQueueItem) => void,
 ): Promise<FolderQueueReport> {
+  // QUEUE-140: fail-fast antes de tocar el disco — la cola no puede
+  // entregar un proyecto `ready` sin una declaración de derechos real.
+  if (options.rightsConfirmed !== true) {
+    throw new Error(
+      'confirmá que tenés derechos de uso comercial sobre el material antes de procesar la carpeta',
+    );
+  }
   const files = await service.scanWatchFolder(options.folder);
   const videos = files
     .filter((file) => VIDEO_EXTENSIONS.test(file.name))
     .sort((a, b) => a.name.localeCompare(b.name))
     .slice(0, options.maxFiles ?? 12);
   const items: FolderQueueItem[] = [];
+  const usedStems = new Set<string>();
   for (const file of videos) {
-    const item = await processFile(service, { path: file.path, name: file.name }, options);
+    const stem = uniqueStem(deliveryStem(file.name), usedStems);
+    usedStems.add(stem);
+    const item = await processFile(service, { path: file.path, name: file.name }, options, stem);
     items.push(item);
     onProgress?.(item);
   }

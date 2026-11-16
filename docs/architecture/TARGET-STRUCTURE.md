@@ -114,7 +114,7 @@ No es obligatorio convertir cada carpeta en un crate. Se mantiene el crate actua
 ## 3. Paquetes compartidos
 
     packages/
-    ├─ project-schema/              # Documento persistido .olyp, validación y migraciones de schema
+    ├─ project-schema/              # Documento persistido .editoria.json, validación y migraciones de schema
     ├─ effect-kit/                  # Catálogo, parámetros, presets y semántica de stacks de efectos
     └─ ...                          # Sólo cuando un contrato sea compartido por 2+ unidades reales
 

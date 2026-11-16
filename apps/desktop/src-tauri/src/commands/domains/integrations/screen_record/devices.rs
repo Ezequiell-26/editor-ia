@@ -18,6 +18,9 @@ fn sanitize_device(device: &str) -> Result<String, ProjectError> {
 
 /// Argumentos `-f gdigrab ...` compartidos por la grabación y el snapshot
 /// de preview: mismo target (desktop/window/region), mismos offsets.
+// clippy::too_many_arguments: construye los flags de gdigrab; cada opción
+// mapea 1:1 a un flag de FFmpeg.
+#[allow(clippy::too_many_arguments)]
 fn gdigrab_input_args(
     target: &str,
     window_title: Option<&str>,
@@ -26,6 +29,7 @@ fn gdigrab_input_args(
     region_width: Option<i32>,
     region_height: Option<i32>,
     fps: u32,
+    draw_mouse: bool,
 ) -> Vec<String> {
     let mut args = vec![
         "-f".to_owned(),
@@ -33,7 +37,7 @@ fn gdigrab_input_args(
         "-framerate".to_owned(),
         fps.to_string(),
         "-draw_mouse".to_owned(),
-        "1".to_owned(),
+        if draw_mouse { "1" } else { "0" }.to_owned(),
     ];
     match target {
         "window" => args.extend([
@@ -57,6 +61,44 @@ fn gdigrab_input_args(
         _ => args.extend(["-i".to_owned(), "desktop".to_owned()]),
     }
     args
+}
+
+/// Args de vídeo para el mejor encoder H.264 de software que el binario
+/// declare. El bundle LGPL no trae `libx264` (es GPL): pedirlo fijo mataba
+/// ffmpeg con «Unknown encoder» después de reportar la grabación como
+/// iniciada. Se elige el primero disponible, igual que el render principal.
+fn h264_software_video_args(ffmpeg: &std::path::Path, crf: u32) -> Result<Vec<String>, String> {
+    let available = crate::render::ffmpeg::encoder_names(ffmpeg);
+    let pick = ["libx264", "h264_mf", "libopenh264"]
+        .into_iter()
+        .find(|name| available.iter().any(|candidate| candidate == name));
+    let to_args = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let args: Vec<String> = match pick {
+        Some("libx264") => {
+            let mut args = to_args(&["-c:v", "libx264", "-preset", "veryfast", "-crf"]);
+            args.push(crf.to_string());
+            args.extend(to_args(&["-pix_fmt", "yuv420p"]));
+            args
+        }
+        Some("h264_mf") => to_args(&[
+            "-c:v",
+            "h264_mf",
+            "-rate_control",
+            "quality",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        Some("libopenh264") => {
+            to_args(&["-c:v", "libopenh264", "-b:v", "8M", "-pix_fmt", "yuv420p"])
+        }
+        _ => {
+            return Err(
+                "ningún encoder H.264 de software utilizable en este FFmpeg (se probaron libx264, h264_mf y libopenh264)"
+                    .to_owned(),
+            )
+        }
+    };
+    Ok(args)
 }
 
 fn dshow_video_args(device: &str) -> Vec<String> {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { ProductionPlan } from '@editor-ia/project-schema';
 import type { VoiceInfo } from '../../services/contracts/assistant';
 import type { ProductionRun, StageRecord } from '../../services/contracts/studio';
 import { useProjectStore } from '../../state/project-store';
@@ -59,6 +60,10 @@ export function AutonomousRunsPanel() {
   const [voiceId, setVoiceId] = useState('');
   const [musicBed, setMusicBed] = useState(false);
   const [titleCard, setTitleCard] = useState(false);
+  const [describeText, setDescribeText] = useState('');
+  const [approveRemoteCost, setApproveRemoteCost] = useState(false);
+  const [planPreview, setPlanPreview] = useState<ProductionPlan | null>(null);
+  const [planBusy, setPlanBusy] = useState<'text' | 'brief' | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -118,6 +123,62 @@ export function AutonomousRunsPanel() {
     await act('new', () =>
       store.service.productionCreate(plan, { maxCostCents: plan.maxCostCents }),
     );
+  }
+
+  async function interpretText() {
+    const text = describeText.trim();
+    if (text.length < 10 || planBusy || busy) return;
+    setPlanBusy('text');
+    setError(null);
+    try {
+      const plan = await store.service.productionPlanFromText(text, {
+        approvedCost: approveRemoteCost,
+      });
+      setPlanPreview(plan);
+    } catch (cause) {
+      // Error honesto del backend (provider sin configurar, mock, remote
+      // sin approvedCost, respuesta inválida): queda a la vista y se
+      // ofrece el brief local como alternativa sin costo.
+      setError(cause instanceof Error ? cause.message : 'no se pudo interpretar el texto');
+      setPlanPreview(null);
+    } finally {
+      setPlanBusy(null);
+    }
+  }
+
+  async function planFromBriefLocal() {
+    const text = describeText.trim();
+    if (!text || planBusy || busy) return;
+    setPlanBusy('brief');
+    setError(null);
+    try {
+      const plan = await store.service.productionPlanFromBrief({ objective: text });
+      setPlanPreview(plan);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'no se pudo armar el plan');
+      setPlanPreview(null);
+    } finally {
+      setPlanBusy(null);
+    }
+  }
+
+  async function createRunFromPreview() {
+    if (!planPreview || busy || planBusy) return;
+    setBusy('new');
+    setError(null);
+    try {
+      await store.service.productionCreate(planPreview, {
+        maxCostCents: planPreview.maxCostCents,
+      });
+      setPlanPreview(null);
+      setDescribeText('');
+      await refresh();
+    } catch (cause) {
+      // El preview queda a la vista para reintentar o descartar.
+      setError(cause instanceof Error ? cause.message : 'no se pudo crear la corrida');
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function runAuto(runId: string) {
@@ -214,6 +275,85 @@ export function AutonomousRunsPanel() {
         <p className="muted">Abrí un proyecto para planificar una corrida autónoma.</p>
       )}
 
+      <div className="inspector-grid">
+        <label className="field">
+          <span>Describí tu video</span>
+          <input
+            type="text"
+            value={describeText}
+            placeholder="Un resumen de 60 segundos sobre cómo editar más rápido"
+            onChange={(event) => {
+              setDescribeText(event.target.value);
+              setPlanPreview(null);
+            }}
+          />
+        </label>
+        <label className="field">
+          <span>Provider de IA</span>
+          <select
+            value={approveRemoteCost ? 'approved' : ''}
+            onChange={(event) => setApproveRemoteCost(event.target.value === 'approved')}
+          >
+            <option value="">Sin costo remoto (provider local o sin IA)</option>
+            <option value="approved">Autorizo el costo del provider remoto</option>
+          </select>
+        </label>
+        <div className="actions compact">
+          <button
+            type="button"
+            className="small"
+            disabled={describeText.trim().length < 10 || planBusy !== null || busy !== null}
+            onClick={() => void interpretText()}
+          >
+            {planBusy === 'text' ? 'Interpretando…' : 'Interpretar con IA'}
+          </button>
+          <button
+            type="button"
+            className="small ghost"
+            disabled={!describeText.trim() || planBusy !== null || busy !== null}
+            onClick={() => void planFromBriefLocal()}
+            title="Arma el plan sin proveedor de IA: una escena por frase del objetivo"
+          >
+            {planBusy === 'brief' ? 'Armando…' : 'Plan simple (sin IA)'}
+          </button>
+        </div>
+      </div>
+
+      {planPreview ? (
+        <article className="notice" aria-label="Plan preview">
+          <p>
+            <strong>Plan:</strong> {planPreview.brief.objective}
+          </p>
+          <p className="fine-print">
+            {planPreview.scenes.length} escenas · {planPreview.target.platform}/
+            {planPreview.target.aspectRatio} ·{' '}
+            {Math.round(planPreview.target.targetDurationFrames / 30)}s
+            {planPreview.maxCostCents !== undefined
+              ? ` · tope $${(planPreview.maxCostCents / 100).toFixed(2)}`
+              : ''}
+          </p>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small primary"
+              disabled={busy !== null || !project}
+              title={project ? undefined : 'Abrí un proyecto para crear la corrida'}
+              onClick={() => void createRunFromPreview()}
+            >
+              {busy === 'new' ? 'Creando…' : 'Crear corrida desde este plan'}
+            </button>
+            <button
+              type="button"
+              className="small ghost"
+              disabled={busy !== null}
+              onClick={() => setPlanPreview(null)}
+            >
+              Descartar
+            </button>
+          </div>
+        </article>
+      ) : null}
+
       {error ? (
         <p className="notice notice-warning" role="alert">
           {error}
@@ -280,6 +420,36 @@ export function AutonomousRunsPanel() {
                     >
                       Avanzar etapa
                     </button>
+                    {run.status === 'running' ? (
+                      <button
+                        type="button"
+                        className="small"
+                        disabled={busy !== null}
+                        onClick={() =>
+                          void act(run.id, () => store.service.productionPause(run.id))
+                        }
+                      >
+                        Pausar
+                      </button>
+                    ) : null}
+                    {['planned', 'paused'].includes(run.status) ? (
+                      <button
+                        type="button"
+                        className="small"
+                        disabled={busy !== null}
+                        title="El driver del backend conduce la corrida aunque cierres esta ventana"
+                        onClick={() =>
+                          void act(run.id, async () => {
+                            const active = await store.service.productionStart(run.id);
+                            if (!active) {
+                              throw new Error('el driver backend no quedó activo para la corrida');
+                            }
+                          })
+                        }
+                      >
+                        Correr autónomo
+                      </button>
+                    ) : null}
                   </>
                 ) : null}
                 {run.status === 'paused' || run.status === 'failed' ? (

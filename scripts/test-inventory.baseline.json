@@ -1,0 +1,29 @@
+{
+  "ignoredTests": 73,
+  "generatedAt": "2026-11-12T14:56:13.871Z",
+  "note": "Conteo de atributos #[ignore] en apps/desktop/src-tauri (paridad con cargo test -- --list). Solo puede subir con --write-baseline consciente.",
+  "files": {
+    "apps/desktop/src-tauri/src/ai/assistant.tests.rs": 1,
+    "apps/desktop/src-tauri/src/application/models.tests.rs": 1,
+    "apps/desktop/src-tauri/src/application/studio_reacquire.rs": 1,
+    "apps/desktop/src-tauri/src/commands/domains/audio/dialogue.rs": 1,
+    "apps/desktop/src-tauri/src/commands/domains/audio/dubbing.rs": 1,
+    "apps/desktop/src-tauri/src/commands/domains/audio/lip_sync.rs": 1,
+    "apps/desktop/src-tauri/src/commands/domains/creator/shorts.tests.rs": 1,
+    "apps/desktop/src-tauri/src/commands/domains/downloader/downloader.tests.rs": 1,
+    "apps/desktop/src-tauri/src/commands/domains/media/best_frame.rs": 1,
+    "apps/desktop/src-tauri/src/commands/domains/media/preview_frame.tests.rs": 24,
+    "apps/desktop/src-tauri/src/infrastructure/studio/internet_archive.rs": 1,
+    "apps/desktop/src-tauri/src/infrastructure/studio/local_music.rs": 1,
+    "apps/desktop/src-tauri/src/infrastructure/studio/local_pattern.rs": 1,
+    "apps/desktop/src-tauri/src/infrastructure/studio/local_titlecard.rs": 1,
+    "apps/desktop/src-tauri/src/infrastructure/studio/local_voice.rs": 1,
+    "apps/desktop/src-tauri/src/infrastructure/studio/project_executor.rs": 7,
+    "apps/desktop/src-tauri/src/infrastructure/studio/render_executor.rs": 7,
+    "apps/desktop/src-tauri/src/media/audio_scope.tests.rs": 1,
+    "apps/desktop/src-tauri/src/media/face.rs": 1,
+    "apps/desktop/src-tauri/src/media/timeline_import.tests.rs": 2,
+    "apps/desktop/src-tauri/src/render/ffmpeg/tests.rs": 16,
+    "apps/desktop/src-tauri/src/render/loudness.tests.rs": 1
+  }
+}

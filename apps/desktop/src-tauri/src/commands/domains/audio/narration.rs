@@ -6,59 +6,22 @@
 //! Generated audio is imported as an asset with measured metadata and an
 //! unresolved licence until the user declares its rights.
 
+// DTOs, scripts, parsers y validadores: `application::narration`.
+pub use crate::application::narration::*;
+
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use tauri::State;
 use uuid::Uuid;
 
+use crate::commands::dialogue::TempFile;
 use crate::commands::system::resolve_tools;
 use crate::media::{probe_file, sha256_file, MediaKind};
 use crate::projects::service::{now_rfc3339, ProjectError, ProjectErrorCode};
 use crate::state::AppState;
-
-const TTS_SCRIPT: &str = r#"Add-Type -AssemblyName System.Speech
-$ErrorActionPreference = 'Stop'
-$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
-if ($env:EDITORIA_TTS_VOICE) { $synth.SelectVoice($env:EDITORIA_TTS_VOICE) }
-$synth.SetOutputToWaveFile($env:EDITORIA_TTS_OUT)
-$text = [Console]::In.ReadToEnd()
-if ([string]::IsNullOrWhiteSpace($text)) { throw 'empty narration' }
-$synth.Speak($text)
-$synth.Dispose()
-"#;
-
-const VOICES_SCRIPT: &str = r#"Add-Type -AssemblyName System.Speech
-$ErrorActionPreference = 'Stop'
-$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
-$voices = @($synth.GetInstalledVoices() | ForEach-Object {
-  $info = $_.VoiceInfo
-  [pscustomobject]@{ name = $info.Name; culture = $info.Culture.Name; gender = $info.Gender.ToString() }
-})
-$synth.Dispose()
-ConvertTo-Json -InputObject $voices -Compress
-"#;
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VoiceInfo {
-    /// Provider-specific identifier. For SAPI it is the installed voice name.
-    pub id: String,
-    pub name: String,
-    pub culture: String,
-    pub gender: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NarrationResult {
-    pub asset: Value,
-    pub voice: String,
-    pub provider: String,
-}
 
 // La paleta de comandos vive en `commands::hide_console`; acá se reexporta con
 // el nombre local que ya usaba el módulo.
@@ -120,34 +83,6 @@ fn run_powershell(
         ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-fn parse_voices(raw: &str) -> Vec<VoiceInfo> {
-    let value: Value = match serde_json::from_str(raw.trim()) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-    let entries = match value {
-        Value::Array(values) => values,
-        Value::Object(_) => vec![value],
-        _ => Vec::new(),
-    };
-    entries
-        .into_iter()
-        .filter_map(|entry| {
-            let name = entry["name"].as_str()?.trim();
-            if name.is_empty() {
-                return None;
-            }
-            Some(VoiceInfo {
-                id: name.to_owned(),
-                name: name.to_owned(),
-                culture: entry["culture"].as_str().unwrap_or("").to_owned(),
-                gender: entry["gender"].as_str().unwrap_or("").to_owned(),
-            })
-        })
-        .take(100)
-        .collect()
 }
 
 /// Sintetiza texto a WAV con la voz SAPI indicada y valida que el archivo
@@ -239,19 +174,7 @@ pub async fn synthesize_narration(
             _ => {}
         }
     }
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la narración está vacía",
-        ));
-    }
-    if trimmed.chars().count() > 4_000 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la narración supera los 4000 caracteres",
-        ));
-    }
+    let trimmed = validate_narration_text(&text)?;
     let session = state.require_session()?;
     let settings = state.settings_snapshot()?;
     let (_, ffprobe, powershell) = resolve_tools(&settings);
@@ -275,18 +198,26 @@ pub async fn synthesize_narration(
             "no se pudo crear la carpeta media del proyecto",
         )
     })?;
+    // AUD-084: el WAV se sintetiza en un temporal oculto y se publica con
+    // rename recién después de medir y hashear — si probe o hash fallan,
+    // el guard borra el temporal y no queda un medio sin asset en `media/`.
+    let temp = TempFile::new(media_dir.join(format!(".narracion-{}.wav", Uuid::new_v4())));
     let output = media_dir.join(format!("narracion-{}.wav", Uuid::new_v4()));
-    let voice_name = voice
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .or(settings.tts_voice.clone());
+    let voice_name = resolve_voice_name(voice.as_deref(), settings.tts_voice.as_deref());
     let voice_arg = voice_name.clone().unwrap_or_default();
-    synthesize_sapi_wav(&powershell, trimmed, &voice_arg, &output)?;
+    if let Err(error) = synthesize_sapi_wav(&powershell, trimmed, &voice_arg, temp.path()) {
+        return Err(error);
+    }
 
-    let measure = probe_file(&ffprobe, &output, MediaKind::Audio)?;
-    let (sha256, bytes) = sha256_file(&output)?;
+    let measure = probe_file(&ffprobe, temp.path(), MediaKind::Audio)?;
+    let (sha256, bytes) = sha256_file(temp.path())?;
+    std::fs::rename(temp.path(), &output).map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudo publicar la narración: {error}").as_str(),
+        )
+    })?;
+    temp.keep();
     let relative = format!(
         "media/{}",
         output
@@ -340,25 +271,4 @@ pub async fn synthesize_narration(
         voice: voice_arg,
         provider: "windows-sapi".to_owned(),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn voices_parse_array_object_and_garbage() {
-        let array = r#"[{"name":"Microsoft Helena","culture":"es-ES","gender":"Female"}]"#;
-        assert_eq!(parse_voices(array).len(), 1);
-        let single = r#"{"name":"Microsoft Sabina","culture":"es-MX","gender":"Female"}"#;
-        assert_eq!(parse_voices(single)[0].name, "Microsoft Sabina");
-        assert!(parse_voices("not json").is_empty());
-    }
-
-    #[test]
-    fn the_script_never_interpolates_user_text() {
-        assert!(TTS_SCRIPT.contains("[Console]::In.ReadToEnd()"));
-        assert!(!TTS_SCRIPT.contains("{{"));
-        assert!(VOICES_SCRIPT.contains("GetInstalledVoices"));
-    }
 }

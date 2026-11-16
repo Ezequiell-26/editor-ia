@@ -1,6 +1,6 @@
 import { ColorSwatch } from '../../components/ColorSwatch';
 import { PolygonEditor } from './PolygonEditor';
-import type { MotionTemplate } from './templates';
+import type { MotionTemplate } from '../../state/motion-templates';
 
 function colorValue(value: unknown): string {
   return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : '#ffffff';

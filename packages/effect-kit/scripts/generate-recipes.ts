@@ -74,6 +74,10 @@ lines.push('    pub chain: &\'static [&\'static str],');
 lines.push('    pub graph: Option<&\'static str>,');
 lines.push('    /// Cadena de audio (efectos `kind: audio`). Vacía en los de video.');
 lines.push('    pub audio_chain: &\'static [&\'static str],');
+lines.push('    /// La cadena de audio usa plantillas `{expresión}` de concat-effects.');
+lines.push('    /// Vacía en la tabla (el crate `concat-effects` las resuelve en Rust);');
+lines.push('    /// sólo marca que `find` debe delegar en `Catalogue`.');
+lines.push('    pub concat_audio: bool,');
 lines.push('    pub params: &\'static [RecipeParam],');
 lines.push('}');
 lines.push('');
@@ -86,7 +90,11 @@ for (const manifest of ALL_EFFECTS) {
   const audio = manifest.audio;
   if (!recipe && !audio) continue;
   const chain = (recipe?.chain ?? []).map((item) => rustString(item)).join(', ');
-  const audioChain = (audio?.chain ?? []).map((item) => rustString(item)).join(', ');
+  // Las recetas concat no se traducen: su `{expresión}` no es sintaxis
+  // `{param}` y el crate vendorado las evalúa mejor que un port.
+  const audioChain = audio?.concatTemplate
+    ? ''
+    : (audio?.chain ?? []).map((item) => rustString(item)).join(', ');
   const params = manifest.params
     .map((param) => `RecipeParam { id: ${rustString(param.id)}, kind: ${paramKind(param.type)} }`)
     .join(', ');
@@ -95,6 +103,7 @@ for (const manifest of ALL_EFFECTS) {
   lines.push(`        chain: &[${chain}],`);
   lines.push(`        graph: ${recipe?.graph ? `Some(${rustString(recipe.graph)})` : 'None'},`);
   lines.push(`        audio_chain: &[${audioChain}],`);
+  lines.push(`        concat_audio: ${audio?.concatTemplate ? 'true' : 'false'},`);
   lines.push(`        params: &[${params}],`);
   lines.push('    },');
   count += 1;

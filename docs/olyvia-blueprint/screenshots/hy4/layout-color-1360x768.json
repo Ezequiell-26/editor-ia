@@ -1,0 +1,191 @@
+{
+  "inspector": {
+    "x": 1020,
+    "y": 34,
+    "w": 340,
+    "h": 734,
+    "right": 1360,
+    "bottom": 768
+  },
+  "head": "Detallesclip",
+  "tabsScroll": {
+    "client": 312,
+    "scroll": 312
+  },
+  "tabButtons": [
+    {
+      "label": "Video",
+      "active": false,
+      "x": 1034,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1089,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Audio",
+      "active": false,
+      "x": 1091,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1145,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Velocidad",
+      "active": false,
+      "x": 1147,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1202,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Recorte",
+      "active": false,
+      "x": 1204,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1258,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Animación",
+      "active": false,
+      "x": 1260,
+      "y": 101,
+      "w": 55,
+      "h": 23,
+      "right": 1315,
+      "bottom": 124,
+      "visible": true
+    },
+    {
+      "label": "Color",
+      "active": true,
+      "x": 1034,
+      "y": 126,
+      "w": 55,
+      "h": 23,
+      "right": 1089,
+      "bottom": 149,
+      "visible": true
+    },
+    {
+      "label": "Máscara de color",
+      "active": false,
+      "x": 1091,
+      "y": 126,
+      "w": 111,
+      "h": 23,
+      "right": 1202,
+      "bottom": 149,
+      "visible": true
+    },
+    {
+      "label": "Estilo",
+      "active": false,
+      "x": 1204,
+      "y": 126,
+      "w": 55,
+      "h": 23,
+      "right": 1258,
+      "bottom": 149,
+      "visible": true
+    },
+    {
+      "label": "Todo",
+      "active": false,
+      "x": 1260,
+      "y": 126,
+      "w": 55,
+      "h": 23,
+      "right": 1315,
+      "bottom": 149,
+      "visible": true
+    }
+  ],
+  "activeTab": "Color",
+  "subTabButtons": [
+    {
+      "label": "Básico",
+      "active": true,
+      "disabled": false,
+      "x": 1035,
+      "y": 161,
+      "w": 47,
+      "h": 23,
+      "right": 1082,
+      "bottom": 184,
+      "visible": true
+    },
+    {
+      "label": "HSL",
+      "active": false,
+      "disabled": false,
+      "x": 1085,
+      "y": 161,
+      "w": 36,
+      "h": 23,
+      "right": 1121,
+      "bottom": 184,
+      "visible": true
+    },
+    {
+      "label": "Curvas",
+      "active": false,
+      "disabled": false,
+      "x": 1124,
+      "y": 161,
+      "w": 49,
+      "h": 23,
+      "right": 1173,
+      "bottom": 184,
+      "visible": true
+    },
+    {
+      "label": "Ruedas cromáticas",
+      "active": false,
+      "disabled": false,
+      "x": 1176,
+      "y": 161,
+      "w": 104,
+      "h": 23,
+      "right": 1281,
+      "bottom": 184,
+      "visible": true
+    },
+    {
+      "label": "HDR",
+      "active": false,
+      "disabled": false,
+      "x": 1284,
+      "y": 161,
+      "w": 39,
+      "h": 23,
+      "right": 1323,
+      "bottom": 184,
+      "visible": true
+    }
+  ],
+  "activeSubTab": "Básico",
+  "clipInspectorTab": "color",
+  "clipInspectorSub": "basic",
+  "sections": [
+    "Estilo",
+    "Color",
+    "Luz"
+  ],
+  "sliders": 6,
+  "numberInputs": 0,
+  "presetButtons": 2,
+  "hasColorStudio": true
+}

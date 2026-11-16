@@ -123,7 +123,7 @@ pub fn build_xml(project: &Value) -> (String, usize, Vec<String>) {
                 "{label_text} tiene velocidad/reverse; se exporta a 100%"
             ));
         }
-        if clip.get("transitionIn").is_some() {
+        if clip.get("transitionIn").is_some() || clip.get("transitionOut").is_some() {
             warnings.push(format!(
                 "{label_text} tiene transición; no se escribe en el FCPXML"
             ));

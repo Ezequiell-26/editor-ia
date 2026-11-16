@@ -158,8 +158,10 @@ pub async fn pick_thumbnail_frames(
     state: State<'_, AppState>,
     request: BestFrameRequest,
 ) -> Result<Vec<BestThumbnailFrame>, ProjectError> {
-    let input = PathBuf::from(request.path.trim());
-    if input.as_os_str().is_empty() || !input.is_file() {
+    // Video elegido por el usuario: política de lectura de `fs_*`
+    // (absoluta, fuera de ubicaciones de credenciales).
+    let input = crate::application::fs::resolve_user_file_path(&request.path)?;
+    if !input.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "el video para elegir el frame no está en disco",

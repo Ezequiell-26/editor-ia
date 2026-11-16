@@ -30,6 +30,9 @@ pub trait ConversionFiles: Send + Sync {
 /// publicación por rename y sondeo del resultado. Devuelve
 /// `(bytes, duración, formato)` del archivo publicado.
 pub trait ConversionRunner: Send + Sync {
+    // clippy::too_many_arguments: firma del trait del puerto; la implementan
+    // backends de FFmpeg y cambiarla altera el contrato interno.
+    #[allow(clippy::too_many_arguments)]
     fn run(
         &self,
         ffmpeg: &Path,

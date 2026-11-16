@@ -20,155 +20,22 @@
 //! Limitación honesta: Google puede rechazar el login dentro de webviews
 //! embebidos ("navegador no seguro"). Si eso pasa, la alternativa es el
 //! navegador dedicado por CDP de `flow_browser`.
+//!
+//! La lógica de slots/puertos/URLs vive en `application::web_sessions`.
 
-use std::collections::BTreeMap;
-use std::sync::Mutex;
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
+use crate::application::web_sessions::{
+    parse_url, register_slot, sanitize_slot, session_data_dir, slot_port_for, unregister_slot,
+    validate_url, window_label, FlowEmbedStatus, WebSessionInfo, WebSessionsStatus, DEFAULT_SLOT,
+    MIN_HEIGHT, MIN_WIDTH, WINDOW_HEIGHT, WINDOW_WIDTH,
+};
+use crate::commands::flow_browser::free_port;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 
-const DEFAULT_SLOT: &str = "flow";
-const DEFAULT_URL: &str = "https://flow.google.com";
-const WINDOW_WIDTH: f64 = 1280.0;
-const WINDOW_HEIGHT: f64 = 800.0;
-const MIN_WIDTH: f64 = 720.0;
-const MIN_HEIGHT: f64 = 560.0;
-const BASE_CDP_PORT: u16 = 19223;
-const CDP_PORT_RANGE: u16 = 48;
 const EVAL_TIMEOUT: Duration = Duration::from_secs(15);
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WebSessionInfo {
-    /// Nombre del slot ("flow", "canva", …).
-    pub name: String,
-    /// URL que está cargando/mostrando.
-    pub url: Option<String>,
-    /// Endpoint CDP de la ventana (sólo cuando está abierta).
-    pub cdp_url: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WebSessionsStatus {
-    /// Todas las sesiones web abiertas, ordenadas por nombre.
-    pub sessions: Vec<WebSessionInfo>,
-}
-
-/// Registro de slots abiertos: nombre → puerto CDP asignado. Mantiene el
-/// puerto estable mientras la ventana exista y permite derivar uno por slot.
-static SLOTS: Mutex<BTreeMap<String, u16>> = Mutex::new(BTreeMap::new());
-
-fn sanitize_slot(slot: &str) -> Result<String, ProjectError> {
-    let trimmed = slot.trim().to_lowercase();
-    if trimmed.is_empty()
-        || trimmed.len() > 32
-        || !trimmed
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el nombre de la sesión web debe tener 1-32 caracteres (letras, números, - o _)",
-        ));
-    }
-    Ok(trimmed)
-}
-
-fn window_label(slot: &str) -> String {
-    format!("web-{slot}")
-}
-
-/// Puerto CDP estable por slot: "flow" siempre 19223; el resto deriva del
-/// nombre dentro de un rango local para no pisarse entre sesiones.
-fn slot_port(slot: &str) -> u16 {
-    if slot == DEFAULT_SLOT {
-        return BASE_CDP_PORT;
-    }
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in slot.as_bytes() {
-        hash ^= u32::from(*byte);
-        hash = hash.wrapping_mul(0x0100_0193);
-    }
-    BASE_CDP_PORT + 1 + (hash % u32::from(CDP_PORT_RANGE - 1)) as u16
-}
-
-fn register_slot(slot: &str) -> u16 {
-    let mut guard = SLOTS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(port) = guard.get(slot) {
-        return *port;
-    }
-    let port = slot_port(slot);
-    guard.insert(slot.to_owned(), port);
-    port
-}
-
-/// Versión pub(crate) de `sanitize_slot` para otros comandos (p.ej. el
-/// generador de Flow) que necesiten validar el nombre de sesión.
-pub(crate) fn sanitize_slot_pub(slot: &str) -> Result<String, ProjectError> {
-    sanitize_slot(slot)
-}
-
-/// Puerto CDP que le corresponde a un slot (registrado o derivado del nombre).
-pub(crate) fn slot_port_for(slot: &str) -> u16 {
-    slot_port_or_default(slot)
-}
-
-fn unregister_slot(slot: &str) {
-    let mut guard = SLOTS.lock().unwrap_or_else(|e| e.into_inner());
-    guard.remove(slot);
-}
-
-fn slot_port_or_default(slot: &str) -> u16 {
-    SLOTS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(slot)
-        .copied()
-        .unwrap_or_else(|| slot_port(slot))
-}
-
-fn validate_url(url: &str) -> Result<String, ProjectError> {
-    let trimmed = url.trim();
-    if trimmed.is_empty() {
-        return Ok(DEFAULT_URL.to_owned());
-    }
-    if trimmed.len() > 2_048 || !(trimmed.starts_with("https://") || trimmed.starts_with("http://"))
-    {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del navegador debe ser http(s)",
-        ));
-    }
-    Ok(trimmed.to_owned())
-}
-
-fn parse_url(url: &str) -> Result<Url, ProjectError> {
-    Url::parse(url).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del navegador no es válida",
-        )
-    })
-}
-
-/// Directorio de datos WebView2 propio por sesión. Obligatorio: WebView2
-/// exige que todos los controles que comparten user-data-folder usen los
-/// MISMOS argumentos de navegador; la ventana principal usa
-/// `--in-process-gpu`, así que cada sesión necesita su propio entorno (lo
-/// que además aísla cookies/sesiones entre webs — ideal multi-cuenta).
-fn session_data_dir(slot: &str) -> std::path::PathBuf {
-    std::env::var_os("LOCALAPPDATA")
-        .map(|base| {
-            std::path::PathBuf::from(base)
-                .join("com.editoria.desktop")
-                .join("web-sessions")
-                .join(slot)
-        })
-        .unwrap_or_else(|| std::path::PathBuf::from("web-sessions").join(slot))
-}
 
 fn embed_window(app: &AppHandle, slot: &str) -> Result<tauri::WebviewWindow, ProjectError> {
     app.get_webview_window(&window_label(slot)).ok_or_else(|| {
@@ -184,7 +51,7 @@ fn session_info(app: &AppHandle, name: String) -> Option<WebSessionInfo> {
         .map(|window| WebSessionInfo {
             name: name.clone(),
             url: window.url().map(|u| u.to_string()).ok(),
-            cdp_url: Some(format!("http://127.0.0.1:{}", slot_port_or_default(&name))),
+            cdp_url: Some(format!("http://127.0.0.1:{}", slot_port_for(&name))),
         })
 }
 
@@ -206,8 +73,13 @@ pub fn web_sessions_status(app: AppHandle) -> WebSessionsStatus {
 
 /// Abre (o reutiliza) una sesión web con nombre apuntando a `url` (http/https).
 /// `slot` por defecto es "flow". Si ya está abierta con otra URL, la recrea.
+///
+/// Las ventanas WebView2 sólo se construyen en el hilo principal: este
+/// comando valida fuera del hilo de UI y delega el `build()` a
+/// `run_on_main_thread`. Antes era síncrono y, invocado por IPC/MCP desde un
+/// hilo del runtime, `build()` bloqueaba el loop y colgaba todo el bridge.
 #[tauri::command]
-pub fn web_session_open(
+pub async fn web_session_open(
     app: AppHandle,
     url: Option<String>,
     slot: Option<String>,
@@ -239,14 +111,22 @@ pub fn web_session_open(
         let _ = existing.close();
     }
 
-    let port = register_slot(&name);
+    let port = register_slot(&name, &free_port);
     let title = if name == DEFAULT_SLOT {
         "Olyvia — Flow".to_owned()
     } else {
         format!("Olyvia — {name}")
     };
 
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
+    let app_for_build = app.clone();
+    let build_name = name.clone();
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    app.run_on_main_thread(move || {
+        let result = WebviewWindowBuilder::new(
+            &app_for_build,
+            &label,
+            WebviewUrl::External(parsed),
+        )
         .title(title)
         .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
@@ -255,17 +135,37 @@ pub fn web_session_open(
         .theme(Some(tauri::Theme::Dark))
         // CDP en localhost para que Playwright/agentes controlen la página.
         .additional_browser_args(&format!("--remote-debugging-port={port}"))
-        .data_directory(session_data_dir(&name))
+        .data_directory(session_data_dir(&build_name))
         .build()
-        .map_err(|error| {
+        .map(|_| ())
+        .map_err(|error| error.to_string());
+        let _ = tx.send(result);
+    })
+    .map_err(|error| {
+        unregister_slot(&name);
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudo despachar la apertura de la sesión web: {error}").as_str(),
+        )
+    })?;
+
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(Ok(())) => Ok(web_sessions_status(app)),
+        Ok(Err(error)) => {
             unregister_slot(&name);
-            ProjectError::message(
+            Err(ProjectError::message(
                 ProjectErrorCode::Io,
                 format!("no se pudo abrir la sesión web: {error}").as_str(),
-            )
-        })?;
-
-    Ok(web_sessions_status(app))
+            ))
+        }
+        Err(_) => {
+            unregister_slot(&name);
+            Err(ProjectError::message(
+                ProjectErrorCode::ProviderUnavailable,
+                "el hilo de ventanas no respondió al abrir la sesión web",
+            ))
+        }
+    }
 }
 
 /// Cierra una sesión web (`slot`, por defecto "flow").
@@ -356,17 +256,6 @@ pub async fn web_session_eval(
 
 // ── Alias flow_embed_* (slot "flow", compatibilidad con la UI/MCP previos) ──
 
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FlowEmbedStatus {
-    /// La ventana de Flow existe (abierta o minimizada).
-    pub open: bool,
-    /// URL que está cargando/mostrando, si la ventana existe.
-    pub url: Option<String>,
-    /// Endpoint CDP de la ventana (sólo cuando está abierta).
-    pub cdp_url: Option<String>,
-}
-
 #[tauri::command]
 pub fn flow_embed_status(app: AppHandle) -> FlowEmbedStatus {
     match session_info(&app, DEFAULT_SLOT.to_owned()) {
@@ -384,11 +273,11 @@ pub fn flow_embed_status(app: AppHandle) -> FlowEmbedStatus {
 }
 
 #[tauri::command]
-pub fn flow_embed_open(
+pub async fn flow_embed_open(
     app: AppHandle,
     url: Option<String>,
 ) -> Result<FlowEmbedStatus, ProjectError> {
-    web_session_open(app.clone(), url, Some(DEFAULT_SLOT.to_owned()))?;
+    web_session_open(app.clone(), url, Some(DEFAULT_SLOT.to_owned())).await?;
     Ok(flow_embed_status(app))
 }
 
@@ -405,43 +294,4 @@ pub fn flow_embed_nav(app: AppHandle, direction: String) -> Result<bool, Project
 #[tauri::command]
 pub async fn flow_embed_eval(app: AppHandle, js: String) -> Result<String, ProjectError> {
     web_session_eval(app, js, Some(DEFAULT_SLOT.to_owned())).await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn slot_rechaza_nombres_peligrosos() {
-        assert!(sanitize_slot("").is_err());
-        assert!(sanitize_slot("../etc").is_err());
-        assert!(sanitize_slot("a b").is_err());
-        assert!(sanitize_slot(&"x".repeat(40)).is_err());
-        assert_eq!(sanitize_slot("Flow").unwrap(), "flow");
-        assert_eq!(sanitize_slot("mi-web_1").unwrap(), "mi-web_1");
-    }
-
-    #[test]
-    fn url_vacia_cae_al_default_y_rechaza_esquemas_raros() {
-        assert_eq!(validate_url("").unwrap(), DEFAULT_URL);
-        assert!(validate_url("file:///etc/passwd").is_err());
-        assert!(validate_url("javascript:alert(1)").is_err());
-    }
-
-    #[test]
-    fn flow_tiene_puerto_cdp_fijo_y_otros_slots_no_colisionan() {
-        assert_eq!(slot_port("flow"), BASE_CDP_PORT);
-        assert_ne!(slot_port("canva"), slot_port("flow"));
-        assert_ne!(slot_port("canva"), slot_port("leonardo"));
-        for slot in ["canva", "leonardo", "free-tier"] {
-            let port = slot_port(slot);
-            assert!(port > BASE_CDP_PORT && port < BASE_CDP_PORT + CDP_PORT_RANGE);
-        }
-    }
-
-    #[test]
-    fn window_label_prefija_web() {
-        assert_eq!(window_label("flow"), "web-flow");
-        assert_eq!(window_label("canva"), "web-canva");
-    }
 }

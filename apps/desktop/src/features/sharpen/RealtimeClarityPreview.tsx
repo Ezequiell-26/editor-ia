@@ -125,6 +125,8 @@ export function RealtimeClarityPreview({
   const frameRef = useRef<number | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
+  const [contextLost, setContextLost] = useState(false);
+  const [glEpoch, setGlEpoch] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [time, setTime] = useState(0);
@@ -136,12 +138,31 @@ export function RealtimeClarityPreview({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Recuperación de placa perdida (`placa_perdida.js` de AlaukCut): si la
+    // GPU suelta el contexto WebGL se muestra el original y, al restaurarse,
+    // se re-inicializan programa/textura/buffer (glEpoch fuerza el efecto).
+    const onContextLost = (event: Event) => {
+      event.preventDefault();
+      if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
+      setContextLost(true);
+    };
+    const onContextRestored = () => {
+      setContextLost(false);
+      setGlEpoch((epoch) => epoch + 1);
+    };
+    canvas.addEventListener('webglcontextlost', onContextLost);
+    canvas.addEventListener('webglcontextrestored', onContextRestored);
+    const detachContextListeners = () => {
+      canvas.removeEventListener('webglcontextlost', onContextLost);
+      canvas.removeEventListener('webglcontextrestored', onContextRestored);
+    };
     const gl = canvas.getContext('webgl2', {
       alpha: false,
       antialias: false,
       preserveDrawingBuffer: false,
     });
     if (!gl) {
+      detachContextListeners();
       const message =
         'Este WebView no expone WebGL2: el preview en tiempo real no está disponible.';
       setFailed(message);
@@ -150,6 +171,7 @@ export function RealtimeClarityPreview({
     }
     const program = createProgram(gl);
     if (!program) {
+      detachContextListeners();
       const message = 'No se pudo compilar el shader de definición.';
       setFailed(message);
       onErrorRef.current?.(message);
@@ -182,6 +204,7 @@ export function RealtimeClarityPreview({
     setFailed(null);
 
     return () => {
+      detachContextListeners();
       if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
       if (texture) gl.deleteTexture(texture);
       gl.deleteProgram(program);
@@ -190,7 +213,7 @@ export function RealtimeClarityPreview({
       textureRef.current = null;
       setReady(false);
     };
-  }, [src, kind]);
+  }, [src, kind, glEpoch]);
 
   useEffect(() => {
     if (!ready) return;
@@ -198,7 +221,7 @@ export function RealtimeClarityPreview({
       const gl = glRef.current;
       const program = programRef.current;
       const canvas = canvasRef.current;
-      if (!gl || !program || !canvas) return;
+      if (!gl || !program || !canvas || gl.isContextLost()) return;
       const source = kind === 'video' ? videoRef.current : imageRef.current;
       if (!source) return;
       const width =
@@ -314,10 +337,13 @@ export function RealtimeClarityPreview({
     drawRef.current();
   }, [settings, enabled, ready]);
 
-  if (failed) {
+  const fallbackMessage = failed ?? (contextLost
+    ? 'La GPU reinició el contexto gráfico; se muestra el original hasta restaurarlo.'
+    : null);
+  if (fallbackMessage) {
     return (
       <div className="denoise-preview-error" role="status">
-        <p>{failed}</p>
+        <p>{fallbackMessage}</p>
         {kind === 'video' ? (
           <video className="denoise-fallback-video" src={src} controls playsInline />
         ) : (

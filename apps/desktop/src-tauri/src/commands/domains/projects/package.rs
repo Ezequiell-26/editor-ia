@@ -94,19 +94,43 @@ fn write_atomic(output: &Path, bytes: &[u8]) -> Result<(), ProjectError> {
             "no se pudo escribir el paquete temporal",
         )
     })?;
-    if output.exists() {
-        std::fs::remove_file(output).map_err(|_| {
-            let _ = std::fs::remove_file(&temp);
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "no se pudo reemplazar el paquete existente",
-            )
-        })?;
-    }
-    std::fs::rename(&temp, output).map_err(|_| {
+    // AUD-016: el destino existente se aparta como backup en vez de borrarse;
+    // si el rename final falla se restaura, así un error nunca deja al
+    // usuario sin el paquete anterior.
+    let had_existing = output.exists();
+    let backup = parent.join(format!(
+        ".{}.bak-{}",
+        output
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "paquete".to_owned()),
+        Uuid::new_v4()
+    ));
+    if had_existing && std::fs::rename(output, &backup).is_err() {
         let _ = std::fs::remove_file(&temp);
-        ProjectError::message(ProjectErrorCode::Io, "no se pudo publicar el paquete")
-    })
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo apartar el paquete existente para reemplazarlo",
+        ));
+    }
+    match std::fs::rename(&temp, output) {
+        Ok(()) => {
+            if had_existing {
+                let _ = std::fs::remove_file(&backup);
+            }
+            Ok(())
+        }
+        Err(_) => {
+            if had_existing {
+                let _ = std::fs::rename(&backup, output);
+            }
+            let _ = std::fs::remove_file(&temp);
+            Err(ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo publicar el paquete",
+            ))
+        }
+    }
 }
 
 #[tauri::command]
@@ -115,24 +139,33 @@ pub async fn save_delivery_package(
     state: State<'_, AppState>,
     bytes_base64: String,
     file_name: String,
+    output_path: Option<String>,
 ) -> Result<Option<String>, ProjectError> {
     let session = state.require_session()?;
     let bytes = decode_package(&bytes_base64)?;
     let suggested = sanitize_file_name(&file_name)?;
-    let Some(picked) = app
-        .dialog()
-        .file()
-        .set_title("Guardar paquete de entrega")
-        .set_directory(&session.root)
-        .add_filter("Paquete Editor IA", &["zip"])
-        .set_file_name(&suggested)
-        .blocking_save_file()
-    else {
-        return Ok(None);
+    // Con ruta explícita (MCP/automatización) no hay diálogo que contestar:
+    // se escribe directo dentro del root del proyecto.
+    let picked = match output_path {
+        // Ruta explícita por IPC (MCP/automatización): política de escritura.
+        Some(raw) => crate::application::fs::validate_user_write_path(&raw)?,
+        None => {
+            let Some(picked) = app
+                .dialog()
+                .file()
+                .set_title("Guardar paquete de entrega")
+                .set_directory(&session.root)
+                .add_filter("Paquete Editor IA", &["zip"])
+                .set_file_name(&suggested)
+                .blocking_save_file()
+            else {
+                return Ok(None);
+            };
+            picked.into_path().map_err(|_| {
+                ProjectError::message(ProjectErrorCode::Io, "no se pudo usar la ruta elegida")
+            })?
+        }
     };
-    let picked = picked.into_path().map_err(|_| {
-        ProjectError::message(ProjectErrorCode::Io, "no se pudo usar la ruta elegida")
-    })?;
     let output = ensure_zip_extension(picked);
     ensure_path_is_safe(&session.path, &session.root, &output)?;
     write_atomic(&output, &bytes)?;

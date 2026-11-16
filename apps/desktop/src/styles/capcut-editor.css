@@ -1,0 +1,691 @@
+/* ==========================================================================
+   Olyvia · capa «Editor claro» (additiva, global)
+   --------------------------------------------------------------------------
+   Segunda parte del rediseño CapCut. Corrige tres defectos MEDIDOS en el
+   editor real a 1360×768 / 1280×720 (ver .tmp-ref/measure.mjs):
+
+   1. `filmora-polish.css` fija la columna de medios en 590px, dejando sólo
+      381px para el monitor; `.preview-tools` (577px) desbordaba hasta
+      x=1561 en un viewport de 1360. CapCut da al REPRODUCTOR el ancho
+      mayor: ~305px medios · resto monitor · ~340px detalles.
+   2. Las 9 pestañas de herramientas tenían su etiqueta en el DOM pero
+      oculta (`font-size:0` + `span{display:none}`). CapCut muestra icono
+      SOBRE etiqueta, con scroll horizontal para las que no entren.
+   3. Cabeceras de panel con rótulo explícito y tipografía legible.
+
+   Integración: se importa la ÚLTIMA en `main.tsx`. Selectores con
+   `:root[data-theme='dark']` (especificidad 0,4,0) + `!important` para
+   ganar a Filmora. Se excluyen explícitamente los layouts alternativos
+   `layout-shorts` / `layout-edicion` (propiedad de `layouts.css`) para no
+   pisarlos. Sólo presentación; ningún cambio de lógica o contrato.
+   ========================================================================== */
+
+/* ───────────────────── 1 · Proporciones del editor ───────────────────── */
+
+:root[data-theme='dark'] .app-shell .editor-grid:not(.layout-shorts):not(.layout-edicion) {
+  grid-template-columns:
+    clamp(300px, 24vw, 340px) minmax(0, 1fr) 1px
+    clamp(300px, 25vw, 360px) !important;
+  grid-template-rows: minmax(0, 1fr) clamp(248px, 34vh, 312px) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  background: #1c1c1c !important;
+}
+
+/* El divisor de 1 px se ve como una línea, no como una columna vacía.
+   MEDICIÓN: su grip interno medía 4px dentro de 1px (scrollWidth 4 /
+   clientWidth 0) y dibujaba un diente sobre el monitor. */
+:root[data-theme='dark'] .app-shell .editor-splitter {
+  background: #3b3b3b !important;
+  width: 1px !important;
+  min-width: 1px !important;
+  max-width: 1px !important;
+  overflow: hidden !important;
+}
+:root[data-theme='dark'] .app-shell .editor-splitter:hover,
+:root[data-theme='dark'] .app-shell .editor-splitter:focus-visible {
+  background: #00c1cd !important;
+}
+
+/* ──────────── 2 · Pestañas de herramientas con icono + etiqueta ───────── */
+
+:root[data-theme='dark'] .app-shell .rail-tabs {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  padding: 3px 4px !important;
+  background: #303030 !important;
+  border-bottom: 1px solid #3d3d3d !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #4f4f4f #303030 !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs::-webkit-scrollbar { height: 4px !important; }
+:root[data-theme='dark'] .app-shell .rail-tabs::-webkit-scrollbar-thumb {
+  background: #4f4f4f !important;
+  border-radius: 3px !important;
+}
+
+:root[data-theme='dark'] .app-shell .rail-tabs button {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  width: 50px !important;
+  min-width: 50px !important;
+  height: 44px !important;
+  padding: 3px 2px !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 5px !important;
+  border-bottom: 2px solid transparent !important;
+  background: transparent !important;
+  color: #a8a8a8 !important;
+  font-size: 9px !important;
+  font-weight: 550 !important;
+  line-height: 1.1 !important;
+  letter-spacing: 0 !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs button svg {
+  width: 16px !important;
+  height: 16px !important;
+  flex: 0 0 auto !important;
+  color: inherit !important;
+}
+/* Etiqueta real del DOM: antes `display:none !important` en Filmora. */
+:root[data-theme='dark'] .app-shell .rail-tabs button span {
+  display: block !important;
+  font-size: 9px !important;
+  line-height: 1.1 !important;
+  max-width: 48px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs button:hover {
+  background: #3d3d3d !important;
+  color: #ffffff !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs button.active,
+:root[data-theme='dark'] .app-shell .rail-tabs button[aria-selected='true'] {
+  background: rgba(0, 193, 205, 0.13) !important;
+  color: #4fe3ec !important;
+  box-shadow: inset 0 -2px 0 #00c1cd !important;
+  border-bottom-color: #00c1cd !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs button.active svg { color: #4fe3ec !important; }
+
+/* MEDICIÓN: con 299px de rail, `filmora-polish` repartía 158px para el
+   árbol de categorías y sólo 140px para la biblioteca; las miniaturas
+   quedaban en dos columnas de 62px, ilegibles. CapCut usa un árbol
+   estrecho y una sola columna de tarjetas grandes. */
+:root[data-theme='dark'] .app-shell .rail-stage {
+  grid-template-columns: 118px minmax(0, 1fr) !important;
+}
+/* El árbol de categorías se recortaba («Todos los medios» 84px dentro de
+   77px útiles). Se recupera la columna completa y se compacta la sangría. */
+:root[data-theme='dark'] .app-shell .rail-category-items button { padding-left: 12px !important; }
+:root[data-theme='dark'] .app-shell .rail-category-items button span { font-size: 10.5px !important; }
+:root[data-theme='dark'] .app-shell .rail-categories { min-width: 0 !important; }
+:root[data-theme='dark'] .app-shell .rail-category-items button span {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+:root[data-theme='dark'] .app-shell .rail-list {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 6px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-asset {
+  min-height: 92px !important;
+  font-size: 11px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-chips {
+  flex-wrap: wrap !important;
+  gap: 4px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-section-head,
+:root[data-theme='dark'] .app-shell .rail-subheading {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* ──────────── 2b · Facetas: scroll visible, no recorte silencioso ───────
+   MEDICIÓN: `.rail-facets` tenía clientWidth 180 / scrollWidth 404: cuatro
+   pestañas reales, dos inalcanzables sin saber que existían. Se deja el
+   scroll horizontal pero con barra visible y un fundido en el borde que
+   indica que hay más contenido (patrón de la flecha `>` de CapCut). */
+:root[data-theme='dark'] .app-shell .rail-module-bar {
+  position: relative !important;
+  overflow: hidden !important;
+  background: #2b2b2b !important;
+  border-bottom: 1px solid #3b3b3b !important;
+}
+:root[data-theme='dark'] .app-shell .rail-module-bar::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 22px !important;
+  background: linear-gradient(90deg, transparent, #2b2b2b) !important;
+  pointer-events: none !important;
+  z-index: 3 !important;
+}
+:root[data-theme='dark'] .app-shell .rail-facets {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 2px !important;
+  padding: 2px 3px 5px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #00c1cd #2b2b2b !important;
+}
+:root[data-theme='dark'] .app-shell .rail-facets::-webkit-scrollbar { height: 3px !important; }
+:root[data-theme='dark'] .app-shell .rail-facets::-webkit-scrollbar-thumb {
+  background: #00c1cd !important;
+  border-radius: 2px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-facets button {
+  flex: 0 0 auto !important;
+  height: 22px !important;
+  padding: 0 8px !important;
+  border-radius: 4px !important;
+  color: #a8a8a8 !important;
+  font-size: 10px !important;
+  white-space: nowrap !important;
+}
+:root[data-theme='dark'] .app-shell .rail-facets button:hover { background: #3d3d3d !important; color: #ffffff !important; }
+:root[data-theme='dark'] .app-shell .rail-facets button.active,
+:root[data-theme='dark'] .app-shell .rail-facets button[aria-selected='true'] {
+  background: rgba(0, 193, 205, 0.15) !important;
+  color: #4fe3ec !important;
+  box-shadow: inset 0 -2px 0 #00c1cd !important;
+}
+
+/* ─────────────── 3 · Cabeceras de panel con rótulo explícito ─────────── */
+
+:root[data-theme='dark'] .app-shell .rail-head,
+:root[data-theme='dark'] .app-shell .inspector-head,
+:root[data-theme='dark'] .app-shell .timeline-tabs {
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  background: #262626 !important;
+  border-bottom: 1px solid #3b3b3b !important;
+}
+:root[data-theme='dark'] .app-shell .rail-head strong,
+:root[data-theme='dark'] .app-shell .rail-head .rail-title-text,
+:root[data-theme='dark'] .app-shell .inspector-head h3 {
+  color: #eaeaea !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  text-transform: uppercase !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-head h3::before,
+:root[data-theme='dark'] .app-shell .rail-head::before {
+  content: '' !important;
+  display: inline-block !important;
+  width: 3px !important;
+  height: 12px !important;
+  margin-right: 7px !important;
+  vertical-align: -2px !important;
+  border-radius: 2px !important;
+  background: #00c1cd !important;
+}
+
+/* Rótulo del monitor: el panel de previsualización no tenía cabecera. */
+:root[data-theme='dark'] .app-shell .preview-hud::before {
+  content: 'VISTA PREVIA' !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 18px !important;
+  margin-right: 6px !important;
+  padding: 0 6px !important;
+  border: 1px solid rgba(0, 193, 205, 0.4) !important;
+  border-radius: 3px !important;
+  background: rgba(0, 193, 205, 0.1) !important;
+  color: #4fe3ec !important;
+  font-size: 8.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.07em !important;
+  white-space: nowrap !important;
+}
+
+/* Rótulo de la línea de tiempo. */
+:root[data-theme='dark'] .app-shell .timeline-tabs button {
+  color: #4fe3ec !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-tabs-meta {
+  color: #8f8f8f !important;
+  font-size: 10.5px !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* ─────────────── 4 · Barra del monitor sin desbordamiento ────────────── */
+
+/* MEDICIÓN: la barra tenía clientWidth 697 / scrollWidth 999, es decir
+   ~300px de controles reales inaccesibles salvo scroll horizontal invisible.
+   Filmora fuerza `flex-wrap: nowrap` + `overflow-x:auto`. En CapCut los
+   controles del monitor se organizan en DOS filas sobre el vídeo: HUD y
+   selectores arriba, herramientas abajo. Se recuperan todos sin recortes. */
+:root[data-theme='dark'] .app-shell .preview-topbar {
+  max-width: calc(100% - 20px) !important;
+  padding: 3px 5px !important;
+  background: rgba(20, 20, 20, 0.86) !important;
+  border: 1px solid #3b3b3b !important;
+  border-radius: 6px !important;
+  backdrop-filter: blur(6px) !important;
+  flex-wrap: wrap !important;
+  align-content: flex-start !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 4px 6px !important;
+  row-gap: 3px !important;
+  height: auto !important;
+  max-height: 68px !important;
+  overflow: visible !important;
+  overflow-x: visible !important;
+  pointer-events: auto !important;
+}
+/* Segunda fila: el grupo de herramientas ocupa el ancho completo y ya no
+   queda fuera del viewport. */
+:root[data-theme='dark'] .app-shell .preview-tools {
+  flex: 1 1 100% !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-start !important;
+  width: auto !important;
+  min-width: 0 !important;
+  overflow: visible !important;
+}
+:root[data-theme='dark'] .app-shell .preview-topbar .preview-tool span {
+  display: none !important;
+}
+:root[data-theme='dark'] .app-shell .preview-tools { gap: 2px !important; }
+:root[data-theme='dark'] .app-shell .preview-tools select {
+  height: 22px !important;
+  font-size: 10px !important;
+  padding: 0 4px !important;
+  border-radius: 4px !important;
+}
+:root[data-theme='dark'] .app-shell .preview-tool {
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 22px !important;
+  padding: 0 !important;
+  justify-content: center !important;
+  border-radius: 4px !important;
+}
+
+/* ─────────────── 5 · Legibilidad del inspector ───────────────────────── */
+
+:root[data-theme='dark'] .app-shell .project-info-rows div,
+:root[data-theme='dark'] .app-shell .project-info-rows dt,
+:root[data-theme='dark'] .app-shell .project-info-rows dd {
+  font-size: 11.5px !important;
+  color: #c8c8c8 !important;
+}
+:root[data-theme='dark'] .app-shell .project-info-rows dd { color: #f0f0f0 !important; }
+:root[data-theme='dark'] .app-shell .inspector-section h4,
+:root[data-theme='dark'] .app-shell .inspector-section .inspector-section-toggle {
+  color: #dcdcdc !important;
+  font-size: 11.5px !important;
+  font-weight: 650 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-section {
+  border-top: 1px solid #383838 !important;
+}
+:root[data-theme='dark'] .app-shell .field > span,
+:root[data-theme='dark'] .app-shell .field label {
+  color: #b4b4b4 !important;
+  font-size: 11px !important;
+}
+:root[data-theme='dark'] .app-shell .fine-print,
+:root[data-theme='dark'] .app-shell .inspector-meta {
+  color: #8d8d8d !important;
+  font-size: 11px !important;
+}
+
+/* ─────────────── 6 · Timeline legible ────────────────────────────────── */
+
+:root[data-theme='dark'] .app-shell .timeline-tabs { gap: 10px !important; }
+:root[data-theme='dark'] .app-shell .ruler-tick { font-size: 10px !important; color: #bdbdbd !important; }
+:root[data-theme='dark'] .app-shell .track-head { font-size: 10.5px !important; color: #bdbdbd !important; }
+:root[data-theme='dark'] .app-shell .clip-label { font-size: 10.5px !important; color: #06232a !important; font-weight: 650 !important; }
+:root[data-theme='dark'] .app-shell .timeline-clip.wave-clip .clip-label,
+:root[data-theme='dark'] .app-shell .timeline-clip .clip-label { text-shadow: 0 1px 0 rgba(255,255,255,0.25) !important; }
+:root[data-theme='dark'] .app-shell .timeline-toolbar { padding: 0 6px !important; gap: 2px !important; }
+:root[data-theme='dark'] .app-shell .timeline-tools button,
+:root[data-theme='dark'] .app-shell .timeline-toolbar button {
+  min-width: 24px !important;
+  height: 24px !important;
+  padding: 0 4px !important;
+}
+:root[data-theme='dark'] .app-shell .transport-readout,
+:root[data-theme='dark'] .app-shell .transport-time,
+:root[data-theme='dark'] .app-shell .transport-frames {
+  color: #c8c8c8 !important;
+  font-size: 10.5px !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   8 · DISTRIBUCIÓN VERTICAL DEL PANEL DE MEDIOS  (corrección medida)
+   ──────────────────────────────────────────────────────────────────────
+   Antes (1360×768, rail-main 421px): 33 + 32 + 41 + 63 + 26 + 98 + 24 + 92
+   = 409px, pero `.rail-head` tenía altura 32px con 50px de contenido:
+   sus botones «Importar / Grabar» caían en y=145…169 y se SOLAPABAN con la
+   búsqueda (y=151). Además la biblioteca recibía sólo 98px para tarjetas de
+   113px. Se compactan las cabeceras y se les da altura real; la biblioteca
+   pasa a ~185px y todo queda en flujo, sin recortes ni superposiciones.
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root[data-theme='dark'] .app-shell .rail-main {
+  flex-direction: column !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+:root[data-theme='dark'] .app-shell .rail-module-bar {
+  flex: 0 0 auto !important;
+  height: 28px !important;
+  min-height: 28px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-facets {
+  height: 27px !important;
+  min-height: 27px !important;
+  padding: 1px 3px 4px !important;
+  scrollbar-width: thin !important;
+}
+:root[data-theme='dark'] .app-shell .rail-facets::-webkit-scrollbar { height: 5px !important; }
+:root[data-theme='dark'] .app-shell .rail-facets button {
+  height: 21px !important;
+  max-width: 108px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Cabecera con DOS filas reales: título arriba, acciones abajo. */
+:root[data-theme='dark'] .app-shell .rail-head {
+  flex: 0 0 auto !important;
+  height: 52px !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
+  flex-wrap: wrap !important;
+  align-content: center !important;
+  align-items: center !important;
+  row-gap: 0 !important;
+  column-gap: 5px !important;
+  padding: 2px 8px !important;
+  overflow: hidden !important;
+}
+:root[data-theme='dark'] .app-shell .rail-head > div {
+  flex: 1 1 100% !important;
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: flex-start !important;
+  gap: 6px !important;
+  height: 20px !important;
+  min-height: 20px !important;
+  margin: 0 !important;
+}
+:root[data-theme='dark'] .app-shell .rail-head .eyebrow { font-size: 9px !important; }
+:root[data-theme='dark'] .app-shell .rail-head strong { font-size: 11px !important; }
+:root[data-theme='dark'] .app-shell .rail-head button {
+  flex: 0 0 auto !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  padding: 0 6px !important;
+  font-size: 10px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-head button svg { width: 12px !important; height: 12px !important; }
+
+:root[data-theme='dark'] .app-shell .rail-browser {
+  flex: 0 0 auto !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 4px 6px !important;
+  gap: 4px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-search { min-width: 0 !important; }
+:root[data-theme='dark'] .app-shell .rail-search input { min-width: 0 !important; font-size: 10.5px !important; }
+
+/* Facetas de filtro en UNA fila con scroll visible (antes 63px / 2 filas). */
+:root[data-theme='dark'] .app-shell .rail-chips {
+  flex: 0 0 auto !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 3px 6px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #4f4f4f #262626 !important;
+}
+:root[data-theme='dark'] .app-shell .rail-chips::-webkit-scrollbar { height: 4px !important; }
+:root[data-theme='dark'] .app-shell .rail-chips button {
+  flex: 0 0 auto !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  padding: 0 7px !important;
+  font-size: 10px !important;
+  white-space: nowrap !important;
+}
+
+:root[data-theme='dark'] .app-shell .rail-section-head {
+  flex: 0 0 auto !important;
+  height: 24px !important;
+  min-height: 24px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-list {
+  flex: 1 1 auto !important;
+  min-height: 96px !important;
+  align-content: start !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding: 4px 6px 8px !important;
+  gap: 6px !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #4f4f4f #262626 !important;
+}
+:root[data-theme='dark'] .app-shell .rail-list::-webkit-scrollbar { width: 6px !important; }
+:root[data-theme='dark'] .app-shell .rail-list::-webkit-scrollbar-thumb {
+  background: #4f4f4f !important;
+  border-radius: 3px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-asset { min-height: 104px !important; }
+
+:root[data-theme='dark'] .app-shell .rail-foot {
+  flex: 0 0 auto !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  margin: 0 6px !important;
+  padding: 0 6px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 10px !important;
+  border-top: 1px solid #383838 !important;
+}
+:root[data-theme='dark'] .app-shell .proxy-tools {
+  flex: 0 0 auto !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  gap: 0 !important;
+  padding: 2px 8px !important;
+  overflow: hidden !important;
+  border-top: 1px solid #383838 !important;
+}
+:root[data-theme='dark'] .app-shell .proxy-tools-head {
+  height: 19px !important;
+  min-height: 19px !important;
+  align-items: center !important;
+}
+:root[data-theme='dark'] .app-shell .proxy-tools .eyebrow { font-size: 9px !important; }
+:root[data-theme='dark'] .app-shell .proxy-tools label.check { font-size: 10px !important; }
+:root[data-theme='dark'] .app-shell .proxy-tools .fine-print {
+  height: 18px !important;
+  min-height: 18px !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 9.5px !important;
+}
+
+/* ───────────── 9 · Monitor: la barra ya no tapa el vídeo ───────────────
+   MEDICIÓN: `.preview-topbar` (absoluta, y=34…93) se superponía 41px con
+   `.preview-canvas` (y=52…456). Se reserva el alto completo de la barra en
+   el stage; el componente Preview recalcula el «ajustar» al reducirse el
+   área disponible, por lo que el fotograma se ve íntegro y centrado. */
+:root[data-theme='dark'] .app-shell .preview-stage {
+  padding-top: 68px !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+:root[data-theme='dark'] .app-shell .preview-topbar {
+  top: 3px !important;
+  min-height: 0 !important;
+  max-height: 62px !important;
+}
+:root[data-theme='dark'] .app-shell .preview-canvas {
+  max-width: 100% !important;
+  max-height: 100% !important;
+}
+
+/* ──────────── 10 · Timeline: franja propia para la barra inferior ──────
+   MEDICIÓN: `.timeline-tabs` (y=732) y `.fm-quick-tools` (y=744) son
+   absolutas y se dibujaban ENCIMA de las pistas. Se reservan 38px al final
+   del panel y se recoloca la barra de herramientas rápidas en esa franja. */
+:root[data-theme='dark'] .app-shell .timeline-panel {
+  padding-bottom: 38px !important;
+}
+:root[data-theme='dark'] .app-shell .timeline .fm-quick-tools {
+  bottom: -38px !important;
+  overflow: visible !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-tabs {
+  background: #262626 !important;
+  border-top: 1px solid #3b3b3b !important;
+  z-index: 5 !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-scroll {
+  overscroll-behavior-x: contain !important;
+}
+
+/* ─────────────── 11 · Viewport mínimo 1280×720 ───────────────────────── */
+
+@media (max-width: 1320px) {
+  :root[data-theme='dark'] .app-shell .editor-grid:not(.layout-shorts):not(.layout-edicion) {
+    grid-template-columns: 306px minmax(0, 1fr) 1px 312px !important;
+    grid-template-rows: minmax(0, 1fr) 248px !important;
+  }
+  :root[data-theme='dark'] .app-shell .rail-stage { grid-template-columns: 112px minmax(0, 1fr) !important; }
+  :root[data-theme='dark'] .app-shell .rail-category-items button { padding-left: 9px !important; }
+  :root[data-theme='dark'] .app-shell .rail-tabs button { width: 44px !important; min-width: 44px !important; }
+  :root[data-theme='dark'] .app-shell .preview-tools { gap: 1px !important; }
+  :root[data-theme='dark'] .app-shell .proxy-tools { height: 38px !important; min-height: 38px !important; }
+}
+@media (max-width: 1280px) {
+  :root[data-theme='dark'] .app-shell .editor-grid:not(.layout-shorts):not(.layout-edicion) {
+    grid-template-columns: 296px minmax(0, 1fr) 1px 296px !important;
+    grid-template-rows: minmax(0, 1fr) 232px !important;
+  }
+  :root[data-theme='dark'] .app-shell .rail-stage { grid-template-columns: 108px minmax(0, 1fr) !important; }
+  :root[data-theme='dark'] .app-shell .rail-category-items button { padding-left: 8px !important; }
+  :root[data-theme='dark'] .app-shell .rail-category-items button span { font-size: 10px !important; }
+  :root[data-theme='dark'] .app-shell .rail-tabs { height: 46px !important; min-height: 46px !important; }
+  :root[data-theme='dark'] .app-shell .asset-rail::after { height: 46px !important; }
+  :root[data-theme='dark'] .app-shell .rail-tabs button { height: 40px !important; width: 42px !important; min-width: 42px !important; }
+  :root[data-theme='dark'] .app-shell .rail-head { height: 48px !important; min-height: 48px !important; max-height: 48px !important; }
+  :root[data-theme='dark'] .app-shell .rail-chips { height: 28px !important; min-height: 28px !important; max-height: 28px !important; }
+  :root[data-theme='dark'] .app-shell .rail-browser { height: 32px !important; min-height: 32px !important; }
+  :root[data-theme='dark'] .app-shell .proxy-tools { height: 34px !important; min-height: 34px !important; }
+  :root[data-theme='dark'] .app-shell .preview-stage { padding-top: 65px !important; }
+  :root[data-theme='dark'] .app-shell .timeline-panel { padding-bottom: 34px !important; }
+  :root[data-theme='dark'] .app-shell .timeline .fm-quick-tools { bottom: -34px !important; }
+  :root[data-theme='dark'] .app-shell .rail-foot { margin: 0 !important; font-size: 9.5px !important; }
+  :root[data-theme='dark'] .app-shell .inspector .field > span,
+  :root[data-theme='dark'] .app-shell .inspector .field label,
+  :root[data-theme='dark'] .app-shell .inspector .check { font-size: 9.5px !important; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   12 · Pulido final: barras integradas, scroll descubrible, texto completo
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* La barra del monitor debe leerse como CABECERA del panel, no como una
+   ventana flotante con borde. Mismo fondo que el chrome, sin marco. */
+:root[data-theme='dark'] .app-shell .preview-topbar,
+:root[data-theme='dark'] .app-shell .preview-tools {
+  background: #262626 !important;
+  border: 0 !important;
+  border-bottom: 1px solid #3b3b3b !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 3px 8px !important;
+}
+:root[data-theme='dark'] .app-shell .preview-hud::before {
+  height: 17px !important;
+  background: rgba(0, 193, 205, 0.12) !important;
+}
+
+/* Pestañas de módulo: el scroll horizontal debe ser evidente. Se añade un
+   fundido en el borde derecho, igual que en las facetas. */
+:root[data-theme='dark'] .app-shell .asset-rail { position: relative !important; }
+:root[data-theme='dark'] .app-shell .asset-rail::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  right: 0 !important;
+  width: 20px !important;
+  height: 52px !important;
+  background: linear-gradient(90deg, transparent, #303030) !important;
+  pointer-events: none !important;
+  z-index: 4 !important;
+}
+
+/* Etiquetas de campos del inspector: a 296px de ancho, «Normalización
+   loudness» y «Ganancia master (dB)» se cortaban. Se ajusta la métrica sin
+   aumentar la altura de los campos (los campos siguen en una sola fila). */
+:root[data-theme='dark'] .app-shell .inspector .field > span,
+:root[data-theme='dark'] .app-shell .inspector .field label,
+:root[data-theme='dark'] .app-shell .inspector .check {
+  font-size: 10.5px !important;
+  letter-spacing: -0.012em !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+:root[data-theme='dark'] .app-shell .editor-mode-tab {
+  min-width: 62px !important;
+  padding-inline: 7px !important;
+  white-space: nowrap !important;
+}
+
+/* El divisor se mantiene interactivo para el redimensionado; `overflow:
+   hidden` (sección 1) recorta el grip de 4px sin deshabilitar el arrastre. */

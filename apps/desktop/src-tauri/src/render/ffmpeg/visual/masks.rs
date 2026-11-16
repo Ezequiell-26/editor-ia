@@ -4,7 +4,8 @@ pub(crate) fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<S
     let shape = mask["shape"].as_str()?;
     if !matches!(
         shape,
-        "rectangle" | "ellipse" | "diamond" | "triangle" | "rounded" | "polygon"
+        "rectangle" | "ellipse" | "diamond" | "triangle" | "rounded" | "polygon" | "freehand"
+            | "star" | "heart"
     ) {
         return None;
     }
@@ -45,7 +46,9 @@ pub(crate) fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<S
             .clamp(-180.0, 180.0),
     );
     let invert = mask["invert"].as_bool().unwrap_or(false);
-    if shape == "polygon" {
+    // `freehand` (plumilla) comparte el trazado: es un polígono cerrado de
+    // puntos absolutos, sólo que con más vértices (hasta 64 vs 16).
+    if shape == "polygon" || shape == "freehand" {
         let points: Vec<(f64, f64)> = mask["points"]
             .as_array()?
             .iter()
@@ -81,66 +84,207 @@ pub(crate) fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<S
             crossings.push(format!("if({condition},1,0)"));
         }
         let inside = format!("mod(({}),2)", crossings.join("+"));
+
+        // Soft edge for freehand/polygon masks. Compute the shortest distance
+        // to every segment in frame-height units, then sign it with the
+        // even/odd point-in-polygon result. Feather is relative to the
+        // polygon's smaller bounding-box dimension, matching the other shapes.
+        let min_x = points
+            .iter()
+            .map(|point| point.0)
+            .fold(f64::INFINITY, f64::min);
+        let max_x = points
+            .iter()
+            .map(|point| point.0)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let min_y = points
+            .iter()
+            .map(|point| point.1)
+            .fold(f64::INFINITY, f64::min);
+        let max_y = points
+            .iter()
+            .map(|point| point.1)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let span_x = (max_x - min_x).max(0.0001);
+        let span_y = (max_y - min_y).max(0.0001);
+        let mut edge_distances = Vec::with_capacity(points.len());
+        for index in 0..points.len() {
+            let (x1_value, y1_value) = points[index];
+            let (x2_value, y2_value) = points[(index + 1) % points.len()];
+            let x1 = format!("({x1_value:.6}+({x}))");
+            let y1 = format!("({y1_value:.6}+({y}))");
+            let x2 = format!("({x2_value:.6}+({x}))");
+            let y2 = format!("({y2_value:.6}+({y}))");
+            let vx = format!("(({x2})-({x1}))*(W/H)");
+            let vy = format!("(({y2})-({y1}))");
+            let wx = format!("(({px})-({x1}))*(W/H)");
+            let wy = format!("(({py})-({y1}))");
+            let projection = format!(
+                "clip((({wx})*({vx})+({wy})*({vy}))/((({vx})*({vx})+({vy})*({vy}))+0.000001),0,1)"
+            );
+            let dx = format!("(({wx})-({projection})*({vx}))");
+            let dy = format!("(({wy})-({projection})*({vy}))");
+            edge_distances.push(format!("sqrt(({dx})*({dx})+({dy})*({dy}))"));
+        }
+        let distance = edge_distances
+            .into_iter()
+            .reduce(|left, right| format!("min(({left}),({right}))"))
+            .unwrap_or_else(|| "0".to_owned());
+        let feather_distance =
+            format!("max(({feather})*min(({span_x:.6})*(W/H),{span_y:.6}),0.0001)");
+        let signed_distance = format!("if(gt(({inside}),0),({distance}),-({distance}))");
+        let soft_coverage = format!("clip(0.5+({signed_distance})/(2*({feather_distance})),0,1)");
+        let coverage = format!("if(lte(({feather}),0.0001),({inside}),({soft_coverage}))");
         let alpha = if invert {
-            format!("(1-({inside}))")
+            format!("(1-({coverage}))")
         } else {
-            inside
+            format!("({coverage})")
         };
         return Some(format!(
-            "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({alpha})'"
+            "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*{alpha}'"
         ));
     }
     let dx = format!("((X/W)-0.5-({x}))");
     let dy = format!("((Y/H)-0.5-({y}))");
     let rotating = keyframes.is_some() || rotation != "0.000000";
-    let (nx, ny) = if !rotating {
-        (
-            format!("({dx}/(({width})/2))"),
-            format!("({dy}/(({height})/2))"),
-        )
-    } else {
-        // Rotate in pixel space even though the centre and size are
-        // normalised: H/W converts the vertical component before mixing.
-        let cos = format!("cos(({rotation})*PI/180)");
-        let sin = format!("sin(({rotation})*PI/180)");
-        (
-            format!("((({cos})*({dx})+({sin})*({dy})*(H/W))/(({width})/2))"),
-            format!("((({cos})*({dy})-({sin})*({dx})*(W/H))/(({height})/2))"),
-        )
+    // Expansión/contracción (mascara_desenho: «expansión de borde») —
+    // factor (1−expand) sobre las coordenadas normalizadas: expand>0
+    // agranda la forma, expand<0 la encoge. clamp ±0,5 → factor ∈[0,5,1,5].
+    // Estático (sin keyframes); `polygon`/`freehand` retornan antes y no aplica.
+    let expand = number(mask, "expand").unwrap_or(0.0).clamp(-0.5, 0.5);
+    let expand_factor = format!("{:.6}", 1.0 - expand);
+    // Coordenadas normalizadas para un ancho/alto dados (expresiones).
+    // La rotación se aplica sobre el numerador — no depende de w/h — así
+    // que dilatar/erosionar para el trazo sólo cambia el denominador.
+    let coords = |w: &str, h: &str| -> (String, String) {
+        let (nx, ny) = if !rotating {
+            (format!("({dx}/(({w})/2))"), format!("({dy}/(({h})/2))"))
+        } else {
+            // Rotate in pixel space even though the centre and size are
+            // normalised: H/W converts the vertical component before mixing.
+            let cos = format!("cos(({rotation})*PI/180)");
+            let sin = format!("sin(({rotation})*PI/180)");
+            (
+                format!("((({cos})*({dx})+({sin})*({dy})*(H/W))/(({w})/2))"),
+                format!("((({cos})*({dy})-({sin})*({dx})*(W/H))/(({h})/2))"),
+            )
+        };
+        if expand != 0.0 {
+            (
+                format!("(({})*({expand_factor}))", nx),
+                format!("(({})*({expand_factor}))", ny),
+            )
+        } else {
+            (nx, ny)
+        }
     };
     let feather_expr = format!("max(({feather}),0.0001)");
     let soft = |value: &str| format!("max(0,min(1,(1-abs({value}))/{feather_expr}))");
-    let coverage = match shape {
-        "ellipse" => {
-            let radius = format!("sqrt(({nx})*({nx})+({ny})*({ny}))");
-            format!("max(0,min(1,(1-({radius}))/{feather_expr}))")
-        }
-        "diamond" => {
-            let distance = format!("abs({nx})+abs({ny})");
-            format!("max(0,min(1,(1-({distance}))/{feather_expr}))")
-        }
-        "triangle" => {
-            // Triángulo con vértice arriba: ancho permitido = v, donde v va de
-            // 0 en el vértice a 1 en la base. El borde superior también se
-            // suaviza para que el vértice no quede duro.
-            let v = format!("max(0,min(1,(({ny})+1)/2))");
-            let inside = format!("(({v})-abs({nx}))");
-            format!(
+    let coverage_for = |nx: &str, ny: &str| -> String {
+        match shape {
+            "ellipse" => {
+                let radius = format!("sqrt(({nx})*({nx})+({ny})*({ny}))");
+                format!("max(0,min(1,(1-({radius}))/{feather_expr}))")
+            }
+            "diamond" => {
+                let distance = format!("abs({nx})+abs({ny})");
+                format!("max(0,min(1,(1-({distance}))/{feather_expr}))")
+            }
+            "triangle" => {
+                // Triángulo con vértice arriba: ancho permitido = v, donde v va de
+                // 0 en el vértice a 1 en la base. El borde superior también se
+                // suaviza para que el vértice no quede duro.
+                let v = format!("max(0,min(1,(({ny})+1)/2))");
+                let inside = format!("(({v})-abs({nx}))");
+                format!(
                 "max(0,min(1,({inside})/{feather_expr}))*max(0,min(1,({v})/{feather_expr}))*max(0,min(1,(1-({v}))/{feather_expr}))"
             )
+            }
+            "star" => {
+                // Estrella de 5 puntas en coordenadas polares — paridad de la
+                // forma `estrela` de `mascara_desenho.js`. `atan2(nx,-ny)` da la
+                // aguja como ángulo de brújula desde el tope (0°) girando en
+                // sentido horario; `mod` lo reparte en sectores de 72°. El radio
+                // límite interpola linealmente entre punta (Ro=1) y valle
+                // (Ri=0,45); el borde se suaviza con `feather` como el resto.
+                let rho = format!("sqrt(({nx})*({nx})+({ny})*({ny}))");
+                let ang = format!("atan2({nx},-({ny}))");
+                let sector = 2.0 * std::f64::consts::PI / 5.0;
+                let t = format!("(mod(({ang}),{sector:.8})/{sector:.8})");
+                let boundary = format!("(0.45+(1.0-0.45)*abs(2*({t})-1))");
+                format!("max(0,min(1,(({boundary})-({rho}))/{feather_expr}))")
+            }
+            "heart" => {
+                // Corazón implícito — paridad de `corazon` de
+                // `mascara_desenho.js`: (u²+v²−1)³ − u²v³ ≤ 0 con u,v
+                // normalizados y /1,15 (la curva cruda mide ~1,14 de semiancho).
+                // El término −u²v³ estira la cúspide hacia abajo (Y crece hacia
+                // abajo en pantalla). El feather usa la propia función implícita
+                // como pseudo-distancia (gradiente ~0,05–1,5; divisor 0,5·feather
+                // da una transición de ~un feather de ancho).
+                let u = format!("(({nx})/1.15)");
+                let v = format!("(({ny})/1.15)");
+                let uu = format!("({u})*({u})");
+                let vv = format!("({v})*({v})");
+                let heart_f = format!("(pow(({uu})+({vv})-1,3)-({uu})*pow(({v}),3))");
+                format!("max(0,min(1,((0)-({heart_f}))/((({feather_expr})*0.5)+0.0001)))")
+            }
+            "rounded" => {
+                // SDF de una caja redondeada: los centros de esquina quedan en
+                // 1-radio y el borde exterior sigue en 1. Radio fijo de 0.25.
+                let radius = 0.25;
+                let qx = format!("(abs({nx})-{:.6})", 1.0 - radius);
+                let qy = format!("(abs({ny})-{:.6})", 1.0 - radius);
+                let outside = format!("sqrt(pow(max({qx},0),2)+pow(max({qy},0),2))");
+                let inside = format!("min(max({qx},{qy}),0)");
+                let distance = format!("(({outside})+({inside})-{radius:.6})");
+                format!("max(0,min(1,(-({distance}))/{feather_expr}))")
+            }
+            _ => format!("({})*({})", soft(nx), soft(ny)),
         }
-        "rounded" => {
-            // SDF de una caja redondeada: los centros de esquina quedan en
-            // 1-radio y el borde exterior sigue en 1. Radio fijo de 0.25.
-            let radius = 0.25;
-            let qx = format!("(abs({nx})-{:.6})", 1.0 - radius);
-            let qy = format!("(abs({ny})-{:.6})", 1.0 - radius);
-            let outside = format!("sqrt(pow(max({qx},0),2)+pow(max({qy},0),2))");
-            let inside = format!("min(max({qx},{qy}),0)");
-            let distance = format!("(({outside})+({inside})-{radius:.6})");
-            format!("max(0,min(1,(-({distance}))/{feather_expr}))")
+    };
+    let (nx, ny) = coords(&width, &height);
+    let coverage = coverage_for(&nx, &ny);
+    // Trazo de color alrededor del borde (paridad «mask stroke» de
+    // `molduras.js`): banda morfológica = cobertura de la forma dilatada
+    // menos la de la erosionada — un anillo centrado en el borde, visible
+    // por dentro sin `invert` y por fuera con `invert`. Se mezcla el RGB
+    // hacia `strokeColor`; el alfa no cambia. `strokeWidth` es la
+    // semiancha como fracción del tamaño (clamp 0,5 → banda ≤ tamaño).
+    // Sólo formas SDF (este camino); `polygon`/`freehand`/`text` retornan antes.
+    let stroke_width = number(mask, "strokeWidth").unwrap_or(0.0);
+    let stroke_rgb = mask["strokeColor"]
+        .as_str()
+        .and_then(|hex| hex.strip_prefix('#'))
+        .filter(|hex| hex.len() == 6)
+        .and_then(|hex| u32::from_str_radix(hex, 16).ok());
+    let (r_expr, g_expr, b_expr) = match (stroke_rgb, stroke_width) {
+        (Some(color), stroke_w) if stroke_w > 0.0 => {
+            let sw = stroke_w.min(0.5);
+            let dil_w = format!("(({})*({:.6}))", width, 1.0 + sw);
+            let dil_h = format!("(({})*({:.6}))", height, 1.0 + sw);
+            let ero_w = format!("(({})*({:.6}))", width, (1.0 - sw).max(0.01));
+            let ero_h = format!("(({})*({:.6}))", height, (1.0 - sw).max(0.01));
+            let (dnx, dny) = coords(&dil_w, &dil_h);
+            let (enx, eny) = coords(&ero_w, &ero_h);
+            let cov_dil = coverage_for(&dnx, &dny);
+            let cov_ero = coverage_for(&enx, &eny);
+            let band = format!("max(0,min(1,(({cov_dil})-({cov_ero}))))");
+            let channel = |shift: u32| {
+                let value = ((color >> shift) & 0xFF) as f64 / 255.0;
+                format!("(({value:.6})*({band}))")
+            };
+            (
+                format!("(r(X,Y)*(1-({band}))+{})", channel(16)),
+                format!("(g(X,Y)*(1-({band}))+{})", channel(8)),
+                format!("(b(X,Y)*(1-({band}))+{})", channel(0)),
+            )
         }
-        _ => format!("({})*({})", soft(&nx), soft(&ny)),
+        _ => (
+            "r(X,Y)".to_owned(),
+            "g(X,Y)".to_owned(),
+            "b(X,Y)".to_owned(),
+        ),
     };
     let alpha = if invert {
         format!("(1-({coverage}))")
@@ -148,6 +292,80 @@ pub(crate) fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<S
         coverage
     };
     Some(format!(
-        "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*({alpha})'"
+        "geq=r='{r_expr}':g='{g_expr}':b='{b_expr}':a='alpha(X,Y)*({alpha})'"
     ))
+}
+
+#[cfg(test)]
+mod polygon_feather_tests {
+    use super::mask_filter;
+    use serde_json::json;
+
+    fn polygon(feather: f64, invert: bool) -> serde_json::Value {
+        json!({
+            "mask": {
+                "shape": "polygon",
+                "x": 0.0,
+                "y": 0.0,
+                "feather": feather,
+                "invert": invert,
+                "points": [
+                    {"x": 0.2, "y": 0.2},
+                    {"x": 0.8, "y": 0.2},
+                    {"x": 0.7, "y": 0.8},
+                    {"x": 0.3, "y": 0.8}
+                ]
+            }
+        })
+    }
+
+    #[test]
+    fn polygonmask_builds_a_signed_distance_feather() {
+        let filter = mask_filter(&polygon(0.12, false), 30.0, 0.0).expect("polygon filter");
+        assert!(filter.contains("sqrt("));
+        assert!(filter.contains("clip(0.5+("));
+        assert!(filter.contains("lte((0.120000),0.0001)"));
+        assert!(filter.contains("alpha(X,Y)*"));
+    }
+
+    #[test]
+    fn polygon_feather_respects_invert() {
+        let filter = mask_filter(&polygon(0.12, true), 30.0, 0.0).expect("inverted polygon");
+        assert!(filter.contains("alpha(X,Y)*(1-("));
+    }
+
+    #[test]
+    fn zero_feather_keeps_a_hard_polygon_edge() {
+        let filter = mask_filter(&polygon(0.0, false), 30.0, 0.0).expect("hard polygon");
+        assert!(filter.contains("if(lte((0.000000),0.0001)"));
+        assert!(filter.contains("mod(("));
+    }
+
+    #[test]
+    fn freehand_mask_shares_the_polygon_path() {
+        // La plumilla guarda el contorno como puntos absolutos (hasta 64);
+        // el render la evalúa con el mismo geq de polígono.
+        let clip = serde_json::json!({
+            "mask": {
+                "shape": "freehand",
+                "x": 0.0,
+                "y": 0.0,
+                "feather": 0.1,
+                "invert": false,
+                "points": (0..32)
+                    .map(|index| {
+                        let angle = (index as f64) / 32.0 * std::f64::consts::TAU;
+                        serde_json::json!({
+                            "x": 0.5 + 0.4 * angle.cos(),
+                            "y": 0.5 + 0.4 * angle.sin(),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            }
+        });
+        let filter = mask_filter(&clip, 30.0, 0.0).expect("freehand filter");
+        assert!(filter.contains("geq="));
+        assert!(filter.contains("mod(("));
+        assert!(filter.contains("sqrt("));
+    }
 }

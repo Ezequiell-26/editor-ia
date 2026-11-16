@@ -51,10 +51,11 @@ pub async fn verify_export(
             "FFprobe no está configurado",
         ));
     };
+    let resolved = crate::application::fs::resolve_user_file_path(&path)?;
     verify_file(
         &state.media_runner(),
         &state.lossless_outputs(),
         &ffprobe,
-        Path::new(path.trim()),
+        &resolved,
     )
 }

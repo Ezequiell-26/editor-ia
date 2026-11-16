@@ -270,10 +270,27 @@
   justify-content: center;
 }
 
-.asset-thumbnail-preview img {
+.asset-thumbnail-preview img,
+.asset-thumbnail-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.asset-thumbnail-preview.scrub {
+  cursor: ew-resize;
+}
+
+.asset-scrub-needle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--color-accent, var(--fm-accent, #4f8cff));
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 2;
 }
 
 .asset-thumbnail-placeholder {

@@ -55,6 +55,9 @@ pub(crate) fn track_audio_filters(
     (filters, None)
 }
 
+// clippy::too_many_arguments: construye la cadena de filtros de audio del
+// clip; cada parámetro alimenta una etapa distinta del filtergraph.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn audio_filter(
     input_index: usize,
     profile: &Profile,

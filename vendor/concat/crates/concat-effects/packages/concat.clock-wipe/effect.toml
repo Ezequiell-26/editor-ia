@@ -1,0 +1,14 @@
+format = 2
+
+[effect]
+id = "concat.clock-wipe"
+name = "Clock Wipe"
+kind = "transition"
+category = "Wipe"
+order = 15
+description = "A hand sweeps once round the face of the frame from twelve, leaving the next shot behind it."
+
+[transition]
+fallback = "cross-fade"
+xfade = "radial"
+entry = "effect.wgsl"

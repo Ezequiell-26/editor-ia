@@ -41,6 +41,11 @@ impl LocalRegenerator for LocalAssetRegenerator {
                 )
                 .generate(request, project_root)
             }
+            "local-synth-sfx" => {
+                crate::infrastructure::studio::local_sfx::LocalSfxGenerator::new().generate(
+                    request, project_root,
+                )
+            }
             "local-ffmpeg-titlecard" => {
                 crate::infrastructure::studio::local_titlecard::LocalTitleCardGenerator::new(
                     self.ffmpeg.clone(),

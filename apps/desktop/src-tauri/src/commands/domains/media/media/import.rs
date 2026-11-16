@@ -79,10 +79,11 @@ pub async fn import_media_paths(
     let settings = state.settings_snapshot()?;
     let (_, ffprobe, _) = resolve_tools(&settings);
     let ffprobe = use_cases::require_ffprobe(ffprobe)?;
+    // Cada archivo llega por IPC: política de lectura de `fs_*`.
     let files: Vec<PathBuf> = paths
         .iter()
-        .map(|raw| PathBuf::from(raw.trim()))
-        .collect();
+        .map(|raw| crate::application::fs::resolve_user_file_path(raw))
+        .collect::<Result<_, _>>()?;
     let provenance_provider = provider
         .map(|value| value.trim().chars().take(80).collect::<String>())
         .filter(|value| !value.is_empty());

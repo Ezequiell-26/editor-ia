@@ -95,6 +95,9 @@ pub trait RenderRuntime: Send + Sync {
     fn first_id(&self) -> Option<String>;
     /// Registra el proceso bajo `job_id`; error si ya hay otro render.
     fn register(&self, job_id: &str, process: Arc<dyn RenderProcess>) -> Result<(), ProjectError>;
+    /// Sustituye el proceso de `job_id` por otro (reintento del mismo job
+    /// con otro encoder). Falla si el job ya no está registrado.
+    fn replace(&self, job_id: &str, process: Arc<dyn RenderProcess>) -> Result<(), ProjectError>;
     fn unregister(&self, job_id: &str);
     /// Cancela el render `job_id` (flag + kill); `NotFound` si ya no corre.
     fn cancel(&self, job_id: &str) -> Result<(), ProjectError>;
@@ -116,6 +119,13 @@ pub trait RenderFiles: Send + Sync {
     /// `<cache_dir>/render-<job_id>` creado si falta.
     fn temp_dir(&self, cache_dir: &Path, job_id: &str) -> Result<PathBuf, ProjectError>;
     fn remove_dir(&self, path: &Path);
+    /// Marca el destino final antes de lanzar el render: `true` si ya
+    /// existía (se puede reemplazar al publicar) o `false` si el nombre está
+    /// libre (nadie puede crear ese archivo mientras renderiza, AUD-017).
+    /// Implementación por defecto: no reserva nada.
+    fn reserve_output(&self, _final_path: &Path) -> Result<(), ProjectError> {
+        Ok(())
+    }
     /// Mueve (o copia como fallback) el temporal verificado al destino final.
     fn publish_output(&self, temporary: &Path, final_path: &Path) -> Result<(), ProjectError>;
     /// Borra los directorios `render-*` del cache; devuelve cuántos.
@@ -146,10 +156,30 @@ pub trait RenderVerifier: Send + Sync {
     fn verify(&self, ffprobe: &Path, path: &Path) -> Result<ExportVerification, ProjectError>;
 }
 
+/// Contexto para reconstruir el plan con encoder de software cuando el
+/// render falla a mitad por pérdida de GPU (device-removed). El worker lo
+/// usa una sola vez; un segundo fallo se reporta como siempre.
+pub struct RenderRetry {
+    pub ffmpeg: PathBuf,
+    pub project: Value,
+    pub profile_json: Value,
+    pub root: PathBuf,
+    pub temp_dir: PathBuf,
+    pub render_output: PathBuf,
+    pub include_captions: bool,
+    pub motion_ass: Option<String>,
+    pub range: Option<(u64, u64)>,
+}
+
 /// Todo lo que el worker de render necesita una vez validado el plan.
 pub struct RenderLaunch {
     pub job_id: String,
     pub plan: RenderPlan,
+    /// Metadatos para la bitácora de exports (`render-diary.jsonl`).
+    pub profile_name: String,
+    pub video_codec: String,
+    pub hardware_encoder: Option<String>,
+    pub encoder_fallback: Option<String>,
     pub ffprobe: PathBuf,
     pub final_output: PathBuf,
     pub temp_dir: PathBuf,
@@ -158,6 +188,7 @@ pub struct RenderLaunch {
     pub process: Arc<dyn RenderProcess>,
     pub stdout: Option<ChildStdout>,
     pub stderr: Option<ChildStderr>,
+    pub retry: Option<RenderRetry>,
 }
 
 /// Lanza el worker del render en background: threads de progreso y stderr,

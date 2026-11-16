@@ -5,7 +5,8 @@ import { defineConfig, devices } from '@playwright/test';
  * del sistema: no descarga navegadores.
  *
  * El script `dev` de `apps/desktop` escucha en el puerto 3000
- * (`vite --host 0.0.0.0 --port 3000`), que es el server que ya usa el equipo.
+ * (`vite --port 3000`, loopback por defecto tras SEC-GATE-005), que es el
+ * server que ya usa el equipo.
  * Antes el config apuntaba a 5173, un puerto que `dev` nunca abre: el
  * `reuseExistingServer` no encontraba nada y Playwright levantaba un segundo
  * Vite en 5173. Ahora baseURL y webServer apuntan a 3000 para reutilizar el

@@ -72,7 +72,8 @@ export function VfxView({ onNavigate }: VfxViewProps) {
     : 0;
   const mask: ClipMask | undefined =
     clip && 'mask' in clip ? (clip as Clip & { mask?: ClipMask }).mask : undefined;
-  const polygon = mask?.shape === 'polygon' ? mask : undefined;
+  const polygon =
+    mask?.shape === 'polygon' || mask?.shape === 'freehand' ? mask : undefined;
   const sampled = useMemo(() => {
     if (!polygon?.keyframes) return {};
     return sampleMaskKeyframes(polygon.keyframes, localFrame);

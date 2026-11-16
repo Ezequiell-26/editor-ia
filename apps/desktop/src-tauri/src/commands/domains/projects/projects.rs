@@ -63,7 +63,7 @@ fn recent_thumbnail_inner(state: &AppState, project_path: &Path) -> Option<Strin
             return Some(hit.clone());
         }
     }
-    let data_url = thumbnail_data_url(&ffmpeg, &source, is_image).ok()?;
+    let data_url = thumbnail_data_url(&ffmpeg, &source, is_image, None).ok()?;
     if let Ok(mut cache) = state.thumbnails.lock() {
         cache.insert(cache_key, data_url.clone());
     }

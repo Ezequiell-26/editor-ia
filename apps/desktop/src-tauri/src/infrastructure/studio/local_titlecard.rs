@@ -97,17 +97,32 @@ impl ContentGenerator for LocalTitleCardGenerator {
     }
 
     fn capabilities(&self) -> Vec<GenerationCapability> {
-        vec![GenerationCapability {
-            provider: PROVIDER_ID.to_owned(),
-            model: MODEL.to_owned(),
-            kind: StudioResourceKind::Image,
-            estimated_cost_cents: Some(0),
-            limits: vec![
-                "sólo texto (convención title:/card:)".to_owned(),
-                "PNG 1280x720 fondo sólido".to_owned(),
-            ],
-            requires_network: false,
-        }]
+        // `graphic` es el mismo producto visto desde el plan: una imagen
+        // compuesta localmente (tarjeta con texto = gráfico del video).
+        vec![
+            GenerationCapability {
+                provider: PROVIDER_ID.to_owned(),
+                model: MODEL.to_owned(),
+                kind: StudioResourceKind::Image,
+                estimated_cost_cents: Some(0),
+                limits: vec![
+                    "sólo texto (convención title:/card:)".to_owned(),
+                    "PNG 1280x720 fondo sólido".to_owned(),
+                ],
+                requires_network: false,
+            },
+            GenerationCapability {
+                provider: PROVIDER_ID.to_owned(),
+                model: MODEL.to_owned(),
+                kind: StudioResourceKind::Graphic,
+                estimated_cost_cents: Some(0),
+                limits: vec![
+                    "gráfico = tarjeta PNG compuesta (misma salida que image)".to_owned(),
+                    "sólo texto (convención title:/card:)".to_owned(),
+                ],
+                requires_network: false,
+            },
+        ]
     }
 
     fn generate(
@@ -115,10 +130,12 @@ impl ContentGenerator for LocalTitleCardGenerator {
         request: &GenerationRequest,
         project_root: &Path,
     ) -> Result<GenerationResult, ProjectError> {
-        if request.kind != StudioResourceKind::Image {
+        if request.kind != StudioResourceKind::Image
+            && request.kind != StudioResourceKind::Graphic
+        {
             return Err(ProjectError::message(
                 ProjectErrorCode::InvalidProject,
-                "LocalTitleCardGenerator sólo genera imágenes",
+                "LocalTitleCardGenerator sólo genera imágenes/gráficos",
             ));
         }
         let Some(ffmpeg) = &self.ffmpeg else {
@@ -247,13 +264,16 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_declare_image_at_zero_cost() {
+    fn capabilities_declare_image_and_graphic_at_zero_cost() {
         let generator = LocalTitleCardGenerator::new(None);
         let caps = generator.capabilities();
-        assert_eq!(caps.len(), 1);
+        assert_eq!(caps.len(), 2);
         assert_eq!(caps[0].kind, StudioResourceKind::Image);
-        assert_eq!(caps[0].estimated_cost_cents, Some(0));
-        assert!(!caps[0].requires_network);
+        assert_eq!(caps[1].kind, StudioResourceKind::Graphic);
+        for cap in &caps {
+            assert_eq!(cap.estimated_cost_cents, Some(0));
+            assert!(!cap.requires_network);
+        }
     }
 
     #[test]

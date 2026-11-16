@@ -5,7 +5,7 @@
 //! launcher, verifier); los DTOs de eventos en `render::lifecycle` y el
 //! worker FFmpeg en `infrastructure::render_jobs`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::Value;
 use tauri::{AppHandle, State};
@@ -20,6 +20,9 @@ use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::render::lifecycle::RenderStarted;
 use crate::state::AppState;
 
+// clippy::too_many_arguments: reagrupa las dependencias Dyn que ya forman
+// RenderDeps; separarlas en otro struct no reduce la superficie real.
+#[allow(clippy::too_many_arguments)]
 fn deps<'a>(
     _state: &'a State<'a, AppState>,
     _app: &'a AppHandle,
@@ -49,6 +52,8 @@ fn deps<'a>(
 }
 
 #[tauri::command]
+// clippy::too_many_arguments: la aridad es el contrato IPC con el frontend.
+#[allow(clippy::too_many_arguments)]
 pub async fn start_render(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -97,6 +102,8 @@ pub async fn start_render(
 }
 
 #[tauri::command]
+// clippy::too_many_arguments: la aridad es el contrato IPC con el frontend.
+#[allow(clippy::too_many_arguments)]
 pub async fn start_render_to(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -108,7 +115,7 @@ pub async fn start_render_to(
     start_frame: Option<u64>,
     end_frame: Option<u64>,
 ) -> Result<Option<RenderStarted>, ProjectError> {
-    let path = PathBuf::from(output_path);
+    let path = crate::application::fs::validate_user_write_path(&output_path)?;
     if !path
         .extension()
         .map(|value| value.eq_ignore_ascii_case("mp4"))
@@ -254,6 +261,19 @@ pub async fn active_render(
         &state.cache_dir,
     );
     render_lifecycle::active_render(&deps)
+}
+
+/// `render_diary(limit)` — últimas entradas de la bitácora de exports
+/// (`export_diario.js`), más nuevas primero.
+#[tauri::command]
+pub async fn render_diary(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<Value>, ProjectError> {
+    Ok(crate::commands::render_diary_tail(
+        &state.cache_dir,
+        limit.unwrap_or(20).clamp(1, 200),
+    ))
 }
 
 #[tauri::command]

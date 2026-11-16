@@ -6,6 +6,7 @@
 //! is about to be issued.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -197,9 +198,25 @@ impl AppState {
                 "no se pudieron serializar los ajustes",
             )
         })?;
-        std::fs::write(self.config_dir.join("settings.json"), text).map_err(|_| {
-            ProjectError::message(ProjectErrorCode::Io, "no se pudieron guardar los ajustes")
-        })
+        // Escritura atómica (mismo patrón que plugins.json, AUD-091): un
+        // corte a mitad de `fs::write` dejaba settings.json truncado; ahora
+        // temporal + fsync + rename. La carga ya degrada a defaults si el
+        // JSON no parsea, así que no hace falta backup como en plugins.
+        let path = self.config_dir.join("settings.json");
+        let tmp = self.config_dir.join("settings.json.tmp");
+        let io_error =
+            || ProjectError::message(ProjectErrorCode::Io, "no se pudieron guardar los ajustes");
+        let write_result = (|| -> Result<(), std::io::Error> {
+            let mut file = std::fs::File::create(&tmp)?;
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+            drop(file);
+            std::fs::rename(&tmp, &path)
+        })();
+        if write_result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        write_result.map_err(|_| io_error())
     }
 
     pub fn session_snapshot(&self) -> Result<Option<Session>, ProjectError> {
@@ -272,6 +289,16 @@ impl AppState {
     }
     pub fn media_runner(&self) -> crate::infrastructure::media::SystemMediaRunner {
         crate::infrastructure::media::SystemMediaRunner
+    }
+    pub fn object_track_backend(
+        &self,
+    ) -> crate::infrastructure::object_track::FfmpegObjectTrackBackend {
+        crate::infrastructure::object_track::FfmpegObjectTrackBackend
+    }
+    pub fn concat_worker_backend(
+        &self,
+    ) -> crate::infrastructure::concat_worker::SystemConcatWorker {
+        crate::infrastructure::concat_worker::SystemConcatWorker
     }
     pub fn project_session(&self) -> crate::infrastructure::projects::StateProjectSession<'_> {
         crate::infrastructure::projects::StateProjectSession::new(self)
@@ -482,6 +509,15 @@ impl AppState {
         root: &std::path::Path,
     ) -> crate::infrastructure::studio::local_catalog::LocalProjectCatalog {
         crate::infrastructure::studio::local_catalog::LocalProjectCatalog::new(doc_path, root)
+    }
+    /// Arranca el driver backend que conduce una corrida de producción
+    /// (idempotente; usa el AppHandle interno). Lo llaman los comandos IPC.
+    pub fn production_driver_start(&self, run_id: &str) -> Result<(), ProjectError> {
+        crate::infrastructure::studio::run_driver::start(self.app_handle_ref(), run_id)
+    }
+    /// `true` si hay un driver activo para la corrida.
+    pub fn production_driver_active(&self, run_id: &str) -> bool {
+        crate::infrastructure::studio::run_driver::is_active(run_id)
     }
     /// Avanza la corrida UNA etapa con el ejecutor del proyecto abierto.
     /// Camino único de ejecución: lo usan el comando IPC, el driver de

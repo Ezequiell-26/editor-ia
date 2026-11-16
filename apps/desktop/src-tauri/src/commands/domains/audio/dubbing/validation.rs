@@ -11,6 +11,12 @@ pub(crate) fn normalize_language(value: &str) -> Option<&'static str> {
         "ar" | "ar-sa" => Some("ar"),
         "bn" | "bn-bd" | "bn-in" => Some("bn"),
         "ru" | "ru-ru" => Some("ru"),
+        "ja" | "ja-jp" => Some("ja"),
+        "ko" | "ko-kr" => Some("ko"),
+        "tr" | "tr-tr" => Some("tr"),
+        "pl" | "pl-pl" => Some("pl"),
+        "nl" | "nl-nl" | "nl-be" => Some("nl"),
+        "cs" | "cs-cz" => Some("cs"),
         _ => None,
     }
 }
@@ -28,6 +34,12 @@ fn language_label(code: &str) -> String {
         "ar" => "árabe",
         "bn" => "bengalí",
         "ru" => "ruso",
+        "ja" => "japonés",
+        "ko" => "coreano",
+        "tr" => "turco",
+        "pl" => "polaco",
+        "nl" => "neerlandés",
+        "cs" => "checo",
         _ => code,
     }
     .to_owned()

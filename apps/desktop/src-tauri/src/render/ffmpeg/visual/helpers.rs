@@ -51,6 +51,283 @@ pub(crate) fn wipe_alpha_expr(kind: &str, p: &str) -> String {
         "iris" => format!(
             "if(gt(({p}),0.999),alpha(X,Y),if(lt((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),({p})*({p})*((W/2)*(W/2)+(H/2)*(H/2))),alpha(X,Y),0))"
         ),
+        // Persiana en cascada (10 listones), equivalente al `persiana` de
+        // AlaukCut: cada listón abre con retardo decreciente de arriba
+        // hacia abajo y borde suave de 4 % de su alto. En FFmpeg Y=0 es el
+        // borde superior, así que el listón `line` (0 arriba) recibe
+        // `atraso = 0.035*line`; dentro del listón el nuevo clip se revela
+        // de abajo hacia arriba (`r = 1-f` decrece al avanzar Y).
+        "blinds" => {
+            let line = "floor(Y/H*10)";
+            let f = format!("(Y/H*10-{line})");
+            let t = format!("clip(({p}-0.035*{line})/0.65,0,1)*1.05");
+            let r = format!("(1-{f})");
+            let u = format!("clip(({r}-({t}-0.04))/0.04,0,1)");
+            let ss = format!("({u}*{u}*(3-2*{u}))");
+            format!("alpha(X,Y)*(1-{ss})")
+        }
+        // Reloj (`relogio` de AlaukCut): barrido angular horario desde el
+        // borde superior. En coordenadas FFmpeg (Y crece hacia abajo) el
+        // vector «arriba» es H/2-Y, así que `atan2(X-W/2, H/2-Y)` da 0 en el tope
+        // y crece en sentido horario; `volta` lo normaliza a [0,1) y el
+        // smoothstep de ±0.012 replica el borde suave del shader.
+        "clock-wipe" => {
+            let ang = "atan2(X-W/2,H/2-Y)";
+            let norm = format!("if(lt(({ang}),0),({ang})+6.28318530718,({ang}))");
+            let volta = format!("(({norm})/6.28318530718)");
+            let u = format!("clip((({volta})-(({p})-0.012))/0.024,0,1)");
+            let ss = format!("({u}*{u}*(3-2*{u}))");
+            format!("alpha(X,Y)*(1-{ss})")
+        }
+        // Tinta (`tinta` de AlaukCut): mancha que se expande desde el centro
+        // con borde irregular (ruido de valor, 2 octavas). geq no tiene
+        // variables: cada hash `sin()` se expone inline. El oscurecido del
+        // borde mojado no es portable a alfa puro — queda como aproximación.
+        // Las coordenadas de ruido usan X/H e Y/H (equivalente al
+        // `q*vec2(ratio,1)` del shader tras normalizar por H).
+        "ink" => {
+            let hash = |u: &str, v: &str| {
+                let s = format!("sin({u}*12.9898+{v}*78.233)*43758.5453");
+                format!("({s}-floor({s}))")
+            };
+            let noise = |a: &str, b: &str| {
+                let i = format!("floor({a})");
+                let j = format!("floor({b})");
+                let fx = format!("({a}-{i})");
+                let fy = format!("({b}-{j})");
+                let ux = format!("({fx}*{fx}*(3-2*{fx}))");
+                let uy = format!("({fy}*{fy}*(3-2*{fy}))");
+                let h00 = hash(&i, &j);
+                let h10 = hash(&format!("({i}+1)"), &j);
+                let h01 = hash(&i, &format!("({j}+1)"));
+                let h11 = hash(&format!("({i}+1)"), &format!("({j}+1)"));
+                let lo = format!("({h00}*(1-{ux})+{h10}*{ux})");
+                let hi = format!("({h01}*(1-{ux})+{h11}*{ux})");
+                format!("({lo}*(1-{uy})+{hi}*{uy})")
+            };
+            let n1 = noise("X/H*4", "Y/H*4");
+            let n2 = noise("X/H*9+3.7", "Y/H*9+1.3");
+            let n = format!("({n1}*0.6+{n2}*0.4)");
+            let len = "sqrt((X/W-0.5)*(X/W-0.5)+(Y/H-0.5)*(Y/H-0.5))";
+            let campo = format!("({n}*0.7+(1-{len}*1.2)*0.3)");
+            let limiar = format!("(1-({p})*1.05)");
+            let u = format!("clip((({campo})-({limiar}))/0.06,0,1)");
+            let ss = format!("({u}*{u}*(3-2*{u}))");
+            format!("alpha(X,Y)*{ss}")
+        }
+        // Bolhas (`bolhas` de AlaukCut): el clip entrante nace en burbujas
+        // que crecen desde el centro de cada celda de una grilla 7×7, cada
+        // una con retardo hasheado. geq no tiene variables: el centro de
+        // celda y el hash se expanden inline (mismo truco `sin()` que `ink`).
+        // `t` llega a 1 cuando la burbuja cubre la celda entera
+        // (1.32 × semidiagonal²), así que al cerrar el lead todo queda
+        // revelado sin caso especial.
+        "bolhas" => {
+            let hash = |u: &str, v: &str| {
+                let s = format!("sin({u}*12.9898+{v}*78.233)*43758.5453");
+                format!("({s}-floor({s}))")
+            };
+            let cx = "floor(X/W*7)";
+            let cy = "floor(Y/H*7)";
+            let h = hash(cx, cy);
+            let px = format!("(({cx}+0.5)*W/7)");
+            let py = format!("(({cy}+0.5)*H/7)");
+            let dx = format!("(X-{px})");
+            let dy = format!("(Y-{py})");
+            let r2 = format!("({dx}*{dx}+{dy}*{dy})");
+            let maxd2 = "((W/14)*(W/14)+(H/14)*(H/14))";
+            let t = format!("clip((({p})-({h})*0.5)/0.45,0,1)");
+            let rad2 = format!("({t}*{t}*1.32*{maxd2})");
+            let u = format!("clip((({rad2})-({r2}))/({maxd2}*0.04+1),0,1)");
+            let ss = format!("({u}*{u}*(3-2*{u}))");
+            format!("alpha(X,Y)*{ss}")
+        }
+        // Colmeia (`colmeia` de AlaukCut): los favos hexagonales se revelan
+        // del centro hacia los bordes; cada favó espera por distancia al
+        // centro + hash de celda. La distancia hexagonal usa la celda más
+        // cercana entre dos redes desplazadas (voronoi del shader). geq no
+        // tiene variables ni `mod`: `mod(v,s)=v-s*floor(v/s)` y los `min`/`max`
+        // se reescriben con `clip`/`if(lt|gt)` inline. El velo oscuro de las
+        // juntas del shader no es portable a alfa puro — queda como
+        // aproximación.
+        "colmeia" => {
+            // Coordenadas en unidades de hexágono: equivale al
+            // `q*vec2(ratio*9,9)` del shader porque X/H*9 = X/W*(W/H)*9.
+            let sx = "(X/H*9)";
+            let sy = "(Y/H*9)";
+            let s_y = "1.7320508";
+            // a = mod(p, s) - h  →  ax = mod(px,1)-0.5, ay = mod(py,1.732)-0.866
+            let ax = format!("({sx}-floor({sx})-0.5)");
+            let ay = format!("({sy}-{s_y}*floor({sy}/{s_y})-0.866)");
+            // b = mod(p - h, s) - h con h = (0.5, 0.866)
+            let bx0 = format!("({sx}-0.5)");
+            let by0 = format!("({sy}-0.866)");
+            let bx = format!("({bx0}-floor({bx0})-0.5)");
+            let by = format!("({by0}-{s_y}*floor({by0}/{s_y})-0.866)");
+            let daa = format!("({ax}*{ax}+{ay}*{ay})");
+            let dbb = format!("({bx}*{bx}+{by}*{by})");
+            let pick_a = format!("lt({daa},{dbb})");
+            let gx = format!("if({pick_a},{ax},{bx})");
+            let gy = format!("if({pick_a},{ay},{by})");
+            // id = p - g (coordenadas continuas de celda)
+            let idx = format!("({sx}-{gx})");
+            let idy = format!("({sy}-{gy})");
+            // Retardo: proximidad al centro (meio = (W/H*4.5, 4.5)) + hash.
+            let mxm = "(W/H*4.5)";
+            let lenm = format!("sqrt({mxm}*{mxm}+4.5*4.5)");
+            let dist = format!(
+                "sqrt(({idx}-{mxm})*({idx}-{mxm})+({idy}-4.5)*({idy}-4.5))"
+            );
+            let hh_s = format!(
+                "sin(floor({idx}*2+0.5)*12.9898+floor({idy}*2+0.5)*78.233)*43758.5453"
+            );
+            let hh = format!("({hh_s}-floor({hh_s}))");
+            let atraso = format!(
+                "(clip({dist}/{lenm},0,1)*0.5+{hh}*0.15)"
+            );
+            let t = format!("clip((({p})-{atraso})/0.3,0,1)");
+            // hexd = max(dot(abs(g),(0.5,0.866)), abs(g).x) — distancia al
+            // borde del favo hexagonal.
+            let agx = format!("abs({gx})");
+            let agy = format!("abs({gy})");
+            let dot_ag = format!("({agx}*0.5+{agy}*0.8660254)");
+            let hexd = format!("if(gt({dot_ag},{agx}),{dot_ag},{agx})");
+            let u = format!(
+                "clip(({hexd}-({t}*0.62-0.03))/0.03,0,1)"
+            );
+            let ss = format!("({u}*{u}*(3-2*{u}))");
+            format!("alpha(X,Y)*(1-{ss})")
+        }
+        // Chuva (`chuva` de AlaukCut): 48 columnas que caen a velocidad y
+        // fase hasheadas; cada columna revela B de abajo hacia arriba cuando
+        // la «cabeza» de lluvia la alcanza. La estela verde digital y los
+        // bloques brillantes del shader no son portables a alfa puro — el
+        // reveal (`passou`) sí lo es. `y` del shader es 1-q.y → en FFmpeg
+        // equivale a (1-Y/H).
+        "chuva" => {
+            let col = "floor(X/W*48)";
+            let hash = |v: &str| {
+                let s = format!("sin({col}*12.9898+{v}*78.233)*43758.5453");
+                format!("({s}-floor({s}))")
+            };
+            let vel = format!("(0.7+{}*0.6)", hash("1"));
+            let fase = format!("({}*0.35)", hash("2"));
+            let cabeca = format!("((({p})*1.9-{fase})*{vel})");
+            let y = "(1-Y/H)";
+            let u = format!("clip(({y}-({cabeca}-0.02))/0.02,0,1)");
+            let ss = format!("({u}*{u}*(3-2*{u}))");
+            format!("alpha(X,Y)*(1-{ss})")
+        }
+        // Vento (`vento` de AlaukCut): los «granos» del clip saliente son
+        // arrastrados por el viento hacia la derecha y el entrante aparece
+        // detrás. El shader además muestrea A desplazado (`sa`) — eso no es
+        // portable a alfa puro: la máscara reproduce sólo el reveal por
+        // grano (`some = smoothstep(0.5,1,t)`), que sí es fiel.
+        "vento" => {
+            // Grano hasheado por celda de una grilla 320×180 sobre el frame
+            // normalizado (equivale a floor(q*vec2(320,180)) del shader).
+            let gx = "floor(X/W*320)";
+            let gy = "floor(Y/H*180)";
+            let gs = format!("sin({gx}*12.9898+{gy}*78.233)*43758.5453");
+            let g = format!("({gs}-floor({gs}))");
+            let frente = format!("(({p})*1.7-0.35)");
+            let nx = "(X/W)";
+            let t = format!("clip(({frente}-{nx}*0.6-{g}*0.4)/0.25,0,1)");
+            let u = format!("clip(({t}-0.5)/0.5,0,1)");
+            let ss = format!("({u}*{u}*(3-2*{u}))");
+            format!("alpha(X,Y)*{ss}")
+        }
+        // Triangulos (`triangulos` de AlaukCut): cada celda de una grilla
+        // 6×6 (corregida por aspecto) se parte en dos triángulos que se
+        // encogen con retardo por columna + hash; B queda detrás. El shader
+        // devuelve `dentro` = visibilidad de A dentro del triángulo, así que
+        // la máscara del entrante es `1-dentro`. geq no tiene `step`/`mix`/
+        // `min`/`max`: `step(f.x,f.y)` → `if(lt(fy,fx),0,1)`, `mix(a,b,t)` →
+        // `a+(b-a)*t`, `min` → `if(lt)`, `max` → `if(gt)`, `step(k,0.999)` →
+        // `if(lt(k,0.999),1,0)`. Coordenadas en unidades de celda:
+        // `X/H*6` ≡ `q*vec2(ratio*6,6)` del shader.
+        "triangulos" => {
+            let gx = "(X/H*6)";
+            let gy = "(Y/H*6)";
+            let celx = format!("floor({gx})");
+            let cely = format!("floor({gy})");
+            let fx = format!("({gx}-{celx})");
+            let fy = format!("({gy}-{cely})");
+            // lado = step(f.x, f.y): 1 cuando f.y >= f.x (mitad superior).
+            let lado = format!("if(lt({fy},{fx}),0,1)");
+            // cen = mix(vec2(2/3,1/3), vec2(1/3,2/3), lado)
+            let cenx = format!("(0.6666667-0.3333334*{lado})");
+            let ceny = format!("(0.3333333+0.3333334*{lado})");
+            // atraso = cel.x/(ratio*6)*0.55 + hash(cel + lado*(17,31))*0.25
+            // cel.x/(W/H*6) = celx*H/(W*6); el hash usa cel + lado*(17,31).
+            let hx = format!("({celx}+{lado}*17)");
+            let hy = format!("({cely}+{lado}*31)");
+            let hs = format!("sin({hx}*12.9898+{hy}*78.233)*43758.5453");
+            let hh = format!("({hs}-floor({hs}))");
+            let atraso = format!(
+                "({celx}*H/(W*6)*0.55+{hh}*0.25)"
+            );
+            let k = format!("clip((({p})-{atraso})/0.2,0,1)");
+            // sc = max(1-k, 0.001)
+            let omk = format!("(1-{k})");
+            let sc = format!("if(gt({omk},0.001),{omk},0.001)");
+            // fl = cen + (f-cen)/sc
+            let flx = format!("({cenx}+({fx}-{cenx})/{sc})");
+            let fly = format!("({ceny}+({fy}-{ceny})/{sc})");
+            let fdx = format!("({flx}-{fly})");
+            // d1 = mix(fl.y, fl.x, lado) = fly + (flx-fly)*lado
+            let d1 = format!("({fly}+{fdx}*{lado})");
+            // d2 = mix(1-fl.x, 1-fl.y, lado) = 1-flx + (flx-fly)*lado
+            let d2 = format!("(1-{flx}+{fdx}*{lado})");
+            // d3 = mix(fl.x-fl.y, fl.y-fl.x, lado)*0.7071068
+            //    = fdx*(1-2*lado)*0.7071068
+            let d3 = format!("({fdx}*(1-2*{lado})*0.7071068)");
+            let dmin = format!("if(lt({d2},{d3}),if(lt({d1},{d2}),{d1},{d2}),if(lt({d1},{d3}),{d1},{d3}))");
+            // dentro = smoothstep(-0.03,0,dmin) * step(k,0.999)
+            let du = format!("clip(({dmin}+0.03)/0.03,0,1)");
+            let dss = format!("({du}*{du}*(3-2*{du}))");
+            let dentro = format!("({dss}*if(lt({k},0.999),1,0))");
+            format!("alpha(X,Y)*(1-{dentro})")
+        }
+        // Persiana (`persiana` de AlaukCut): diez listones horizontales que
+        // abren en cascada — cada listón retrasa su apertura según su fila y
+        // el reveal dentro del listón barre de abajo hacia arriba
+        // (`smoothstep(t-0.04,t,1-f)`). geq: `linha=floor(Y/H*10)`,
+        // `f=fract`, `atraso=(1-(linha+1)/10)*0.35`, `t=clip((p-atraso)/0.65)*1.05`.
+        "persiana" => {
+            let linha = "floor(Y/H*10)";
+            let f = format!("(Y/H*10-{linha})");
+            let atraso = format!("((1-({linha}+1)/10)*0.35)");
+            let t = format!("clip((({p})-{atraso})/0.65,0,1)*1.05");
+            let u = format!("clip((1.04-{f}-{t})/0.04,0,1)");
+            let ss = format!("({u}*{u}*(3-2*{u}))");
+            format!("alpha(X,Y)*(1-{ss})")
+        }
+        // Reflexo (`reflexo` de AlaukCut): frente de luz diagonal que cruza en
+        // sentido anti-diagonal (`x = q.x*ratio*0.75 + (1-q.y)*0.25`, en geq
+        // `X/H*0.75 + (1-Y/H)*0.25` porque `q.x*ratio = X/H`). La estela de
+        // luz cálida que el shader pinta sobre el fundido no es portable a
+        // alfa puro — queda sólo el reveal (`m = 1-smoothstep(frente±0.015)`).
+        "reflexo" => {
+            let total = "(W/H*0.75+0.25)";
+            let x = "(X/H*0.75+(1-Y/H)*0.25)";
+            let frente = format!("(({p})*({total}+0.5)-0.25)");
+            let u = format!("clip(({x}-({frente}-0.015))/0.03,0,1)");
+            let ss = format!("({u}*{u}*(3-2*{u}))");
+            format!("alpha(X,Y)*(1-{ss})")
+        }
+        // Barrido diagonal (`directionalwipe` de transitions.dev): el clip
+        // entrante se revela con un borde recto a ~45° que cruza de arriba-
+        // izquierda hacia abajo-derecha. Proyección `u = (X+Y)/(W+H)` va de
+        // 0 en la esquina superior-izquierda a 1 en la inferior-derecha sin
+        // depender del aspecto; el smoothstep de ±0.008 da el borde suave.
+        "barrido-diagonal" => {
+            let u = "((X+Y)/(W+H))";
+            let limiar = format!("((({p})*1.016)-0.008)");
+            let g = format!("clip((({u})-({limiar}))/0.016,0,1)");
+            let ss = format!("({g}*{g}*(3-2*{g}))");
+            format!("alpha(X,Y)*(1-{ss})")
+        }
         _ => "alpha(X,Y)".to_owned(),
     }
 }
@@ -63,7 +340,16 @@ pub(crate) fn wipe_transition_filter(kind: &str, lead: f64, fps: f64) -> String 
     let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
     // Progreso en frames del stream local (0 = inicio del solape).
     let p = format!("if(lt(N,{lead_frames:.0}),N/{lead_frames:.0},1)");
-    wipe_geq(&wipe_alpha_expr(kind, &p))
+    let alpha = wipe_alpha_expr(kind, &p);
+    // `ink`/`bolhas` evalúan ruido por pixel: `if` de geq cortocircuita,
+    // así que fuera del lead se devuelve el alfa original sin pagar la
+    // máscara. Verificado: 10 frames con guarda ≈ 4× más rápido que sin ella.
+    let alpha = if matches!(kind, "ink" | "bolhas" | "colmeia" | "chuva" | "vento" | "triangulos" | "persiana" | "reflexo") {
+        format!("if(lt(N,{lead_frames:.0}),{alpha},alpha(X,Y))")
+    } else {
+        alpha
+    };
+    wipe_geq(&alpha)
 }
 
 /// Versión de una ventana de un frame: `p` llega ya resuelto por el preview.
@@ -139,6 +425,331 @@ pub(crate) fn slide3d_transition_filter(kind: &str, lead: f64, fps: f64) -> Stri
 /// Ventana de un frame: el progreso ya viene resuelto por el preview.
 pub(crate) fn slide3d_frozen_filter(axis: &str, progress: f64) -> String {
     slide3d_perspective(axis, &format!("{progress:.6}"), "1")
+}
+
+/// `pixelar` (paridad del `pixelar` de `transiciones_gl` de AlaukCut): el
+/// clip entrante aparece pixelado y se resuelve durante el lead. Cada canal
+/// toma el píxel de la esquina del bloque de lado `B` — `B*floor(X/B)` es el
+/// origen del bloque (geq no tiene `%`; con B=1 la expresión es identidad
+/// exacta). `B` decrece de 48 a 1 con el progreso; el `if` de geq
+/// cortocircuita y fuera del lead se devuelve el píxel original.
+fn pixelar_geq(progress: &str, guard: &str) -> String {
+    let b = format!("(1+47*(1-({progress})))");
+    let px = format!("({b})*floor(X/({b}))");
+    let py = format!("({b})*floor(Y/({b}))");
+    format!(
+        "geq=r='if({guard},r({px},{py}),r(X,Y))':g='if({guard},g({px},{py}),g(X,Y))':b='if({guard},b({px},{py}),b(X,Y))':a='alpha(X,Y)'"
+    )
+}
+
+pub(crate) fn pixelar_transition_filter(lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    pixelar_geq(
+        &format!("clip(N/{lead_frames:.0},0,1)"),
+        &format!("lt(N,{lead_frames:.0})"),
+    )
+}
+
+/// Versión de un frame: el progreso ya viene resuelto por el preview.
+pub(crate) fn pixelar_frozen_filter(progress: f64) -> String {
+    pixelar_geq(&format!("{progress:.6}"), "1")
+}
+
+/// `interferencia` (paridad del `interferencia` de `transicoes_gl` de
+/// AlaukCut): durante el lead el clip entrante sufre aberración cromática
+/// radial — R y B se samplean desplazados desde el centro del frame — más
+/// ruido de «señal» por canal (dos senos con coeficientes y semillas
+/// distintos por canal; `N` lo hace parpadear frame a frame como una
+/// interferencia). La envolvente `sin(pi*p)` enciende y apaga el efecto
+/// solo, y el `if` de geq cortocircuita fuera del lead.
+fn interferencia_geq(progress: &str, guard: &str) -> String {
+    // nx/ny: vector centro→píxel; dist: su módulo +1 para no dividir por 0.
+    let nx = "(X-W/2)";
+    let ny = "(Y-H/2)";
+    let dist = format!("(sqrt({nx}*{nx}+{ny}*{ny})+1)");
+    let env = format!("sin(3.14159265*({progress}))");
+    // ab: aberración en px (pico ~14 al medio del lead); amp: ruido ±36.
+    let ab = format!("({env}*14)");
+    let amp = format!("({env}*36)");
+    let dx = format!("({nx}/{dist}*{ab})");
+    let dy = format!("({ny}/{dist}*{ab})");
+    // Ruido por canal: producto de dos senos con semillas distintas.
+    let nr = "sin(X*0.913+Y*1.731+N*2.17)*sin(X*2.39+Y*0.57+N*0.31)";
+    let ng = "sin(X*1.37+Y*2.11+N*3.71)*sin(Y*1.93+X*0.31+N*1.13)";
+    let nb = "sin(X*2.71+Y*0.83+N*1.43)*sin(X*0.47+Y*2.97+N*2.29)";
+    format!(
+        "geq=r='if({guard},clip(r(X+{dx},Y+{dy})+({nr})*({amp}),0,255),r(X,Y))':g='if({guard},clip(g(X,Y)+({ng})*({amp}),0,255),g(X,Y))':b='if({guard},clip(b(X-{dx},Y-{dy})+({nb})*({amp}),0,255),b(X,Y))':a='alpha(X,Y)'"
+    )
+}
+
+pub(crate) fn interferencia_transition_filter(lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    interferencia_geq(
+        &format!("clip(N/{lead_frames:.0},0,1)"),
+        &format!("lt(N,{lead_frames:.0})"),
+    )
+}
+
+/// Versión de un frame: el progreso ya viene resuelto por el preview.
+pub(crate) fn interferencia_frozen_filter(progress: f64) -> String {
+    interferencia_geq(&format!("{progress:.6}"), "1")
+}
+
+/// `liquido` (paridad del `liquido` de `transicoes_gl` de AlaukCut): el
+/// clip entrante entra «licuado» — cada canal se samplea con un offset
+/// de píxel dado por un campo de ruido suave de X/Y (senos anidados,
+/// sin hash: geq no tiene variables ni `%`) que decae con el progreso
+/// hasta quedar en 0 (el clip se resuelve, como `pixelar`). `N` aporta
+/// un «hervor» leve frame a frame. El `if` de geq cortocircuita fuera
+/// del lead.
+fn liquido_geq(progress: &str, guard: &str) -> String {
+    // Campo de desplazamiento: dos senos anidados por eje, en [-1,1]
+    // aprox. (suma acotada ~±1.7; amp la compensa).
+    let fx = "sin(X*0.021+sin(Y*0.017+N*0.11)*2.1)+0.6*sin(Y*0.013+X*0.007+N*0.07)";
+    let fy = "sin(Y*0.019+sin(X*0.015+N*0.13)*1.9)+0.6*sin(X*0.011+Y*0.009+N*0.05)";
+    // amp: pico ~26 px al inicio del lead → 0 al final.
+    let amp = format!("((1-({progress}))*26)");
+    let dx = format!("(({fx})*{amp}/1.7)");
+    let dy = format!("(({fy})*{amp}/1.7)");
+    format!(
+        "geq=r='if({guard},r(X+{dx},Y+{dy}),r(X,Y))':g='if({guard},g(X+{dx},Y+{dy}),g(X,Y))':b='if({guard},b(X+{dx},Y+{dy}),b(X,Y))':a='alpha(X,Y)'"
+    )
+}
+
+pub(crate) fn liquido_transition_filter(lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    liquido_geq(
+        &format!("clip(N/{lead_frames:.0},0,1)"),
+        &format!("lt(N,{lead_frames:.0})"),
+    )
+}
+
+/// Versión de un frame: el progreso ya viene resuelto por el preview.
+pub(crate) fn liquido_frozen_filter(progress: f64) -> String {
+    liquido_geq(&format!("{progress:.6}"), "1")
+}
+
+/// `caleidoscopio` (paridad del `caleidoscopio` de `transicoes_gl` de
+/// AlaukCut): el clip entrante aparece plegado en 8 sectores angulares
+/// espejados (cada sector rebota su mitad → roseta) y se abre hasta
+/// quedar normal con el progreso. Coordenadas polares por `atan2` +
+/// `sqrt` (mismo truco que `clock-wipe`), fold triangular
+/// `1-|2u-1|` por sector, y mezcla `orig + (plegado-orig)*(1-p)` — a
+/// p=1 la expresión es identidad exacta. `clip` contiene el muestreo
+/// cuando el punto plegado cae fuera del cuadro.
+fn caleidoscopio_geq(progress: &str, guard: &str) -> String {
+    let p = format!("clip({progress},0,1)");
+    let k = format!("(1-{p})");
+    let nx = "(X-W/2)";
+    let ny = "(Y-H/2)";
+    let radius = format!("sqrt({nx}*{nx}+{ny}*{ny})");
+    // a ∈ [0,1]: atan2(ny,nx) ∈ [-π,π] → +π → [0,2π] → /2π.
+    let a = format!("((atan2({ny},{nx})+3.14159265)/6.28318531)");
+    // t = sector fraccionario*8; u = fase dentro del sector; v = triángulo
+    // espejo 1-|2u-1| que pliega el sector sobre sí mismo.
+    let t = format!("({a}*8)");
+    let u = format!("({t}-floor({t}))");
+    let v = format!("(1-abs(2*{u}-1))");
+    let af = format!("((floor({t})+{v})/8)");
+    let th = format!("({af}*6.28318531-3.14159265)");
+    let xf = format!("(W/2+{radius}*cos({th}))");
+    let yf = format!("(H/2+{radius}*sin({th}))");
+    let xs = format!("clip(X+({xf}-X)*{k},0,W-1)");
+    let ys = format!("clip(Y+({yf}-Y)*{k},0,H-1)");
+    format!(
+        "geq=r='if({guard},r({xs},{ys}),r(X,Y))':g='if({guard},g({xs},{ys}),g(X,Y))':b='if({guard},b({xs},{ys}),b(X,Y))':a='alpha(X,Y)'"
+    )
+}
+
+pub(crate) fn caleidoscopio_transition_filter(lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    caleidoscopio_geq(
+        &format!("clip(N/{lead_frames:.0},0,1)"),
+        &format!("lt(N,{lead_frames:.0})"),
+    )
+}
+
+/// Versión de un frame: el progreso ya viene resuelto por el preview.
+pub(crate) fn caleidoscopio_frozen_filter(progress: f64) -> String {
+    caleidoscopio_geq(&format!("{progress:.6}"), "1")
+}
+
+/// `desenfoque-lineal` (paridad del `LinearBlur` MIT de `transicoes_gl`
+/// de AlaukCut): el clip entrante aparece con un desenfoque direccional
+/// en estelas (vector a ~30°) que se acorta hasta quedar nítido con el
+/// progreso. geq no tiene vecindario: el blur es un promedio de 9 taps
+/// a lo largo del vector — box-blur direccional aproximado, con el
+/// paso por tap `(1-p)*7` px → racha máxima ~±28 px al inicio.
+fn desenfoque_lineal_geq(progress: &str, guard: &str) -> String {
+    const DX: f64 = 0.8660254;
+    const DY: f64 = 0.5;
+    let taps = |channel: char| -> String {
+        let terms: Vec<String> = (-4i32..=4)
+            .map(|i| {
+                let k = i as f64 * 7.0;
+                format!(
+                    "{channel}(X+({k:.1}*(1-({progress}))*{DX}),Y+({k:.1}*(1-({progress}))*{DY}))"
+                )
+            })
+            .collect();
+        format!("({})/9", terms.join("+"))
+    };
+    let (r, g, b) = (taps('r'), taps('g'), taps('b'));
+    format!(
+        "geq=r='if({guard},{r},r(X,Y))':g='if({guard},{g},g(X,Y))':b='if({guard},{b},b(X,Y))':a='alpha(X,Y)'"
+    )
+}
+
+pub(crate) fn desenfoque_lineal_transition_filter(lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    desenfoque_lineal_geq(
+        &format!("clip(N/{lead_frames:.0},0,1)"),
+        &format!("lt(N,{lead_frames:.0})"),
+    )
+}
+
+/// Versión de un frame: el progreso ya viene resuelto por el preview.
+pub(crate) fn desenfoque_lineal_frozen_filter(progress: f64) -> String {
+    desenfoque_lineal_geq(&format!("{progress:.6}"), "1")
+}
+
+/// `warp-direccional` (paridad del `directionalwarp` MIT de
+/// `transicoes_gl` de AlaukCut): el clip entrante aparece «abombado»
+/// hacia un lado — el offset es `dir · sen(π·u) · K·(1-p)`, con `u` la
+/// coordenada normalizada sobre el eje perpendicular al vector de
+/// desplazamiento (~30°). Seno → cero en los bordes, abombamiento
+/// máximo en el centro; decae a 0 con el progreso (identidad exacta).
+/// Una sola muestra por canal, como `liquido`.
+fn warp_direccional_geq(progress: &str, guard: &str) -> String {
+    // Eje de abombamiento (perpendicular al vector 30°) y vector de
+    // desplazamiento, ambos unitarios.
+    let ax = "(-0.5)";
+    let ay = "0.8660254";
+    let dx = "0.8660254";
+    let dy = "0.5";
+    // u ∈ [0,1]: proyección sobre el eje perpendicular normalizada por
+    // la hipotenusa del cuadro + 0.5.
+    let diag = "sqrt(W*W+H*H)";
+    let u = format!(
+        "(({ax}*(X-W/2)+{ay}*(Y-H/2))/{diag}+0.5)"
+    );
+    let bulge = format!("(sin({u}*3.14159265)*{dx}*(1-({progress}))*36)");
+    let buly = format!("(sin({u}*3.14159265)*{dy}*(1-({progress}))*36)");
+    format!(
+        "geq=r='if({guard},r(X+{bulge},Y+{buly}),r(X,Y))':g='if({guard},g(X+{bulge},Y+{buly}),g(X,Y))':b='if({guard},b(X+{bulge},Y+{buly}),b(X,Y))':a='alpha(X,Y)'"
+    )
+}
+
+pub(crate) fn warp_direccional_transition_filter(lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    warp_direccional_geq(
+        &format!("clip(N/{lead_frames:.0},0,1)"),
+        &format!("lt(N,{lead_frames:.0})"),
+    )
+}
+
+/// Versión de un frame: el progreso ya viene resuelto por el preview.
+pub(crate) fn warp_direccional_frozen_filter(progress: f64) -> String {
+    warp_direccional_geq(&format!("{progress:.6}"), "1")
+}
+
+/// `glitch-digital` (paridad del `GlitchDisplace` MIT de
+/// `transicoes_gl` de AlaukCut): el clip entrante entra con bloques de
+/// 16 px desplazados por un hash determinista de (bloque, N) —geq no
+/// tiene variables, el hash es `fract(sin(bx·a+by·b+N·c)·k)`— más split
+/// cromático horizontal que parpadea con `sin(N·…)`. La amplitud
+/// `(1-p)` hace que el glitch se resuelva a identidad exacta.
+fn glitch_digital_geq(progress: &str, guard: &str) -> String {
+    let bx = "floor(X/16)";
+    let by = "floor(Y/16)";
+    // Hash pseudo-aleatorio por bloque y frame → [-1,1].
+    let hash = |bx_seed: &str, by_seed: &str, n_seed: &str, k: &str| -> String {
+        format!(
+            "((sin({bx}*{bx_seed}+{by}*{by_seed}+N*{n_seed})*{k})-floor(sin({bx}*{bx_seed}+{by}*{by_seed}+N*{n_seed})*{k}))"
+        )
+    };
+    let h1 = hash("127.1", "311.7", "0.37", "43758.5453");
+    let h2 = hash("269.5", "183.3", "0.91", "28001.8384");
+    let amp = format!("(1-({progress}))");
+    let ox = format!("(({h1}*2-1)*{amp}*18)");
+    let oy = format!("(({h2}*2-1)*{amp}*14)");
+    // Split cromático: magnitud decrece y el signo oscila frame a frame.
+    let split = format!("(sin(N*2.7)*{amp}*8)");
+    format!(
+        "geq=r='if({guard},r(X+{ox}+{split},Y+{oy}),r(X,Y))':g='if({guard},g(X+{ox},Y+{oy}),g(X,Y))':b='if({guard},b(X+{ox}-{split},Y+{oy}),b(X,Y))':a='alpha(X,Y)'"
+    )
+}
+
+pub(crate) fn glitch_digital_transition_filter(lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    glitch_digital_geq(
+        &format!("clip(N/{lead_frames:.0},0,1)"),
+        &format!("lt(N,{lead_frames:.0})"),
+    )
+}
+
+/// Versión de un frame: el progreso ya viene resuelto por el preview.
+pub(crate) fn glitch_digital_frozen_filter(progress: f64) -> String {
+    glitch_digital_geq(&format!("{progress:.6}"), "1")
+}
+
+/// `zoom-suave` (paridad del `DreamyZoom` MIT de `transicoes_gl` de
+/// AlaukCut): el clip entrante aparece ~18 % «acercado» y asienta a
+/// tamaño natural — remap polar `sample = centro + (pixel-centro)·k`
+/// con `k = 1+(1-p)·0.18` (mismo truco de coordenadas de
+/// `caleidoscopio`), `clip` contiene el muestreo fuera del cuadro.
+fn zoom_suave_geq(progress: &str, guard: &str) -> String {
+    let p = format!("clip({progress},0,1)");
+    let k = format!("(1+((1-{p})*0.18))");
+    let nx = "(X-W/2)";
+    let ny = "(Y-H/2)";
+    let xs = format!("clip(W/2+{nx}*{k},0,W-1)");
+    let ys = format!("clip(H/2+{ny}*{k},0,H-1)");
+    format!(
+        "geq=r='if({guard},r({xs},{ys}),r(X,Y))':g='if({guard},g({xs},{ys}),g(X,Y))':b='if({guard},b({xs},{ys}),b(X,Y))':a='alpha(X,Y)'"
+    )
+}
+
+pub(crate) fn zoom_suave_transition_filter(lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    zoom_suave_geq(
+        &format!("clip(N/{lead_frames:.0},0,1)"),
+        &format!("lt(N,{lead_frames:.0})"),
+    )
+}
+
+/// Versión de un frame: el progreso ya viene resuelto por el preview.
+pub(crate) fn zoom_suave_frozen_filter(progress: f64) -> String {
+    zoom_suave_geq(&format!("{progress:.6}"), "1")
+}
+
+/// `zoom-rapido` (paridad del `SimpleZoom` MIT de `transicoes_gl` de
+/// AlaukCut): complemento de `zoom-suave` — el clip entrante aparece
+/// ~15 % «alejado» y acerca hasta tamaño natural (`k = 1-(1-p)·0.15`,
+/// misma mecánica polar; a p=1 identidad exacta).
+fn zoom_rapido_geq(progress: &str, guard: &str) -> String {
+    let p = format!("clip({progress},0,1)");
+    let k = format!("(1-((1-{p})*0.15))");
+    let nx = "(X-W/2)";
+    let ny = "(Y-H/2)";
+    let xs = format!("clip(W/2+{nx}*{k},0,W-1)");
+    let ys = format!("clip(H/2+{ny}*{k},0,H-1)");
+    format!(
+        "geq=r='if({guard},r({xs},{ys}),r(X,Y))':g='if({guard},g({xs},{ys}),g(X,Y))':b='if({guard},b({xs},{ys}),b(X,Y))':a='alpha(X,Y)'"
+    )
+}
+
+pub(crate) fn zoom_rapido_transition_filter(lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    zoom_rapido_geq(
+        &format!("clip(N/{lead_frames:.0},0,1)"),
+        &format!("lt(N,{lead_frames:.0})"),
+    )
+}
+
+/// Versión de un frame: el progreso ya viene resuelto por el preview.
+pub(crate) fn zoom_rapido_frozen_filter(progress: f64) -> String {
+    zoom_rapido_geq(&format!("{progress:.6}"), "1")
 }
 
 pub(crate) fn has_audio_stream(ffprobe: &Path, path: &Path) -> bool {

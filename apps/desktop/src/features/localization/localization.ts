@@ -12,7 +12,12 @@ export type LocalizationLanguageCode =
   | 'fr'
   | 'de'
   | 'it'
-  | 'ja';
+  | 'ja'
+  | 'ko'
+  | 'tr'
+  | 'pl'
+  | 'nl'
+  | 'cs';
 export type LocalizationFormat = 'srt' | 'vtt';
 
 export interface LocalizationLanguage {
@@ -24,10 +29,8 @@ export interface LocalizationLanguage {
 
 /**
  * Los idiomas que `translate_subtitles` acepta en Rust
- * (`commands/providers.rs::language_name`): los ocho con más hablantes
- * nativos más francés, alemán, italiano y japonés, que Descargar ya ofrece.
- * El orden no es un ranking de calidad: el traductor recibe el nombre
- * completo del idioma en el prompt.
+ * (`ai/providers.rs::language_name`): los diecisiete con nombre completo
+ * en el prompt del traductor. El orden no es un ranking de calidad.
  */
 export const LOCALIZATION_LANGUAGES: readonly LocalizationLanguage[] = [
   { code: 'es', label: 'Español', native: 'Español', direction: 'ltr' },
@@ -42,6 +45,11 @@ export const LOCALIZATION_LANGUAGES: readonly LocalizationLanguage[] = [
   { code: 'de', label: 'Alemán', native: 'Deutsch', direction: 'ltr' },
   { code: 'it', label: 'Italiano', native: 'Italiano', direction: 'ltr' },
   { code: 'ja', label: 'Japonés', native: '日本語', direction: 'ltr' },
+  { code: 'ko', label: 'Coreano', native: '한국어', direction: 'ltr' },
+  { code: 'tr', label: 'Turco', native: 'Türkçe', direction: 'ltr' },
+  { code: 'pl', label: 'Polaco', native: 'Polski', direction: 'ltr' },
+  { code: 'nl', label: 'Neerlandés', native: 'Nederlands', direction: 'ltr' },
+  { code: 'cs', label: 'Checo', native: 'Čeština', direction: 'ltr' },
 ];
 
 export function localizationLanguage(code: string): LocalizationLanguage | null {
@@ -49,8 +57,10 @@ export function localizationLanguage(code: string): LocalizationLanguage | null 
 }
 
 /**
- * Idiomas que `synthesize_dub` acepta (`commands/dubbing.rs::normalize_language`):
- * todos los de traducción menos `ja`, que SAPI no tiene mapeado en el backend.
+ * Idiomas que `synthesize_dub` acepta (`dubbing/validation.rs::normalize_language`):
+ * los diecisiete de traducción — el backend mapea cada base a la cultura SAPI
+ * correspondiente y la voz concreta depende de las voces instaladas en Windows
+ * (`pick_voice` falla con la lista de voces disponibles si falta la del idioma).
  */
 export const DUBBING_LANGUAGE_CODES: ReadonlySet<LocalizationLanguageCode> = new Set([
   'es',
@@ -64,6 +74,12 @@ export const DUBBING_LANGUAGE_CODES: ReadonlySet<LocalizationLanguageCode> = new
   'fr',
   'de',
   'it',
+  'ja',
+  'ko',
+  'tr',
+  'pl',
+  'nl',
+  'cs',
 ]);
 
 export function isDubbingLanguage(code: string): boolean {
@@ -86,6 +102,11 @@ export const CLONE_LANGUAGE_CODES: ReadonlySet<LocalizationLanguageCode> = new S
   'de',
   'it',
   'ja',
+  'ko',
+  'tr',
+  'pl',
+  'nl',
+  'cs',
 ]);
 
 export const DUBBING_LANGUAGES: readonly LocalizationLanguage[] = LOCALIZATION_LANGUAGES.filter(

@@ -1,6 +1,13 @@
-$setup = 'D:\Users\ofici\QODER-WORK\editor-ia\target\release\bundle\nsis\Olyvia_0.2.0_x64-setup.exe'
-$dir   = 'C:\Users\ofici\AppData\Local\Olyvia'
-$exe   = Join-Path $dir 'editor-ia-desktop.exe'
+# Corre desde cualquier worktree/clon del repo: la raiz se deriva de la
+# ubicacion de este script (scripts/win-build -> raiz del repo).
+$repo   = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$nsis   = Join-Path $repo 'target\release\bundle\nsis'
+# Acepta cualquier Olyvia_*_x64-setup.exe generado por tauri build (la version
+# del nombre cambia con el crate).
+$setup  = Get-ChildItem -Path $nsis -Filter 'Olyvia_*_x64-setup.exe' -ErrorAction SilentlyContinue |
+          Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+$dir    = 'C:\Users\ofici\AppData\Local\Olyvia'
+$exe    = Join-Path $dir 'editor-ia-desktop.exe'
 
 if (-not (Test-Path $setup)) { Write-Output "ERROR: no hay instalador en $setup"; exit 1 }
 

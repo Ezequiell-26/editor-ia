@@ -1,4 +1,4 @@
-import type { AlphaFramesRequest, AlphaSequenceRequest, BackgroundProgress, BackgroundRemoval, BackgroundRemovalRequest, BestFrameRequest, BestThumbnailFrame, CompressAnyRequest, CompressRequest, ConversionRequest, ConversionTarget, DenoiseProgress, DenoiseRequest, DenoiseResult, EdlRequest, EdlResult, EnhanceOptions, FcpxmlRequest, FcpxmlResult, ImageContent, LookLutRequest, LookLutResult, MediaAnalysis, MediaProbe, OtioRequest, OtioResult, PreviewFrameRequest, PreviewFrameResult, ProxyCleanupResult, ProxyInfo, ProxyProgressEvent, ProxyQuality, ProxyStatus, SampledColor, SceneDetection, ScopeFrameResult, SharpenProgress, SharpenRequest, SharpenResult, StabilizationAnalysis, ThumbnailExportRequest, ThumbnailExportResult, TimelineImportRequest, TimelineImportResult, UpscaleProgress, UpscaleResult, UpscaleVideoResult, VisualAudit, VisualCatalog } from '../media';
+import type { AlphaFramesRequest, AlphaSequenceRequest, BackgroundProgress, BackgroundRemoval, BackgroundRemovalRequest, BestFrameRequest, BestThumbnailFrame, CompressAnyRequest, CompressRequest, ConcatWorkerEnvelope, ConcatWorkerEvent, ConcatWorkerStatus, ConversionRequest, ConversionTarget, DenoiseProgress, DenoiseRequest, DenoiseResult, EdlRequest, EdlResult, EnhanceOptions, FileConversionRequest, FcpxmlRequest, FcpxmlResult, ImageContent, LookLutRequest, LookLutResult, MediaAnalysis, MediaProbe, OtioRequest, OtioResult, PreviewFrameRequest, PreviewFrameResult, ProxyCleanupResult, ProxyInfo, ProxyProgressEvent, ProxyQuality, ProxyStatus, SampledColor, SceneDetection, ScopeFrameResult, SfxItem, SharpenProgress, SharpenRequest, SharpenResult, StabilizationAnalysis, ThumbnailExportRequest, ThumbnailExportResult, TimelineImportRequest, TimelineImportResult, UpscaleProgress, UpscaleResult, UpscaleVideoResult, VisualAudit, VisualCatalog } from '../media';
 import type { PickedSubtitleFile } from '../projects';
 import type { BatchConversionItem, CompressProgress, ConversionResult, ConvertProgress, LosslessResult } from '../render';
 import type { CapabilityInfo, EncoderPreference, ModelInfo } from '../providers';
@@ -65,7 +65,7 @@ sampleAssetColor(input: {
     readonly seconds: number;
   }): Promise<SampledColor>;
 
-mediaThumbnail(path: string, isImage: boolean): Promise<string>;
+mediaThumbnail(path: string, isImage: boolean, timeSeconds?: number): Promise<string>;
 
 detectScenes(assetId: string, threshold: number): Promise<SceneDetection>;
 
@@ -85,6 +85,13 @@ analyzeMedia(
   ): Promise<MediaAnalysis>;
 
 convertMedia(request: ConversionRequest): Promise<ConversionResult>;
+
+/**
+ * Convierte un archivo arbitrario del disco (no asset del proyecto) a un
+ * formato de entrega derivado: GIF o audio (MP3/WAV/M4A/AAC/OGG/Opus/FLAC).
+ * Uso: entregables del render ya exportado (p. ej. MP4 → GIF/MP3).
+ */
+convertFile(request: FileConversionRequest): Promise<ConversionResult>;
 
 convertMediaBatch(
     assetIds: readonly string[],
@@ -149,6 +156,13 @@ setMetadata(
 
 /** Selector nativo de audio suelto (voz, transcripción, análisis). */
   chooseAudioFile(title?: string): Promise<string | null>;
+
+/**
+ * Biblioteca de efectos de sonido empaquetados (WAV sintetizados por
+ * `scripts/generate-sfx.mjs`). Devuelve la ruta absoluta de cada archivo
+ * para preview (`convertFileSrc`) e importación (`importMediaPaths`).
+ */
+  sfxLibrary(): Promise<SfxItem[]>;
 
 /** Inspección completa por contenido: acepta cualquier archivo que FFmpeg lea. */
   probeMediaFile(path: string): Promise<MediaProbe>;
@@ -225,4 +239,41 @@ importTimeline(request: TimelineImportRequest): Promise<TimelineImportResult>;
    * FFmpeg no trae libvmaf: la UI lo muestra como no disponible.
    */
   measureVmaf(original: string, compressed: string): Promise<number | null>;
+
+/**
+   * Estado del concat-worker (binario `concat-media` en JSON-lines): si el
+   * ejecutable existe, qué ops implementa y si hay un proceso vivo. No
+   * spawnea el worker: para eso está `concatWorkerRequest` con `ping`.
+   */
+  concatWorkerStatus(): Promise<ConcatWorkerStatus>;
+
+/**
+   * Request genérica al concat-worker. `op` debe estar en la allowlist del
+   * backend (`ping`, `probe`, `decode_frame`, `render_export`, `shutdown`);
+   * `params` es el resto del JSON según la op (`ConcatWorkerExportParams`
+   * para `render_export`). Devuelve el envelope del worker
+   * (`{"ok": ...}`); un throw es fallo de transporte (worker ausente,
+   * timeout —que mata el proceso— o respuesta inválida).
+   */
+  concatWorkerRequest(
+    op: string,
+    params?: Record<string, unknown> | null,
+    timeoutMs?: number,
+  ): Promise<ConcatWorkerEnvelope>;
+
+/**
+ * Eventos del concat-worker (`concat-worker-progress`): progreso del
+ * `render_export` en curso (`type: "render_export_progress"`) y ack de una
+ * cancelación (`type: "cancel_ack"`). Se emiten mientras una
+ * `concatWorkerRequest` está en vuelo.
+ */
+onConcatWorkerEvent(handler: (event: ConcatWorkerEvent) => void): Promise<UnlistenFn>;
+
+/**
+ * Cancela el `render_export` en curso del worker. Fire-and-forget: el
+ * render aborta en el próximo frame/fase y la request en vuelo responde
+ * `{"ok": false, "error": "render_export cancelled"}`; el worker sigue
+ * vivo. Devuelve `false` si no había worker leyendo stdin.
+ */
+concatWorkerCancelRender(): Promise<boolean>;
 }

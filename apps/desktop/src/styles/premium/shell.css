@@ -576,7 +576,10 @@ body {
   border-right: var(--hairline) !important;
   overflow: visible;
   position: relative;
-  z-index: 20;
+  /* Por encima del editor (z 90, filmora-polish): el rail es una columna del
+     grid y no se solapa con el workspace, pero sus popovers fijos («Más»)
+     viven dentro de este stacking context y necesitan ganar al contenido. */
+  z-index: 120;
 }
 
 .app-shell .sidebar::before {

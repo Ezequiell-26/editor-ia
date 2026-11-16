@@ -1,4 +1,4 @@
-import type { AssetFileInfo, CopiedMedia, CreateProjectRequest, DuplicateAssetGroup, FsDeleteResult, FsFileContent, FsListing, FsWriteResult, ImportOutcome, MediaFolderListing, MissingAssetInfo, OpenedProject, ProjectVersionInfo, QualityGateReport, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from '../projects';
+import type { AssetFileInfo, CopiedMedia, CreateProjectRequest, DuplicateAssetGroup, FsDeleteResult, FsFileContent, FsListing, FsWriteResult, ImportOutcome, MediaFolderListing, MediaSearchResult, MissingAssetInfo, OpenedProject, ProjectVersionInfo, QualityGateReport, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from '../projects';
 import type { MatchMediaPlanResult } from '../media';
 import type { ProjectDocument } from '@editor-ia/project-schema';
 
@@ -16,7 +16,7 @@ saveProject(project: ProjectDocument): Promise<OpenedProject>;
 saveProjectAs(project: ProjectDocument): Promise<OpenedProject | null>;
 
 /** Save the delivery `.zip` built by the interface. Null means cancelled. */
-  saveDeliveryPackage(bytes: Uint8Array, fileName: string): Promise<string | null>;
+  saveDeliveryPackage(bytes: Uint8Array, fileName: string, outputPath?: string): Promise<string | null>;
 
 closeProject(): Promise<void>;
 
@@ -34,6 +34,14 @@ listMediaFolder(input: {
     folder: string;
     root?: string;
   }): Promise<MediaFolderListing>;
+
+  /** Busca medios por nombre dentro de una carpeta (hasta 4 niveles, topes del backend). */
+  searchMediaFolder(input: {
+    folder: string;
+    query: string;
+    kind?: 'image' | 'audio' | 'video';
+    root?: string;
+  }): Promise<MediaSearchResult>;
 
 /** Lista el contenido de una carpeta de la PC (carpetas primero, sin recursión). */
   listDirectory(path: string): Promise<FsListing>;

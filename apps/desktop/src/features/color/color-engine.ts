@@ -1,10 +1,12 @@
 import {
   createNeutralHdrWheels,
   sampleCurvePoints,
+  type ChromaKey,
   type ClipEffects,
   type ColorGrade,
   type ColorGradeLayer,
   type ColorNode,
+  type CurvePoint,
   type GradeCurvePoint,
   type GradeCurves,
   type HdrGrade,
@@ -273,9 +275,9 @@ export function resolveGradeStages(grade: ColorGrade | undefined): GradeStage[] 
 // ---------------------------------------------------------------------------
 
 export interface SvgPrimitive {
-  readonly tag: 'feColorMatrix' | 'feComponentTransfer' | 'feGaussianBlur' | 'feConvolveMatrix';
+  readonly tag: 'feColorMatrix' | 'feComponentTransfer' | 'feGaussianBlur' | 'feConvolveMatrix' | 'feBlend' | 'feImage' | 'feComposite';
   readonly attrs: Readonly<Record<string, string | number>>;
-  readonly funcs?: Readonly<{ r?: string; g?: string; b?: string }>;
+  readonly funcs?: Readonly<{ r?: string; g?: string; b?: string; a?: string }>;
 }
 
 export interface GradeFilterSpec {
@@ -638,4 +640,476 @@ export function applyGradeProjection(
 /** Stable, DOM-safe id for a clip's SVG filter. */
 export function gradeFilterId(clipId: string): string {
   return `grade-filter-${clipId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+}
+
+// ---------------------------------------------------------------------------
+// Clip curves / curvePreset → SVG feComponentTransfer
+// ---------------------------------------------------------------------------
+
+/**
+ * Puntos de los presets `curves=preset=…` de FFmpeg (`libavfilter/vf_curves.c`).
+ * El export mapea `curvePreset` a esos nombres; acá se repiten como puntos
+ * para que la preview dibuje la misma curva. `master` compone después de la
+ * curva de canal, igual que `graph[i][j] = graph[master][graph[i][j]]`.
+ */
+const CLIP_CURVE_PRESETS: Record<
+  NonNullable<ClipEffects['curvePreset']>,
+  { r?: CurvePoint[]; g?: CurvePoint[]; b?: CurvePoint[]; master?: CurvePoint[] }
+> = {
+  'contrast-soft': {
+    master: [
+      { x: 0, y: 0 },
+      { x: 0.305, y: 0.286 },
+      { x: 0.694, y: 0.713 },
+      { x: 1, y: 1 },
+    ],
+  },
+  'contrast-medium': {
+    master: [
+      { x: 0, y: 0 },
+      { x: 0.286, y: 0.219 },
+      { x: 0.639, y: 0.643 },
+      { x: 1, y: 1 },
+    ],
+  },
+  'contrast-strong': {
+    master: [
+      { x: 0, y: 0 },
+      { x: 0.301, y: 0.196 },
+      { x: 0.592, y: 0.6 },
+      { x: 0.686, y: 0.737 },
+      { x: 1, y: 1 },
+    ],
+  },
+  vintage: {
+    r: [
+      { x: 0, y: 0.11 },
+      { x: 0.42, y: 0.51 },
+      { x: 1, y: 0.95 },
+    ],
+    g: [
+      { x: 0, y: 0 },
+      { x: 0.5, y: 0.48 },
+      { x: 1, y: 1 },
+    ],
+    b: [
+      { x: 0, y: 0.22 },
+      { x: 0.49, y: 0.44 },
+      { x: 1, y: 0.8 },
+    ],
+  },
+  'cross-process': {
+    r: [
+      { x: 0, y: 0 },
+      { x: 0.25, y: 0.156 },
+      { x: 0.501, y: 0.501 },
+      { x: 0.686, y: 0.745 },
+      { x: 1, y: 1 },
+    ],
+    g: [
+      { x: 0, y: 0 },
+      { x: 0.25, y: 0.188 },
+      { x: 0.38, y: 0.501 },
+      { x: 0.745, y: 0.815 },
+      { x: 1, y: 0.815 },
+    ],
+    b: [
+      { x: 0, y: 0 },
+      { x: 0.231, y: 0.094 },
+      { x: 0.709, y: 0.874 },
+      { x: 1, y: 1 },
+    ],
+  },
+  darker: {
+    master: [
+      { x: 0, y: 0 },
+      { x: 0.5, y: 0.4 },
+      { x: 1, y: 1 },
+    ],
+  },
+  lighter: {
+    master: [
+      { x: 0, y: 0 },
+      { x: 0.4, y: 0.5 },
+      { x: 1, y: 1 },
+    ],
+  },
+};
+
+const CURVE_TABLE_SAMPLES = 48;
+
+function clipCurveChannelTable(
+  channel: readonly CurvePoint[] | undefined,
+  master: readonly CurvePoint[] | undefined,
+): string {
+  const channelPoints = channel && channel.length >= 2 ? channel : undefined;
+  const masterPoints = master && master.length >= 2 ? master : undefined;
+  return Array.from({ length: CURVE_TABLE_SAMPLES }, (_, index) => {
+    const x = index / (CURVE_TABLE_SAMPLES - 1);
+    const shaped = channelPoints ? sampleCurvePoints(channelPoints, x) : x;
+    const value = masterPoints ? sampleCurvePoints(masterPoints, shaped) : shaped;
+    return clamp(value, 0, 1).toFixed(4);
+  }).join(' ');
+}
+
+function clipCurveTableIsIdentity(table: string): boolean {
+  const values = table.split(' ');
+  return values.every(
+    (value, index) =>
+      Math.abs(Number.parseFloat(value) - index / (values.length - 1)) < 0.01,
+  );
+}
+
+/**
+ * Compila `effects.curves` (puntos propios) o `effects.curvePreset` (preset
+ * FFmpeg) a un `feComponentTransfer` por canal. Las curvas propias ganan
+ * sobre el preset, igual que en el export (`custom_curves_filter` antes que
+ * `curves=preset=`). La interpolación es piecewise-linear — el sampler del
+ * schema ya documenta que FFmpeg usa spline natural y esto es la
+ * aproximación aceptada de la preview.
+ */
+export function clipCurvesSpec(
+  effects: ClipEffects | undefined,
+  id: string,
+): GradeFilterSpec | null {
+  const custom = effects?.curves;
+  const channels = custom
+    ? {
+        r: custom.red,
+        g: custom.green,
+        b: custom.blue,
+        master: custom.master,
+      }
+    : effects?.curvePreset
+      ? CLIP_CURVE_PRESETS[effects.curvePreset]
+      : undefined;
+  if (!channels) return null;
+  const funcs = {
+    r: clipCurveChannelTable(channels.r, channels.master),
+    g: clipCurveChannelTable(channels.g, channels.master),
+    b: clipCurveChannelTable(channels.b, channels.master),
+  };
+  if (
+    clipCurveTableIsIdentity(funcs.r) &&
+    clipCurveTableIsIdentity(funcs.g) &&
+    clipCurveTableIsIdentity(funcs.b)
+  ) {
+    return null;
+  }
+  return {
+    id,
+    primitives: [
+      {
+        tag: 'feComponentTransfer',
+        attrs: { in: 'SourceGraphic' },
+        funcs,
+      },
+    ],
+  };
+}
+
+/** Id estable y DOM-safe del filtro SVG de curvas de un clip/look. */
+export function clipCurvesFilterId(baseFilterId: string): string {
+  return `${baseFilterId}-curves`;
+}
+
+/**
+ * `effects.sharpen` plano (0..5, el `unsharp` del export) como
+ * `feConvolveMatrix`. Misma aproximación que el sharpen del grade
+ * (`amount * 0.35` sobre kernel 3×3). El export lo aplica después de las
+ * curvas (`unsharp=5:5:X:5:5:0`), así que en `effectsToCss` va último.
+ */
+export function clipSharpenSpec(
+  effects: ClipEffects | undefined,
+  id: string,
+): GradeFilterSpec | null {
+  const amount = clamp(effects?.sharpen ?? 0, 0, 5);
+  if (amount <= 0.01) return null;
+  const a = (amount * 0.35).toFixed(4);
+  const center = (1 + 4 * (amount * 0.35)).toFixed(4);
+  return {
+    id,
+    primitives: [
+      {
+        tag: 'feConvolveMatrix',
+        attrs: {
+          order: '3 3',
+          divisor: '1',
+          kernelMatrix: `0 ${-Number(a)} 0 ${-Number(a)} ${Number(center)} ${-Number(a)} 0 ${-Number(a)} 0`,
+        },
+      },
+    ],
+  };
+}
+
+/** Id estable y DOM-safe del filtro SVG de nitidez de un clip/look. */
+export function clipSharpenFilterId(baseFilterId: string): string {
+  return `${baseFilterId}-sharpen`;
+}
+
+/**
+ * `effects.glow` plano ({intensity, radius, threshold}) como cadena SVG que
+ * replica `apply_glow_to_chain` del export: crush de sombras por canal
+ * (equivalente a `colorlevels rimin/gimin/bimin`), desenfoque gaussiano y
+ * mezcla `screen` atenuada por la intensidad. El alfa lo conserva el propio
+ * elemento; el export lo re-aplica con `alphamerge`.
+ */
+export function clipGlowSpec(
+  effects: ClipEffects | undefined,
+  id: string,
+): GradeFilterSpec | null {
+  const glow = effects?.glow;
+  const intensity = clamp(glow?.intensity ?? 0.6, 0, 1);
+  if (!glow || intensity <= 0.001) return null;
+  const radius = clamp(glow.radius ?? 18, 1, 80);
+  const threshold = clamp(glow.threshold ?? 0.55, 0, 0.95);
+  const crush = (index: number): string => {
+    const x = index / (CURVE_TABLE_SAMPLES - 1);
+    const y = x <= threshold ? 0 : (x - threshold) / (1 - threshold);
+    return y.toFixed(4);
+  };
+  const crushTable = Array.from({ length: CURVE_TABLE_SAMPLES }, (_, i) => crush(i)).join(' ');
+  const dimTable = Array.from({ length: CURVE_TABLE_SAMPLES }, (_, i) =>
+    (intensity * (i / (CURVE_TABLE_SAMPLES - 1))).toFixed(4),
+  ).join(' ');
+  return {
+    id,
+    primitives: [
+      {
+        tag: 'feComponentTransfer',
+        attrs: { in: 'SourceGraphic', result: 'crush' },
+        funcs: { r: crushTable, g: crushTable, b: crushTable },
+      },
+      {
+        tag: 'feGaussianBlur',
+        attrs: { in: 'crush', stdDeviation: radius.toFixed(2), result: 'blur' },
+      },
+      {
+        tag: 'feComponentTransfer',
+        attrs: { in: 'blur', result: 'dim' },
+        funcs: { r: dimTable, g: dimTable, b: dimTable },
+      },
+      {
+        tag: 'feBlend',
+        attrs: { in: 'SourceGraphic', in2: 'dim', mode: 'screen' },
+      },
+    ],
+  };
+}
+
+/** Id estable y DOM-safe del filtro SVG de glow de un clip/look. */
+export function clipGlowFilterId(baseFilterId: string): string {
+  return `${baseFilterId}-glow`;
+}
+
+/**
+ * `effects.vignette` (0..1 → `vignette=PI/(5-4v)` del export) como multiplicación
+ * por un gradiente radial: centro intacto, caída hacia las esquinas. El
+ * gradiente viaja como SVG embebido en un data-URI dentro de `feImage`
+ * (`preserveAspectRatio="none"` lo estira al frame, igual que la elipse del
+ * filtro FFmpeg). `feImage` con referencia a fragmento same-document NO
+ * funciona en Chromium — verificado con screenshot: sólo el data-URI pinta.
+ * Aproximación: el export modula por distancia elíptica normalizada; acá la
+ * caída es lineal entre el 60% y el borde del gradiente.
+ */
+export function clipVignetteSpec(
+  effects: ClipEffects | undefined,
+  id: string,
+): GradeFilterSpec | null {
+  const v = clamp(effects?.vignette ?? 0, 0, 1);
+  if (v <= 0.001) return null;
+  const edge = Math.max(0, 1 - v * 0.95).toFixed(3);
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">` +
+    `<defs><radialGradient id="v" gradientUnits="objectBoundingBox" ` +
+    `cx="0.5" cy="0.5" r="0.72">` +
+    `<stop offset="0" stop-color="#fff"/>` +
+    `<stop offset="0.6" stop-color="#fff"/>` +
+    `<stop offset="1" stop-color="rgb(${edge},${edge},${edge})"/>` +
+    `</radialGradient></defs>` +
+    `<rect width="100" height="100" fill="url(#v)"/></svg>`;
+  const href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  return {
+    id,
+    primitives: [
+      {
+        tag: 'feImage',
+        attrs: { href, preserveAspectRatio: 'none', result: 'vignette' },
+      },
+      {
+        tag: 'feBlend',
+        attrs: { in: 'SourceGraphic', in2: 'vignette', mode: 'multiply' },
+      },
+    ],
+  };
+}
+
+/** Id estable y DOM-safe del filtro SVG de viñeta de un clip/look. */
+export function clipVignetteFilterId(baseFilterId: string): string {
+  return `${baseFilterId}-vignette`;
+}
+
+/**
+ * `effects.relight` ({x,y,radius,strength,warmth,feather}) — el `geq` aditivo
+ * del export (`filter.rs`): ganancia `strength*92/255` por canal más offset
+ * de calidez `warmth*42/255` en R/B, modulada por un peso radial con
+ * smoothstep. En la preview se aproxima con gradientes radiales en `feImage`:
+ * - canales con ganancia ≥ 0 → `feBlend screen` con mapa claro→negro
+ *   (screen ≈ suma ponderada; subestima en medios tonos, igual que un light).
+ * - canales con ganancia < 0 → `feBlend multiply` con mapa
+ *   `1+gain`→blanco (resta proporcional; el export resta constante).
+ * El alfa de medios opacos (video/img) no se altera; capas con alfa real
+ * pueden diferir levemente — aproximación documentada.
+ */
+export function clipRelightSpec(
+  effects: ClipEffects | undefined,
+  id: string,
+): GradeFilterSpec | null {
+  const relight = effects?.relight;
+  if (!relight) return null;
+  const strength = clamp(relight.strength ?? 0, -1, 1);
+  const warmth = clamp(relight.warmth ?? 0, -1, 1);
+  if (Math.abs(strength) < 0.0001 && Math.abs(warmth) < 0.0001) return null;
+  const x = clamp(relight.x ?? 0, -1, 1);
+  const y = clamp(relight.y ?? 0, -1, 1);
+  const radius = clamp(relight.radius ?? 0.45, 0.02, 1);
+  const feather = clamp(relight.feather ?? 0.35, 0.01, 1);
+  const gain = (strength * 92) / 255;
+  const warm = (warmth * 42) / 255;
+  const gains = [gain + warm, gain, gain - warm];
+  const primitives: SvgPrimitive[] = [];
+  let lastResult = 'SourceGraphic';
+  let passIndex = 0;
+  const pushPass = (
+    mode: 'screen' | 'multiply',
+    center: readonly [number, number, number],
+    edge: readonly [number, number, number],
+  ): void => {
+    passIndex += 1;
+    const mapName = `relight-map-${passIndex}`;
+    const outName = `relight-out-${passIndex}`;
+    const css = (c: readonly [number, number, number]): string =>
+      `rgb(${c.map((v) => Math.round(clamp(v, 0, 1) * 255)).join(',')})`;
+    const mid: [number, number, number] = [0, 1, 2].map(
+      (i) => (center[i]! + edge[i]!) / 2,
+    ) as [number, number, number];
+    const f1 = 1 - feather;
+    const f2 = 1 - feather * 0.5;
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">` +
+      `<defs><radialGradient id="r" gradientUnits="objectBoundingBox" ` +
+      `cx="${(0.5 + x).toFixed(4)}" cy="${(0.5 + y).toFixed(4)}" r="${radius.toFixed(4)}">` +
+      `<stop offset="0" stop-color="${css(center)}"/>` +
+      `<stop offset="${f1.toFixed(4)}" stop-color="${css(center)}"/>` +
+      `<stop offset="${f2.toFixed(4)}" stop-color="${css(mid)}"/>` +
+      `<stop offset="1" stop-color="${css(edge)}"/>` +
+      `</radialGradient></defs>` +
+      `<rect width="100" height="100" fill="url(#r)"/></svg>`;
+    primitives.push({
+      tag: 'feImage',
+      attrs: {
+        href: `data:image/svg+xml,${encodeURIComponent(svg)}`,
+        preserveAspectRatio: 'none',
+        result: mapName,
+      },
+    });
+    primitives.push({
+      tag: 'feBlend',
+      attrs: { in: lastResult, in2: mapName, mode, result: outName },
+    });
+    lastResult = outName;
+  };
+  const pos = gains.map((g) => Math.max(0, g)) as [number, number, number];
+  if (pos.some((g) => g > 0.001)) {
+    pushPass('screen', pos, [0, 0, 0]);
+  }
+  const neg = gains.map((g) => (g < 0 ? 1 + g : 1)) as [number, number, number];
+  if (gains.some((g) => g < -0.001)) {
+    pushPass('multiply', neg, [1, 1, 1]);
+  }
+  if (primitives.length === 0) return null;
+  return { id, primitives };
+}
+
+/** Id estable y DOM-safe del filtro SVG de relight de un clip/look. */
+export function clipRelightFilterId(baseFilterId: string): string {
+  return `${baseFilterId}-relight`;
+}
+
+const CHROMA_TABLE_SAMPLES = 48;
+
+function chromaTable(fn: (x: number) => number): string {
+  return Array.from({ length: CHROMA_TABLE_SAMPLES }, (_, index) => {
+    const x = index / (CHROMA_TABLE_SAMPLES - 1);
+    return clamp(fn(x), 0, 1).toFixed(4);
+  }).join(' ');
+}
+
+/**
+ * `clip.chromaKey` ({color, similarity, blend}) — el `chromakey=` de FFmpeg.
+ * El export mide distancia de color en otro espacio; la preview la aproxima
+ * con valor absoluto por canal vía `feFuncR/G/B` (tabla |x−k|), promedia en
+ * el alfa con `feColorMatrix` y aplica el threshold con `feFuncA`
+ * (smoothstep entre `inner` y `outer`). `feComposite operator="in"` conserva
+ * el SourceGraphic donde la máscara es opaca — bordes semitransparentes
+ * incluidos. `spill` NO se simula (el export lo suprime en bordes).
+ *
+ * Mapeo (aproximación documentada): `inner = similarity*0.5`,
+ * `outer = inner + 0.02 + blend*0.4` sobre la distancia media |ΔRGB|∈[0,1].
+ */
+export function clipChromaKeySpec(
+  key: ChromaKey | undefined,
+  id: string,
+): GradeFilterSpec | null {
+  if (!key?.color || !/^#[0-9a-f]{6}$/i.test(key.color)) return null;
+  const similarity = clamp(key.similarity ?? 0.3, 0.01, 1);
+  const blend = clamp(key.blend ?? 0.1, 0, 1);
+  const hex = key.color.slice(1);
+  const kr = parseInt(hex.slice(0, 2), 16) / 255;
+  const kg = parseInt(hex.slice(2, 4), 16) / 255;
+  const kb = parseInt(hex.slice(4, 6), 16) / 255;
+  const inner = similarity * 0.5;
+  const outer = Math.min(0.98, inner + 0.02 + blend * 0.4);
+  const span = Math.max(0.001, outer - inner);
+  const keepTable = chromaTable((d) => {
+    const t = clamp((d - inner) / span, 0, 1);
+    return t * t * (3 - 2 * t);
+  });
+  return {
+    id,
+    primitives: [
+      {
+        tag: 'feComponentTransfer',
+        attrs: { in: 'SourceGraphic', result: 'diff' },
+        funcs: {
+          r: chromaTable((x) => Math.abs(x - kr)),
+          g: chromaTable((x) => Math.abs(x - kg)),
+          b: chromaTable((x) => Math.abs(x - kb)),
+        },
+      },
+      {
+        tag: 'feColorMatrix',
+        attrs: {
+          in: 'diff',
+          type: 'matrix',
+          values: '0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0.3333 0.3333 0.3333 0 0',
+          result: 'dist',
+        },
+      },
+      {
+        tag: 'feComponentTransfer',
+        attrs: { in: 'dist', result: 'matte' },
+        funcs: { a: keepTable },
+      },
+      {
+        tag: 'feComposite',
+        attrs: { in: 'SourceGraphic', in2: 'matte', operator: 'in' },
+      },
+    ],
+  };
+}
+
+/** Id estable y DOM-safe del filtro SVG de chroma key de un clip. */
+export function clipChromaKeyFilterId(baseFilterId: string): string {
+  return `${baseFilterId}-chroma`;
 }

@@ -48,7 +48,9 @@ fn validate_cookies_file(raw: Option<&str>) -> Result<Option<PathBuf>, ProjectEr
     let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
-    let path = PathBuf::from(raw);
+    // El archivo llega por IPC (diálogo o ruta explícita): política de
+    // lectura de `fs_*` — absoluta y sin componentes de credenciales.
+    let path = crate::application::fs::resolve_user_file_path(raw)?;
     let metadata = std::fs::metadata(&path)
         .map_err(|_| invalid_error("El archivo de cookies no existe en esa ruta."))?;
     if !metadata.is_file() {
@@ -64,31 +66,21 @@ fn validate_cookies_file(raw: Option<&str>) -> Result<Option<PathBuf>, ProjectEr
     Ok(Some(path))
 }
 
-fn cookies_browser(raw: Option<&str>) -> Result<Option<String>, ProjectError> {
-    let Some(value) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-    let value = value.to_ascii_lowercase();
-    if matches!(
-        value.as_str(),
-        "chrome" | "edge" | "firefox" | "brave" | "chromium" | "opera" | "vivaldi"
-    ) {
-        Ok(Some(value))
-    } else {
-        Err(invalid_error("El navegador de cookies no es compatible."))
-    }
-}
-
 #[tauri::command]
 pub async fn download_disk_space(
     app: AppHandle,
     path: Option<String>,
 ) -> Result<u64, ProjectError> {
-    let target = path
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .or_else(|| app.path().download_dir().ok())
-        .ok_or_else(|| provider_error("No se pudo ubicar la carpeta de Descargas."))?;
+    let requested = path
+        .map(|raw| raw.trim().to_owned())
+        .filter(|raw| !raw.is_empty());
+    let target = match requested {
+        Some(raw) => crate::application::fs::resolve_user_file_path(&raw)?,
+        None => app
+            .path()
+            .download_dir()
+            .map_err(|_| provider_error("No se pudo ubicar la carpeta de Descargas."))?,
+    };
     available_disk_bytes(&target)
         .ok_or_else(|| provider_error("No se pudo medir el espacio libre del disco."))
 }
@@ -158,41 +150,6 @@ pub(crate) fn platform_folder(raw: &str) -> &'static str {
     } else {
         "Otros"
     }
-}
-
-fn video_format_selector(quality: &str, max_height: u32) -> String {
-    if quality == "worst" {
-        return "worstvideo[height>=144]+worstaudio/worst[height>=144]/worst".to_owned();
-    }
-    format!("bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best")
-}
-
-/// Orden de selección para `-S` (yt-dlp `--format-sort`): máxima resolución
-/// primero; a igual resolución y fps gana el códec más eficiente — el orden
-/// interno de `vcodec` de yt-dlp ya es av01 > vp9 > h265 > h264, así que a
-/// igual píxel se baja el peso sin tocar la imagen (nunca se re-codifica,
-/// sólo se elige el stream). `lang` va después de `vcodec` para no tocar la
-/// elección de video pero sí desempatar el audio por idioma. `acodec`
-/// prefiere opus/mp4a sobre el resto.
-fn video_format_sort(audio_language: Option<&str>) -> String {
-    match audio_language.filter(|lang| *lang != "all") {
-        Some(lang) => format!("res,fps,vcodec,lang:{lang},acodec,ext,proto,hasaud"),
-        None => "res,fps,vcodec,acodec,ext,proto,hasaud".to_owned(),
-    }
-}
-
-fn truncate(value: &str, limit: usize) -> String {
-    value.trim().chars().take(limit).collect()
-}
-
-fn error_tail(stderr: &str, fallback: &str) -> String {
-    let line = stderr
-        .lines()
-        .rev()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or(fallback);
-    truncate(line, 320)
 }
 
 fn guess_kind(ext: &str, vcodec: &str, acodec: &str) -> &'static str {

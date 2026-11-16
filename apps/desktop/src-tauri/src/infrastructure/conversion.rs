@@ -264,7 +264,18 @@ fn probe_result(ffprobe: Option<&Path>, path: &Path) -> (u64, Option<f64>, Strin
     let mut command = Command::new(ffprobe);
     command.args(&args);
     hide_console(&mut command);
-    let Ok(output) = command.output() else {
+    // Sondeo no fatal pero acotado: un ffprobe colgado no puede frenar la
+    // conversión; el timeout cae en el mismo camino que cualquier fallo.
+    let Ok(timed) = crate::infrastructure::process::output_with_timeout(
+        &mut command,
+        crate::infrastructure::process::MEDIA_PROBE_TIMEOUT,
+    ) else {
+        return (bytes, None, String::new());
+    };
+    if timed.timed_out {
+        return (bytes, None, String::new());
+    }
+    let Some(output) = timed.into_output() else {
         return (bytes, None, String::new());
     };
     if !output.status.success() {

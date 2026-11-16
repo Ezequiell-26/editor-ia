@@ -226,3 +226,68 @@ export interface AudioTrack {
   readonly abr: number | null;
   readonly note: string | null;
 }
+
+// ───────────────────────── whisper nativo ─────────────────────────
+// Comandos `whisper_model_status` / `whisper_model_download`
+// (`commands/domains/audio/transcribe.rs`): modelos `ggml-*.bin` del motor
+// whisper.cpp in-process. El progreso llega por el evento Tauri
+// `whisper-model-download` con bytes reales, no porcentajes inventados.
+
+/** Progreso real de descarga de un modelo whisper nativo (camelCase serde). */
+export interface WhisperModelDownloadProgress {
+  readonly modelId: string;
+  readonly received: number;
+  /** Tamaño total en bytes; puede ser la estimación de la tabla si el servidor no manda Content-Length. */
+  readonly total: number;
+  /** True mientras se verifica el SHA-256 o se adopta una copia local. */
+  readonly unpacking: boolean;
+  /** True en el último reporte. */
+  readonly done: boolean;
+  /** `received / total * 100` cuando hay total conocido; `null` si no. */
+  readonly percent: number | null;
+}
+
+/**
+ * Payload del evento `whisper-model-download`: el progreso más `error`
+ * cuando la descarga terminó mal (el backend emite `done:true` + `error`).
+ */
+export interface WhisperModelDownloadEvent extends WhisperModelDownloadProgress {
+  readonly error?: string | null;
+}
+
+/** Un modelo `ggml-*.bin` del motor nativo, como lo devuelve el backend. */
+export interface NativeWhisperModel {
+  /** Id de la tabla del crate: `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`. */
+  readonly id: string;
+  readonly label: string;
+  readonly blurb: string;
+  readonly englishOnly: boolean;
+  /** Tamaño aproximado de descarga en bytes. */
+  readonly sizeBytes: number;
+  readonly downloaded: boolean;
+  /** Ruta absoluta del `.bin` cuando está descargado. */
+  readonly path: string | null;
+}
+
+/** Estado de la descarga de modelo nativo en curso (o el último error). */
+export interface NativeWhisperDownloadState {
+  readonly running: boolean;
+  readonly modelId: string | null;
+  readonly progress: WhisperModelDownloadProgress | null;
+  /** Último error de la descarga que ya terminó (se conserva hasta la próxima). */
+  readonly error: string | null;
+}
+
+/** Estado completo del motor nativo de transcripción (whisper.cpp). */
+export interface NativeWhisperStatus {
+  /** whisper.cpp está compilado dentro del binario. */
+  readonly engineAvailable: boolean;
+  /** Carpeta `<config>/whisper-models` donde viven los `ggml-*.bin`. */
+  readonly modelsDir: string;
+  readonly models: readonly NativeWhisperModel[];
+  /** Modelo cargado en memoria ahora (`null` si ninguno). */
+  readonly loadedModel: string | null;
+  /** Una transcripción nativa está corriendo. */
+  readonly busy: boolean;
+  readonly download: NativeWhisperDownloadState;
+}

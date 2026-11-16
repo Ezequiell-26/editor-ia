@@ -98,8 +98,10 @@ fn map_license(item: &Value) -> ResourceLicense {
     }
 }
 
-/// Mediatype de archive.org que corresponde al kind pedido.
-fn mediatype_for(kind: StudioResourceKind) -> Option<&'static str> {
+/// Mediatype de archive.org que corresponde al kind pedido. `pub(crate)`
+/// para que `studio_capabilities` derive qué kinds esta fuente sirve sin
+/// duplicar la lista (fuente única de verdad).
+pub(crate) fn mediatype_for(kind: StudioResourceKind) -> Option<&'static str> {
     match kind {
         StudioResourceKind::Video | StudioResourceKind::Image => Some("movies"),
         StudioResourceKind::Audio | StudioResourceKind::Music => Some("audio"),

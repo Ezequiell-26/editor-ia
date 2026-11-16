@@ -1,4 +1,5 @@
-import type { ProjectDocument } from '@editor-ia/project-schema';
+import { createEmptyProject, type ClipEffects, type ClipTransition, type ProjectDocument } from '@editor-ia/project-schema';
+import { effectRegistry, createInstance } from '@editor-ia/effect-kit';
 import type { ConversionTarget, DesktopService } from '../services/project-service';
 import type { useProjectStore } from './project-store';
 import { runAutoCleanup } from './auto-cleanup';
@@ -8,17 +9,23 @@ import { applySpeechCuts, cuesForClip, planSpeechCutsFromCues } from './speech-c
 import {
   addCaptionCue,
   addClipFromAsset,
+  addMotionGraphic,
   addTrack,
+  applyTransitionToCuts,
+  closeGaps,
   deleteCaptionCue,
   deleteClip,
   deleteTrack,
   fpsOf,
   moveClip,
+  rippleDeleteClip,
   setClipSpeed,
+  setTransformKeyframe,
   splitClip,
   updateAudioMix,
   updateCaptionCue,
   updateClip,
+  updateMotionProps,
   updateTrack,
 } from './project-actions';
 import { applySpeakerSegments } from './speakers';
@@ -30,7 +37,7 @@ import { addAsset, removeAsset } from './project-actions';
 import { applyReviewItems, buildReviewItems } from './review-queue';
 import { createOrchestratorJob } from './orchestrator';
 import { FACTORY_JOB_MANAGER } from './mcp-orchestrator-jobs';
-import { autoCutByActivity, buildMulticamProject, envelopeFromPeaks } from '../features/multicam/multicam';
+import { autoCutByActivity, buildMulticamProject, envelopeFromPeaks } from './multicam';
 import { updateCaptionStyle } from './project-actions';
 
 /**
@@ -51,6 +58,23 @@ export interface McpToolContext {
 }
 
 type Args = Record<string, unknown>;
+
+// AUD-014: bitácora en sesión de las mutaciones fs_* del MCP. Los comandos
+// nativos ya rechazan secretos/sistema; esto deja constancia de quién
+// borró/movió/creó qué, visible desde `diagnostics`.
+interface FsAuditEntry {
+  readonly at: string;
+  readonly op: 'write' | 'mkdir' | 'delete' | 'move';
+  readonly path: string;
+  readonly detail?: string;
+}
+const FS_AUDIT_LIMIT = 50;
+const fsAuditLog: FsAuditEntry[] = [];
+
+function recordFsAudit(op: FsAuditEntry['op'], path: string, detail?: string): void {
+  fsAuditLog.push({ at: new Date().toISOString(), op, path, ...(detail ? { detail } : {}) });
+  if (fsAuditLog.length > FS_AUDIT_LIMIT) fsAuditLog.splice(0, fsAuditLog.length - FS_AUDIT_LIMIT);
+}
 
 function projectOf(context: McpToolContext): ProjectDocument {
   const project = context.store.state.project;
@@ -116,6 +140,146 @@ function clipsJson(project: ProjectDocument): unknown[] {
     gainDb: 'audio' in clip && clip.audio ? (clip.audio.gainDb ?? 0) : null,
     enabled: 'enabled' in clip ? (clip.enabled ?? true) : true,
   }));
+}
+
+// ── Helpers para las herramientas de edición avanzadas ─────────────────
+
+function clipById(project: ProjectDocument, clipId: string) {
+  const clip = project.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) throw new Error(`el clip «${clipId}» no está en la timeline`);
+  return clip;
+}
+
+function clipIdsArg(args: Args, key: string): string[] {
+  const value = args[key];
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`falta el parámetro «${key}» (lista de clips)`);
+  }
+  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+}
+
+function numberArg(args: Args, key: string): number {
+  const value = args[key];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`falta el parámetro «${key}» (número)`);
+  }
+  return value;
+}
+
+function stringArg(args: Args, key: string): string {
+  return text(args, key);
+}
+
+/** Claves del grado visual plano que un preset reemplaza (se preserva el resto). */
+const GRADE_PATCH_KEYS = [
+  'brightness', 'contrast', 'saturation', 'temperature', 'shadows', 'highlights',
+  'fade', 'lift', 'gamma', 'gain', 'offset', 'hsl', 'colorMatch', 'vignette',
+  'lensCorrection', 'relight', 'sharpen', 'denoise', 'blur', 'glow', 'motionBlur',
+  'grayscale', 'sepia', 'hueRotateDeg', 'curvePreset',
+] as const;
+
+function visualEffectsOf(clip: ReturnType<typeof clipById>): ClipEffects {
+  return ('effects' in clip ? clip.effects : undefined) ?? {};
+}
+
+function mergeEffects(
+  project: ProjectDocument,
+  clipId: string,
+  patch: Partial<ClipEffects>,
+): ProjectDocument {
+  const clip = clipById(project, clipId);
+  const current = visualEffectsOf(clip);
+  return updateClip(project, clipId, {
+    effects: { ...current, ...patch } as ClipEffects,
+  });
+}
+
+function mergeAudio(
+  project: ProjectDocument,
+  clipId: string,
+  patch: Record<string, unknown>,
+): ProjectDocument {
+  const clip = clipById(project, clipId);
+  const current = 'audio' in clip ? clip.audio : undefined;
+  return updateClip(project, clipId, {
+    audio: { ...(current ?? {}), ...patch } as never,
+  });
+}
+
+const MCP_TRANSITION_MAP: Record<string, ClipTransition['type']> = {
+  fade: 'fade-black',
+  dissolve: 'dissolve',
+  'wipe-left': 'wipe-left',
+  'wipe-right': 'wipe-right',
+  'slide-left': 'slide-left',
+  'slide-right': 'slide-right',
+  // El catálogo de transiciones no tiene "zoom" direccional: zoom-in/out se
+  // aproximan con la transición zoom-suave (única de la familia disponible).
+  'zoom-in': 'zoom-suave',
+  'zoom-out': 'zoom-suave',
+};
+
+const TEXT_ANIMATION_MAP: Record<string, string> = {
+  'none': 'none',
+  'fade-in': 'fade',
+  'fade-out': 'fade',
+  'slide-up': 'slide-up',
+  // slide-down no existe en las animaciones de motion: pop es la entrada
+  // neutra más cercana (crece desde el centro sin dirección).
+  'slide-down': 'pop',
+  typewriter: 'write',
+};
+
+const EFFECT_PRESETS: Record<string, Partial<ClipEffects>> = {
+  cinematic: { contrast: 1.12, saturation: 0.92, temperature: -0.04, shadows: -0.08, curvePreset: 'contrast-medium' },
+  vintage: { curvePreset: 'vintage', saturation: 0.75, temperature: 0.12, contrast: 0.95 },
+  vibrant: { saturation: 1.45, contrast: 1.12, brightness: 0.04 },
+  warm: { temperature: 0.28, saturation: 1.05, shadows: 0.05 },
+  cool: { temperature: -0.28, saturation: 0.95, brightness: 0.02 },
+  bw: { grayscale: true, contrast: 1.15 },
+  natural: {},
+};
+
+const CINEMATIC_PRESETS: Record<string, { lift?: ClipEffects['lift']; gamma?: ClipEffects['gamma']; gain?: ClipEffects['gain']; extra?: Partial<ClipEffects> }> = {
+  'teal-orange': {
+    lift: { r: -0.03, g: 0.0, b: 0.05 },
+    gain: { r: 0.07, g: 0.01, b: -0.09 },
+    extra: { contrast: 1.08, saturation: 0.95 },
+  },
+  'bleach-bypass': {
+    gain: { r: 0.03, g: 0.02, b: -0.02 },
+    extra: { saturation: 0.55, contrast: 1.35, curvePreset: 'contrast-strong' },
+  },
+  'film-noir': {
+    lift: { r: -0.06, g: -0.05, b: -0.04 },
+    gamma: { r: 0.02, g: 0.02, b: 0.02 },
+    gain: { r: 0.04, g: 0.04, b: 0.04 },
+    extra: { grayscale: true, contrast: 1.4, vignette: 0.35 },
+  },
+  'golden-hour': {
+    lift: { r: 0.02, g: 0.0, b: -0.04 },
+    gain: { r: 0.1, g: 0.03, b: -0.12 },
+    extra: { temperature: 0.22, saturation: 1.1 },
+  },
+  'cold-blue': {
+    lift: { r: -0.04, g: -0.01, b: 0.05 },
+    gain: { r: -0.06, g: -0.02, b: 0.08 },
+    extra: { temperature: -0.25, brightness: 0.02 },
+  },
+  'warm-sunset': {
+    lift: { r: 0.03, g: 0.0, b: -0.05 },
+    gain: { r: 0.09, g: 0.02, b: -0.1 },
+    extra: { temperature: 0.3, saturation: 1.08, shadows: 0.06 },
+  },
+};
+
+function scaleWheel(
+  wheel: { r: number; g: number; b: number } | undefined,
+  intensity: number,
+): { r: number; g: number; b: number } | undefined {
+  if (!wheel) return undefined;
+  const clamp = (v: number) => Math.max(-1, Math.min(1, v * intensity));
+  return { r: clamp(wheel.r), g: clamp(wheel.g), b: clamp(wheel.b) };
 }
 
 export async function executeMcpTool(
@@ -399,6 +563,33 @@ export async function executeMcpTool(
       });
     }
 
+    case 'media_search': {
+      const kind = optionalText(args, 'kind');
+      const root = optionalText(args, 'root');
+      if (kind && kind !== 'image' && kind !== 'audio' && kind !== 'video') {
+        throw new Error('«kind» debe ser image, audio o video');
+      }
+      const result = await context.store.service.searchMediaFolder({
+        folder: text(args, 'folder'),
+        query: text(args, 'query'),
+        ...(kind === 'image' || kind === 'audio' || kind === 'video' ? { kind } : {}),
+        ...(root ? { root } : {}),
+      });
+      return JSON.stringify({
+        ok: true,
+        directory: result.directory,
+        query: result.query,
+        count: result.files.length,
+        truncated: result.truncated,
+        files: result.files.map((file) => ({
+          path: file.path,
+          name: file.name,
+          kind: file.kind,
+          bytes: file.bytes,
+        })),
+      });
+    }
+
     case 'fs_list': {
       const listing = await context.store.service.listDirectory(text(args, 'path'));
       return JSON.stringify({
@@ -427,34 +618,45 @@ export async function executeMcpTool(
     }
 
     case 'fs_write': {
+      const target = text(args, 'path');
       const written = await context.store.service.writeTextFile(
-        text(args, 'path'),
+        target,
         text(args, 'content'),
       );
+      recordFsAudit('write', target, `${written.bytes} bytes`);
       return JSON.stringify({ ok: true, ...written });
     }
 
     case 'fs_mkdir': {
+      const target = text(args, 'path');
       const created = await context.store.service.makeDirectory(
-        text(args, 'path'),
+        target,
         optionalBoolean(args, 'recursive'),
       );
+      recordFsAudit('mkdir', target);
       return JSON.stringify({ ok: true, ...created });
     }
 
     case 'fs_delete': {
-      const removed = await context.store.service.deletePath(
-        text(args, 'path'),
-        optionalBoolean(args, 'recursive'),
-      );
+      const target = text(args, 'path');
+      // AUD-014: el borrado es destructivo e irreversible — exige
+      // confirm=true explícito además de las protecciones nativas.
+      if (optionalBoolean(args, 'confirm') !== true) {
+        throw new Error(
+          'fs_delete requiere confirm=true: verificá la ruta y pasá confirm explícito para borrar',
+        );
+      }
+      const recursive = optionalBoolean(args, 'recursive');
+      const removed = await context.store.service.deletePath(target, recursive);
+      recordFsAudit('delete', target, recursive === true ? 'recursive' : 'file');
       return JSON.stringify({ ok: true, ...removed });
     }
 
     case 'fs_move': {
-      const moved = await context.store.service.movePath(
-        text(args, 'from'),
-        text(args, 'to'),
-      );
+      const from = text(args, 'from');
+      const to = text(args, 'to');
+      const moved = await context.store.service.movePath(from, to);
+      recordFsAudit('move', from, `-> ${to}`);
       return JSON.stringify({ ok: true, ...moved });
     }
 
@@ -925,8 +1127,11 @@ export async function executeMcpTool(
       return JSON.stringify({ ok: true, saved });
     }
 
-    case 'package_project':
-      return JSON.stringify({ ok: await context.store.packageProject() });
+    case 'package_project': {
+      const outputPath = optionalText(args, 'path') ?? optionalText(args, 'outputPath');
+      const packaged = await context.store.packageProject(outputPath);
+      return JSON.stringify({ ok: packaged, ...(outputPath ? { path: outputPath } : {}) });
+    }
 
     case 'review_build': {
       const project = projectOf(context);
@@ -983,15 +1188,47 @@ export async function executeMcpTool(
         provider,
         plugins,
         bridge: 'mcp-call',
+        // AUD-014: últimas mutaciones fs_* de la sesión (auditoría).
+        fsAudit: fsAuditLog.slice(-20),
       });
     }
 
     case 'project_new': {
+      const name = text(args, 'name');
       const fps = Math.max(1, Math.round(optionalNumber(args, 'fps') ?? 30));
+      const width = Math.max(2, Math.round(optionalNumber(args, 'width') ?? 1920));
+      const height = Math.max(2, Math.round(optionalNumber(args, 'height') ?? 1080));
+      const directory = optionalText(args, 'directory');
+      if (directory) {
+        // Vía no interactiva: el diálogo nativo de guardado no se puede
+        // contestar desde el MCP, así que se escribe el archivo directo.
+        const project = createEmptyProject(name);
+        project.video = {
+          ...project.video,
+          width,
+          height,
+          frameRate: { num: fps, den: 1 },
+        };
+        const stem =
+          name
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9-_ ]/g, '')
+            .trim()
+            .replace(/\s+/g, '-') || 'proyecto';
+        const written = await context.store.service.writeProjectFile({
+          directory,
+          // write_project_file agrega «.editoria.json» solo: pasar el stem.
+          fileName: stem,
+          project,
+        });
+        const opened = await context.store.openProjectAt(written.path);
+        return JSON.stringify({ ok: opened, path: written.path });
+      }
       const created = await context.store.createProject({
-        name: text(args, 'name'),
-        width: Math.max(2, Math.round(optionalNumber(args, 'width') ?? 1920)),
-        height: Math.max(2, Math.round(optionalNumber(args, 'height') ?? 1080)),
+        name,
+        width,
+        height,
         fpsNum: fps,
         fpsDen: 1,
       });
@@ -1118,10 +1355,8 @@ export async function executeMcpTool(
       if (!clip || clip.source.type !== 'asset') throw new Error('el clip no tiene archivo');
       const assetId = clip.source.assetId;
       const asset = project.assets.find((item) => item.id === assetId);
-      const root = context.store.state.opened?.root;
-      if (!asset || !root) throw new Error('el proyecto no está guardado en disco');
-      const path = `${root.replace(/[\\/]+$/, '')}\\${asset.source.path.replace(/^[\\/]+/, '')}`;
-      const result = await context.store.service.diarizeAudio(path, optionalText(args, 'language'));
+      if (!asset) throw new Error('el proyecto no está guardado en disco');
+      const result = await context.store.service.diarizeAudio(assetId, optionalText(args, 'language'));
       const applied = applySpeakerSegments(project, clipId, result.segments, {
         prefix: optionalBoolean(args, 'prefix') ?? false,
       });
@@ -1434,8 +1669,15 @@ export async function executeMcpTool(
       const clipId = text(args, 'clipId');
       const startFrame = frame(args, 'startFrame');
       const trackId = optionalText(args, 'trackId');
+      if (!project.timeline.clips.some((clip) => clip.id === clipId)) {
+        throw new Error('el clip no existe');
+      }
       const next = moveClip(project, clipId, startFrame, trackId);
-      if (!next) throw new Error('el clip no existe');
+      if (!next) {
+        throw new Error(
+          'no se pudo mover el clip: solapamiento con otro clip, pista bloqueada o tipo incompatible con la pista destino',
+        );
+      }
       apply(context, next);
       return JSON.stringify({ ok: true, clipId, startFrame });
     }
@@ -1606,6 +1848,549 @@ export async function executeMcpTool(
       const command = text(args, 'command');
       if (!context.runCommand) throw new Error('el operador no está disponible');
       return await context.runCommand(command);
+    }
+
+    // ── Efectos visuales ──────────────────────────────────────────────
+    case 'clip_effects_apply': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const patch: Partial<ClipEffects> = {};
+      for (const key of ['brightness', 'contrast', 'saturation', 'temperature', 'shadows', 'highlights', 'fade'] as const) {
+        const value = optionalNumber(args, key);
+        if (value !== undefined) (patch as Record<string, number>)[key] = value;
+      }
+      const next = mergeEffects(project, clipId, patch);
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId, applied: patch });
+    }
+
+    case 'clip_effects_clear': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const clip = clipById(project, clipId);
+      const current = visualEffectsOf(clip);
+      // Se limpian los efectos visuales; se preserva audioStack (no es visual)
+      // y el visualizador de espectro (es una superposición, no un grado).
+      const kept: ClipEffects = {};
+      if (current.audioStack) kept.audioStack = current.audioStack;
+      if (current.spectrum) kept.spectrum = current.spectrum;
+      const next = updateClip(project, clipId, {
+        effects: Object.keys(kept).length > 0 ? kept : {},
+      });
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId });
+    }
+
+    case 'clip_effects_preset': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const preset = stringArg(args, 'preset');
+      const values = EFFECT_PRESETS[preset];
+      if (!values) throw new Error(`preset desconocido: ${preset}`);
+      const clip = clipById(project, clipId);
+      const current = visualEffectsOf(clip);
+      const base: ClipEffects = { ...current };
+      for (const key of GRADE_PATCH_KEYS) delete (base as Record<string, unknown>)[key];
+      const next = updateClip(project, clipId, {
+        effects: { ...base, ...values } as ClipEffects,
+      });
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId, preset });
+    }
+
+    // ── Transiciones ──────────────────────────────────────────────────
+    case 'transition_add': {
+      const project = projectOf(context);
+      const fromClipId = stringArg(args, 'fromClipId');
+      const toClipId = stringArg(args, 'toClipId');
+      const type = stringArg(args, 'type');
+      const mapped = MCP_TRANSITION_MAP[type];
+      if (!mapped) throw new Error(`tipo de transición desconocido: ${type}`);
+      const from = clipById(project, fromClipId);
+      const to = clipById(project, toClipId);
+      if (from.trackId !== to.trackId) {
+        throw new Error('los dos clips deben estar en la misma pista');
+      }
+      if (from.startFrame + from.durationFrames !== to.startFrame) {
+        throw new Error('los clips no son contiguos: la transición va entre cortes');
+      }
+      const frames = Math.min(
+        Math.max(1, Math.round(optionalNumber(args, 'durationFrames') ?? 15)),
+        to.durationFrames,
+      );
+      const next = updateClip(project, toClipId, {
+        transitionIn: { type: mapped, frames },
+      });
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId: toClipId, type: mapped, frames });
+    }
+
+    case 'transition_remove': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const next = updateClip(project, clipId, { transitionIn: {}, transitionOut: {} });
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId });
+    }
+
+    case 'transitions_list': {
+      const project = projectOf(context);
+      const list = project.timeline.clips
+        .filter((clip) => 'transitionIn' in clip && clip.transitionIn || 'transitionOut' in clip && clip.transitionOut)
+        .map((clip) => ({
+          clipId: clip.id,
+          transitionIn: 'transitionIn' in clip ? clip.transitionIn ?? null : null,
+          transitionOut: 'transitionOut' in clip ? clip.transitionOut ?? null : null,
+        }));
+      return JSON.stringify({ ok: true, transitions: list, count: list.length });
+    }
+
+    // ── Texto y lower thirds ──────────────────────────────────────────
+    case 'text_layer_add': {
+      const project = projectOf(context);
+      const animation = optionalText(args, 'animation') ?? 'fade-in';
+      const mappedAnimation = TEXT_ANIMATION_MAP[animation] ?? 'fade';
+      const result = addMotionGraphic(project, {
+        templateId: 'free-text',
+        templateVersion: '1.0.0',
+        props: {
+          text: stringArg(args, 'text'),
+          x: optionalNumber(args, 'positionX') ?? 0.1,
+          y: optionalNumber(args, 'positionY') ?? 0.44,
+          width: 0.8,
+          size: Math.round(optionalNumber(args, 'fontSize') ?? 72),
+          color: optionalText(args, 'color') ?? '#ffffff',
+          weight: '700',
+          align: 'center',
+          animation: mappedAnimation,
+        },
+        durationFrames: Math.max(1, Math.round(numberArg(args, 'durationFrames'))),
+        atFrame: frame(args, 'startFrame'),
+        label: 'Capa de texto',
+      });
+      const warnings = optionalText(args, 'fontFamily')
+        ? ['fontFamily no está soportado por la plantilla free-text: usa la fuente del sistema']
+        : [];
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        clipId: result.clipId,
+        motionId: result.motionId,
+        trackId: result.trackId,
+        startFrame: result.startFrame,
+        animation: mappedAnimation,
+        warnings,
+      });
+    }
+
+    case 'text_layer_update': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const clip = clipById(project, clipId);
+      if (clip.kind !== 'graphic' || clip.source.type !== 'graphic') {
+        throw new Error('el clip no es una capa de texto gráfica');
+      }
+      const motion = project.motion.find((item) => item.id === clip.source.motionId);
+      if (!motion) throw new Error('el motion item de la capa no existe');
+      const props: Record<string, unknown> = { ...motion.props };
+      if (args.text !== undefined) props.text = stringArg(args, 'text');
+      if (args.fontSize !== undefined) props.size = Math.round(numberArg(args, 'fontSize'));
+      if (args.color !== undefined) props.color = stringArg(args, 'color');
+      if (args.positionX !== undefined) props.x = numberArg(args, 'positionX');
+      if (args.positionY !== undefined) props.y = numberArg(args, 'positionY');
+      const warnings = optionalText(args, 'fontFamily')
+        ? ['fontFamily no está soportado por la plantilla free-text']
+        : [];
+      const next = updateMotionProps(project, motion.id, props);
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId, motionId: motion.id, warnings });
+    }
+
+    case 'lower_third_add': {
+      const project = projectOf(context);
+      const title = stringArg(args, 'title');
+      const subtitle = optionalText(args, 'subtitle') ?? '';
+      const style = optionalText(args, 'style') ?? 'minimal';
+      const position = optionalText(args, 'position') ?? 'lower-left';
+      const side = position.endsWith('right') ? 'right' : 'left';
+      const warnings = position.includes('center') || position.startsWith('upper')
+        ? ['la posición vertical/centrada no está soportada: la placa queda abajo, alineada a ' + side]
+        : [];
+      const useMinimal = style === 'minimal';
+      const result = addMotionGraphic(project, {
+        templateId: useMinimal ? 'lower-third-minimal' : 'lower-third',
+        templateVersion: '1.0.0',
+        props: useMinimal
+          ? { title, subtitle, accent: '#7dd3c0', side, animation: 'slide-left' }
+          : { name: title, role: subtitle, accent: '#7dd3c0', side, animation: 'slide-left' },
+        durationFrames: Math.max(30, Math.round(numberArg(args, 'durationFrames'))),
+        atFrame: frame(args, 'startFrame'),
+        label: `Lower third · ${title}`,
+      });
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        clipId: result.clipId,
+        motionId: result.motionId,
+        trackId: result.trackId,
+        startFrame: result.startFrame,
+        style: useMinimal ? 'lower-third-minimal' : 'lower-third',
+        warnings,
+      });
+    }
+
+    // ── Operaciones en lote ───────────────────────────────────────────
+    case 'batch_clips_select': {
+      const project = projectOf(context);
+      const kind = optionalText(args, 'kind');
+      const trackId = optionalText(args, 'trackId');
+      const tag = optionalText(args, 'tag');
+      const matches = project.timeline.clips.filter((clip) => {
+        if (kind && clip.kind !== kind) return false;
+        if (trackId && clip.trackId !== trackId) return false;
+        if (tag && !('colorTag' in clip && clip.colorTag === tag)) return false;
+        return true;
+      });
+      return JSON.stringify({
+        ok: true,
+        clipIds: matches.map((clip) => clip.id),
+        count: matches.length,
+      });
+    }
+
+    case 'batch_effects_apply': {
+      let project = projectOf(context);
+      const ids = clipIdsArg(args, 'clipIds');
+      const effect = stringArg(args, 'effect') as 'brightness' | 'contrast' | 'saturation' | 'temperature';
+      const value = numberArg(args, 'value');
+      // Rangos espejo de ClipEffectsSchema: sin esto un valor fuera de rango
+      // llega hasta store.update y falla con un error genérico poco útil.
+      const ranges: Record<string, [number, number]> = {
+        brightness: [-1, 1], contrast: [0, 3], saturation: [0, 3], temperature: [-1, 1],
+      };
+      const range = ranges[effect];
+      if (range && (value < range[0] || value > range[1])) {
+        throw new Error(`«${effect}» admite valores entre ${range[0]} y ${range[1]} (recibido ${value})`);
+      }
+      const applied: string[] = [];
+      const failed: { clipId: string; error: string }[] = [];
+      for (const clipId of ids) {
+        try {
+          project = mergeEffects(project, clipId, { [effect]: value });
+          applied.push(clipId);
+        } catch (error) {
+          failed.push({ clipId, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      apply(context, project);
+      return JSON.stringify({ ok: failed.length === 0, applied: applied.length, failed });
+    }
+
+    case 'batch_audio_normalize': {
+      let project = projectOf(context);
+      const ids = clipIdsArg(args, 'clipIds');
+      const manifest = effectRegistry.get('audio.leveler');
+      if (!manifest) throw new Error('el efecto audio.leveler no está en el registro');
+      const applied: string[] = [];
+      const failed: { clipId: string; error: string }[] = [];
+      for (const clipId of ids) {
+        try {
+          const clip = clipById(project, clipId);
+          const current = visualEffectsOf(clip);
+          const stack = [...(current.audioStack ?? [])];
+          const idx = stack.findIndex((item) => item.effectId === 'audio.leveler');
+          const instance = createInstance(manifest) as unknown as NonNullable<ClipEffects['audioStack']>[number];
+          if (idx >= 0) stack[idx] = instance;
+          else stack.push(instance);
+          project = updateClip(project, clipId, {
+            effects: { ...current, audioStack: stack } as ClipEffects,
+          });
+          applied.push(clipId);
+        } catch (error) {
+          failed.push({ clipId, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      apply(context, project);
+      return JSON.stringify({
+        ok: failed.length === 0,
+        applied: applied.length,
+        failed,
+        note: 'se aplicó el nivelador (dynaudnorm); targetLufs es orientativo, el render normaliza por ventanas',
+      });
+    }
+
+    case 'batch_transitions_add': {
+      const project = projectOf(context);
+      const trackId = stringArg(args, 'trackId');
+      const type = stringArg(args, 'type');
+      const mapped = MCP_TRANSITION_MAP[type];
+      if (!mapped) throw new Error(`tipo de transición desconocido: ${type}`);
+      const frames = Math.min(60, Math.max(5, Math.round(optionalNumber(args, 'durationFrames') ?? 15)));
+      const result = applyTransitionToCuts(project, {
+        type: mapped,
+        frames,
+        trackIds: [trackId],
+      });
+      if (result.applied === 0 && result.project === project) {
+        throw new Error('no se aplicó ninguna transición (revisá que la pista tenga clips contiguos de video/imagen)');
+      }
+      apply(context, result.project);
+      return JSON.stringify({ ok: true, applied: result.applied, skipped: result.skipped });
+    }
+
+    case 'batch_speed_change': {
+      let project = projectOf(context);
+      const ids = clipIdsArg(args, 'clipIds');
+      const speed = numberArg(args, 'speed');
+      const applied: string[] = [];
+      const failed: { clipId: string; error: string }[] = [];
+      for (const clipId of ids) {
+        try {
+          project = setClipSpeed(project, clipId, speed);
+          applied.push(clipId);
+        } catch (error) {
+          failed.push({ clipId, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      apply(context, project);
+      return JSON.stringify({ ok: failed.length === 0, applied: applied.length, failed });
+    }
+
+    // ── Keyframes y animación ─────────────────────────────────────────
+    case 'keyframe_add': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const clip = clipById(project, clipId);
+      const absolute = frame(args, 'frame');
+      const local = absolute - clip.startFrame;
+      if (local < 0 || local >= clip.durationFrames) {
+        throw new Error(
+          `el frame ${absolute} cae fuera del clip (ocupa ${clip.startFrame}–${clip.startFrame + clip.durationFrames}); ` +
+          'la clave se define en frames absolutos de timeline',
+        );
+      }
+      const property = stringArg(args, 'property');
+      const easing = optionalText(args, 'easing') as 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'hold' | undefined;
+      const value = numberArg(args, 'value');
+      const patch =
+        property === 'offsetX' ? { offsetX: value, ...(easing ? { easing } : {}) }
+        : property === 'offsetY' ? { offsetY: value, ...(easing ? { easing } : {}) }
+        : property === 'scale' ? { scale: value, ...(easing ? { easing } : {}) }
+        : property === 'rotationDeg' ? { rotationDeg: value, ...(easing ? { easing } : {}) }
+        : property === 'opacity' ? { opacity: value, ...(easing ? { easing } : {}) }
+        : null;
+      if (!patch) throw new Error(`propiedad de keyframe desconocida: ${property}`);
+      const next = setTransformKeyframe(project, clipId, local, patch);
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId, frame: absolute, localFrame: local, property });
+    }
+
+    case 'animation_preset_apply': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const clip = clipById(project, clipId);
+      const preset = stringArg(args, 'preset');
+      const intensity = Math.min(1, Math.max(0.1, optionalNumber(args, 'intensity') ?? 0.5));
+      const motionTypes = ['zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down'] as const;
+      let next: ProjectDocument;
+      if ((motionTypes as readonly string[]).includes(preset) && (clip.kind === 'video' || clip.kind === 'image' || clip.kind === 'freeze')) {
+        next = updateClip(project, clipId, {
+          motion: { type: preset as (typeof motionTypes)[number], intensity: intensity * 0.5 },
+        });
+      } else if (preset === 'fade-in-out') {
+        const d = Math.min(30, Math.max(1, Math.round(clip.durationFrames * 0.15)));
+        next = updateClip(project, clipId, {
+          animationIn: { type: 'fade', durationFrames: d },
+          animationOut: { type: 'fade', durationFrames: d },
+        });
+      } else if (preset === 'rotate') {
+        const d = Math.min(30, Math.max(1, Math.round(clip.durationFrames * 0.2)));
+        next = updateClip(project, clipId, {
+          animationIn: { type: 'spin', durationFrames: d },
+          animationOut: { type: 'spin', durationFrames: d },
+        });
+      } else {
+        throw new Error(`preset de animación desconocido: ${preset}`);
+      }
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId, preset });
+    }
+
+    // ── Audio avanzado ────────────────────────────────────────────────
+    case 'audio_effect_eq': {
+      let project = projectOf(context);
+      const rawIds = args.clipIds;
+      const ids = Array.isArray(rawIds) && rawIds.length > 0
+        ? rawIds.filter((item): item is string => typeof item === 'string' && item.length > 0)
+        : [stringArg(args, 'clipId')];
+      const patch: Record<string, number> = {};
+      const low = optionalNumber(args, 'lowDb');
+      const mid = optionalNumber(args, 'midDb');
+      const high = optionalNumber(args, 'highDb');
+      if (low !== undefined) patch.eqLowDb = low;
+      if (mid !== undefined) patch.eqMidDb = mid;
+      if (high !== undefined) patch.eqHighDb = high;
+      if (Object.keys(patch).length === 0) throw new Error('indicá al menos una banda (lowDb/midDb/highDb)');
+      const applied: string[] = [];
+      const failed: { clipId: string; error: string }[] = [];
+      for (const clipId of ids) {
+        try {
+          project = mergeAudio(project, clipId, patch);
+          applied.push(clipId);
+        } catch (error) {
+          failed.push({ clipId, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      apply(context, project);
+      return JSON.stringify({ ok: failed.length === 0, applied: applied.length, failed });
+    }
+
+    case 'audio_effect_voice': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const effect = stringArg(args, 'effect');
+      const allowed = ['deep', 'chipmunk', 'robot', 'echo', 'cave', 'radio'];
+      if (!allowed.includes(effect)) throw new Error(`efecto de voz desconocido: ${effect}`);
+      const next = mergeAudio(project, clipId, { voiceEffect: effect });
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId, voiceEffect: effect });
+    }
+
+    case 'audio_ducking': {
+      const project = projectOf(context);
+      const musicTrackId = stringArg(args, 'musicTrackId');
+      const voiceTrackId = stringArg(args, 'voiceTrackId');
+      const reductionDb = optionalNumber(args, 'reductionDb') ?? -12;
+      const fadeMs = optionalNumber(args, 'fadeMs');
+      const next = JSON.parse(JSON.stringify(project)) as ProjectDocument;
+      next.audio.ducking = {
+        enabled: true,
+        amountDb: Math.max(-60, Math.min(0, reductionDb)),
+        sourceTrackIds: [voiceTrackId],
+        targetTrackIds: [musicTrackId],
+      };
+      apply(context, next);
+      return JSON.stringify({
+        ok: true,
+        ducking: next.audio.ducking,
+        warnings: fadeMs !== undefined
+          ? ['fadeMs no existe en el esquema de ducking: el render aplica su rampa fija']
+          : [],
+      });
+    }
+
+    // ── Color grading ─────────────────────────────────────────────────
+    case 'color_wheels_adjust': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const patch: Partial<ClipEffects> = {};
+      for (const wheel of ['lift', 'gamma', 'gain', 'offset'] as const) {
+        const raw = args[wheel];
+        if (raw && typeof raw === 'object') {
+          const w = raw as Record<string, unknown>;
+          const rgb = {
+            r: typeof w.r === 'number' ? w.r : 0,
+            g: typeof w.g === 'number' ? w.g : 0,
+            b: typeof w.b === 'number' ? w.b : 0,
+          };
+          (patch as Record<string, unknown>)[wheel] = rgb;
+        }
+      }
+      if (Object.keys(patch).length === 0) throw new Error('indicá al menos una rueda (lift/gamma/gain/offset)');
+      const next = mergeEffects(project, clipId, patch);
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId, applied: patch });
+    }
+
+    case 'color_preset_cinematic': {
+      const project = projectOf(context);
+      const clipId = stringArg(args, 'clipId');
+      const preset = stringArg(args, 'preset');
+      const spec = CINEMATIC_PRESETS[preset];
+      if (!spec) throw new Error(`preset cinematográfico desconocido: ${preset}`);
+      const intensity = Math.min(1, Math.max(0, optionalNumber(args, 'intensity') ?? 1));
+      const clip = clipById(project, clipId);
+      const current = visualEffectsOf(clip);
+      const base: ClipEffects = { ...current };
+      for (const key of GRADE_PATCH_KEYS) delete (base as Record<string, unknown>)[key];
+      const patch: Partial<ClipEffects> = { ...(spec.extra ?? {}) };
+      const lift = scaleWheel(spec.lift, intensity);
+      const gamma = scaleWheel(spec.gamma, intensity);
+      const gain = scaleWheel(spec.gain, intensity);
+      if (lift) patch.lift = lift;
+      if (gamma) patch.gamma = gamma;
+      if (gain) patch.gain = gain;
+      // Los extras numéricos se escalan por intensidad respecto a su neutro.
+      for (const key of ['contrast', 'saturation', 'temperature', 'brightness', 'vignette'] as const) {
+        const v = patch[key];
+        if (typeof v === 'number') {
+          const neutral = key === 'saturation' || key === 'contrast' ? 1 : 0;
+          (patch as Record<string, number>)[key] = neutral + (v - neutral) * intensity;
+        }
+      }
+      const next = updateClip(project, clipId, { effects: { ...base, ...patch } as ClipEffects });
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId, preset, intensity });
+    }
+
+    // ── Timeline avanzada ─────────────────────────────────────────────
+    case 'timeline_ripple_delete': {
+      let project = projectOf(context);
+      const ids = clipIdsArg(args, 'clipIds');
+      const deleted: string[] = [];
+      const failed: { clipId: string; error: string }[] = [];
+      for (const clipId of ids) {
+        try {
+          project = rippleDeleteClip(project, clipId);
+          deleted.push(clipId);
+        } catch (error) {
+          failed.push({ clipId, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      apply(context, project);
+      return JSON.stringify({ ok: failed.length === 0, deleted: deleted.length, failed });
+    }
+
+    case 'timeline_gaps_remove': {
+      const project = projectOf(context);
+      const trackId = stringArg(args, 'trackId');
+      const result = closeGaps(project, trackId);
+      apply(context, result.project);
+      return JSON.stringify({ ok: true, moved: result.moved, removedFrames: result.removedFrames });
+    }
+
+    case 'timeline_align_clips': {
+      let project = projectOf(context);
+      const ids = clipIdsArg(args, 'clipIds');
+      const alignTo = stringArg(args, 'alignTo') as 'start' | 'end' | 'center';
+      if (!['start', 'end', 'center'].includes(alignTo)) {
+        throw new Error(`alignTo desconocido: ${alignTo}`);
+      }
+      const reference = optionalNumber(args, 'referenceFrame') ?? (() => {
+        const frames = ids.map((id) => clipById(project, id).startFrame);
+        return Math.min(...frames);
+      })();
+      const aligned: string[] = [];
+      const failed: { clipId: string; error: string }[] = [];
+      for (const clipId of ids) {
+        try {
+          const clip = clipById(project, clipId);
+          const target =
+            alignTo === 'start'
+              ? reference
+              : alignTo === 'end'
+                ? reference - clip.durationFrames
+                : reference - Math.floor(clip.durationFrames / 2);
+          const next = moveClip(project, clipId, Math.max(0, target));
+          if (!next) throw new Error('no se pudo mover (solapamiento o pista bloqueada)');
+          project = next;
+          aligned.push(clipId);
+        } catch (error) {
+          failed.push({ clipId, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      apply(context, project);
+      return JSON.stringify({ ok: failed.length === 0, aligned: aligned.length, referenceFrame: reference, failed });
     }
 
     default:

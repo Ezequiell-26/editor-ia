@@ -1,0 +1,602 @@
+﻿/*
+ * Olyvia workspace — AlaukCut interaction model.
+ * Structural styling only: keeps Olyvia components, commands and project state.
+ * Loaded with the editor entry so other application surfaces are unaffected.
+ */
+
+.app-shell.editor-immersive .editor-workspace {
+  min-width: 0;
+  min-height: 0;
+  gap: 0;
+  background: var(--chrome-1);
+}
+
+/* The left rail already exposes the editing modules. Hide the secondary
+   workflow ribbon only while the primary timeline is active; it remains
+   available in secondary editor modes and all routes remain addressable. */
+.app-shell.editor-immersive
+  .editor-workspace[data-editor-mode='timeline']
+  > .editor-mode-tabs {
+  display: none !important;
+}
+
+/* Main AlaukCut-style geometry: media/library | program monitor |
+   clip inspector | optional AI dock, with the timeline under the first
+   three working columns. The AI dock can be expanded on demand. */
+.app-shell.editor-immersive .editor-grid.layout-edicion {
+  grid-template-columns:
+    clamp(340px, 29vw, 430px)
+    minmax(280px, 1fr)
+    1px
+    minmax(280px, var(--inspector-width, 340px))
+    1px
+    var(--ia-width, 42px) !important;
+  grid-template-rows: minmax(0, 1fr) minmax(206px, 30vh) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  background: var(--chrome-1);
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .asset-rail {
+  min-width: 0;
+  border-right: 1px solid var(--hairline-strong);
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .preview-panel {
+  min-width: 0;
+  border-right: 1px solid var(--hairline-strong);
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .inspector {
+  min-width: 0;
+  border-left: 0;
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .timeline-panel {
+  min-height: 0;
+  grid-column: 1 / 5;
+  grid-row: 2;
+  border-top: 1px solid var(--hairline-strong);
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-coluna {
+  min-width: 0;
+  border-left: 1px solid var(--hairline-strong);
+  border-radius: 0;
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-col-topo {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+}
+
+.app-shell.editor-immersive .ia-col-toggle {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.app-shell.editor-immersive .ia-col-toggle:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
+.app-shell.editor-immersive .ia-col-toggle svg {
+  transition: transform 140ms ease;
+}
+
+.app-shell.editor-immersive .ia-col-toggle.collapsed svg {
+  transform: rotate(-90deg);
+}
+
+.app-shell.editor-immersive .ia-col-toggle.expanded svg {
+  transform: rotate(90deg);
+}
+
+.app-shell.editor-immersive .ia-col-corpo {
+  min-width: 0;
+  min-height: 0;
+}
+
+.app-shell.editor-immersive .editor-grid.ai-column-collapsed .editor-splitter-ia {
+  display: none;
+}
+
+.app-shell.editor-immersive .editor-grid.ai-column-collapsed .ia-coluna {
+  align-items: center;
+  overflow: hidden;
+}
+
+.app-shell.editor-immersive .editor-grid.ai-column-collapsed .ia-col-topo {
+  width: 100%;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 8px 4px;
+}
+
+.app-shell.editor-immersive .editor-grid.ai-column-collapsed .ia-col-topo strong,
+.app-shell.editor-immersive .editor-grid.ai-column-collapsed .ia-col-corpo {
+  display: none !important;
+}
+
+.app-shell.editor-immersive .editor-grid.ai-column-collapsed .ia-col-toggle {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+}
+
+/* Modules stay visible and easy to scan in the left-hand media browser. */
+.app-shell.editor-immersive .asset-rail .rail-tabs {
+  flex: 0 0 46px;
+  min-height: 46px;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.app-shell.editor-immersive .asset-rail .rail-tabs button {
+  min-width: 0;
+  height: 42px;
+  justify-content: center;
+  padding: 0 3px;
+}
+
+.app-shell.editor-immersive .asset-rail .rail-tabs button span {
+  display: none;
+}
+
+.app-shell.editor-immersive .asset-rail .rail-stage {
+  min-width: 0;
+  grid-template-columns: minmax(108px, 31%) minmax(0, 1fr);
+}
+
+/* Top controls replace the former row of 16 workflow tabs. */
+.app-shell.editor-immersive .topbar-ai-btn,
+.app-shell.editor-immersive .topbar-tool-map-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.app-shell.editor-immersive .topbar-ai-btn {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  color: var(--color-accent);
+}
+
+.app-shell.editor-immersive .topbar-ai-btn:hover,
+.app-shell.editor-immersive .topbar-tool-map-btn:hover {
+  background: var(--color-surface-raised);
+  border-color: var(--color-accent);
+}
+
+.app-shell.editor-immersive .topbar-tool-map-btn svg,
+.app-shell.editor-immersive .topbar-ai-btn svg {
+  flex: 0 0 auto;
+}
+
+
+/* ── Visual refinement: compact media rail, balanced monitor and AI dock ── */
+.app-shell.editor-immersive .editor-grid.layout-edicion {
+  grid-template-columns:
+    clamp(260px, 23vw, 340px)
+    minmax(300px, 1fr)
+    1px
+    minmax(300px, var(--inspector-width, 340px))
+    1px
+    var(--ia-width, 320px) !important;
+  grid-template-rows: minmax(0, 1fr) minmax(220px, 31vh) !important;
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .asset-rail {
+  background: var(--chrome-2);
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .preview-panel {
+  background: #101216;
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .inspector,
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-coluna {
+  background: var(--chrome-2);
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .timeline-panel {
+  background: var(--chrome-2);
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-coluna {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-col-topo {
+  min-height: 44px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--hairline-strong-color);
+  background: var(--chrome-1);
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-col-topo strong {
+  color: var(--ink-1);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .01em;
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-col-corpo {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-col-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--hairline-strong-color);
+  border-radius: 7px;
+  background: var(--chrome-3);
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-col-hint p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-col-abrir {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 52%, var(--color-border));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--chrome-2));
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-col-abrir:hover {
+  background: color-mix(in srgb, var(--color-accent) 19%, var(--chrome-2));
+}
+
+.app-shell.editor-immersive .editor-tool-map {
+  width: min(100%, 1480px);
+  margin: 0 auto;
+  padding: clamp(12px, 1.8vw, 24px);
+  gap: 16px;
+}
+
+.app-shell.editor-immersive .editor-tool-map-head {
+  display: grid !important;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 340px) auto;
+  align-items: end !important;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--hairline-strong-color);
+}
+
+.app-shell.editor-immersive .editor-tool-map-title h3 {
+  color: var(--ink-1);
+  font-size: clamp(17px, 1.5vw, 21px) !important;
+  font-weight: 650;
+  letter-spacing: -.025em;
+}
+
+.app-shell.editor-immersive .editor-tool-map-title p {
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.app-shell.editor-immersive .editor-tool-map-search {
+  min-height: 36px !important;
+  padding: 0 11px !important;
+  border-radius: 6px !important;
+}
+
+.app-shell.editor-immersive .editor-tool-map-search input {
+  width: 100%;
+  min-width: 0 !important;
+  min-height: 34px;
+  font: inherit;
+  font-size: 12px !important;
+}
+
+.app-shell.editor-immersive .editor-tool-map-count {
+  padding: 8px 10px;
+  border: 1px solid var(--hairline-strong-color);
+  border-radius: 5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.app-shell.editor-immersive .editor-tool-map-groups {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.app-shell.editor-immersive .editor-tool-map-group {
+  padding: 12px !important;
+  border: 1px solid var(--hairline-strong-color) !important;
+  border-radius: 7px !important;
+  background: var(--chrome-2) !important;
+}
+
+.app-shell.editor-immersive .editor-tool-map-group h4 {
+  align-items: center;
+  margin-bottom: 9px !important;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hairline-strong-color);
+  font-size: 12px !important;
+  font-weight: 650;
+}
+
+.app-shell.editor-immersive .editor-tool-map-group h4 .fine-print {
+  min-width: 21px;
+  padding: 2px 6px;
+  border: 1px solid var(--hairline-strong-color);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.app-shell.editor-immersive .editor-tool-map-list {
+  gap: 4px !important;
+}
+
+.app-shell.editor-immersive .editor-tool-chip {
+  min-height: 34px !important;
+  padding: 6px 8px !important;
+  gap: 7px !important;
+  border: 1px solid transparent !important;
+  border-radius: 5px !important;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.app-shell.editor-immersive .editor-tool-chip:hover {
+  border-color: var(--hairline-strong-color) !important;
+  background: var(--state-hover) !important;
+}
+
+.app-shell.editor-immersive .editor-tool-chip strong {
+  font-size: 11px !important;
+  font-weight: 620;
+}
+
+.app-shell.editor-immersive .editor-tool-chip span {
+  font-size: 10px !important;
+}
+
+.app-shell.editor-immersive .editor-tool-chip.is-here {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border)) !important;
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent) !important;
+}
+
+.app-shell.editor-immersive .editor-tool-map-internal .editor-tool-map-list {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.app-shell.editor-immersive .editor-tool-map-internal .editor-tool-chip {
+  min-height: 44px !important;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1240px) {
+  .app-shell.editor-immersive .editor-tool-map-head {
+    grid-template-columns: minmax(0, 1fr) minmax(200px, 300px);
+  }
+  .app-shell.editor-immersive .editor-tool-map-count {
+    display: none;
+  }
+  .app-shell.editor-immersive .editor-tool-map-groups {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell.editor-immersive .editor-grid.layout-edicion {
+    grid-template-columns: minmax(0, 1fr) 1px minmax(230px, 34vw) 42px !important;
+  }
+  .app-shell.editor-immersive .editor-tool-map-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-shell.editor-immersive .editor-tool-map-groups {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .app-shell.editor-immersive .editor-tool-map-internal .editor-tool-map-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Narrow windows: protect the monitor and timeline before shrinking tools. */
+@media (max-width: 1180px) {
+  .app-shell.editor-immersive .editor-grid.layout-edicion {
+    grid-template-columns:
+      minmax(270px, 30vw)
+      minmax(220px, 1fr)
+      1px
+      minmax(250px, 290px)
+      1px
+      var(--ia-width, 42px) !important;
+  }
+
+  .app-shell.editor-immersive .asset-rail .rail-stage {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .app-shell.editor-immersive .editor-grid.layout-edicion {
+    grid-template-columns: minmax(0, 1fr) 1px minmax(240px, 34vw) 42px !important;
+  }
+
+  .app-shell.editor-immersive .editor-grid.layout-edicion .asset-rail {
+    display: none !important;
+  }
+
+  .app-shell.editor-immersive .editor-grid.layout-edicion .preview-panel {
+    grid-column: 1;
+  }
+
+  .app-shell.editor-immersive .editor-grid.layout-edicion .editor-splitter {
+    grid-column: 2;
+  }
+
+  .app-shell.editor-immersive .editor-grid.layout-edicion .inspector {
+    grid-column: 3;
+  }
+
+  .app-shell.editor-immersive .editor-grid.layout-edicion .timeline-panel {
+    grid-column: 1 / 4;
+  }
+
+  .app-shell.editor-immersive .editor-grid.layout-edicion .ia-coluna {
+    grid-column: 4;
+  }
+
+  .app-shell.editor-immersive .editor-grid.layout-edicion .editor-splitter-ia {
+    display: none;
+  }
+}
+
+/* Final responsive overrides: these must follow the legacy breakpoints above. */
+.app-shell.editor-immersive .editor-grid.layout-edicion .asset-rail {
+  grid-column: 1;
+  grid-row: 1;
+}
+.app-shell.editor-immersive .editor-grid.layout-edicion .preview-panel {
+  grid-column: 2;
+  grid-row: 1;
+}
+.app-shell.editor-immersive .editor-grid.layout-edicion .editor-splitter {
+  grid-column: 3;
+  grid-row: 1;
+}
+.app-shell.editor-immersive .editor-grid.layout-edicion .inspector {
+  grid-column: 4;
+  grid-row: 1;
+}
+.app-shell.editor-immersive .editor-grid.layout-edicion .editor-splitter-ia {
+  grid-column: 5;
+  grid-row: 1 / 3;
+}
+.app-shell.editor-immersive .editor-grid.layout-edicion .ia-coluna {
+  grid-column: 6;
+  grid-row: 1 / 3;
+}
+.app-shell.editor-immersive .editor-grid.layout-edicion .timeline-panel {
+  grid-column: 1 / 5;
+  grid-row: 2;
+}
+.app-shell.editor-immersive .editor-tool-map-internal {
+  width: 100%;
+}
+.app-shell.editor-immersive .editor-tool-map-internal .editor-tool-map-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 1180px) {
+  .app-shell.editor-immersive .editor-grid.layout-edicion {
+    grid-template-columns:
+      minmax(250px, 27vw)
+      minmax(230px, 1fr)
+      1px
+      minmax(250px, 280px)
+      1px
+      var(--ia-width, 42px) !important;
+  }
+}
+@media (max-width: 900px) {
+  .app-shell.editor-immersive .editor-grid.layout-edicion {
+    grid-template-columns: minmax(0, 1fr) 1px minmax(230px, 34vw) var(--ia-width, 42px) !important;
+  }
+  .app-shell.editor-immersive .editor-grid.layout-edicion .asset-rail {
+    display: none !important;
+  }
+  .app-shell.editor-immersive .editor-grid.layout-edicion .preview-panel {
+    grid-column: 1;
+  }
+  .app-shell.editor-immersive .editor-grid.layout-edicion .editor-splitter {
+    grid-column: 2;
+  }
+  .app-shell.editor-immersive .editor-grid.layout-edicion .inspector {
+    grid-column: 3;
+  }
+  .app-shell.editor-immersive .editor-grid.layout-edicion .timeline-panel {
+    grid-column: 1 / 4;
+  }
+  .app-shell.editor-immersive .editor-grid.layout-edicion .editor-splitter-ia {
+    display: none;
+  }
+  .app-shell.editor-immersive .editor-grid.layout-edicion .ia-coluna {
+    grid-column: 4;
+    grid-row: 1 / 3;
+  }
+}
+
+/* Standard AlaukCut workspace: keep the ruler corner and track headers in
+   sync with Timeline.headerWidth()'s 160 px design contract. Filmora's
+   global 132 px token otherwise shifts every clip 28 px to the left. */
+:root .app-shell .editor-grid:not(.layout-shorts):not(.layout-edicion) .timeline {
+  --tl-track-head-w: 160px !important;
+}
+
+/* Readability pass: the rail labels were 9px on the 1360x768 workspace.
+   Increase labels and media-card copy without widening panels or changing
+   the compact AlaukCut-style hierarchy. Probed at 1360x768 and 1280x720. */
+:root[data-theme='dark'] .app-shell.editor-immersive .asset-rail .rail-tabs button span {
+  font-size: 10.5px !important;
+  line-height: 1.1 !important;
+}
+
+:root[data-theme='dark'] .app-shell.editor-immersive .asset-rail .rail-category-items button span {
+  font-size: 11px !important;
+}
+
+:root[data-theme='dark'] .app-shell.editor-immersive .asset-rail .rail-asset {
+  font-size: 11.5px !important;
+}
+
+/* Inspector tab fit: keep all names fully legible at the two common
+   desktop widths without changing the tab grid or its interaction model. */
+@media (min-width: 1321px) {
+  :root[data-theme='dark'] .app-shell.editor-immersive .inspector-tabs button[role='tab'] {
+    font-size: 10.25px !important;
+  }
+
+  :root[data-theme='dark'] .app-shell.editor-immersive .inspector-subtabs button[role='tab'] {
+    font-size: 11px !important;
+  }
+}
+
+@media (max-width: 1320px) {
+  :root[data-theme='dark'] .app-shell.editor-immersive .inspector-tabs button[role='tab'] {
+    letter-spacing: -0.6px !important;
+  }
+}

@@ -12,8 +12,9 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{sync_channel, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use tauri::{AppHandle, Emitter};
 
@@ -26,7 +27,7 @@ use crate::ports::proxies::{
     ProxyEvents, ProxyFileEntry, ProxyFiles, ProxyGenerator, ProxyJob, ProxyRuntime,
 };
 use crate::projects::service::{ProjectError, ProjectErrorCode};
-use crate::render::ffmpeg::hardware_h264;
+use crate::render::ffmpeg::detect_hardware_cached;
 
 struct RuntimeEntry {
     cancelled: Arc<AtomicBool>,
@@ -276,6 +277,19 @@ fn report(runtime: &Arc<dyn ProxyRuntime>, events: &Arc<dyn ProxyEvents>, status
     events.progress(event_from_status(status));
 }
 
+/// Deadline del encode del proxy: el downscale suele correr varias veces
+/// realtime, así que 5× la duración del fuente (15 min–12 h) deja margen
+/// amplio. Sin duración conocida (ffprobe falló) se usa el techo.
+fn proxy_encode_timeout(duration_seconds: f64) -> Duration {
+    const FLOOR_SECS: f64 = 15.0 * 60.0;
+    const CEILING_SECS: f64 = 12.0 * 60.0 * 60.0;
+    if duration_seconds > 0.0 {
+        Duration::from_secs_f64((duration_seconds * 5.0).clamp(FLOOR_SECS, CEILING_SECS))
+    } else {
+        Duration::from_secs(CEILING_SECS as u64)
+    }
+}
+
 fn run_proxy_job(
     job: ProxyJob,
     runtime: Arc<dyn ProxyRuntime>,
@@ -300,7 +314,13 @@ fn run_proxy_job(
             .unwrap_or("proxy")
     ));
     let (filter, _max_width, _max_height) = scale_for(&quality);
-    let hardware = hardware_h264(&ffmpeg);
+    // GPU si existe; si no, el mejor H.264 de software que el binario
+    // declare (el bundle LGPL no trae libx264).
+    let detected = detect_hardware_cached(&ffmpeg);
+    let encoder = detected
+        .h264
+        .as_deref()
+        .or(detected.h264_software.as_deref());
     let mut command = std::process::Command::new(&ffmpeg);
     command
         .arg("-hide_banner")
@@ -312,7 +332,7 @@ fn run_proxy_job(
         .arg(&source)
         .args(["-map", "0:v:0", "-map", "0:a?"])
         .args(["-vf", filter])
-        .args(proxy_video_args(hardware.as_deref()))
+        .args(proxy_video_args(encoder))
         .args(["-c:a", "aac", "-b:a", "96000", "-movflags", "+faststart"])
         .arg(&temporary)
         .stdin(std::process::Stdio::null())
@@ -359,33 +379,65 @@ fn run_proxy_job(
     status.phase = "encoding".to_owned();
     report(&runtime, &events, &status);
     let mut last_percent = -1.0f64;
+    // stdout se lee en un thread hacia un canal: el loop principal puede
+    // chequear cancelación y deadline entre líneas, así un FFmpeg colgado
+    // sin salida no congela el worker para siempre.
+    let (tx, rx) = sync_channel::<String>(64);
     if let Some(stdout) = child.stdout.take() {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines().map_while(Result::ok) {
-            if cancelled.load(Ordering::SeqCst) {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = files.remove_file(&temporary);
-                status.state = "cancelled".to_owned();
-                status.phase = "cancelled".to_owned();
-                status.percent = 0.0;
-                report(&runtime, &events, &status);
-                return;
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if tx.send(line).is_err() {
+                    break;
+                }
             }
-            let Some(percent) = progress_percent_from_line(&line, duration) else {
-                continue;
-            };
-            let elapsed = SystemTime::now()
-                .duration_since(last_emit)
-                .unwrap_or_default();
-            if percent - last_percent < 2.0 && elapsed < Duration::from_millis(500) {
-                continue;
-            }
-            last_percent = percent;
-            last_emit = SystemTime::now();
-            status.percent = (percent * 10.0).round() / 10.0;
+        });
+    }
+    let deadline = Instant::now() + proxy_encode_timeout(duration);
+    loop {
+        let line = match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(line) => Some(line),
+            Err(RecvTimeoutError::Timeout) => None,
+            Err(RecvTimeoutError::Disconnected) => break,
+        };
+        if cancelled.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = files.remove_file(&temporary);
+            status.state = "cancelled".to_owned();
+            status.phase = "cancelled".to_owned();
+            status.percent = 0.0;
             report(&runtime, &events, &status);
+            return;
         }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = files.remove_file(&temporary);
+            status.state = "failed".to_owned();
+            status.phase = "failed".to_owned();
+            status.error = Some(
+                "FFmpeg tardó demasiado generando el proxy; el archivo puede ser muy pesado"
+                    .to_owned(),
+            );
+            report(&runtime, &events, &status);
+            return;
+        }
+        let Some(line) = line else {
+            continue;
+        };
+        let Some(percent) = progress_percent_from_line(&line, duration) else {
+            continue;
+        };
+        let elapsed = SystemTime::now()
+            .duration_since(last_emit)
+            .unwrap_or_default();
+        if percent - last_percent < 2.0 && elapsed < Duration::from_millis(500) {
+            continue;
+        }
+        last_percent = percent;
+        last_emit = SystemTime::now();
+        status.percent = (percent * 10.0).round() / 10.0;
+        report(&runtime, &events, &status);
     }
     let exit = child.wait();
     if cancelled.load(Ordering::SeqCst) {

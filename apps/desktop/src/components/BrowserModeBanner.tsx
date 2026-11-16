@@ -27,11 +27,14 @@ export function BrowserModeBanner({ reason, onOpenSettings }: BrowserModeBannerP
     >
       <span className="browser-mode-banner-label">Modo navegador</span>
       <p className="browser-mode-banner-line">
-        <strong>Estás viendo Olyvia en el navegador.</strong> {detail}
+        <strong>Estás viendo Olyvia en el navegador.</strong> Sólo vista previa.
       </p>
       <details className="browser-mode-banner-details">
         <summary>Qué podés probar acá</summary>
         <p>
+          <span className="browser-mode-banner-reason">
+            <strong>Motivo:</strong> {detail}
+          </span>{' '}
           <strong>Qué sí podés probar:</strong> recorrer las vistas, la paleta de comandos y
           los atajos, y revisar la interfaz sin tocar tus archivos.{' '}
           <strong>Qué necesita la app de escritorio:</strong> crear y guardar proyectos,

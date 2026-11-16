@@ -57,6 +57,71 @@ fn escape_text(text: &str) -> String {
     out
 }
 
+/// Caracteres por línea estimados — paridad del ancho de quiebre de
+/// `legendas_formato.js` (ocupación ~90 % del ancho útil, char ≈ 0,52 em).
+/// Aproximación por conteo de caracteres (los CJK/pictogramas cuentan doble);
+/// la medición real por glifos queda como límite documentado.
+fn caption_chars_per_line(width: u32, font_size: f64) -> usize {
+    (((width as f64 - 140.0).max(64.0) * 0.9) / (font_size.max(8.0) * 0.52))
+        .floor()
+        .max(8.0) as usize
+}
+
+fn caption_display_width(text: &str) -> usize {
+    text.chars()
+        .map(|c| if c.is_ascii() { 1 } else { 2 })
+        .sum()
+}
+
+/// Salto de línea automático en borde de palabra — paridad de
+/// `legendas_formato.js` (máx. ~2 líneas). Si el texto ya tiene `\n` o no
+/// entra, se respeta. Entre los cortes posibles se elige el que minimiza
+/// las líneas renderizadas estimadas y, en empate, el más balanceado; si
+/// ninguna variante reduce líneas, se deja el texto para que libass lo
+/// envuelva (WrapStyle 0).
+fn wrap_caption_text(text: &str, limit: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.contains('\n') || limit < 8 {
+        return trimmed.to_owned();
+    }
+    if caption_display_width(trimmed) <= limit {
+        return trimmed.to_owned();
+    }
+    let words: Vec<&str> = trimmed.split_whitespace().collect();
+    if words.len() < 2 {
+        return trimmed.to_owned();
+    }
+    let est_lines = |width: usize| width.div_ceil(limit);
+    let mut prefix = vec![0usize; words.len() + 1];
+    for (index, word) in words.iter().enumerate() {
+        prefix[index + 1] = prefix[index] + caption_display_width(word)
+            + if index == 0 { 0 } else { 1 };
+    }
+    let total = prefix[words.len()];
+    let mut best: Option<(usize, usize, usize)> = None;
+    for (offset, &w1) in prefix[1..words.len()].iter().enumerate() {
+        let split = offset + 1;
+        if w1 > limit {
+            continue;
+        }
+        let w2 = total - w1 - 1;
+        let score = (est_lines(w1) + est_lines(w2), w1.abs_diff(w2));
+        if best.is_none_or(|(_, lines, bal)| {
+            (score.0, score.1) < (lines, bal)
+        }) {
+            best = Some((split, score.0, score.1));
+        }
+    }
+    match best {
+        Some((split, _, _)) => format!(
+            "{}\n{}",
+            words[..split].join(" "),
+            words[split..].join(" ")
+        ),
+        None => trimmed.to_owned(),
+    }
+}
+
 fn style_name(raw: &str, index: usize) -> String {
     let cleaned: String = raw
         .chars()
@@ -181,6 +246,8 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
         1.0
     }
     .clamp(0.25, 4.0);
+    let fallback_limit =
+        caption_chars_per_line(input.render_width, (54.0 * scale).clamp(10.0, 400.0));
 
     let mut header = String::from(
         "[Script Info]\nScriptType: v4.00+\nWrapStyle: 0\nScaledBorderAndShadow: yes\n",
@@ -192,6 +259,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
 
     let mut names: Vec<(String, String)> = Vec::new();
     let mut depths: Vec<(String, usize)> = Vec::new();
+    let mut char_limits: Vec<(String, usize)> = Vec::new();
     for (index, style) in styles.iter().enumerate() {
         let id = style["id"].as_str().unwrap_or("").to_owned();
         let raw_name = style["name"].as_str().unwrap_or("Principal");
@@ -241,6 +309,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             shadow = shadow.max(1.0);
         }
         depths.push((id.clone(), if boxed { 0 } else { depth }));
+        char_limits.push((id.clone(), caption_chars_per_line(input.render_width, size)));
         let (alignment, margin) = alignment_and_margin(
             style["position"].as_str().unwrap_or("bottom"),
             input.render_height,
@@ -338,6 +407,14 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             .or_else(|| names.first().map(|(_, name)| name.clone()))
             .unwrap_or_else(|| "Default".to_owned());
         let primary = cue_color(cue);
+        let char_limit = char_limits
+            .iter()
+            .find(|(id, _)| id == style_id)
+            .map(|(_, limit)| *limit)
+            .unwrap_or(fallback_limit);
+        let wrap_text = |raw: &str| {
+            escape_text(&wrap_caption_text(raw, char_limit))
+        };
         let word_count = cue["words"].as_array().map_or(0, |words| words.len());
         let reveal = cue["wordReveal"].as_bool().unwrap_or(false) && word_count > 1;
         let style_position = styles
@@ -381,7 +458,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             .map(|(_, value)| *value)
             .unwrap_or(0);
         if depth > 0 && !reveal {
-            let depth_text = escape_text(cue["text"].as_str().unwrap_or(""));
+            let depth_text = wrap_text(cue["text"].as_str().unwrap_or(""));
             let tags = motion_tags
                 .clone()
                 .unwrap_or_else(|| animation_tags(cue, style_id));
@@ -412,6 +489,38 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             let cue_start = cue["startFrame"].as_u64().unwrap_or(0);
             let cue_end = cue["endFrame"].as_u64().unwrap_or(cue_start + 1);
             let first_start = ordered[0]["startFrame"].as_u64().unwrap_or(cue_start);
+            // Línea karaoke con auto-wrap — paridad de la agrupación de
+            // palabras en líneas de `legendas_formato.js`: inserta `\N`
+            // cuando la siguiente palabra cruzaría `char_limit`. El corte
+            // es determinista por prefijo, así en reveal las rupturas no
+            // "bailan" mientras la línea crece.
+            let karaoke_line = |highlight: usize, count: usize| -> String {
+                let mut line = String::new();
+                let mut width = 0usize;
+                let mut need_space = false;
+                for (word_index, item) in ordered.iter().take(count).enumerate() {
+                    let raw = item["text"].as_str().unwrap_or("");
+                    let w = caption_display_width(raw);
+                    if need_space {
+                        if width + 1 + w > char_limit {
+                            line.push_str("\\N");
+                            width = 0;
+                        } else {
+                            width += 1;
+                        }
+                    }
+                    let token = escape_text(raw);
+                    let color = if word_index == highlight {
+                        WORD_ACCENT
+                    } else {
+                        primary.as_str()
+                    };
+                    line.push_str(&format!("{{\\c{color}&}}{token}{{\\c{primary}&}} "));
+                    width += w;
+                    need_space = true;
+                }
+                line.trim_end().to_owned()
+            };
             if reveal {
                 for (index, word) in ordered.iter().enumerate() {
                     let word_start = word["startFrame"]
@@ -424,29 +533,20 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
                         .unwrap_or(cue_end)
                         .min(cue_end);
                     let word_end = next_start.max(word_start + 1);
-                    let mut line = String::new();
-                    for (word_index, item) in ordered.iter().take(index + 1).enumerate() {
-                        let token = escape_text(item["text"].as_str().unwrap_or(""));
-                        let color = if word_index == index {
-                            WORD_ACCENT
-                        } else {
-                            primary.as_str()
-                        };
-                        line.push_str(&format!("{{\\c{color}&}}{token}{{\\c{primary}&}} "));
-                    }
+                    let line = karaoke_line(index, index + 1);
                     let tags = animation_tags(cue, style_id);
                     push_dialogue(
                         &mut header,
                         word_start as f64 / input.project_fps.max(1.0),
                         word_end as f64 / input.project_fps.max(1.0),
                         &style,
-                        &format!("{pos_tag}{tags}{}", line.trim_end()),
+                        &format!("{pos_tag}{tags}{}", line),
                     );
                 }
                 continue;
             }
             if first_start > cue_start {
-                let text = escape_text(cue["text"].as_str().unwrap_or(""));
+                let text = wrap_text(cue["text"].as_str().unwrap_or(""));
                 let tags = animation_tags(cue, style_id);
                 push_dialogue(
                     &mut header,
@@ -467,27 +567,18 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
                     .unwrap_or(cue_end)
                     .min(cue_end);
                 let word_end = next_start.max(word_start + 1);
-                let mut line = String::new();
-                for (word_index, item) in ordered.iter().enumerate() {
-                    let token = escape_text(item["text"].as_str().unwrap_or(""));
-                    let color = if word_index == index {
-                        WORD_ACCENT
-                    } else {
-                        primary.as_str()
-                    };
-                    line.push_str(&format!("{{\\c{color}&}}{token}{{\\c{primary}&}} "));
-                }
+                let line = karaoke_line(index, ordered.len());
                 push_dialogue(
                     &mut header,
                     word_start as f64 / input.project_fps.max(1.0),
                     word_end as f64 / input.project_fps.max(1.0),
                     &style,
-                    &format!("{pos_tag}{}", line.trim_end()),
+                    &format!("{pos_tag}{}", line),
                 );
             }
             continue;
         }
-        let text = escape_text(cue["text"].as_str().unwrap_or(""));
+        let text = wrap_text(cue["text"].as_str().unwrap_or(""));
         let tags = motion_tags
             .clone()
             .unwrap_or_else(|| animation_tags(cue, style_id));
@@ -501,6 +592,47 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
     }
 
     header
+}
+
+/// ASS mínimo pero válido (una sola línea de estilo) con los cues — lo usa el
+/// pipeline de subtítulos automáticos (whisper) para quemar el .ass con
+/// libass. Distinto de `build_ass`: una sola línea, estilo fijo y escapes
+/// mínimos (`\n`→`\N`, llaves fuera) — comportamiento preservado del comando.
+pub fn cues_to_ass(cues: &[(f64, f64, String)], width: u32, height: u32) -> String {
+    let mut out = String::from(
+        "[Script Info]\nScriptType: v4.00+\nWrapStyle: 0\nScaledBorderAndShadow: yes\n",
+    );
+    out.push_str(&format!("PlayResX: {width}\nPlayResY: {height}\n\n"));
+    out.push_str("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n");
+    out.push_str("Style: Default,Segoe UI,42,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,2,40,40,30,1\n\n");
+    out.push_str("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
+    for (start, end, text) in cues {
+        let safe = text.replace('\n', "\\N").replace(['{', '}'], "");
+        out.push_str(&format!(
+            "Dialogue: 0,{},{},Default,,0,0,0,,{}\n",
+            ass_time(*start),
+            ass_time(end.max(*start + 0.05)),
+            safe
+        ));
+    }
+    out
+}
+
+/// Escapa una ruta para usarla como valor de opción de filtro FFmpeg.
+/// Verificado contra ffmpeg real: el valor va entre comillas simples y los
+/// caracteres `'` `\` `:` se escapan con `\` adentro (el `:` de la letra de
+/// unidad Windows rompería el parseo de opciones del filtro).
+pub fn escape_filter_arg(path: &str) -> String {
+    let mut out = String::with_capacity(path.len() + 4);
+    out.push('\'');
+    for ch in path.chars() {
+        if matches!(ch, '\\' | '\'' | ':') {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('\'');
+    out
 }
 
 #[cfg(test)]
@@ -677,6 +809,41 @@ mod tests {
     }
 
     #[test]
+    fn karaoke_words_wrap_into_lines() {
+        let mut value = project();
+        // ~12 palabras de 8 cols ≈ 107 > límite (~63 a 1920/54 px).
+        value["captions"]["cues"][0]["words"] = serde_json::json!(
+            (0..12)
+                .map(|i| serde_json::json!({
+                    "text": format!("palabra{i:02}"),
+                    "startFrame": i * 2,
+                    "endFrame": i * 2 + 2
+                }))
+                .collect::<Vec<_>>()
+        );
+        value["captions"]["cues"][0]["endFrame"] = serde_json::json!(30);
+        let ass = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        let dialogues: Vec<&str> = ass
+            .lines()
+            .filter(|line| line.starts_with("Dialogue:"))
+            .collect();
+        assert!(dialogues.len() >= 12);
+        assert!(
+            dialogues.iter().any(|line| line.contains("\\N")),
+            "ningún diálogo karaoke tiene salto de línea"
+        );
+        // El highlight sigue siendo palabra activa: el tag \c del índice
+        // aparece junto a \N sin romper el formato.
+        assert!(dialogues[11].contains("palabra11"));
+    }
+
+    #[test]
     fn caption_motion_emits_move_scale_rotation_and_alpha() {
         let mut value = project();
         value["captions"]["cues"][0]["motion"] = serde_json::json!({
@@ -725,5 +892,91 @@ mod tests {
             project_fps: 30.0,
         });
         assert!(ass.contains("Segoe UI,27.0"));
+    }
+
+    #[test]
+    fn wrap_caption_text_breaks_at_word_boundary() {
+        // «uno dos tres cuatro» = 19 columnas; con límite 15 el mejor corte
+        // equilibra: «uno dos» (7) + «tres cuatro» (11).
+        let wrapped = wrap_caption_text("uno dos tres cuatro", 15);
+        assert_eq!(wrapped, "uno dos\ntres cuatro");
+    }
+
+    #[test]
+    fn wrap_caption_text_respects_manual_breaks_and_short_text() {
+        assert_eq!(wrap_caption_text("hola\nmundo", 5), "hola\nmundo");
+        assert_eq!(wrap_caption_text("hola mundo", 40), "hola mundo");
+        assert_eq!(wrap_caption_text("   ", 10), "");
+    }
+
+    #[test]
+    fn wrap_caption_text_balances_two_lines() {
+        // 8 palabras de 2 cols = 23 total; límite 20 → corte en 4+4.
+        let wrapped = wrap_caption_text("aa bb cc dd ee ff gg hh", 20);
+        let (first, second) = wrapped.split_once('\n').expect("debe partir");
+        assert!(caption_display_width(first) <= 20);
+        assert!(caption_display_width(second) <= 20);
+    }
+
+    #[test]
+    fn long_caption_emits_ass_line_break() {
+        let mut value = project();
+        value["captions"]["cues"][0]["text"] = serde_json::json!(
+            "Esta es una frase de subtítulo deliberadamente larga para forzar el salto de línea automático en el archivo ASS"
+        );
+        let ass = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        let dialogue = ass
+            .lines()
+            .find(|line| line.starts_with("Dialogue:"))
+            .expect("hay diálogo");
+        assert!(dialogue.contains("\\N"), "diálogo: {dialogue}");
+    }
+
+    #[test]
+    fn pipeline_ass_time_formats_centiseconds() {
+        assert_eq!(ass_time(0.0), "0:00:00.00");
+        assert_eq!(ass_time(61.234), "0:01:01.23");
+        assert_eq!(ass_time(3661.5), "1:01:01.50");
+    }
+
+    #[test]
+    fn cues_to_ass_produces_valid_events() {
+        let cues = vec![
+            (0.0, 2.5, "Hola mundo".to_string()),
+            (2.5, 5.0, "Segunda línea".to_string()),
+        ];
+        let ass = cues_to_ass(&cues, 1920, 1080);
+        assert!(ass.contains("[Script Info]"));
+        assert!(ass.contains("[V4+ Styles]"));
+        assert!(ass.contains("[Events]"));
+        assert_eq!(ass.matches("Dialogue:").count(), 2);
+        assert!(ass.contains("0:00:00.00"));
+        assert!(ass.contains("0:00:02.50"));
+        // PlayRes refleja la resolución real del video.
+        assert!(ass.contains("PlayResX: 1920"));
+    }
+
+    #[test]
+    fn cues_to_ass_escapes_braces_and_newlines() {
+        let cues = vec![(0.0, 1.0, "texto {raro}\ncon salto".to_string())];
+        let ass = cues_to_ass(&cues, 640, 360);
+        assert!(!ass.contains('{'));
+        assert!(ass.contains(r"texto raro\Ncon salto"));
+    }
+
+    #[test]
+    fn escape_filter_arg_quotes_and_escapes_windows_drive() {
+        // La forma exacta que ffmpeg aceptó en la verificación real:
+        // subtitles=filename='D\:/ruta/file.ass'
+        let escaped = escape_filter_arg("D:/tmp/dir con espacio/file.ass");
+        assert_eq!(escaped, "'D\\:/tmp/dir con espacio/file.ass'");
+        let with_quote = escape_filter_arg("D:/it's/file.ass");
+        assert_eq!(with_quote, "'D\\:/it\\'s/file.ass'");
     }
 }

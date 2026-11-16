@@ -316,3 +316,39 @@ agente. Pendiente:
    del artefacto firmado real.
 
 Criterio de aceptación completo en [`FOLLOW-UPS.md`](FOLLOW-UPS.md) §5.
+
+## 9. SBOM (Software Bill of Materials)
+
+Cada build del workflow `release` genera SBOMs CycloneDX JSON y los adjunta al
+GitHub Release junto a los binarios:
+
+| Archivo | Herramienta | Cobertura |
+|---|---|---|
+| `sbom/rust-*.cdx.json` | `cargo-cyclonedx` (`cargo install --locked`) | crates Rust: `apps/desktop/src-tauri` (workspace de la app) y `apps/concat-worker` (binario empaquetado como recurso), con todo su grafo de dependencias desde `Cargo.lock` |
+| `sbom/olyvia-npm.cdx.json` | `@cyclonedx/cdxgen@12 --type npm` | árbol npm del monorepo (`package-lock.json` en raíz, workspaces incluidos) |
+
+Detalles operativos:
+
+- El paso corre **después** de compilar y verificar artefactos, **antes** de
+  `upload-artifact` y de publicar el release; si no se genera ningún `bom.json`
+  el job falla (`::error::`).
+- `cargo cyclonedx` escribe `bom.json` junto a cada `Cargo.toml` del workspace;
+  el step los renombra a `sbom/rust-<ruta>.cdx.json` para no colisionar.
+- `cdxgen` se ejecuta con `--type npm` para no re-catalogar el workspace Rust
+  (ya cubierto por cargo-cyclonedx) ni invocar `cargo` fuera del entorno
+  `rust-env.mjs`.
+- Los SBOMs también quedan en el artifact del workflow
+  (`olyvia-windows-x64-<run>`), que se retiene 30 días.
+
+Regenerar un SBOM a mano (desde la raíz del repo; si hace falta compilar,
+usar el wrapper `node scripts/rust-env.mjs -- cargo ...`):
+
+```bash
+cargo install cargo-cyclonedx --locked
+cargo cyclonedx --manifest-path apps/desktop/src-tauri/Cargo.toml --format json
+npx --yes @cyclonedx/cdxgen@12 --type npm --output sbom/olyvia-npm.cdx.json .
+```
+
+Nota: `cargo-cyclonedx` invoca Cargo internamente para describir el proyecto;
+sólo se corre sobre este repo (código propio), nunca sobre proyectos de
+terceros.

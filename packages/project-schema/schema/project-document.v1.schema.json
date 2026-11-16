@@ -530,6 +530,19 @@
           "minimum": 0,
           "maximum": 1
         },
+        "cameraProfile": {
+          "type": "string",
+          "enum": [
+            "vlog709",
+            "slog3709",
+            "slog3cinema",
+            "nlog709",
+            "nlogcinema",
+            "gplog709",
+            "dlog709",
+            "clog3709"
+          ]
+        },
         "fadeInFrames": {
           "type": "integer",
           "exclusiveMinimum": 0,
@@ -621,8 +634,8 @@
                           },
                           "cp1Y": {
                             "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
+                            "minimum": -1,
+                            "maximum": 2
                           },
                           "cp2X": {
                             "type": "number",
@@ -631,8 +644,8 @@
                           },
                           "cp2Y": {
                             "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
+                            "minimum": -1,
+                            "maximum": 2
                           }
                         },
                         "required": [
@@ -1263,6 +1276,51 @@
             "nodes",
             "links"
           ],
+          "additionalProperties": false
+        },
+        "spectrum": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "bars",
+                "wave",
+                "neon"
+              ]
+            },
+            "color1": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "color2": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "intensity": {
+              "$ref": "#/properties/look/properties/fade"
+            },
+            "width": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 1
+            },
+            "height": {
+              "type": "number",
+              "minimum": 0.05,
+              "maximum": 0.6
+            },
+            "x": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.95
+            }
+          },
           "additionalProperties": false
         }
       },
@@ -2289,6 +2347,53 @@
                     },
                     "additionalProperties": false
                   },
+                  "monitorFrame": {
+                    "type": "object",
+                    "properties": {
+                      "preset": {
+                        "type": "string",
+                        "enum": [
+                          "circle-thin",
+                          "circle-halo",
+                          "rounded-soft",
+                          "rounded-glass",
+                          "portrait-tall",
+                          "portrait-ribbon",
+                          "landscape-soft",
+                          "landscape-neon",
+                          "circle-aurora",
+                          "circle-sunset",
+                          "circle-orbit",
+                          "circle-neon",
+                          "rounded-floating",
+                          "hexagon",
+                          "arch",
+                          "leaf",
+                          "balloon",
+                          "polaroid",
+                          "capsule"
+                        ]
+                      },
+                      "color": {
+                        "type": "string",
+                        "pattern": "^#[0-9a-f]{6}$"
+                      },
+                      "color2": {
+                        "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/monitorFrame/properties/color"
+                      }
+                    },
+                    "required": [
+                      "preset"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "waveformStyle": {
+                    "type": "string",
+                    "enum": [
+                      "capcut",
+                      "davinci"
+                    ]
+                  },
                   "kind": {
                     "type": "string",
                     "const": "video"
@@ -2449,6 +2554,9 @@
                           "triangle",
                           "rounded",
                           "polygon",
+                          "freehand",
+                          "star",
+                          "heart",
                           "text"
                         ]
                       },
@@ -2482,6 +2590,20 @@
                         "minimum": 0,
                         "maximum": 1,
                         "default": 0.08
+                      },
+                      "expand": {
+                        "type": "number",
+                        "minimum": -0.5,
+                        "maximum": 0.5
+                      },
+                      "strokeColor": {
+                        "type": "string",
+                        "pattern": "^#[0-9a-fA-F]{6}$"
+                      },
+                      "strokeWidth": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "maximum": 0.5
                       },
                       "invert": {
                         "type": "boolean",
@@ -2520,7 +2642,7 @@
                           "additionalProperties": false
                         },
                         "minItems": 3,
-                        "maxItems": 16
+                        "maxItems": 64
                       },
                       "keyframes": {
                         "type": "array",
@@ -2647,7 +2769,31 @@
                           "wipe-up",
                           "wipe-down",
                           "iris",
-                          "luma-wipe"
+                          "blinds",
+                          "clock-wipe",
+                          "ink",
+                          "bolhas",
+                          "colmeia",
+                          "chuva",
+                          "vento",
+                          "triangulos",
+                          "persiana",
+                          "reflexo",
+                          "barrido-diagonal",
+                          "pixelar",
+                          "interferencia",
+                          "liquido",
+                          "caleidoscopio",
+                          "desenfoque-lineal",
+                          "warp-direccional",
+                          "glitch-digital",
+                          "zoom-suave",
+                          "zoom-rapido",
+                          "luma-wipe",
+                          "textura-luz",
+                          "textura-celular",
+                          "textura-fractal",
+                          "textura-vida"
                         ]
                       },
                       "frames": {
@@ -2669,6 +2815,9 @@
                     ],
                     "additionalProperties": false
                   },
+                  "transitionOut": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transitionIn"
+                  },
                   "animationIn": {
                     "type": "object",
                     "properties": {
@@ -2679,7 +2828,10 @@
                           "slide-left",
                           "slide-right",
                           "slide-up",
-                          "slide-down"
+                          "slide-down",
+                          "zoom-in",
+                          "zoom-out",
+                          "spin"
                         ]
                       },
                       "durationFrames": {
@@ -2737,6 +2889,12 @@
                   },
                   "audio": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio"
+                  },
+                  "monitorFrame": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/monitorFrame"
+                  },
+                  "waveformStyle": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
                   },
                   "kind": {
                     "type": "string",
@@ -2805,6 +2963,12 @@
                   "audio": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio"
                   },
+                  "monitorFrame": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/monitorFrame"
+                  },
+                  "waveformStyle": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
+                  },
                   "kind": {
                     "type": "string",
                     "const": "image"
@@ -2842,6 +3006,9 @@
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/blendMode"
                   },
                   "transitionIn": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transitionIn"
+                  },
+                  "transitionOut": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transitionIn"
                   },
                   "animationIn": {
@@ -2890,6 +3057,12 @@
                   },
                   "audio": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio"
+                  },
+                  "monitorFrame": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/monitorFrame"
+                  },
+                  "waveformStyle": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
                   },
                   "kind": {
                     "type": "string",
@@ -2953,6 +3126,12 @@
                   "audio": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio"
                   },
+                  "monitorFrame": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/monitorFrame"
+                  },
+                  "waveformStyle": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
+                  },
                   "kind": {
                     "type": "string",
                     "const": "freeze"
@@ -2976,6 +3155,9 @@
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/blendMode"
                   },
                   "transitionIn": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transitionIn"
+                  },
+                  "transitionOut": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transitionIn"
                   },
                   "animationIn": {
@@ -3024,6 +3206,12 @@
                   },
                   "audio": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio"
+                  },
+                  "monitorFrame": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/monitorFrame"
+                  },
+                  "waveformStyle": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
                   },
                   "kind": {
                     "type": "string",
@@ -3085,6 +3273,12 @@
                   },
                   "audio": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio"
+                  },
+                  "monitorFrame": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/monitorFrame"
+                  },
+                  "waveformStyle": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
                   },
                   "kind": {
                     "type": "string",
@@ -3591,6 +3785,12 @@
           "note": {
             "type": "string",
             "maxLength": 500
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "cover"
+            ]
           }
         },
         "required": [
@@ -3746,7 +3946,8 @@
               "h264",
               "h265",
               "vp9",
-              "av1"
+              "av1",
+              "prores"
             ]
           },
           "audioCodec": {
@@ -3839,7 +4040,8 @@
             "type": "string",
             "enum": [
               "contain",
-              "cover"
+              "cover",
+              "blur"
             ],
             "default": "contain"
           },
@@ -3848,6 +4050,8 @@
             "enum": [
               "yuv420p",
               "yuv444p",
+              "yuv422p10le",
+              "yuva444p10le",
               "rgb24"
             ]
           },

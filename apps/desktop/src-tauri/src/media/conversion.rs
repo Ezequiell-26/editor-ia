@@ -135,7 +135,9 @@ impl ConversionTarget {
 
 /// Preferencia de encoder del usuario. `Auto` usa hardware si la máquina lo
 /// tiene; `Hardware` lo exige (si no hay, cae a software); `Software` fuerza
-/// libx264/libx265.
+/// el mejor encoder de software que el FFmpeg configurado realmente tenga
+/// (`libx264`/`libx265` si el binario los incluye, si no `libopenh264`/
+/// `libkvazaar`/MF — el bundle LGPL no trae los GPL).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum EncoderPref {
@@ -176,6 +178,8 @@ pub(crate) struct ConvertOptions {
     pub video_bitrate_kbps: Option<u32>,
     /// Bitrate de audio en kbps; por defecto 192 en video y 128 en audio.
     pub audio_bitrate_kbps: Option<u32>,
+    /// FPS objetivo para GIF (paridad `exp-gif-taxa`); `None` = 15.
+    pub fps: Option<f64>,
 }
 
 impl ConvertOptions {
@@ -188,6 +192,7 @@ impl ConvertOptions {
             crf: None,
             video_bitrate_kbps: None,
             audio_bitrate_kbps: None,
+            fps: None,
         }
     }
 
@@ -292,20 +297,28 @@ pub(crate) fn audio_filter_chain(enhance: EnhanceOptions) -> Option<String> {
 
 pub(crate) fn h264_encoder(hardware: &HardwareEncoders, pref: EncoderPref) -> String {
     match pref {
-        EncoderPref::Software => "libx264".to_string(),
+        EncoderPref::Software => hardware
+            .h264_software
+            .clone()
+            .unwrap_or_else(|| "libx264".to_string()),
         EncoderPref::Hardware | EncoderPref::Auto => hardware
             .h264
             .clone()
+            .or_else(|| hardware.h264_software.clone())
             .unwrap_or_else(|| "libx264".to_string()),
     }
 }
 
 pub(crate) fn hevc_encoder(hardware: &HardwareEncoders, pref: EncoderPref) -> String {
     match pref {
-        EncoderPref::Software => "libx265".to_string(),
+        EncoderPref::Software => hardware
+            .hevc_software
+            .clone()
+            .unwrap_or_else(|| "libx265".to_string()),
         EncoderPref::Hardware | EncoderPref::Auto => hardware
             .hevc
             .clone()
+            .or_else(|| hardware.hevc_software.clone())
             .unwrap_or_else(|| "libx265".to_string()),
     }
 }
@@ -410,8 +423,35 @@ pub(crate) fn build_args(
         }
         ConversionTarget::Gif => {
             let width = options.max_width.unwrap_or(960).clamp(64, 1920);
+            // Paridad `exp-gif-taxa`: fps elegido por el usuario (10–30),
+            // acotado a [1,60] por si el pedido viene de otro cliente.
+            let fps = options
+                .fps
+                .filter(|value| value.is_finite())
+                .unwrap_or(15.0)
+                .clamp(1.0, 60.0);
+            let fps_text = if fps.fract() == 0.0 {
+                format!("{}", fps as u32)
+            } else {
+                format!("{fps:.3}")
+            };
+            // Calidad del GIF (paridad `exp-gif-qualidade`): alto usa
+            // difusión de error suave, medio el Bayer actual y bajo una
+            // celda más gruesa (menos trabajo, archivo más chico).
+            let (dither, bayer_scale) = if options.quality >= 85 {
+                ("sierra2_4a", 0)
+            } else if options.quality >= 55 {
+                ("bayer", 3)
+            } else {
+                ("bayer", 5)
+            };
+            let dither_arg = if dither == "bayer" {
+                format!("dither=bayer:bayer_scale={bayer_scale}")
+            } else {
+                "dither=sierra2_4a".to_string()
+            };
             let filter = format!(
-                "fps=15,scale='min({width},iw)':-2:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3"
+                "fps={fps_text},scale='min({width},iw)':-2:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse={dither_arg}"
             );
             args.extend([
                 "-vf".into(),

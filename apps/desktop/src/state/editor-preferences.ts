@@ -35,6 +35,12 @@ export interface EditorPreferences {
   readonly followPlayhead: boolean;
   /** Dibuja la forma de onda sobre los clips de audio. */
   readonly showWaveforms: boolean;
+  /**
+   * Estilo de la forma de onda (paridad `escolher_onda.js` de AlaukCut):
+   * `capcut` dibuja barras desde la base con guía; `davinci` dibuja la
+   * envolvente simétrica rellena con línea central.
+   */
+  readonly waveformStyle: 'capcut' | 'davinci';
   /** Dibuja la miniatura sobre los clips visuales. */
   readonly showThumbnails: boolean;
   /** Al terminar, vuelve al inicio en lugar de detenerse. */
@@ -48,8 +54,17 @@ export interface EditorPreferences {
   readonly jumpStepFrames: number;
   /** Las guías de acción y título arrancan visibles. */
   readonly safeMargins: boolean;
+  /** Guía de área segura del monitor: genérica o preset de plataforma. */
+  readonly safeAreaPreset: 'generic' | 'youtube' | 'tiktok' | 'reels' | 'stories' | 'shorts' | 'feed';
   /** Estilo de emoji para la preview y el selector: Android o abierto. */
   readonly emojiStyle: 'android' | 'open';
+  /**
+   * Cursor propio de la app (paridad `cursor_editar` de AlaukCut): reemplaza
+   * el cursor del sistema dentro del shell. `system` deja el cursor nativo.
+   */
+  readonly editorCursor: 'system' | 'classico' | 'cheia' | '3d';
+  /** Onda de click visible al pulsar con el cursor propio activo. */
+  readonly editorCursorRipple: boolean;
   /** Densidad visual de la timeline: cómoda (default) o compacta. */
   readonly timelineDensity: 'comfortable' | 'compact';
   /** Etiquetas de clip: nombre + ventana (full) o sólo el nombre (minimal). */
@@ -86,12 +101,16 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
   snapPixels: 10,
   followPlayhead: true,
   showWaveforms: true,
+  waveformStyle: 'capcut',
   showThumbnails: true,
   loopPlayback: false,
   playbackRate: 1,
   jumpStepFrames: 1,
   safeMargins: false,
+  safeAreaPreset: 'generic',
   emojiStyle: 'android',
+  editorCursor: 'system',
+  editorCursorRipple: true,
   timelineDensity: 'comfortable',
   timelineClipLabels: 'full',
   timelineShowGrid: true,
@@ -157,6 +176,7 @@ export function normalizeEditorPreferences(raw: unknown): EditorPreferences {
     ),
     followPlayhead: bool(source.followPlayhead, DEFAULT_EDITOR_PREFERENCES.followPlayhead),
     showWaveforms: bool(source.showWaveforms, DEFAULT_EDITOR_PREFERENCES.showWaveforms),
+    waveformStyle: source.waveformStyle === 'davinci' ? 'davinci' : 'capcut',
     showThumbnails: bool(source.showThumbnails, DEFAULT_EDITOR_PREFERENCES.showThumbnails),
     loopPlayback: bool(source.loopPlayback, DEFAULT_EDITOR_PREFERENCES.loopPlayback),
     playbackRate: clamp(
@@ -174,7 +194,26 @@ export function normalizeEditorPreferences(raw: unknown): EditorPreferences {
       ),
     ),
     safeMargins: bool(source.safeMargins, DEFAULT_EDITOR_PREFERENCES.safeMargins),
+    safeAreaPreset:
+      source.safeAreaPreset === 'youtube' ||
+      source.safeAreaPreset === 'tiktok' ||
+      source.safeAreaPreset === 'reels' ||
+      source.safeAreaPreset === 'stories' ||
+      source.safeAreaPreset === 'shorts' ||
+      source.safeAreaPreset === 'feed'
+        ? source.safeAreaPreset
+        : 'generic',
     emojiStyle: source.emojiStyle === 'open' ? 'open' : 'android',
+    editorCursor:
+      source.editorCursor === 'classico' ||
+      source.editorCursor === 'cheia' ||
+      source.editorCursor === '3d'
+        ? source.editorCursor
+        : 'system',
+    editorCursorRipple: bool(
+      source.editorCursorRipple,
+      DEFAULT_EDITOR_PREFERENCES.editorCursorRipple,
+    ),
     timelineDensity: source.timelineDensity === 'compact' ? 'compact' : 'comfortable',
     timelineClipLabels: source.timelineClipLabels === 'minimal' ? 'minimal' : 'full',
     timelineShowGrid: bool(

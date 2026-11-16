@@ -1,0 +1,10 @@
+# Motor de animación whiteboard para Olyvia.
+# El paquete incluye el modelo CRAFT ONNX (~83 MB) como package-data.
+# Extra `gemini` (planes de regiones automáticos) NO requerido.
+#
+# Pins medidos en esta máquina (2026-11-12): opencv-python-headless 5.x y
+# numpy 2.x NO conviven — cv2 importa `numpy.core.multiarray`, eliminado en
+# numpy 2.x. scipy/skimage actuales sí aceptan numpy 1.26.
+whiteboard-animator>=0.1.1
+numpy<2
+opencv-python-headless<5

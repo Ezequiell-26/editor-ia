@@ -91,6 +91,7 @@ abierta.
 | `H` | `timeline.panMode` | Alternar herramienta mano | — |
 | `M` | `timeline.toggleMarker` | Marcador en el playhead | Ya estaba en el registro; ahora el handler lo consulta. |
 | `V` / `C` / `A` / `Shift+A` / `Z` | `tools.select` / `tools.split` / `tools.selectForward` / `tools.selectBackward` / `tools.zoom` | Selector de herramienta de la timeline | Antes hardcodeados en `Timeline.tsx`. |
+| `Y` / `T` / `N` | `tools.slip` / `tools.slide` / `tools.roll` | Slip (ventana de origen), slide (deslizar sobre vecinos) y roll (rodar corte) | Arrastre sobre el clip; roll se agarra cerca del borde. En Premiere son Y/U/N; `U` ya es skim acá, así que slide usa `T`. |
 | `Shift+clic` / `Ctrl+clic` (`Cmd` en mac) | — | Sumar/quitar clips a la multi-selección | Es mouse, no teclado; el set se sincroniza con el store. |
 
 **`Esc` y multi-selección**: no hay handler local de `Esc`. La selección múltiple

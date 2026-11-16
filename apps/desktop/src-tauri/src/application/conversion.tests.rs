@@ -30,6 +30,8 @@ fn no_hardware() -> HardwareEncoders {
         hevc: None,
         av1: None,
         vp9: None,
+        h264_software: None,
+        hevc_software: None,
         checked: true,
     }
 }
@@ -139,6 +141,8 @@ fn live_compress_any_file_reduces_a_generated_clip() {
         hevc: None,
         av1: None,
         vp9: None,
+        h264_software: None,
+        hevc_software: None,
         checked: true,
     };
     let params = CompressParams {
@@ -397,6 +401,8 @@ fn hardware_encoder_switches_to_bitrate_control() {
         hevc: Some("hevc_nvenc".into()),
         av1: None,
         vp9: None,
+        h264_software: None,
+        hevc_software: None,
         checked: true,
     };
     let (args, encoder) = build_args(
@@ -415,6 +421,142 @@ fn hardware_encoder_switches_to_bitrate_control() {
     assert!(args.contains(&"h264_nvenc".to_string()));
     assert!(args.contains(&"-b:v".to_string()));
     assert!(!args.contains(&"-crf".to_string()));
+}
+
+#[test]
+fn software_pref_uses_the_detected_software_encoder() {
+    // El bundle LGPL no trae libx264/libx265: la detección ofrece
+    // libopenh264/libkvazaar y los modos Software/Auto-sin-hardware los usan.
+    let hardware = HardwareEncoders {
+        h264: Some("h264_nvenc".into()),
+        hevc: None,
+        av1: None,
+        vp9: None,
+        h264_software: Some("libopenh264".into()),
+        hevc_software: Some("libkvazaar".into()),
+        checked: true,
+    };
+    let options = ConvertOptions {
+        encoder: EncoderPref::Software,
+        ..ConvertOptions::simple(80, None)
+    };
+    let (args, encoder) = build_args(
+        Path::new("in.mp4"),
+        Path::new("out.mp4"),
+        ConversionTarget::Mp4,
+        "video",
+        options,
+        &hardware,
+    )
+    .expect("args");
+    assert_eq!(encoder, "libopenh264");
+    assert!(args.contains(&"libopenh264".to_string()));
+    // libopenh264 no acepta -crf/-preset: va por bitrate como un encoder
+    // no-x264.
+    assert!(args.contains(&"-b:v".to_string()));
+    assert!(!args.contains(&"-crf".to_string()));
+    assert!(!args.contains(&"-preset".to_string()));
+
+    // Auto sin hardware cae al software detectado, no a libx264.
+    let no_gpu = HardwareEncoders {
+        h264: None,
+        hevc: None,
+        av1: None,
+        vp9: None,
+        h264_software: Some("libopenh264".into()),
+        hevc_software: None,
+        checked: true,
+    };
+    let (_, encoder) = build_args(
+        Path::new("in.mp4"),
+        Path::new("out.mp4"),
+        ConversionTarget::Mp4,
+        "video",
+        ConvertOptions::simple(80, None),
+        &no_gpu,
+    )
+    .expect("args");
+    assert_eq!(encoder, "libopenh264");
+}
+
+#[test]
+fn gif_args_use_the_requested_fps_and_width() {
+    let hardware = no_hardware();
+    let (args, _) = build_args(
+        Path::new("in.mp4"),
+        Path::new("out.gif"),
+        ConversionTarget::Gif,
+        "video",
+        ConvertOptions {
+            fps: Some(24.0),
+            max_width: Some(480),
+            ..ConvertOptions::simple(70, None)
+        },
+        &hardware,
+    )
+    .expect("args");
+    let filter = args
+        .iter()
+        .find(|arg| arg.contains("palettegen"))
+        .expect("gif filter");
+    assert!(filter.contains("fps=24"));
+    assert!(filter.contains("min(480,iw)"));
+}
+
+#[test]
+fn gif_args_default_to_15fps() {
+    let hardware = no_hardware();
+    let (args, _) = build_args(
+        Path::new("in.mp4"),
+        Path::new("out.gif"),
+        ConversionTarget::Gif,
+        "video",
+        ConvertOptions::simple(70, None),
+        &hardware,
+    )
+    .expect("args");
+    let filter = args
+        .iter()
+        .find(|arg| arg.contains("palettegen"))
+        .expect("gif filter");
+    assert!(filter.contains("fps=15"));
+}
+
+#[test]
+fn gif_args_map_quality_to_dither_tiers() {
+    let hardware = no_hardware();
+    let filter_for = |quality: u8| {
+        let (args, _) = build_args(
+            Path::new("in.mp4"),
+            Path::new("out.gif"),
+            ConversionTarget::Gif,
+            "video",
+            ConvertOptions::simple(quality, None),
+            &hardware,
+        )
+        .expect("args");
+        args.iter()
+            .find(|arg| arg.contains("palettegen"))
+            .expect("gif filter")
+            .clone()
+    };
+    // Alto (>=85): difusión de error suave; medio (55-84): bayer_scale=3;
+    // bajo (<55): bayer_scale=5 (celda más gruesa, más liviano).
+    assert!(filter_for(90).contains("dither=sierra2_4a"));
+    let medium = filter_for(70);
+    assert!(medium.contains("bayer_scale=3"));
+    assert!(filter_for(40).contains("bayer_scale=5"));
+    // Los formatos no-GIF no se ven afectados por la calidad.
+    let (args, _) = build_args(
+        Path::new("in.mp4"),
+        Path::new("out.mp3"),
+        ConversionTarget::Mp3,
+        "video",
+        ConvertOptions::simple(40, None),
+        &hardware,
+    )
+    .expect("args");
+    assert!(!args.iter().any(|arg| arg.contains("palettegen")));
 }
 
 #[test]
@@ -553,3 +695,373 @@ fn live_conversion_produces_real_files() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---------------------------------------------------------------------------
+// Política de rutas de archivos sueltos (F7): `convert_file` y
+// `compress_any_file` reciben rutas absolutas del usuario y deben aplicar la
+// misma política de lectura/escritura que `fs_*` antes de tocar FFmpeg.
+// ---------------------------------------------------------------------------
+
+use std::process::Output;
+use std::sync::Arc;
+use std::time::Duration;
+
+use crate::application::conversion::{compress_any_file, convert_file};
+use crate::media::conversion::ConvertProgress;
+use crate::ports::conversion::{
+    ConversionDeps, ConversionEvents, ConversionHardware, ConversionRunner,
+};
+use crate::ports::media::MediaTools;
+use crate::ports::projects::{ProjectDocuments, ProjectSession, ProjectSessionInfo};
+use crate::projects::service::{OpenedProject, ProjectError, SaveProjectResult};
+
+fn loose_exit_status(code: i32) -> std::process::ExitStatus {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::ExitStatusExt;
+        std::process::ExitStatus::from_raw(code.max(0) as u32)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = code;
+        Command::new("sh")
+            .args(["-c", "exit 0"])
+            .output()
+            .expect("status de prueba")
+            .status
+    }
+}
+
+struct NoSession;
+impl ProjectSession for NoSession {
+    fn current(&self) -> Result<Option<ProjectSessionInfo>, ProjectError> {
+        Ok(None)
+    }
+    fn require(&self) -> Result<ProjectSessionInfo, ProjectError> {
+        Err(ProjectError::message(
+            crate::projects::service::ProjectErrorCode::NotFound,
+            "sin sesión",
+        ))
+    }
+    fn adopt(&self, _info: &ProjectSessionInfo) -> Result<(), ProjectError> {
+        Ok(())
+    }
+    fn clear(&self) -> Result<(), ProjectError> {
+        Ok(())
+    }
+}
+
+struct NoDocs;
+impl ProjectDocuments for NoDocs {
+    fn open(&self, _path: &Path) -> Result<OpenedProject, ProjectError> {
+        Err(ProjectError::message(
+            crate::projects::service::ProjectErrorCode::NotFound,
+            "sin documento",
+        ))
+    }
+    fn create_with_video(
+        &self,
+        _path: &Path,
+        _name: &str,
+        _video: Option<serde_json::Value>,
+    ) -> Result<OpenedProject, ProjectError> {
+        unimplemented!()
+    }
+    fn save(
+        &self,
+        _path: &Path,
+        _project: &serde_json::Value,
+    ) -> Result<SaveProjectResult, ProjectError> {
+        unimplemented!()
+    }
+}
+
+struct FakeToolsPaths {
+    ffmpeg: PathBuf,
+    ffprobe: PathBuf,
+}
+impl MediaTools for FakeToolsPaths {
+    fn ffmpeg_path(&self) -> Option<PathBuf> {
+        Some(self.ffmpeg.clone())
+    }
+    fn ffprobe_path(&self) -> Option<PathBuf> {
+        Some(self.ffprobe.clone())
+    }
+}
+
+struct FakeConversionEvents;
+impl ConversionEvents for FakeConversionEvents {
+    fn compress_progress(&self, _percent: f64) {}
+    fn batch_progress(&self, _event: &ConvertProgress) {}
+}
+
+/// Runner de conversión que devuelve un resultado enlatado sin ejecutar nada.
+struct FakeConversionRunner;
+impl ConversionRunner for FakeConversionRunner {
+    fn run(
+        &self,
+        _ffmpeg: &Path,
+        _ffprobe: Option<&Path>,
+        _args: &[String],
+        _temp_path: &Path,
+        _final_path: &Path,
+        _sanitize_root: &Path,
+        _progress: Option<&crate::media::conversion::LiveProgress>,
+    ) -> Result<(u64, Option<f64>, String), ProjectError> {
+        Ok((128, Some(1.0), "mp3".to_owned()))
+    }
+}
+
+/// MediaRunner que devuelve un ffprobe JSON enlatado (un stream de video).
+struct ProbeRunner {
+    stdout: String,
+}
+impl crate::ports::media::MediaRunner for ProbeRunner {
+    fn run_ffmpeg(
+        &self,
+        _ffmpeg: &Path,
+        _args: &[String],
+        _cwd: Option<&Path>,
+    ) -> Result<Output, ProjectError> {
+        unimplemented!()
+    }
+    fn run_ffprobe(
+        &self,
+        _ffprobe: &Path,
+        _args: &[String],
+    ) -> Result<Output, ProjectError> {
+        unimplemented!()
+    }
+    fn run_ffmpeg_with_timeout(
+        &self,
+        _ffmpeg: &Path,
+        _args: &[String],
+        _cwd: Option<&Path>,
+        _timeout: Duration,
+    ) -> Result<Output, ProjectError> {
+        unimplemented!()
+    }
+    fn run_ffprobe_with_timeout(
+        &self,
+        _ffprobe: &Path,
+        _args: &[String],
+        _timeout: Duration,
+    ) -> Result<Output, ProjectError> {
+        Ok(Output {
+            status: loose_exit_status(0),
+            stdout: self.stdout.clone().into_bytes(),
+            stderr: Vec::new(),
+        })
+    }
+    fn ensure_dir(&self, _path: &Path) -> Result<(), ProjectError> {
+        Ok(())
+    }
+    fn file_exists(&self, _path: &Path) -> bool {
+        true
+    }
+    fn remove_file(&self, _path: &Path) {}
+}
+
+struct NoHardware;
+impl ConversionHardware for NoHardware {
+    fn detect(&self, _ffmpeg: &Path) -> HardwareEncoders {
+        no_hardware()
+    }
+}
+
+const PROBE_VIDEO_JSON: &str = r#"{
+    "streams": [
+        { "codec_type": "video", "codec_name": "h264", "width": 64, "height": 64 }
+    ],
+    "format": { "format_name": "mov,mp4", "duration": "1.0" }
+}"#;
+
+fn loose_file_fixture() -> (PathBuf, PathBuf, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("editoria-loose-{}", Uuid::new_v4()));
+    let input = dir.join("clip.mp4");
+    let output = dir.join("salida");
+    std::fs::create_dir_all(&output).expect("salida");
+    std::fs::write(&input, b"fixture").expect("input");
+    (dir, input, output)
+}
+
+fn loose_file_deps<'a>(
+    session: &'a NoSession,
+    docs: &'a NoDocs,
+    tools: &'a FakeToolsPaths,
+    files: &'a LocalConversionFiles,
+    events: &'a Arc<dyn ConversionEvents>,
+    runner: &'a FakeConversionRunner,
+    media: &'a ProbeRunner,
+    hardware: &'a NoHardware,
+) -> ConversionDeps<'a> {
+    ConversionDeps {
+        session,
+        documents: docs,
+        tools,
+        files,
+        events: Arc::clone(events),
+        runner,
+        media_runner: media,
+        hardware,
+    }
+}
+
+#[test]
+fn convert_file_rechaza_rutas_fuera_de_la_politica() {
+    let (dir, _input, output) = loose_file_fixture();
+    let session = NoSession;
+    let docs = NoDocs;
+    let tools = FakeToolsPaths {
+        ffmpeg: PathBuf::from("ffmpeg"),
+        ffprobe: PathBuf::from("ffprobe"),
+    };
+    let files = LocalConversionFiles;
+    let events: Arc<dyn ConversionEvents> = Arc::new(FakeConversionEvents);
+    let runner = FakeConversionRunner;
+    let media = ProbeRunner {
+        stdout: PROBE_VIDEO_JSON.to_owned(),
+    };
+    let hardware = NoHardware;
+    let deps = loose_file_deps(
+        &session, &docs, &tools, &files, &events, &runner, &media, &hardware,
+    );
+    let out = output.to_string_lossy().into_owned();
+
+    // Relativa: la política exige absoluta.
+    let err = convert_file(&deps, "clip.mp4", "mp3", &out, None, None, None)
+        .expect_err("ruta relativa debe fallar");
+    assert!(err.message.contains("absoluta"), "{}", err.message);
+
+    // Dentro de una carpeta de credenciales: rechazada aunque exista.
+    let ssh = dir.join(".ssh");
+    std::fs::create_dir_all(&ssh).expect("ssh");
+    let key = ssh.join("clip.mp4");
+    std::fs::write(&key, b"x").expect("key");
+    let err = convert_file(
+        &deps,
+        &key.to_string_lossy(),
+        "mp3",
+        &out,
+        None,
+        None,
+        None,
+    )
+    .expect_err("ruta con credenciales debe fallar");
+    assert!(err.message.contains("credenciales"), "{}", err.message);
+
+    // Absoluta pero inexistente: pasa la política y cae en el chequeo de
+    // existencia con su mensaje histórico.
+    let missing = dir.join("no-existe.mp4");
+    let err = convert_file(
+        &deps,
+        &missing.to_string_lossy(),
+        "mp3",
+        &out,
+        None,
+        None,
+        None,
+    )
+    .expect_err("archivo inexistente debe fallar");
+    assert!(err.message.contains("no está en disco"), "{}", err.message);
+
+    // La carpeta de salida también pasa por la política de escritura.
+    let bad_out = dir.join(".ssh").join("salida");
+    let err = convert_file(
+        &deps,
+        &dir.join("clip.mp4").to_string_lossy(),
+        "mp3",
+        &bad_out.to_string_lossy(),
+        None,
+        None,
+        None,
+    )
+    .expect_err("salida protegida debe fallar");
+    assert!(
+        err.message.contains("protegida") || err.message.contains("credenciales"),
+        "{}",
+        err.message
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn convert_file_acepta_archivo_valido_del_usuario() {
+    let (dir, input, output) = loose_file_fixture();
+    let session = NoSession;
+    let docs = NoDocs;
+    let tools = FakeToolsPaths {
+        ffmpeg: PathBuf::from("ffmpeg"),
+        ffprobe: PathBuf::from("ffprobe"),
+    };
+    let files = LocalConversionFiles;
+    let events: Arc<dyn ConversionEvents> = Arc::new(FakeConversionEvents);
+    let runner = FakeConversionRunner;
+    let media = ProbeRunner {
+        stdout: PROBE_VIDEO_JSON.to_owned(),
+    };
+    let hardware = NoHardware;
+    let deps = loose_file_deps(
+        &session, &docs, &tools, &files, &events, &runner, &media, &hardware,
+    );
+    let result = convert_file(
+        &deps,
+        &input.to_string_lossy(),
+        "mp3",
+        &output.to_string_lossy(),
+        None,
+        None,
+        None,
+    )
+    .expect("archivo válido debe procesarse");
+    assert!(result.path.ends_with(".mp3"));
+    assert_eq!(result.bytes, 128);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn compress_any_file_rechaza_rutas_fuera_de_la_politica() {
+    let (dir, _input, output) = loose_file_fixture();
+    let session = NoSession;
+    let docs = NoDocs;
+    let tools = FakeToolsPaths {
+        ffmpeg: PathBuf::from("ffmpeg"),
+        ffprobe: PathBuf::from("ffprobe"),
+    };
+    let files = LocalConversionFiles;
+    let events: Arc<dyn ConversionEvents> = Arc::new(FakeConversionEvents);
+    let runner = FakeConversionRunner;
+    let media = ProbeRunner {
+        stdout: PROBE_VIDEO_JSON.to_owned(),
+    };
+    let hardware = NoHardware;
+    let deps = loose_file_deps(
+        &session, &docs, &tools, &files, &events, &runner, &media, &hardware,
+    );
+    let request = |input: String, out: String| CompressAnyRequest {
+        input_path: input,
+        output_dir: out,
+        target: "mp4".to_owned(),
+        mode: "quality".to_owned(),
+        quality: Some(70),
+        target_megabytes: None,
+        max_width: None,
+        audio_kbps: None,
+        encoder: None,
+        enhance: None,
+    };
+    let out = output.to_string_lossy().into_owned();
+    let ssh = dir.join(".ssh");
+    std::fs::create_dir_all(&ssh).expect("ssh");
+    let key = ssh.join("clip.mp4");
+    std::fs::write(&key, b"x").expect("key");
+    let err = compress_any_file(&deps, &request(key.to_string_lossy().into_owned(), out.clone()))
+        .expect_err("ruta con credenciales debe fallar");
+    assert!(err.message.contains("credenciales"), "{}", err.message);
+    let err = compress_any_file(&deps, &request("clip.mp4".to_owned(), out))
+        .expect_err("ruta relativa debe fallar");
+    assert!(err.message.contains("absoluta"), "{}", err.message);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+

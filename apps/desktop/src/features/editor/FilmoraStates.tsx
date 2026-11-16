@@ -11,6 +11,11 @@ import {
 } from 'react';
 import { Icon, type IconName } from '../../components/Icon';
 import type { ViewId } from '../../app/navigation';
+import {
+  catalogFavoriteKey,
+  toggleCatalogFavorite,
+  useCatalogFavorites,
+} from '../../state/catalog-favorites';
 
 /* ────────────────────────────────────────────────────────────────────────────
    Estados de las capturas 93, 95, 97, 109, 114, 126 y 127 que no existían
@@ -389,41 +394,62 @@ export const SPLIT_SCREEN_TEMPLATES: readonly SplitScreenTemplate[] = [
 ];
 
 export function SplitScreenTemplates({
+  templates = SPLIT_SCREEN_TEMPLATES,
   selectedId,
   onSelect,
 }: {
+  readonly templates?: readonly SplitScreenTemplate[];
   readonly selectedId: string | null;
   readonly onSelect: (template: SplitScreenTemplate) => void;
 }) {
+  const favorites = useCatalogFavorites();
   return (
     <div className="fm-split-templates">
       <div className="fm-split-templates-head">
         <strong>BÁSICO</strong>
-        <span>{SPLIT_SCREEN_TEMPLATES.length} plantillas</span>
+        <span>{templates.length === 1 ? '1 plantilla' : `${templates.length} plantillas`}</span>
       </div>
       <div className="fm-split-templates-grid">
-        {SPLIT_SCREEN_TEMPLATES.map((template) => (
-          <button
-            key={template.id}
-            type="button"
-            className={selectedId === template.id ? 'active' : ''}
-            aria-pressed={selectedId === template.id}
-            onClick={() => onSelect(template)}
-            title={template.label}
-          >
-            <span className="fm-split-preview" aria-hidden="true">
-              {template.cells.map(([left, top, width, height], index) => (
-                <span
-                  key={`${left}-${top}-${index}`}
-                  style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
-                >
-                  {index + 1}
+        {templates.map((template) => {
+          const favorite = favorites.has(catalogFavoriteKey('template', template.id));
+          return (
+            <div key={template.id} className="fm-split-template-wrap">
+              <button
+                type="button"
+                className={`fm-split-template-card${selectedId === template.id ? ' active' : ''}`}
+                aria-pressed={selectedId === template.id}
+                onClick={() => onSelect(template)}
+                title={template.label}
+              >
+                <span className="fm-split-preview" aria-hidden="true">
+                  {template.cells.map(([left, top, width, height], index) => (
+                    <span
+                      key={`${left}-${top}-${index}`}
+                      style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
+                    >
+                      {index + 1}
+                    </span>
+                  ))}
                 </span>
-              ))}
-            </span>
-            <span className="fm-split-label">{template.label}</span>
-          </button>
-        ))}
+                <span className="fm-split-label">{template.label}</span>
+              </button>
+              <button
+                type="button"
+                className={`catalog-fav${favorite ? ' active' : ''}`}
+                aria-label={
+                  favorite
+                    ? `Quitar ${template.label} de favoritos`
+                    : `Agregar ${template.label} a favoritos`
+                }
+                aria-pressed={favorite}
+                title={favorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+                onClick={() => toggleCatalogFavorite('template', template.id)}
+              >
+                <Icon name="star" size={11} />
+              </button>
+            </div>
+          );
+        })}
       </div>
       <p
         className="fm-split-templates-note"
@@ -440,12 +466,18 @@ export function SplitScreenTemplates({
 
 /* ── 126 · Personalización de la barra de herramientas ────────────────── */
 
+/** Comandos que la barra rápida puede disparar sin botón real de toolbar:
+ *  abren la pestaña/subpestaña correspondiente del inspector de clip. */
+export type ToolbarToolRun = 'open-trim' | 'open-duration' | 'open-edit' | 'open-palette';
+
 export interface ToolbarTool {
   readonly id: string;
   readonly label: string;
   readonly icon: IconName;
   /** `aria-label` del botón real de la toolbar que se dispara. */
   readonly action?: string;
+  /** Comando directo (p. ej. abrir una pestaña del inspector). */
+  readonly run?: ToolbarToolRun;
   readonly pending?: boolean;
 }
 
@@ -463,12 +495,12 @@ export const TOOLBAR_CATALOG: readonly ToolbarTool[] = [
   { id: 'redo', label: 'Rehacer', icon: 'redo', action: 'Rehacer' },
   { id: 'delete', label: 'Eliminar', icon: 'trash', action: 'Borrar clip' },
   { id: 'split', label: 'Dividir', icon: 'split', action: 'Dividir en playhead' },
-  { id: 'trim', label: 'Recortar', icon: 'film', pending: true },
+  { id: 'trim', label: 'Recortar', icon: 'film', run: 'open-trim' },
   { id: 'quick-text', label: 'Texto rápido', icon: 'text', pending: true },
   { id: 'silence', label: 'Detección de Silencio', icon: 'volume', pending: true },
-  { id: 'duration', label: 'Duración', icon: 'refresh', pending: true },
+  { id: 'duration', label: 'Duración', icon: 'refresh', run: 'open-duration' },
   { id: 'keyframes', label: 'Fotogramas Clave', icon: 'marker', pending: true },
-  { id: 'edit', label: 'Editar', icon: 'effects', pending: true },
+  { id: 'edit', label: 'Editar', icon: 'effects', run: 'open-edit' },
   { id: 'devices', label: 'Editar Dispositivos', icon: 'settings', pending: true },
   { id: 'rhythm', label: 'Detección de ritmo', icon: 'audio', action: 'Detectar beats para el imán' },
   { id: 'voice-to-text', label: 'Voz a texto', icon: 'captions', pending: true },
@@ -480,7 +512,7 @@ export const TOOLBAR_CATALOG: readonly ToolbarTool[] = [
   { id: 'object-remover', label: 'Eliminador de objetos con IA', icon: 'background', pending: true },
   { id: 'ai-tracking', label: 'Herramientas de seguimiento con IA', icon: 'marker', pending: true },
   { id: 'text-edit', label: 'Edición basada en texto', icon: 'text', pending: true },
-  { id: 'ai-palette', label: 'Paleta de colores con IA', icon: 'palette', pending: true },
+  { id: 'ai-palette', label: 'Paleta de colores', icon: 'palette', run: 'open-palette' },
   { id: 'ai-translate', label: 'Traducción con IA', icon: 'globe', pending: true },
   { id: 'auto-sync', label: 'Sincronización automática', icon: 'refresh', pending: true },
   { id: 'image-to-video', label: 'Imagen a video', icon: 'film', pending: true },
@@ -668,7 +700,13 @@ export function ToolbarCustomizerDialog({
 
 /** Barra rápida generada desde la personalización. Cada botón dispara el
  *  botón REAL de la toolbar por `aria-label`; no duplica lógica de edición. */
-export function QuickToolsBar({ tools }: { readonly tools: readonly string[] }) {
+export function QuickToolsBar({
+  tools,
+  onRun,
+}: {
+  readonly tools: readonly string[];
+  readonly onRun?: ((run: ToolbarToolRun) => void) | undefined;
+}) {
   const catalog = useMemo(() => new Map(TOOLBAR_CATALOG.map((item) => [item.id, item])), []);
   if (tools.length === 0) return null;
   return (
@@ -676,14 +714,19 @@ export function QuickToolsBar({ tools }: { readonly tools: readonly string[] }) 
       {tools.map((id) => {
         const tool = catalog.get(id);
         if (!tool) return null;
+        const enabled = Boolean(tool.action || tool.run);
         return (
           <button
             key={id}
             type="button"
             className="fm-quick-tool"
-            disabled={!tool.action}
-            title={tool.action ? tool.label : PENDING}
+            disabled={!enabled}
+            title={enabled ? tool.label : PENDING}
             onClick={() => {
+              if (tool.run) {
+                onRun?.(tool.run);
+                return;
+              }
               if (!tool.action) return;
               // Primero los botones propios de la timeline; Deshacer/Rehacer
               // viven en la barra superior del shell, así que se buscan ahí
@@ -713,7 +756,10 @@ export type ToolSelectorId =
   | 'agile-split'
   | 'select-forward'
   | 'select-backward'
-  | 'zoom';
+  | 'zoom'
+  | 'slip'
+  | 'slide'
+  | 'roll';
 
 export const TOOL_SELECTOR_OPTIONS: readonly {
   readonly id: ToolSelectorId;
@@ -725,6 +771,9 @@ export const TOOL_SELECTOR_OPTIONS: readonly {
   { id: 'select-forward', label: 'Seleccionar todo hacia delante', shortcut: 'A' },
   { id: 'select-backward', label: 'Seleccionar todo hacia atrás', shortcut: 'Shift+A' },
   { id: 'zoom', label: 'Herramienta de zoom', shortcut: 'Z' },
+  { id: 'slip', label: 'Slip: deslizar la fuente del clip', shortcut: 'Y' },
+  { id: 'slide', label: 'Slide: deslizar el clip sobre sus vecinos', shortcut: 'T' },
+  { id: 'roll', label: 'Roll: rodar el corte entre clips', shortcut: 'N' },
 ];
 
 export function ToolSelectorMenu({

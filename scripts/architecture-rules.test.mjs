@@ -76,6 +76,32 @@ function stripCfgTest(source) {
 
 const rel = (f) => relative(repoRoot, f).replaceAll('\\', '/');
 
+// Specifiers relativos que cuentan como arista runtime: `from '...'`
+// (imports y `export ... from`) e `import('...')` dinámicos. Los
+// `import type` / `export type` se eliminan antes de medir: un tipo no crea
+// ciclo en runtime. Un `import('./x').Foo` en posición de tipo
+// (`type T = import('./x').Foo`) tampoco cuenta: tras el `)` viene un miembro
+// que no es método de promesa.
+const TYPE_ONLY_SPECIFIER = /(?:import|export)\s+type\s+[^;'"]*?\sfrom\s*['"][^'"]+['"]/g;
+const IMPORT_SPECIFIER =
+  /from\s+['"](\.[^'"]+)['"]|import\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g;
+const PROMISE_METHODS = new Set(['then', 'catch', 'finally']);
+
+function runtimeSpecifiers(text) {
+  const source = text.replace(TYPE_ONLY_SPECIFIER, '');
+  const specifiers = [];
+  for (const match of source.matchAll(IMPORT_SPECIFIER)) {
+    const specifier = match[1] ?? match[2];
+    if (match[2] !== undefined) {
+      const after = source.slice(match.index + match[0].length);
+      const member = after.match(/^\s*\.\s*([A-Za-z_$][\w$]*)/);
+      if (member && !PROMISE_METHODS.has(member[1])) continue;
+    }
+    specifiers.push(specifier);
+  }
+  return specifiers;
+}
+
 describe('reglas de dependencias — frontend', () => {
   it('features/** no importa la API de Tauri directamente', () => {
     const featuresDir = join(desktopSrc, 'features');
@@ -123,21 +149,16 @@ describe('reglas de dependencias — frontend', () => {
 
   // Ciclos reales preexistentes, documentados con criterio de eliminación:
   // el módulo compartido debe bajar a components/, services/ o shared/.
-  const KNOWN_CYCLES = new Set([
-    'color -> editor -> color',
-    'editor -> vfx -> editor',
-  ]);
+  const KNOWN_CYCLES = new Set();
 
   it('no hay ciclos de dependencias entre features', () => {
     const featuresDir = join(desktopSrc, 'features');
     const graph = new Map(); // feature -> Set<feature>
-    const importRe = /from\s+['"](\.[^'"]+)['"]/g;
     for (const file of tsFiles(featuresDir)) {
       const relFile = relative(featuresDir, file).replaceAll('\\', '/');
       const fromFeature = relFile.split('/')[0];
-      const text = readFileSync(file, 'utf8');
-      for (const match of text.matchAll(importRe)) {
-        const target = resolve(dirname(file), match[1]);
+      for (const specifier of runtimeSpecifiers(readFileSync(file, 'utf8'))) {
+        const target = resolve(dirname(file), specifier);
         const targetRel = relative(featuresDir, target).replaceAll('\\', '/');
         const toFeature = targetRel.split('/')[0];
         if (!toFeature || toFeature === fromFeature || toFeature.startsWith('..')) continue;
@@ -177,6 +198,45 @@ describe('reglas de dependencias — frontend', () => {
     const stale = [...KNOWN_CYCLES].filter((c) => !cycles.includes(c));
     expect(unexpected, 'Las features no deben depender en ciclo').toEqual([]);
     expect(stale, 'Ciclos documentados que ya no existen: limpiar la lista').toEqual([]);
+  });
+
+  // Aristas ascendentes conocidas: la dirección sancionada es
+  // features -> state/components/services; estas excepciones son deuda
+  // documentada cuyo criterio es bajar el módulo compartido a una capa
+  // inferior o inyectarlo desde el composition root (app/).
+  const KNOWN_UPWARD_EDGES = new Set([
+    // AssistantDock embebido en el shell; se elimina pasando el dock por
+    // composición desde app/ en vez de importarlo desde components/.
+    'components/AppShell.tsx -> features/assistant',
+    // Diálogos del editor (Review/History/Critic) y listas del FilmoraStates
+    // reutilizados por la barra de menú; se eliminan moviendo esos diálogos
+    // a components/ o exponiéndolos vía registry.
+    'components/MenuBar.tsx -> features/editor',
+  ]);
+
+  it('state/ y components/ no importan features/ (salvo deuda documentada)', () => {
+    const edges = new Set();
+    for (const layer of ['state', 'components']) {
+      const layerDir = join(desktopSrc, layer);
+      for (const file of tsFiles(layerDir)) {
+        const relFile = relative(desktopSrc, file).replaceAll('\\', '/');
+        for (const specifier of runtimeSpecifiers(readFileSync(file, 'utf8'))) {
+          const target = resolve(dirname(file), specifier);
+          const targetRel = relative(desktopSrc, target).replaceAll('\\', '/');
+          const segments = targetRel.split('/');
+          if (segments[0] !== 'features' || segments.length < 2) continue;
+          edges.add(`${relFile} -> features/${segments[1]}`);
+        }
+      }
+    }
+    const found = [...edges].sort();
+    const unexpected = found.filter((edge) => !KNOWN_UPWARD_EDGES.has(edge));
+    const stale = [...KNOWN_UPWARD_EDGES].filter((edge) => !found.includes(edge));
+    expect(
+      unexpected,
+      'state/ y components/ son capas inferiores: no deben depender de features/',
+    ).toEqual([]);
+    expect(stale, 'Excepciones que ya no aplican: limpiar la lista').toEqual([]);
   });
 });
 

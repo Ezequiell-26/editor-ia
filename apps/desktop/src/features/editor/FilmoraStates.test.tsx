@@ -102,7 +102,9 @@ describe('FilmoraStates · plantillas Split Screen (114–117)', () => {
     const { container } = render(
       <SplitScreenTemplates selectedId={null} onSelect={onSelect} />,
     );
-    const cards = container.querySelectorAll('.fm-split-templates-grid button');
+    // Sólo las tarjetas: cada una lleva además un botón de favorito
+    // (`catalog-fav`) que no es parte de la selección de plantilla.
+    const cards = container.querySelectorAll('.fm-split-template-card');
     expect(cards.length).toBe(SPLIT_SCREEN_TEMPLATES.length);
     fireEvent.click(cards[0]!);
     expect(onSelect).toHaveBeenCalledWith(SPLIT_SCREEN_TEMPLATES[0]);

@@ -2,6 +2,8 @@
 export interface RenderStarted {
   readonly jobId: string;
   readonly profileName: string;
+  /** Encoder HW pedido que falló el self-test y se sustituyó por software. */
+  readonly encoderFallback?: string;
 }
 
 /** Rango de frames del proyecto que se exporta; `end` es exclusivo. */
@@ -32,6 +34,27 @@ export interface RenderFinishedEvent {
   readonly elapsedMs: number;
   /** Reporte FFprobe del archivo entregado (sólo en `completed`). */
   readonly verification?: ExportVerification | null;
+}
+
+/**
+ * Entrada de la bitácora de exports (`export_diario.js` de AlaukCut):
+ * una línea del `render-diary.jsonl` del backend, más nuevas primero.
+ */
+export interface RenderDiaryEntry {
+  readonly ts: number;
+  readonly jobId: string;
+  readonly project: string;
+  readonly profile: string;
+  readonly codec: string;
+  readonly encoder: string;
+  readonly encoderFallback?: string | null;
+  readonly status: 'completed' | 'failed' | 'cancelled' | string;
+  readonly output?: string | null;
+  readonly outputBytes?: number | null;
+  readonly durationSeconds?: number | null;
+  readonly elapsedMs: number;
+  readonly code?: string | null;
+  readonly message?: string | null;
 }
 
 /** Exporta un rango de un asset como MP4 vertical 1080×1920. */

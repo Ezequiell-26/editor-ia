@@ -13,6 +13,11 @@ use crate::render::export_tools::ExportVerification;
 pub struct RenderStarted {
     pub job_id: String,
     pub profile_name: String,
+    /// Encoder de hardware pedido que no pasó el self-test y se reemplazó por
+    /// el de software (patrón `tentados` de AlaukCut: nunca lanzar un render
+    /// condenado a fallar por una GPU/driver caído).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoder_fallback: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -50,6 +50,48 @@ export function getBezierFromEasing(easing: string | undefined): CubicBezier {
   }
 }
 
+/**
+ * Curvas Bézier con nombre, aplicables a un keyframe como `bezier`. Los
+ * valores Y pueden salir de [0,1] (rebote/elastic), por eso el esquema
+ * admite cpY en [-1,2]. La lista cubre las variantes suaves y de rebote
+ * que usan los editores de referencia (entradas/salidas cuadrática y
+ * cúbica, desaceleraciones circular/estándar, rebotes con overshoot).
+ */
+export type BezierPreset = {
+  readonly id: string;
+  readonly label: string;
+  readonly bezier: CubicBezier;
+};
+
+export const BEZIER_PRESETS: readonly BezierPreset[] = [
+  { id: 'linear', label: 'Lineal', bezier: { cp1X: 0, cp1Y: 0, cp2X: 1, cp2Y: 1 } },
+  { id: 'suave-entrada', label: 'Entrada suave', bezier: { cp1X: 0.42, cp1Y: 0, cp2X: 1, cp2Y: 1 } },
+  { id: 'entrada-cuadratica', label: 'Entrada cuadrática', bezier: { cp1X: 0.26, cp1Y: 0, cp2X: 0.6, cp2Y: 0.2 } },
+  { id: 'entrada-cubica', label: 'Entrada cúbica', bezier: { cp1X: 0.4, cp1Y: 0, cp2X: 0.68, cp2Y: 0.06 } },
+  { id: 'salida-suave', label: 'Salida suave', bezier: { cp1X: 0, cp1Y: 0, cp2X: 0.58, cp2Y: 1 } },
+  { id: 'salida-cuadratica', label: 'Salida cuadrática', bezier: { cp1X: 0.4, cp1Y: 0.8, cp2X: 0.74, cp2Y: 1 } },
+  { id: 'salida-cubica', label: 'Salida cúbica', bezier: { cp1X: 0.32, cp1Y: 0.94, cp2X: 0.6, cp2Y: 1 } },
+  { id: 'desaceleracion', label: 'Desaceleración', bezier: { cp1X: 0.42, cp1Y: 0, cp2X: 0.58, cp2Y: 1 } },
+  { id: 'desaceleracion-cuadratica', label: 'Desaceleración cuadrática', bezier: { cp1X: 0.48, cp1Y: 0.04, cp2X: 0.52, cp2Y: 0.96 } },
+  { id: 'desaceleracion-cubica', label: 'Desaceleración cúbica', bezier: { cp1X: 0.66, cp1Y: 0, cp2X: 0.34, cp2Y: 1 } },
+  { id: 'desaceleracion-circular', label: 'Desaceleración circular', bezier: { cp1X: 0.88, cp1Y: 0.14, cp2X: 0.12, cp2Y: 0.86 } },
+  { id: 'rebote-entrada', label: 'Rebote al entrar', bezier: { cp1X: 0.6, cp1Y: -0.28, cp2X: 0.73, cp2Y: 0.04 } },
+  { id: 'rebote-salida', label: 'Rebote al salir', bezier: { cp1X: 0.17, cp1Y: 0.89, cp2X: 0.32, cp2Y: 1.27 } },
+] as const;
+
+/** Id del preset que coincide con una curva, o `null` si es personalizada. */
+export function bezierPresetId(bezier: CubicBezier | undefined): string | null {
+  if (!bezier) return null;
+  const match = BEZIER_PRESETS.find(
+    (preset) =>
+      preset.bezier.cp1X === bezier.cp1X &&
+      preset.bezier.cp1Y === bezier.cp1Y &&
+      preset.bezier.cp2X === bezier.cp2X &&
+      preset.bezier.cp2Y === bezier.cp2Y,
+  );
+  return match?.id ?? null;
+}
+
 type BezierCoefficients = { ax: number; bx: number; cx: number; ay: number; by: number; cy: number };
 
 function bezierCoefficients(cp1X: number, cp1Y: number, cp2X: number, cp2Y: number): BezierCoefficients {

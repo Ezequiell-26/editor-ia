@@ -51,6 +51,9 @@ pub(crate) const SOFTWARE_VP9: [&str; 1] = ["libvpx-vp9"];
 /// hardware como fallback y libaom como último recurso compatible.
 pub(crate) const SOFTWARE_AV1: [&str; 5] =
     ["libsvtav1", "av1_nvenc", "av1_qsv", "av1_amf", "libaom-av1"];
+/// ProRes no tiene encoder de hardware en este pipeline: `prores_ks` es el
+/// único camino (paridad `exportar_prores.js`, que usa un ffmpeg dedicado).
+pub(crate) const SOFTWARE_PRORES: [&str; 1] = ["prores_ks"];
 
 pub(crate) static ENCODER_CACHE: std::sync::Mutex<Option<(PathBuf, Vec<String>)>> =
     std::sync::Mutex::new(None);
@@ -110,6 +113,7 @@ pub(crate) fn choose_encoder(available: &[String], codec: &str) -> String {
         "h265" => &SOFTWARE_H265,
         "vp9" => &SOFTWARE_VP9,
         "av1" => &SOFTWARE_AV1,
+        "prores" => &SOFTWARE_PRORES,
         _ => &SOFTWARE_H264,
     };
     for name in prefs {
@@ -191,6 +195,9 @@ pub(crate) fn validate_hardware_encoder(
         "h265" => HARDWARE_HEVC.contains(&encoder),
         "av1" => HARDWARE_AV1.contains(&encoder),
         "vp9" => HARDWARE_VP9.contains(&encoder),
+        // ProRes no tiene encoder de hardware: cualquier `hardwareEncoder`
+        // pedido con este códec se rechaza con motivo honesto.
+        "prores" => false,
         _ => HARDWARE_H264.contains(&encoder),
     };
     if !supported {
@@ -278,7 +285,8 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
     let video_codec = text(value, "videoCodec").unwrap_or("h264").to_owned();
     let audio_codec = text(value, "audioCodec").unwrap_or("aac").to_owned();
     // Misma matriz que `CONTAINER_MATRIX` de packages/project-schema/delivery.ts:
-    // MP4/MOV llevan H.264/H.265 + AAC; WebM lleva VP9/AV1 + Opus.
+    // MP4 lleva H.264/H.265 + AAC; MOV lleva H.264/H.265/ProRes + AAC;
+    // WebM lleva VP9/AV1 + Opus.
     let webm = container == "webm";
     if container != "mp4" && container != "mov" && !webm {
         return Err(ProjectError::message(
@@ -288,6 +296,8 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
     }
     let codec_ok = if webm {
         video_codec == "vp9" || video_codec == "av1"
+    } else if container == "mov" {
+        video_codec == "h264" || video_codec == "h265" || video_codec == "prores"
     } else {
         video_codec == "h264" || video_codec == "h265"
     };
@@ -352,7 +362,7 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
         ));
     }
     let fit = text(value, "fit").unwrap_or("contain");
-    if fit != "contain" && fit != "cover" {
+    if fit != "contain" && fit != "cover" && fit != "blur" {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
             "el perfil pide un encuadre desconocido",
@@ -406,6 +416,18 @@ pub(crate) fn pixel_format_for(
     hardware_encoder: Option<&str>,
 ) -> Result<String, ProjectError> {
     let requested = text(value, "pixelFormat").unwrap_or("yuv420p");
+    // ProRes 4:2:2/4:4:4 10-bit: `prores_ks` no acepta yuv420p ni yuv444p de
+    // 8 bits. Si el perfil no declara el formato nativo se rechaza acá en vez
+    // de llegar al encoder y fallar a mitad del render.
+    if video_codec == "prores"
+        && requested != "yuv422p10le"
+        && requested != "yuva444p10le"
+    {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "ProRes emite 4:2:2 u 4:4:4 10-bit: el perfil debe declarar pixelFormat yuv422p10le o yuva444p10le",
+        ));
+    }
     match requested {
         "yuv420p" => Ok("yuv420p".to_owned()),
         "yuv444p" => {
@@ -423,6 +445,31 @@ pub(crate) fn pixel_format_for(
             ProjectErrorCode::RenderFailed,
             "rgb24 es un formato intermedio: ningún encoder de entrega lo acepta; elegí yuv420p o yuv444p",
         )),
+        // ProRes 4:2:2 10-bit: `prores_ks` no acepta yuv420p ni yuv444p de 8
+        // bits, así que el perfil debe declarar este formato explícitamente.
+        "yuv422p10le" => {
+            if video_codec == "prores" && hardware_encoder.is_none() {
+                Ok("yuv422p10le".to_owned())
+            } else {
+                Err(ProjectError::message(
+                    ProjectErrorCode::RenderFailed,
+                    "4:2:2 10-bit sólo lo emite ProRes en MOV por software; para el resto usá 4:2:0 o 4:4:4 WebM",
+                ))
+            }
+        }
+        // ProRes 4444 con alfa (paridad `exp-alfa` de AlaukCut): el plano
+        // alfa viaja en el MOV; si el clip no tiene transparencia queda
+        // opaco, que es lo correcto.
+        "yuva444p10le" => {
+            if video_codec == "prores" && hardware_encoder.is_none() {
+                Ok("yuva444p10le".to_owned())
+            } else {
+                Err(ProjectError::message(
+                    ProjectErrorCode::RenderFailed,
+                    "4:4:4 10-bit con alfa sólo lo emite ProRes en MOV por software; para el resto usá 4:2:0 o 4:4:4 WebM",
+                ))
+            }
+        }
         _ => Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
             "el perfil pide un pixel format desconocido",
@@ -557,6 +604,32 @@ pub(crate) fn software_video_args(encoder: &str, profile: &Profile) -> Vec<Strin
             (None, Some(bps)) => args.extend(["-b:v".into(), bps]),
             (None, None) => args.extend(["-b:v".into(), "0".into(), "-crf".into(), "40".into()]),
         }
+    } else if encoder == "prores_ks" {
+        // ProRes no tiene CRF: la "calidad" es el perfil del codec
+        // (0=Proxy, 1=LT, 2=Standard, 3=HQ 4:2:2, 4=4444, 5=4444 XQ). El
+        // videoPreset del perfil
+        // decide la variante: presets rápidos → perfiles livianos, presets
+        // lentos → HQ. `-profile:v` va antes que cualquier opción de bitrate.
+        // Con yuva444p10le el perfil del codec es 4 (ProRes 4444) u 5
+        // (4444 XQ en presets lentos); los perfiles 0–3 son 4:2:2.
+        let profile_level = if profile.pixel_format == "yuva444p10le" {
+            if profile.video_preset == "slower" {
+                5
+            } else {
+                4
+            }
+        } else {
+            match profile.video_preset.as_str() {
+                "ultrafast" => 0,
+                "superfast" | "veryfast" => 1,
+                "faster" | "fast" => 2,
+                _ => 3,
+            }
+        };
+        args.extend([
+            "-profile:v".into(),
+            profile_level.to_string(),
+        ]);
     } else {
         // h264_mf/libopenh264/av1_mf no aceptan CRF: sólo bitrate.
         if let Some(bps) = bps {

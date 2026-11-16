@@ -1,6 +1,15 @@
 # Matriz de capacidades — Olyvia vs. misión "editor profesional"
 
 **Fecha:** 2026-11-06 · **Alcance:** estado real medido en el árbol de trabajo
+
+> **Nota de snapshot (2026-11-12, rutas corregidas 2026-11-13):** las rutas `commands/*.rs` citadas en las
+> evidencias corresponden a la estructura **anterior** a la reorganización en
+> `commands/domains/{projects,media,render,audio,ai,downloader,creator,
+> integrations,system}` (los archivos viven hoy bajo `apps/desktop/src-tauri/src/commands/domains/...`
+> con `#[path]` preservando sus rutas lógicas de Rust; el frontend vive en
+> `apps/desktop/src/`). Los estados ✅/🟡/❌ son
+> referenciales: revalidar contra el código antes de citarlos como vigentes.
+> Para el estado verificado por fases ver `docs/architecture/PDF-100-TRACKER.md`.
 (`apps/desktop`, `packages/*`), no promesas de README. Cada fila cita la
 evidencia verificable (archivo/módulo/test) o declara el hueco honestamente.
 

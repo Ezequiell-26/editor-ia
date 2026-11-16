@@ -55,12 +55,17 @@ export const KeyframeEasingSchema = z.enum([
 ]);
 export type KeyframeEasing = z.infer<typeof KeyframeEasingSchema>;
 
-/** A type representing a cubic Bezier easing curve for custom interpolation. */
+/**
+ * A type representing a cubic Bezier easing curve for custom interpolation.
+ * X stays in [0,1] (time must be monotonic); Y may overshoot past [0,1] so
+ * bounce/elastic presets can exceed the endpoints like CSS does not allow
+ * but NLEs do (AlaukCut ships `entrada_rebote`/`saida_rebote` this way).
+ */
 export const CubicBezierSchema = z.object({
   cp1X: z.number().gte(0).lte(1),
-  cp1Y: z.number().gte(0).lte(1),
+  cp1Y: z.number().gte(-1).lte(2),
   cp2X: z.number().gte(0).lte(1),
-  cp2Y: z.number().gte(0).lte(1),
+  cp2Y: z.number().gte(-1).lte(2),
 });
 
 export type CubicBezier = z.infer<typeof CubicBezierSchema>;
@@ -598,6 +603,24 @@ export const ClipEffectsSchema = z
     curves: ClipCurvesSchema.optional(),
     lutFile: z.string().min(1).max(500).optional(),
     lutIntensity: z.number().gte(0).lte(1).optional(),
+    /**
+     * Perfil de cámara log → Rec.709 (paridad `luts_camera.js` de
+     * AlaukCut). Se decodifica antes que `lutFile`/grade: el clip en
+     * S-Log3/V-Log/N-Log/D-Log/C-Log3/GPLog se normaliza y después se
+     * aplica el grado creativo.
+     */
+    cameraProfile: z
+      .enum([
+        'vlog709',
+        'slog3709',
+        'slog3cinema',
+        'nlog709',
+        'nlogcinema',
+        'gplog709',
+        'dlog709',
+        'clog3709',
+      ])
+      .optional(),
     fadeInFrames: DurationSchema.optional(),
     fadeOutFrames: DurationSchema.optional(),
     /**
@@ -621,6 +644,33 @@ export const ClipEffectsSchema = z
      * opcional, los proyectos anteriores se abren sin migración.
      */
     colorGrade: ColorGradeSchema.optional(),
+    /**
+     * Visualizador de espectro audio-reactivo (paridad `espectro`,
+     * `espectro_onda` y `espectro_neon` de AlaukCut). Sólo tiene efecto en
+     * clips de pista `adjustment`: el render bifurca el bus de audio
+     * mezclado por `showfreqs` y lo superpone en la ventana del clip.
+     * `width`/`height` son fracciones del frame; `x` corre el centro del
+     * bloque (-1..1); `intensity` atenúa el dibujo.
+     */
+    spectrum: z
+      .object({
+        mode: z.enum(['bars', 'wave', 'neon']).optional(),
+        color1: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        color2: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+        intensity: UnitIntervalSchema.optional(),
+        width: z.number().gte(0.1).lte(1).optional(),
+        height: z.number().gte(0.05).lte(0.6).optional(),
+        x: z.number().gte(-1).lte(1).optional(),
+        /**
+         * Elevación del borde inferior sobre el fondo del frame, en
+         * fracción de la altura (0 = pegado abajo, como el default de
+         * AlaukCut; 0.5 = medio frame hacia arriba). La región arrastrable
+         * de la preview lo edita junto a `x`/`width`/`height`.
+         */
+        y: z.number().gte(0).lte(0.95).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -666,6 +716,15 @@ export const BlendModeSchema = z.enum([
 export type BlendMode = z.infer<typeof BlendModeSchema>;
 
 export const MAX_MASK_KEYFRAMES = 32;
+/**
+ * Techo de puntos de una máscara `polygon` (editor de vértices).
+ * `freehand` admite hasta `MAX_FREEHAND_MASK_POINTS`: el trazo de la
+ * plumilla se suaviza y se remuestrea a ~48 puntos, muy por encima del
+ * polígono manual pero acotado para no explotar la expresión `geq` del
+ * render (su costo crece lineal con la cantidad de segmentos).
+ */
+export const MAX_POLYGON_MASK_POINTS = 16;
+export const MAX_FREEHAND_MASK_POINTS = 64;
 export const ClipMaskKeyframeSchema = z
   .object({
     frame: FrameSchema,
@@ -712,6 +771,9 @@ export const ClipMaskSchema = z
       'triangle',
       'rounded',
       'polygon',
+      'freehand',
+      'star',
+      'heart',
       'text',
     ]),
     x: z.number().gte(-1).lte(1),
@@ -720,13 +782,30 @@ export const ClipMaskSchema = z
     height: z.number().gt(0).lte(2),
     rotationDeg: z.number().gte(-180).lte(180).optional(),
     feather: z.number().gte(0).lte(1).default(0.08),
+    /** Expansión/contracción de la máscara (−0,5 encoge, +0,5 agranda).
+     *  Sólo formas SDF (no `polygon`/`text`); estática, sin keyframes. */
+    expand: z.number().gte(-0.5).lte(0.5).optional(),
+    /** Trazo de color alrededor del borde de la máscara (paridad del
+     *  «mask stroke»/marco de `molduras.js` de AlaukCut). `strokeWidth`
+     *  es la semiancha de la banda como fracción del tamaño de la máscara;
+     *  la banda se centra en el borde, así que con `invert` se ve la mitad
+     *  exterior. Sólo formas SDF (no `polygon`/`text`). */
+    strokeColor: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, 'strokeColor must be #rrggbb')
+      .optional(),
+    strokeWidth: z.number().gt(0).lte(0.5).optional(),
     invert: z.boolean().default(false),
     /** Texto de la máscara tipográfica; sólo se usa con `shape: 'text'`. */
     text: z.string().trim().min(1).max(200).optional(),
     /** Tamaño del texto como fracción de la altura del fotograma. */
     fontScale: z.number().gte(0.02).lte(0.5).optional(),
-    /** Puntos normalizados 0..1 del fotograma para una máscara poligonal. */
-    points: z.array(MaskPointSchema).min(3).max(16).optional(),
+    /**
+     * Puntos normalizados 0..1 del fotograma para las máscaras de contorno:
+     * `polygon` (≤16, edición por vértices) y `freehand` (≤64, plumilla con
+     * trazo suave). El render los une como polígono cerrado.
+     */
+    points: z.array(MaskPointSchema).min(3).max(MAX_FREEHAND_MASK_POINTS).optional(),
     keyframes: z.array(ClipMaskKeyframeSchema).min(1).max(MAX_MASK_KEYFRAMES).optional(),
   })
   .strict()
@@ -745,11 +824,29 @@ export const ClipMaskSchema = z
         message: 'a polygon mask needs at least three points',
       });
     }
-    if (mask.shape !== 'polygon' && mask.points) {
+    if (
+      mask.shape === 'polygon' &&
+      mask.points &&
+      mask.points.length > MAX_POLYGON_MASK_POINTS
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['points'],
-        message: 'only a polygon mask accepts points',
+        message: `a polygon mask supports at most ${MAX_POLYGON_MASK_POINTS} points; use freehand for denser paths`,
+      });
+    }
+    if (mask.shape === 'freehand' && !mask.points) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['points'],
+        message: 'a freehand mask needs the drawn points',
+      });
+    }
+    if (mask.shape !== 'polygon' && mask.shape !== 'freehand' && mask.points) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['points'],
+        message: 'only polygon and freehand masks accept points',
       });
     }
   });
@@ -802,7 +899,31 @@ export const ClipTransitionSchema = z
       'wipe-up',
       'wipe-down',
       'iris',
+      'blinds',
+      'clock-wipe',
+      'ink',
+      'bolhas',
+      'colmeia',
+      'chuva',
+      'vento',
+      'triangulos',
+      'persiana',
+      'reflexo',
+      'barrido-diagonal',
+      'pixelar',
+      'interferencia',
+      'liquido',
+      'caleidoscopio',
+      'desenfoque-lineal',
+      'warp-direccional',
+      'glitch-digital',
+      'zoom-suave',
+      'zoom-rapido',
       'luma-wipe',
+      'textura-luz',
+      'textura-celular',
+      'textura-fractal',
+      'textura-vida',
     ]),
     frames: z.number().int().min(1).max(MAX_TRANSITION_FRAMES),
     /** Color del fundido para `dip-color` (port Kdenlive dip to color). */
@@ -844,6 +965,9 @@ export const ClipAnimationTypeSchema = z.enum([
   'slide-right',
   'slide-up',
   'slide-down',
+  'zoom-in',
+  'zoom-out',
+  'spin',
 ]);
 export type ClipAnimationType = z.infer<typeof ClipAnimationTypeSchema>;
 export const ClipAnimationSchema = z
@@ -866,6 +990,45 @@ export const ClipColorTagSchema = z.enum([
 ]);
 export type ClipColorTag = z.infer<typeof ClipColorTagSchema>;
 
+/**
+ * Marco decorativo alrededor del contenido del clip (paridad con las
+ * «molduras» de AlaukCut). `preset` elige la forma/estilo; `color`/`color2`
+ * son overrides opcionales en #rrggbb (color2 alimenta degradados y neón).
+ */
+export const MonitorFramePresetSchema = z.enum([
+  'circle-thin',
+  'circle-halo',
+  'rounded-soft',
+  'rounded-glass',
+  'portrait-tall',
+  'portrait-ribbon',
+  'landscape-soft',
+  'landscape-neon',
+  'circle-aurora',
+  'circle-sunset',
+  'circle-orbit',
+  'circle-neon',
+  'rounded-floating',
+  'hexagon',
+  'arch',
+  'leaf',
+  'balloon',
+  'polaroid',
+  'capsule',
+]);
+export type MonitorFramePreset = z.infer<typeof MonitorFramePresetSchema>;
+
+const HexColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i);
+
+export const MonitorFrameSchema = z
+  .object({
+    preset: MonitorFramePresetSchema,
+    color: HexColorSchema.optional(),
+    color2: HexColorSchema.optional(),
+  })
+  .strict();
+export type MonitorFrame = z.infer<typeof MonitorFrameSchema>;
+
 const clipCommon = {
   id: EntityIdSchema,
   trackId: EntityIdSchema,
@@ -876,6 +1039,12 @@ const clipCommon = {
   colorTag: ClipColorTagSchema.optional(),
   transform: ClipTransformSchema.optional(),
   audio: ClipAudioSchema.optional(),
+  monitorFrame: MonitorFrameSchema.optional(),
+  /**
+   * Estilo de forma de onda propio del clip (paridad `c.onda` de AlaukCut):
+   * cuando está, pisa la preferencia global `waveformStyle`.
+   */
+  waveformStyle: z.enum(['capcut', 'davinci']).optional(),
 };
 
 /** Punto de una curva de velocidad continua con easing por segmento. */
@@ -963,6 +1132,8 @@ const VideoClipSchema = z
     blendMode: BlendModeSchema.optional(),
     stabilization: ClipStabilizationSchema.optional(),
     transitionIn: ClipTransitionSchema.optional(),
+    /** Transición del corte siguiente (modelo AlaukCut `transicao_saida`). */
+    transitionOut: ClipTransitionSchema.optional(),
     animationIn: ClipAnimationSchema.optional(),
     animationOut: ClipAnimationSchema.optional(),
   })
@@ -991,6 +1162,7 @@ const ImageIconSchema = z
     mask: ClipMaskSchema.optional(),
     blendMode: BlendModeSchema.optional(),
     transitionIn: ClipTransitionSchema.optional(),
+    transitionOut: ClipTransitionSchema.optional(),
     animationIn: ClipAnimationSchema.optional(),
     animationOut: ClipAnimationSchema.optional(),
   })
@@ -1016,6 +1188,7 @@ const FreezeClipSchema = z
     mask: ClipMaskSchema.optional(),
     blendMode: BlendModeSchema.optional(),
     transitionIn: ClipTransitionSchema.optional(),
+    transitionOut: ClipTransitionSchema.optional(),
     animationIn: ClipAnimationSchema.optional(),
     animationOut: ClipAnimationSchema.optional(),
   })
@@ -1261,6 +1434,16 @@ export const ClipSchema = z
           code: z.ZodIssueCode.custom,
           path: ['transitionIn', 'frames'],
           message: 'a transition cannot be longer than the clip it enters',
+        });
+      }
+    }
+
+    if ('transitionOut' in clip && clip.transitionOut !== undefined) {
+      if (clip.transitionOut.frames > clip.durationFrames) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['transitionOut', 'frames'],
+          message: 'a transition cannot be longer than the clip it leaves',
         });
       }
     }

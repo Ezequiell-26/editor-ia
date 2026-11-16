@@ -21,11 +21,21 @@ function Primitive({ primitive }: { readonly primitive: SvgPrimitive }) {
   if (tag === 'feConvolveMatrix') {
     return <feConvolveMatrix {...attrs} />;
   }
+  if (tag === 'feBlend') {
+    return <feBlend {...attrs} />;
+  }
+  if (tag === 'feImage') {
+    return <feImage {...attrs} />;
+  }
+  if (tag === 'feComposite') {
+    return <feComposite {...attrs} />;
+  }
   return (
     <feComponentTransfer {...attrs}>
       {funcs?.r ? <feFuncR type="table" tableValues={funcs.r} /> : null}
       {funcs?.g ? <feFuncG type="table" tableValues={funcs.g} /> : null}
       {funcs?.b ? <feFuncB type="table" tableValues={funcs.b} /> : null}
+      {funcs?.a ? <feFuncA type="table" tableValues={funcs.a} /> : null}
     </feComponentTransfer>
   );
 }

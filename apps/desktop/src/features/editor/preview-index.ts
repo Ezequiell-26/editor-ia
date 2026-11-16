@@ -1,5 +1,8 @@
 import type { Asset, Clip, ProjectDocument, Track } from '@editor-ia/project-schema';
 import { isTrackAudible } from '../../state/audio-mix';
+import { fpsOf } from '../../state/project-actions';
+import { comparePreviewClips } from './preview-clip-order';
+import { previewTransitionLeadFrames } from './preview-transition';
 
 /**
  * Índice de clips del monitor de Preview, construido una vez por proyecto.
@@ -17,6 +20,12 @@ export interface PreviewClipEntry {
   readonly clip: Clip;
   readonly track: Track | undefined;
   readonly asset: Asset | undefined;
+  /** Primer frame del playhead en que la capa es visible/activa. Las capas
+   *  visuales la corren `lead` frames antes de `startFrame` cuando el clip
+   *  tiene `transitionIn` (el solape del render). */
+  readonly start: number;
+  /** Primer frame del playhead en que la capa deja de estar activa. */
+  readonly end: number;
 }
 
 export interface PreviewClipIndex {
@@ -31,7 +40,8 @@ export interface PreviewClipIndex {
 const VISUAL_TRACK_KINDS: ReadonlySet<Track['kind']> = new Set(['video', 'image', 'graphic']);
 const AUDIO_TRACK_KINDS: ReadonlySet<Track['kind']> = new Set(['audio', 'narration']);
 
-/** Misma comparación de rango que usaba el `useMemo` anterior del Preview. */
+/** Misma comparación de rango que usaba el `useMemo` anterior del Preview,
+ *  más la ventana de lead de `transitionIn` para las capas visuales. */
 export function clipActiveAt(clip: Clip, frame: number): boolean {
   return frame >= clip.startFrame && frame < clip.startFrame + clip.durationFrames;
 }
@@ -40,14 +50,11 @@ export function activeAt(
   entries: readonly PreviewClipEntry[],
   frame: number,
 ): PreviewClipEntry[] {
-  return entries.filter((entry) => clipActiveAt(entry.clip, frame));
-}
-
-function byTrackOrder(a: PreviewClipEntry, b: PreviewClipEntry): number {
-  return (a.track?.order ?? 0) - (b.track?.order ?? 0);
+  return entries.filter((entry) => frame >= entry.start && frame < entry.end);
 }
 
 export function buildPreviewClipIndex(project: ProjectDocument): PreviewClipIndex {
+  const fps = fpsOf(project);
   const tracksById = new Map(project.timeline.tracks.map((track) => [track.id, track]));
   const assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
   const tracks = project.timeline.tracks;
@@ -60,7 +67,8 @@ export function buildPreviewClipIndex(project: ProjectDocument): PreviewClipInde
     const track = tracksById.get(clip.trackId);
     const asset =
       clip.source.type === 'asset' ? assetsById.get(clip.source.assetId) : undefined;
-    const entry: PreviewClipEntry = { clip, track, asset };
+    const end = clip.startFrame + clip.durationFrames;
+    const base = { clip, track, asset };
 
     if (
       track &&
@@ -68,7 +76,11 @@ export function buildPreviewClipIndex(project: ProjectDocument): PreviewClipInde
       VISUAL_TRACK_KINDS.has(track.kind) &&
       clip.enabled !== false
     ) {
-      visual.push(entry);
+      // Con `transitionIn` el render monta el clip `lead` frames antes de su
+      // inicio (solape): la ventana de actividad empieza antes, igual que
+      // `previewTransitionLeadFrames` del monitor.
+      const lead = previewTransitionLeadFrames(clip, fps);
+      visual.push({ ...base, start: clip.startFrame - lead, end });
     }
     if (
       track &&
@@ -76,7 +88,7 @@ export function buildPreviewClipIndex(project: ProjectDocument): PreviewClipInde
       AUDIO_TRACK_KINDS.has(track.kind) &&
       clip.enabled !== false
     ) {
-      audio.push(entry);
+      audio.push({ ...base, start: clip.startFrame, end });
     }
     if (
       clip.kind === 'adjustment' &&
@@ -84,14 +96,17 @@ export function buildPreviewClipIndex(project: ProjectDocument): PreviewClipInde
       track &&
       !track.hidden
     ) {
-      adjustment.push(entry);
+      adjustment.push({ ...base, start: clip.startFrame, end });
     }
   }
 
-  // `Array.prototype.sort` es estable: los empates de `order` conservan el
-  // orden de `timeline.clips`, igual que el sort por frame que reemplaza.
-  visual.sort(byTrackOrder);
-  adjustment.sort(byTrackOrder);
+  // Orden de composición del render (`visual_clips`/`adjustment_clips` de
+  // ffmpeg.rs): `(orden de pista, startFrame)` — durante el solape de una
+  // transición el entrante tapa al saliente. El sort es estable.
+  const byComposition = (a: PreviewClipEntry, b: PreviewClipEntry): number =>
+    comparePreviewClips(a.clip, b.clip, project);
+  visual.sort(byComposition);
+  adjustment.sort(byComposition);
 
   return { visual, audio, adjustment };
 }

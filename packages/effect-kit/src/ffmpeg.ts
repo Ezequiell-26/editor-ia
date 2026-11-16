@@ -1,3 +1,4 @@
+import { renderConcatTemplate } from './concat-expr.ts';
 import {
   applyTemplate,
   formatNumber,
@@ -199,6 +200,36 @@ export function compileAudioInstance(
   const params = normalizeParams(manifest, instance.params);
   const notes: string[] = [];
   if (recipe.note) notes.push(`${manifest.name}: ${recipe.note}`);
+
+  // Recetas `concat-effects`: la cadena es un template `{expresión}` (con los
+  // `let` ya inlineados por el generador), no placeholders `{param}`. El
+  // evaluador es el port de `expr.rs` en `concat-expr.ts`; en export el crate
+  // Rust resuelve las mismas cadenas, así preview y render coinciden.
+  if (recipe.concatTemplate) {
+    const env: Record<string, number> = { index: 0 };
+    for (const spec of manifest.params) {
+      const raw = params[spec.id];
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        env[spec.id] = raw;
+      } else if (typeof raw === 'boolean') {
+        env[spec.id] = raw ? 1 : 0;
+      }
+    }
+    const filters: string[] = [];
+    for (const template of recipe.chain) {
+      const rendered = renderConcatTemplate(template, env);
+      if (rendered === null) {
+        return {
+          filters: [],
+          fidelity: 'preview-only',
+          notes: [...notes, `${manifest.name}: la plantilla concat no se pudo evaluar.`],
+        };
+      }
+      if (rendered !== '') filters.push(rendered);
+    }
+    if (filters.length === 0) return { filters: [], fidelity: 'preview-only', notes };
+    return { filters, fidelity: recipe.fidelity, notes };
+  }
 
   const filters: string[] = [];
   for (const template of recipe.chain) {

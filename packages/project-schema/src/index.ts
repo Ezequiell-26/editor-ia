@@ -143,6 +143,10 @@ export {
   MAX_ANIMATION_FRAMES,
   ClipMaskKeyframeSchema,
   MAX_MASK_KEYFRAMES,
+  MAX_POLYGON_MASK_POINTS,
+  MAX_FREEHAND_MASK_POINTS,
+  MonitorFramePresetSchema,
+  MonitorFrameSchema,
   CompoundSchema,
   CompoundInnerClipSchema,
   CompoundClipSchema,
@@ -181,6 +185,8 @@ export type {
   ClipAnimationType,
   ClipAnimation,
   ClipMaskKeyframe,
+  MonitorFrame,
+  MonitorFramePreset,
   Compound,
   CompoundInnerClip,
   SpeedCurve,
@@ -209,9 +215,10 @@ export {
   sampleTransformKeyframes,
   cubicBezierProgress,
   getBezierFromEasing,
+  BEZIER_PRESETS,
+  bezierPresetId,
 } from './keyframes.ts';
-export type { SampledMask } from './keyframes.ts';
-export type { SampledTransform } from './keyframes.ts';
+export type { BezierPreset, SampledMask, SampledTransform } from './keyframes.ts';
 
 export {
   CURVE_IDENTITY,

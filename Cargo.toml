@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["apps/desktop/src-tauri"]
+# vendor/concat tiene su propio workspace root (herencias AGPL de Concat);
+# sin exclude, Cargo le aplicaría el workspace.package de esta raíz.
+# apps/concat-worker también: es un binario con su propio [workspace] para
+# que concat-media (ffmpeg-sys-the-third) no comparta resolución con la app.
+exclude = ["vendor/concat", "apps/concat-worker"]
 
 # Perfil de entrega: antes se usaba el `release` por defecto de Cargo
 # (sin LTO, 16 codegen-units y símbolos de depuración embebidos). Para un

@@ -1,6 +1,6 @@
 import type { SaveLocalizedSubtitleRequest, SaveLocalizedSubtitleResult, SubtitlePipelineResult, TranslateSubtitlesRequest, TranslatedTexts } from '../subtitles';
 import type { ExportShortRequest, ExportShortResult, ShortProgress } from '../render';
-import type { FaceTrackRequest, FaceTrackResult } from '../media';
+import type { FaceTrackRequest, FaceTrackResult, ObjectTrackRequest, ObjectTrackResult } from '../media';
 import type { UnlistenFn } from '../events';
 
 export interface DesktopServiceSubtitles {
@@ -24,4 +24,6 @@ exportShort(request: ExportShortRequest): Promise<ExportShortResult>;
 onShortProgress(handler: (event: ShortProgress) => void): Promise<UnlistenFn>;
 
 analyzeFaceTrack(request: FaceTrackRequest): Promise<FaceTrackResult>;
+
+trackObject(request: ObjectTrackRequest): Promise<ObjectTrackResult>;
 }

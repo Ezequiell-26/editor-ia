@@ -151,6 +151,60 @@ impl McpEnvSecrets for KeyringMcpEnv {
 // Transporte stdio
 // ---------------------------------------------------------------------------
 
+/// Variables de entorno del sistema que un servidor MCP puede necesitar
+/// (shell, node, resolución de rutas). Todo lo demás —API keys del
+/// proveedor, tokens de otros servicios, variables internas— se filtra:
+/// un servidor de terceros no debe heredar secretos del usuario (AUD-002).
+/// Los proxies se conservan porque hay redes que sólo salen por ellos.
+const INHERITED_ENV_ALLOWLIST: &[&str] = &[
+    "PATH",
+    "PATHEXT",
+    "COMSPEC",
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "COMMONPROGRAMFILES",
+    "COMMONPROGRAMFILES(X86)",
+    "OS",
+    "USERNAME",
+    "USERDOMAIN",
+    "PROCESSOR_ARCHITECTURE",
+    "NUMBER_OF_PROCESSORS",
+    "PUBLIC",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+];
+
+/// Aplica al comando la allowlist de entorno: limpia la herencia completa y
+/// repone sólo variables de sistema + las configuradas para ese servidor.
+fn sanitize_env(command: &mut Command, env: &BTreeMap<String, String>) {
+    command.env_clear();
+    for key in INHERITED_ENV_ALLOWLIST {
+        if let Ok(value) = std::env::var(key) {
+            command.env(key, value);
+        }
+    }
+    if !env.is_empty() {
+        command.envs(env);
+    }
+}
+
 fn build_command(server: &McpServerConfig) -> Result<Command, ProjectError> {
     check_shell_launch(&server.command, &server.args)?;
     #[cfg(windows)]
@@ -194,6 +248,10 @@ pub struct StdioMcpTransport {
     stdin: ChildStdin,
     lines: Receiver<String>,
     stderr: Arc<Mutex<VecDeque<String>>>,
+    /// Valores de entorno secretos inyectados al servidor: se tapan en el
+    /// `stderr` antes de guardarlo, porque esa cola termina en mensajes de
+    /// error visibles para el usuario y para el audit.
+    secrets: Vec<String>,
 }
 
 impl StdioMcpTransport {
@@ -211,9 +269,7 @@ impl StdioMcpTransport {
         if let Some(dir) = server.working_dir.as_deref() {
             command.current_dir(dir);
         }
-        if !env.is_empty() {
-            command.envs(env);
-        }
+        sanitize_env(&mut command, env);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -245,14 +301,25 @@ impl StdioMcpTransport {
                 "el servidor MCP no expone una salida estándar",
             )
         })?;
+        // Secretos que este servidor recibió por env: el hijo puede
+        // imprimirlos en stderr (debug verboso, crash) y no deben llegar
+        // al tail que se expone en errores (AUD-006).
+        let secrets: Vec<String> = env
+            .values()
+            .filter(|value| value.chars().count() >= 6)
+            .cloned()
+            .collect();
         let stderr_buffer: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
         if let Some(stderr) = child.stderr.take() {
             let sink = stderr_buffer.clone();
+            let stderr_secrets = secrets.clone();
             thread::spawn(move || {
                 let reader = BufReader::new(stderr);
                 for line in reader.lines() {
                     let Ok(text) = line else { break };
-                    let trimmed: String = text.trim().chars().take(400).collect();
+                    let redacted =
+                        crate::mcp::server::redact_sensitive_text(&text, &stderr_secrets);
+                    let trimmed: String = redacted.trim().chars().take(400).collect();
                     if trimmed.is_empty() {
                         continue;
                     }
@@ -287,6 +354,7 @@ impl StdioMcpTransport {
             stdin,
             lines: receiver,
             stderr: stderr_buffer,
+            secrets,
         })
     }
 
@@ -379,6 +447,9 @@ impl McpTransport for StdioMcpTransport {
                     .get("message")
                     .and_then(Value::as_str)
                     .unwrap_or("error sin detalle");
+                // El servidor puede hacer eco de secretos en su mensaje:
+                // se redactan los valores que le inyectamos por env.
+                let detail = crate::mcp::server::redact_sensitive_text(detail, &self.secrets);
                 return Err(error(
                     ProjectErrorCode::ProviderRejected,
                     &format!("el servidor MCP rechazó la operación: {detail}"),

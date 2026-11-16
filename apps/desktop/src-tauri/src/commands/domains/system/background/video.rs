@@ -85,6 +85,9 @@ pub(crate) fn log_tail(text: &str) -> String {
 /// Quita el fondo de un tramo de video frame por frame y devuelve un WebM VP9
 /// con canal alfa y el audio original. El tramo se expresa en frames del
 /// proyecto para que la ventana del clip siga siendo exacta.
+// clippy::too_many_arguments: pipeline de background removal; rango de
+// frames, fps y callback de progreso son ejes ortogonales.
+#[allow(clippy::too_many_arguments)]
 fn remove_video_background<F>(
     root: &Path,
     input: &Path,

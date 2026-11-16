@@ -1,0 +1,1937 @@
+0x0  (8 strings)
+    00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+    Unknown exception
+    bad allocation
+    bad array new length
+    bad cast
+    generic
+    qH264
+    qMJPG
+0x1800015d0  (1 strings)
+    string too long
+0x1800016e0  (1 strings)
+    00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x180001810  (1 strings)
+    00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x1800018c0  (1 strings)
+    00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x180001a56  (1 strings)
+    00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x180001ce0  (8 strings)
+     REPLACED BY 
+     called while Python error indicator not set.
+     failed to normalize the active exception.
+     failed to obtain the name of the normalized active exception type.
+     failed to obtain the name of the original active exception type.
+    : MISMATCH of original and normalized active exception types: 
+    Internal error: 
+    ORIGINAL 
+0x180001f90  (11 strings)
+    <EMPTY MESSAGE>
+    <MESSAGE UNAVAILABLE DUE TO ANOTHER EXCEPTION>
+    <MESSAGE UNAVAILABLE>
+    FAILURE formatting __notes__[
+    FAILURE obtaining __notes__[
+    FAILURE obtaining len(__notes__): 
+    MESSAGE UNAVAILABLE DUE TO EXCEPTION: 
+    __notes__
+    __notes__ (len=
+    backslashreplace
+    utf-8
+0x1800031e0  (1 strings)
+    pybind11::detail::error_string
+0x1800033e0  (9 strings)
+     REPLACED BY 
+     called while Python error indicator not set.
+     failed to normalize the active exception.
+     failed to obtain the name of the normalized active exception type.
+     failed to obtain the name of the original active exception type.
+    : MISMATCH of original and normalized active exception types: 
+    Internal error: 
+    ORIGINAL 
+    pybind11::error_already_set
+0x180003740  (1 strings)
+    Internal error: pybind11::detail::error_fetch_and_normalize::restore() called a second time. ORIGINAL ERROR: 
+0x1800039d0  (1 strings)
+    initialization failed
+0x180003c10  (2 strings)
+    __module__
+    __name__
+0x180003e00  (1 strings)
+    Could not allocate string object!
+0x180004190  (1 strings)
+    Could not allocate dict object!
+0x180004780  (1 strings)
+    pybind11::detail::get_python_state_dict() FAILED
+0x180004a50  (19 strings)
+    @SUVWATAVAWH
+    @SUVWAVH
+    Could not allocate string object!
+    __module__
+    __pybind11_internals_v11_msvc_md_mscver19__
+    get_internals: create_pp_content_once() produced nullptr
+    get_internals: get_pp() returned nullptr
+    invalid hash bucket count
+    make_default_metaclass(): error allocating metaclass!
+    make_default_metaclass(): failure in PyType_Ready()!
+    make_static_property_type(): error allocating type!
+    make_static_property_type(): failure in PyType_Ready()!
+    pybind11::detail::atomic_get_or_create_in_state_dict() FAILED
+    pybind11::detail::internals_pp_manager::create_pp_content_once() FAILED: reentrant call detected while fetchin
+    pybind11_builtins
+    pybind11_static_property
+    pybind11_type
+    thread_specific_storage constructor: could not initialize the TSS key!
+    unordered_map/set too long
+0x180005df0  (5 strings)
+    __pybind11_module_local_v11_msvc_md_mscver19__
+    invalid hash bucket count
+    pybind11::detail::atomic_get_or_create_in_state_dict() FAILED
+    pybind11::detail::internals_pp_manager::create_pp_content_once() FAILED: reentrant call detected while fetchin
+    unordered_map/set too long
+0x180006c60  (4 strings)
+    class 
+    enum 
+    pybind11::
+    struct 
+0x180006ff0  (1 strings)
+    loader_life_support: internal error
+0x1800077c0  (4 strings)
+    ({object}) -> None
+    Could not allocate weak reference!
+    invalid hash bucket count
+    unordered_map/set too long
+0x180007d70  (1 strings)
+    pybind11::detail::get_type_info: type has multiple pybind11-registered bases
+0x180008007  (1 strings)
+    pybind11::detail::instance::get_value_and_holder: type is not a pybind11 base of the given instance (#define P
+0x180008050  (1 strings)
+    instance allocation failed: new instance has no pybind11-registered base types
+0x1800083b4  (2 strings)
+    numpy.bool
+    numpy.bool_
+0x180008470  (2 strings)
+    ' to Python object (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to convert call argument '
+0x180008700  (2 strings)
+    arg(): cannot specify an unnamed argument after a kw_only() annotation or args() argument
+    self
+0x1800089b0  (3 strings)
+    arg(): cannot specify an unnamed argument after a kw_only() annotation or args() argument
+    arg(): could not convert default argument into a Python object (type not registered yet?). #define PYBIND11_DE
+    self
+0x180008d20  (1 strings)
+    Exception escaped from default exception translator!
+0x180008ec0  (1 strings)
+    %.200s.__init__() must be called when overriding __init__
+0x1800099bf  (1 strings)
+    __pybind11_internals_v11_msvc_md_mscver19__
+0x180009abf  (1 strings)
+    pybind11::detail::atomic_get_or_create_in_state_dict() FAILED
+0x180009e70  (1 strings)
+    : No constructor defined!
+0x18000a445  (1 strings)
+    pybind11_object_dealloc(): Tried to deallocate unregistered instance!
+0x18000a452  (1 strings)
+    FATAL: Internal consistency check failed: Invalid clear_patients() call.
+0x18000a460  (7 strings)
+    @USWATAWH
+    Could not allocate string object!
+    PyType_Ready failed in make_object_base_type(): 
+    __module__
+    make_object_base_type(): error allocating type!
+    pybind11_builtins
+    pybind11_object
+0x18000a6a0  (2 strings)
+    pybind11_builtins.pybind11_detail_function_record_v1_msvc_md_mscver19
+    pybind11_detail_function_record_v1_msvc_md_mscver19
+0x18000a760  (1 strings)
+    UNEXPECTED CALL OF function_record_PyTypeObject_methods::tp_new_impl
+0x18000a780  (1 strings)
+    UNEXPECTED CALL OF function_record_PyTypeObject_methods::tp_alloc_impl
+0x18000a7a0  (1 strings)
+    UNEXPECTED CALL OF function_record_PyTypeObject_methods::tp_init_impl
+0x18000a7c0  (1 strings)
+    UNEXPECTED CALL OF function_record_PyTypeObject_methods::tp_free_impl
+0x18000a7e0  (10 strings)
+     is not pickleable.
+    Could not allocate string object!
+    Could not allocate tuple object!
+    FATAL: function_record_PyTypeObject reduce_ex_impl(): cannot obtain cpp_func_rec.
+    __import__('importlib').import_module('
+    __module__
+    __name__
+    eval
+    pybind11_builtins.pybind11_detail_function_record_v1_msvc_md_mscver19
+    pybind11_detail_function_record_v1_msvc_md_mscver19
+0x18000aec0  (1 strings)
+    !@%{}-
+0x18000b260  (5 strings)
+    !@%{}-
+    Internal error while parsing type signature (1)
+    __module__
+    __qualname__
+    self
+0x18000c800  (13 strings)
+    " with a function of the same name
+    (*args, **kwargs)
+    @SVWATAUAVAWH
+    Cannot overload existing non-function object "
+    Internal error while parsing type signature (2)
+    Overloaded function.
+    __init__
+    __setstate__
+    _pybind11_conduit_v1_
+    cpp_function::cpp_function(): Could not allocate function object
+    cpp_function::cpp_function(): Could not allocate instance method object
+    initialize_generic: Unexpected nullptr from PyCFunction_GET_SELF
+    overloading a method with both static and instance methods is not supported; #define PYBIND11_DETAILED_ERROR_M
+0x18000d010  (12 strings)
+        
+     arguments. The following argument types are supported:
+    (): incompatible 
+    Did you forget to `#include <pybind11/stl.h>`? Or <pybind11/complex.h>,
+    Invoked with: 
+    Unable to convert function return value to a Python type! The signature was
+    __init__(self, ...) called with invalid or missing `self` argument
+    constructor
+    function
+    kwargs: 
+    loader_life_support: internal error
+    std::
+0x18000f4f6  (1 strings)
+    std::
+0x18000f521  (1 strings)
+    Did you forget to `#include <pybind11/stl.h>`? Or <pybind11/complex.h>,
+0x18000f820  (2 strings)
+    Could not allocate string object!
+    __pybind11_module_cache
+0x18000fbe0  (5 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+    __pybind11_module_cache
+    __spec__
+    name
+0x1800100a0  (2 strings)
+    module spec is missing a name
+    name
+0x180010440  (1 strings)
+    map/set too long
+0x1800104b3  (3 strings)
+    dict_items
+    dict_keys
+    dict_values
+0x180010630  (1 strings)
+    MOTOR_PRAZO_PRESO
+0x1800106e0  (3 strings)
+    %Y-%m-%d %H:%M:%S
+    MOTOR_PRAZO_PRESO
+    {"quando": "%s", "o_que": "motor C++ preso", "chamada": "%s", "passo": "%s", "ha_segundos": %.1f, "prazo": %.1
+0x180010b40  (1 strings)
+    parado
+0x180010bc0  (1 strings)
+    a placa foi removida (HRESULT 0x887A0005) [prova]
+0x180010d70  (16 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+    D$HH
+    Intel
+    NVIDIA
+    assinatura
+    desconhecido
+    escolha
+    fabricante
+    fabricante_nome
+    luid
+    nivel
+    nome
+    software
+    teto_cache_mb
+    vram_mb
+0x1800114b0  (1 strings)
+    Could not allocate string object!
+0x180011610  (1 strings)
+    destino de camada desconhecido: 
+0x180011780  (1 strings)
+    Could not allocate string object!
+0x180011990  (27 strings)
+    Could not allocate bytes object!
+    alpha
+    chroma
+    chroma_cor
+    empilhado
+    espelhado
+    intensidade
+    ladrilho
+    local
+    lut3
+    manter
+    masc_ed
+    masc_geo
+    masc_mid
+    masc_par
+    mascara
+    mascara_p
+    matriz
+    moldura
+    moldura_cor
+    moldura_cor2
+    moldura_raios
+    o atlas da LUT nao bate com largura x altura x 4
+    os pixels de entrada nao batem com largura x altura x 4
+    sat_antes
+    tem_lut
+    tex_janela
+0x180012690  (27 strings)
+    alpha
+    chroma
+    chroma_cor
+    empilhado
+    espelhado
+    intensidade
+    ladrilho
+    local
+    lut3
+    manter
+    masc_ed
+    masc_geo
+    masc_mid
+    masc_par
+    mascara
+    mascara_p
+    matriz
+    moldura
+    moldura_cor
+    moldura_cor2
+    moldura_raios
+    ocl_a
+    ocl_b
+    pre_mult
+    sat_antes
+    tem_lut
+    tex_janela
+0x180012b90  (1 strings)
+    o motor esta' ocupado com outro trabalho
+0x180013180  (1 strings)
+    MOTOR_TETO_FONTES
+0x180013470  (2 strings)
+    0x80070008
+    0x8007000E
+0x180013610  (10 strings)
+    GetCurrentMediaType
+    MFCreateAttributes
+    MFCreateDXGIDeviceManager
+    MFCreateMediaType
+    MFCreateSourceReaderFromURL (nao consegui abrir o video)
+    MFStartup
+    ResetDevice (o decodificador nao aceitou a placa)
+    SetCurrentMediaType (a placa nao entrega ARGB32 deste video)
+    video: abrindo o arquivo (SourceReader)
+    vids
+0x1800146d0  (5 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Could not allocate string object!
+    Unable to cast Python instance of type 
+    onde
+    paradas
+0x180015040  (11 strings)
+    Could not allocate string object!
+    aditiva
+    altura
+    apenas
+    bisel
+    contorno
+    degrade
+    grad
+    halo_do_traco
+    largura
+    recorte
+0x180016130  (7 strings)
+    Could not allocate string object!
+    altura
+    faixa
+    glow
+    glow_cor
+    largura
+    vertical
+0x180016c80  (5 strings)
+    Could not allocate string object!
+    alfa
+    altura
+    faixas
+    largura
+0x180017620  (6 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Could not allocate string object!
+    Unable to cast Python instance of type 
+    a imagem do desenho veio com bytes que nao batem com largura x altura x 4
+    comando de desenho desconhecido: 
+    peso
+0x180019860  (1 strings)
+    Could not allocate string object!
+0x180019b40  (3 strings)
+    Could not allocate bytes object!
+    Map do texto
+    staging do texto
+0x18001a0c0  (7 strings)
+    Could not allocate string object!
+    o recorte da pessoa veio com bytes que nao batem com largura x altura x 4
+    o recorte da pessoa veio sem tamanho
+    pessoa
+    pessoa_h
+    pessoa_id
+    pessoa_w
+0x18001a6a0  (84 strings)
+     nao entregou o quadro em 
+    Could not allocate string object!
+    LerCamadas chamado sem a trava do motor (porta sem SoUmNoMotor)
+    a mascara veio com bytes que nao batem com w x h x 4
+    a tabela de cor veio com bytes que nao batem com 256 x 4
+    acabamento
+    altura
+    arquivo
+    atlas
+    atlas_h
+    atlas_id
+    atlas_w
+    bloom
+    brilhoLinha
+    caixa
+    camada com pixels que nao batem com w x h x 4
+    canelado
+    cine_grid
+    cine_n
+    clipe
+    clipe isolado dentro de outro clipe isolado
+    cmds
+    corTraco
+    cor_id
+    cromatica
+    desenho
+    desfoque
+    destino
+    desvio
+    dissolverLinha
+    efeito
+    espelho
+    familia
+    forca
+    formas
+    fundo
+    glitch
+    glow
+    glow2
+    glow_cor
+0x180022270  (5 strings)
+    Could not allocate bytes object!
+    desenhar_quadro
+    parado
+    quadro: desenhando e descendo da placa
+    quadro: lendo camadas (decodifica video)
+0x1800225e0  (3 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+    erro
+0x180022b00  (12 strings)
+    Could not allocate dict object!
+    desenhar_ms
+    erro
+    ler_ms
+    parado
+    placa_ms
+    previa: apresentando (Present)
+    previa: desenhando
+    previa: lendo camadas (decodifica video)
+    previa_desenhar_na_janela
+    pronta
+    trocar_ms
+0x180023350  (10 strings)
+    Could not allocate dict object!
+    Could not allocate list object!
+    Could not allocate string object!
+    altura
+    carimbo
+    diag_video
+    duracao
+    largura
+    parado
+    pedido
+0x180023a40  (13 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+    aleatoria
+    desenhar_e_sincronizar
+    ler_e_decodificar
+    medir_desenho
+    nao consegui criar a agulha de sincronia
+    nao consegui criar o alvo da medicao
+    ordem
+    parado
+    quadros
+    sequencial
+    total
+0x180024d90  (6 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+    media_ms
+    mediana_ms
+    p95_ms
+    pior_ms
+0x180025330  (24 strings)
+    Could not allocate bytes object!
+    Could not allocate dict object!
+    Could not allocate string object!
+    MOTOR_ANEL
+    abrir_s
+    abriu_agora
+    cabecalho_do_fluxo
+    codificador
+    dados
+    dentro
+    desenhar_s
+    erro
+    escolha_codificador
+    esperar_anel_s
+    formato
+    imagem_prova
+    ler_s
+    parado
+    pedaco: abrindo o codificador
+    produzir_pedaco
+    quadros
+    quadros_desenhados
+    tentados
+    total_s
+0x1800265c0  (6 strings)
+    (_^][
+    nao consegui criar a textura do quadro
+    o codificador nao soltou textura em 20 s
+    pedaco: desenhando
+    pedaco: esperando o codificador soltar textura
+    pedaco: lendo camadas (decodifica video)
+0x180026d20  (2 strings)
+    fechar_produtor
+    parado
+0x180026e30  (5 strings)
+    MOTOR_ANEL
+    abrir_codificacao
+    export: abrindo o codificador
+    ja existe uma codificacao aberta
+    parado
+0x180027200  (19 strings)
+    AddBuffer
+    MFCreateDXGISurfaceBuffer
+    MFCreateSample
+    MOTOR_PROVA_PLACA_CAI
+    SetSampleDuration
+    SetSampleTime
+    WriteSample
+    a placa foi removida (HRESULT 0x887A0005) [prova]
+    codificar_lote
+    export: desenhando
+    export: entregando o quadro ao codificador (WriteSample)
+    export: esperando o codificador soltar textura
+    export: lendo camadas (decodifica video)
+    nao consegui criar a textura do quadro
+    nao ha codificacao aberta
+    o codificador ja' foi fechado
+    o codificador nao soltou nenhuma textura em 20 s
+    parado
+    quadro nulo
+0x180028050  (35 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+    MOTOR_PROVA_PLACA_CAI_FECHAR
+    MOTOR_TETO_FONTES
+    _apertos_de_memoria
+    _mb_copiados
+    _n_buscas
+    _n_decodificacoes
+    _n_fontes_abertas
+    _n_fontes_soltas
+    _n_quadros_lidos
+    _resto_do_ler
+    _teto_fontes
+    a placa foi removida (HRESULT 0x887A0005) [prova]
+    abrir
+    codificador
+    codificar
+    copiar_pixels
+    decodificar_video
+    desenhar
+    esperar_anel
+    export: fechando o arquivo (Finalize)
+    fechar
+    fechar_codificacao
+    hardware
+    ler_e_decodificar
+    nao ha codificacao aberta
+    nome_conferido
+    onde_foi_o_tempo_no_cpp
+    parado
+    quadros
+    rasterizar_legenda
+    saida
+    taxa
+    velocidade
+0x180029500  (2 strings)
+    cancelar_codificacao
+    parado
+0x180029860  (9 strings)
+    0x%08X
+    Could not allocate dict object!
+    Could not allocate string object!
+    erro
+    motivo
+    parado
+    placa
+    reabrir_placa
+    vezes
+0x18002a260  (2 strings)
+    codificar_planos
+    parado
+0x18002a320  (3 strings)
+    3.11
+    Python version mismatch: module was compiled for Python %s, but the interpreter version is incompatible: %s.
+    __pybind11_internals_v11_msvc_md_mscver19__
+0x18002a5c0  (3 strings)
+    __pybind11_internals_v11_msvc_md_mscver19__
+    __spec__
+    name
+0x18002a8d0  (131 strings)
+    () -> @collections.abc.Sequence@list@[str]
+    () -> None
+    () -> bool
+    () -> list
+    () -> str
+    ({@collections.abc.Sequence@list@[str]}) -> @collections.abc.Mapping@dict@[str, @collections.abc.Sequence@list
+    ({bytes}, {bytes}) -> tuple[bytes, bytes, bool]
+    ({str}) -> str
+    @SUVWATAUAVAWH
+    @SUVWATAVAWH
+    @SUVWH
+    @SVWATAUAVAWH
+    @SVWATAVAWH
+    @SVWAVH
+    @SVWH
+    @USVWATAUAVAWH
+    EditorAlanCpp - motor nativo (Etapa F). F3: esqueleto e placa.
+    Este motor grava a tela? Existir esta funcao ja' e' a resposta -- modulo antigo nao a tem e o app diz que a gr
+    O modo que esta' valendo agora (ver definir_codificador).
+    O motor desenha os efeitos DESCRITOS (particulas, queda, espectro) com Direct2D na propria placa? Existir esta
+    Os monitores COM A PLACA que conduz cada um. E' a lista do DXGI, e nao a do EnumDisplayMonitors: sao as mesmas
+    Quais FORMAS de efeito este motor desenha. O frontend so' descreve o que estiver aqui; o resto faz o export de
+    Quais codificadores esta maquina tem para cada FOURCC de saida ("H264", "HEVC", "apcn" = ProRes 422, "AVdn" = 
+    SO' PARA A PROVA (caso Gigisen, 18/10/2026): o mesmo conserto de cabecalho que o produtor de pedacos aplica, s
+    SVWATAUAVAWH
+    Solta o codificador do pre-render e o anel de texturas.
+    USVWATAUAVAWH
+    USVWH
+    __doc__
+    __versao_etapa__
+    altura
+    arquivo
+    arquivo_fonte
+    ativa
+    ativo
+    audio_cancelar
+    audio_encerrar
+    audio_pausar
+    audio_retomar
+    audio_segundos
+0x18002df70  (5 strings)
+    Could not allocate dict object!
+    Could not allocate list object!
+    Could not allocate string object!
+    nome
+    padrao
+0x18002e3f0  (6 strings)
+    Could not allocate dict object!
+    Could not allocate list object!
+    Could not allocate string object!
+    canais
+    pico
+    quadros
+0x18002ef80  (1 strings)
+    Could not allocate bytes object!
+0x18002f2a0  (9 strings)
+    Could not allocate bytes object!
+    Could not allocate string object!
+    altura
+    glow
+    glow2
+    glow_cor
+    largura
+    raio
+    texto
+0x1800315e0  (1 strings)
+    Could not allocate bytes object!
+0x1800316a0  (1 strings)
+    Could not allocate list object!
+0x180031810  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x180031960  (1 strings)
+    Could not allocate tuple object!
+0x180031b40  (1 strings)
+    Could not allocate tuple object!
+0x180031b80  (1 strings)
+    Could not allocate tuple object!
+0x180031cc0  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x180031f20  (25 strings)
+    )98&F
+    10_0
+    10_1
+    11_0
+    11_1
+    12_0
+    12_1
+    : nao existe adaptador com esse indice
+    LOCALAPPDATA
+    MOTOR_ADAPTADOR
+    MOTOR_ADAPTADOR=
+    \EditorAlan\placa_escolhida.txt
+    abaixo de 10_0
+    escolha do Windows
+    lenta
+    medida antes
+    medida antes (
+    minimo consumo (pedido)
+    nao consegui abrir o Direct3D 11
+    pedida pelo ambiente
+    placa sem nome
+    sem medicao gravada: escolha do Windows
+    unica placa
+    warp
+    warp (pedido)
+0x1800337c0  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x180033940  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x180033c00  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x180033d70  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x180033f60  (1 strings)
+    acabamento
+0x180034050  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x180034310  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typin
+    SONDA: separa o custo de ATIVAR o MFT do custo de dizer os tipos. Decide se manter o MFT vivo entre pedacos va
+    medir_abertura_em_partes
+0x1800344d0  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typin
+    SONDA: a sequencia inteira do MFT direto, passo a passo, com HRESULT.
+    sondar_mft_direto
+0x180034690  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typin
+    SONDA: produz pedacos com o MFT vivo entre eles e mede cada um.
+    medir_produtor_de_pedacos
+0x180034870  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typin
+    Desenha os planos e devolve o pedaco H.264 Annex-B (SPS+IDR).
+    produzir_pedaco
+0x180034b00  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {str}, {@typing.SupportsInt | typing.SupportsIndex@int@}, 
+    Comeca a gravar. Devolve "" quando deu certo, ou a explicacao do erro -- nunca falso calado.
+    captura_iniciar
+0x180034d50  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {bool}, {bool}) -> None
+    O estilo do ponteiro na proxima gravacao (0 sem, 1 normal, 2 o dobro, 3 o triplo), com circulo de destaque e a
+    captura_cursor
+0x180034f10  (1 strings)
+    () -> str
+0x180035080  (2 strings)
+    () -> @collections.abc.Mapping@dict@[str, @typing.SupportsFloat | typing.SupportsIndex@float@]
+    @SVWAVH
+0x1800351f0  (1 strings)
+    () -> str
+0x180035360  (1 strings)
+    () -> None
+0x1800354d0  (4 strings)
+    () -> list
+    @USVWATAUAVAWH
+    As entradas de som ATIVAS, com nome amigavel e id estavel. Vem do WASAPI: o `dshow` do FFmpeg nao existe no pa
+    audio_entradas
+0x180035630  (2 strings)
+    ({str}, {str}) -> str
+    audio_iniciar
+0x1800357d0  (1 strings)
+    () -> @typing.SupportsFloat | typing.SupportsIndex@float@
+0x180035940  (3 strings)
+    () -> dict
+    O pico e a media quadratica de cada canal do microfone desde a ultima leitura (0..1), e ZERA a conta. Mede mes
+    audio_nivel
+0x180035ac0  (4 strings)
+    () -> dict
+    @USVWATAUAVAWH
+    A saida de som padrao do Windows (nome amigavel e id). `id` vazio = nao ha' saida de som ligada.
+    som_pc_saida
+0x180035c20  (3 strings)
+    ({str}) -> str
+    Comeca a gravar em `saida` (.wav) o que toca na saida padrao. Devolve "" ou a explicacao do erro.
+    som_pc_iniciar
+0x180035da0  (3 strings)
+    () -> dict
+    O mesmo medidor do `audio_nivel`, para o som do computador.
+    som_pc_nivel
+0x180035f20  (3 strings)
+    ({bytes}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}
+    A mesma conta do medidor sobre bytes dados. So' para a PROVA medir cada formato do WASAPI com um seno conhecid
+    audio_nivel_de_bytes
+0x1800360e0  (3 strings)
+    () -> bool
+    Este motor grava webcam? Existir esta funcao ja' e' a resposta -- modulo antigo nao a tem, e a tela oferece so
+    webcam_suportada
+0x180036240  (3 strings)
+    () -> list
+    As cameras conectadas, com o nome amigavel e o LINK SIMBOLICO como id -- que sobrevive a desconectar e reconec
+    webcam_cameras
+0x1800363f0  (3 strings)
+    ({str}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, 
+    Liga a camera e comeca a entregar quadros. Ainda NAO grava: a contagem 3-2-1 acontece entre abrir e gravar, e 
+    webcam_abrir
+0x1800365a0  (2 strings)
+    ({str}, {@typing.SupportsInt | typing.SupportsIndex@int@}) -> str
+    webcam_gravar_iniciar
+0x180036740  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typin
+    A janelinha do espelho: arrastavel, redimensionavel e FORA da captura -- sem isso ela apareceria cravada no vi
+    webcam_previa_mostrar
+0x1800368f0  (4 strings)
+    () -> @collections.abc.Mapping@dict@[str, @typing.SupportsFloat | typing.SupportsIndex@float@]
+    @SVWAVH
+    Onde a previa ficou depois de arrastada e redimensionada. E' o que faz o clipe da webcam nascer no editor no l
+    webcam_previa_retangulo
+0x180036ac0  (3 strings)
+    ({bool}, {@typing.SupportsFloat | typing.SupportsIndex@float@}, {@typing.SupportsFloat | typing.SupportsIndex@
+    Liga, desliga ou ajusta o recorte do fundo verde NA JANELINHA. O arquivo da camera continua cru; quem recorta 
+    webcam_chroma
+0x180036cc0  (3 strings)
+    () -> @collections.abc.Mapping@dict@[str, @typing.SupportsFloat | typing.SupportsIndex@float@]
+    A cor do fundo verde (ou azul) medida na borda do quadro mais novo da camera: ok, r, g, b, fracao. ok = 0 quan
+    webcam_chroma_sugerir
+0x180036e40  (3 strings)
+    ({bytes}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}
+    A conta da janelinha sobre um quadro BGRA dado; devolve RGBA sem pre-multiplicar. So' para a PROVA comparar co
+    chroma_na_cpu
+0x180037060  (1 strings)
+    Could not allocate list object!
+0x180037130  (4 strings)
+    ({bool}, {@typing.SupportsFloat | typing.SupportsIndex@float@}, {@collections.abc.Sequence@list@[@typing.Suppo
+    @USVWAVAWH
+    Liga, troca ou desliga a MOLDURA da janelinha. A janela vira a caixa do modelo sem mexer no clipe; o arquivo d
+    webcam_moldura
+0x180037340  (4 strings)
+    () -> list
+    Por onde a janelinha andou ENQUANTO GRAVAVA: (quadro do arquivo da camera, x, y, largura, altura) do retangulo
+    USVWATAUAVAWH
+    webcam_previa_trilha
+0x1800374a0  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}) -> None
+    SO' PROVA: liga a trilha da janelinha num relogio que a prova controla (sem camera e sem gravacao). Negativo d
+    webcam_trilha_de_prova
+0x180037620  (3 strings)
+    ({bytes}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}
+    A conta da moldura da janelinha sobre um quadro BGRA pre-multiplicado do tamanho da janela; devolve BGRA pre-m
+    moldura_na_cpu
+0x180037860  (3 strings)
+    ({bytes}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}
+    SO' PROVA: entrega um quadro a' janelinha como se viesse da camera.
+    webcam_previa_injetar
+0x180037a10  (4 strings)
+    () -> dict
+    @USVWATAUAVAWH
+    SO' PROVA: o ultimo desenho da janelinha, BGRA pre-multiplicado. A primeira chamada liga a foto; a partir dai'
+    webcam_previa_foto
+0x180037b70  (3 strings)
+    () -> bool
+    O motor limpa o quadro com a COR QUE O PLANO MANDAR (a tela infinita) em vez de preto fixo? Existir esta funca
+    fundo_suportado
+0x180037cd0  (3 strings)
+    ({@typing.SupportsFloat | typing.SupportsIndex@float@}) -> @typing.SupportsFloat | typing.SupportsIndex@float@
+    Quanto cache de textura o motor usaria numa placa com esta VRAM (MB). Existe para a conta poder ser CONFERIDA 
+    teto_cache_mb
+0x180037e60  (3 strings)
+    () -> bool
+    O motor sabe o CHROMA KEY ("Remover plano de fundo")? Existir esta funcao ja' e' a resposta. Modulo antigo nao
+    chroma_suportado
+0x180037fc0  (3 strings)
+    () -> bool
+    O motor desenha o passe de acabamento (nitidez, bloom, grao, TV velha, cromatica)? Existir esta funcao ja' e' 
+    acabamento_suportado
+0x180038120  (3 strings)
+    () -> @collections.abc.Sequence@list@[str]
+    QUAIS efeitos o passe de acabamento desenha (02/10/2026, item 84). Inverter, glitch e lapis chegaram depois do
+    acabamento_efeitos
+0x180038280  (3 strings)
+    () -> bool
+    O motor desenha o filtro MANTER UMA COR (o uManter do camada.hlsl; 15/10/2026)? Existir esta funcao ja' e' a r
+    manter_suportado
+0x1800383e0  (3 strings)
+    () -> bool
+    O motor desenha o HSL POR COR da aba Cor (o uHsl do camada.hlsl, com cor[0] = 2; item 155, 18/10/2026)? Existi
+    hsl_suportado
+0x180038540  (3 strings)
+    () -> bool
+    O motor desenha o CANTO FIXADO (a matriz da camada com perspectiva: a terceira linha vira o divisor no camada.
+    canto_suportado
+0x1800386a0  (3 strings)
+    () -> bool
+    O motor desenha a MASCARA DE EDICAO (Dividir, Pelicula, Circulo, Retangulo, Estrela, Coracao e o alfa do Texto
+    mascara_suportada
+0x180038800  (3 strings)
+    () -> bool
+    O motor desenha a CORRECAO DE COR do clipe (a aba Cor: rodas Lift, Gamma, Gain e Offset, curvas, saturacao, ma
+    cor_suportada
+0x180038960  (3 strings)
+    () -> bool
+    O motor desenha o LOWER THIRD DESCRITO (a lista do que o canvas do faixas.js desenhou, repetida em Direct2D; 0
+    desenho_suportado
+0x180038ac0  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {list})
+    A bancada do desenho descrito: desenha a lista num alvo transparente e devolve RGBA8 nao pre-multiplicado, par
+    desenhar_desenho
+0x180038c80  (3 strings)
+    () -> bool
+    O motor desenha o ATRAS DA PESSOA (o recorte da pessoa do video de baixo em t5, cortando o alfa da camada; 07/
+    pessoa_suportada
+0x180038de0  (3 strings)
+    () -> bool
+    O motor desenha o SEM FUNDO (o recorte do PROPRIO clipe em t5, no modo 2 do uOclA: fica so' a pessoa; 18/10/20
+    sem_fundo_suportado
+0x180038f40  (3 strings)
+    () -> bool
+    O motor desenha o VIDEO COM FUNDO TRANSPARENTE EM COR + MASCARA (as duas metades de um H.264 comum viram um pi
+    empilhado_suportado
+0x1800390a0  (3 strings)
+    () -> bool
+    O motor desenha a LUT DE ARQUIVO do clipe (.cube e as de camera, o atlas do cubo em t4; item 112, 06/10/2026)?
+    lut3_suportada
+0x180039200  (3 strings)
+    () -> bool
+    O motor faz o DESFOQUE DE FUNDO (o fundo borrado da 'Tela: desfocar' e do cartao de template, 01/10/2026)? Exi
+    desfoque_suportado
+0x180039360  (3 strings)
+    () -> bool
+    O motor desenha o CLIPE ISOLADO (particulas, flash, queda e acabamento DENTRO de um clipe, 28/09/2026)? Existi
+    isolar_suportado
+0x1800394c0  (3 strings)
+    () -> bool
+    O motor desenha o passe de REGIAO (Blur e Remocao de marca d'agua)? Existir esta funcao ja' e' a resposta, pel
+    regiao_suportada
+0x180039620  (3 strings)
+    () -> @collections.abc.Sequence@list@[str]
+    Quais transicoes o motor nativo sabe desenhar. O frontend PERGUNTA esta lista em vez de manter a dele: duas li
+    transicoes_suportadas
+0x180039780  (4 strings)
+    () -> dict
+    @USVWATAUAVAWH
+    Compila TODOS os shaders de transicao agora e devolve nome -> erro (vazio = compilou). `transicoes_suportadas`
+    provar_transicoes
+0x180039a40  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {str}, 
+    CAMINHO A: desenha uma linha da legenda Jumper JA' POSICIONADA. O layout continua sendo do motor (as posicoes 
+    raster_legenda_jumper
+0x180039cd0  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {str}, 
+    CAMINHO A, primeiro passo: desenha UMA palavra com o DirectWrite, com a fonte lida do arquivo do proprio app. 
+    raster_texto_teste
+0x180039ef0  (3 strings)
+    () -> dict
+    Abre o Direct3D 11 (uma vez por processo) e diz quem e' a placa.
+    placa
+0x18003a080  (3 strings)
+    () -> bool
+    Deu para abrir a placa? Sem levantar erro.
+    abriu
+0x18003a1e0  (4 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {bytes}
+    @USVWATAVAWH
+    A BANCADA DO F4: desenha UM retangulo com o shader HLSL da camada e
+    desenhar_teste
+0x18003a420  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {list})
+    F5: desenha o QUADRO INTEIRO a partir do plano capturado do motor.
+    desenhar_quadro
+0x18003a5e0  (3 strings)
+    () -> dict
+    Quantas fontes de video estao abertas, o teto e quantas ja' sairam.
+    fontes_de_video
+0x18003a740  (3 strings)
+    ({str}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsFloat | typing.SupportsIndex@float
+    Os primeiros carimbos de tempo que o decodificador nativo enxerga.
+    diag_video
+0x18003a900  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {list},
+    G-1a: quanto custa DESENHAR um quadro, com a placa obrigada a terminar antes de o relogio parar. O `desenhar` 
+    medir_desenho
+0x18003aaf0  (3 strings)
+    ({@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typin
+    Mostra a janela da previa sobre o app, em pixels de DISPOSITIVO relativos ao cliente da janela. Devolve '' se 
+    previa_janela_mostrar
+0x18003acb0  (3 strings)
+    () -> None
+    Esconde sem destruir: voltar a mostrar nao paga a criacao de novo.
+    previa_janela_esconder
+0x18003ae40  (3 strings)
+    ({list}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@},
+    G-1b: desenha o plano DIRETO no fundo da janela nativa e apresenta. Mesmo leitor de camadas do export -- o que
+    previa_desenhar_na_janela
+0x18003b020  (3 strings)
+    ({list}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@},
+    SO' PARA PROVA: desenha no fundo da janela e le' de volta em RGBA, sem apresentar. E' o unico jeito de compara
+    previa_janela_provar
+0x18003b200  (3 strings)
+    ({@typing.SupportsFloat | typing.SupportsIndex@float@}, {@typing.SupportsFloat | typing.SupportsIndex@float@},
+    ESQUELETO: pinta a janela de uma cor solida e apresenta.
+    previa_janela_pintar
+0x18003b3c0  (3 strings)
+    () -> str
+    O que esta' de pe', para a prova perguntar em vez de supor.
+    previa_janela_estado
+0x18003b550  (3 strings)
+    ({str}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, 
+    A CODIFICACAO EM PARTES: abre o codificador do export uma vez.
+    abrir_codificacao
+0x18003b730  (3 strings)
+    ({list}) -> None
+    Desenha e codifica um lote de planos na codificacao aberta.
+    codificar_lote
+0x18003b8d0  (3 strings)
+    () -> dict
+    Fecha o arquivo e devolve o mesmo relatorio do codificar_planos.
+    fechar_codificacao
+0x18003ba60  (3 strings)
+    () -> None
+    Solta a codificacao aberta sem fechar o arquivo.
+    cancelar_codificacao
+0x18003bbf0  (3 strings)
+    () -> bool
+    A placa foi removida/reiniciada (DXGI_ERROR_DEVICE_REMOVED)?
+    placa_caiu
+0x18003bd80  (3 strings)
+    () -> dict
+    Solta tudo o que nasceu na placa que caiu e abre uma nova.
+    reabrir_placa
+0x18003bf10  (3 strings)
+    ({str}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex@int@}, 
+    F6: desenha cada plano e CODIFICA na placa, sem o quadro descer para a memoria comum. Devolve qual codificador
+    codificar_planos
+0x18003c100  (3 strings)
+    () -> dict
+    Em que passo o C++ esta', ha' quanto tempo, e se o vigia o declarou preso. Nao pega trava nenhuma.
+    onde_esta
+0x18003c260  (3 strings)
+    ({@typing.SupportsFloat | typing.SupportsIndex@float@}, {bool}) -> bool
+    SO' PARA PROVA: fica parado num passo pelo tempo pedido.
+    provar_preso
+0x18003c400  (3 strings)
+    ({str}, {bool}, {@typing.SupportsInt | typing.SupportsIndex@int@}, {@typing.SupportsInt | typing.SupportsIndex
+    SO' PARA PROVA: cor conhecida, entrega, LIXO por cima (direto ou pelo anel). Confere-se o arquivo depois.
+    provar_textura_reaproveitada
+0x18003c5d0  (1 strings)
+    Could not allocate string object!
+0x18003fe00  (1 strings)
+    invalid string position
+0x18003fe3d  (1 strings)
+     -> 
+0x180040ef0  (1 strings)
+    00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+0x180040f60  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x180041330  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x1800414a0  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x1800416c0  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x1800417d0  (2 strings)
+    () -> str
+    Fecha o arquivo direito (o `moov` no lugar).
+0x180041ce0  (1 strings)
+    vector too long
+0x180046ff0  (10 strings)
+    $&3 
+    ativar_mft
+    dizer_os_tipos
+    erro
+    flush
+    qH264
+    qNV12
+    tipo_entrada_ok
+    tipo_saida_ok
+    vids
+0x1800478f0  (11 strings)
+    CreateTexture2D (a textura preta da sonda)
+    abrir_s
+    bgra
+    bytes
+    cabecalho_bytes
+    comeca_em_sps
+    entrada_bgra
+    pedaco_s
+    pela_memoria
+    primeiro_nal
+    tem_idr
+0x180048d20  (4 strings)
+    memoria
+    modo do codificador desconhecido: 
+    placa
+    software
+0x180049270  (2 strings)
+    Could not allocate bytes object!
+    Could not allocate tuple object!
+0x180049bd0  (2 strings)
+    Could not allocate dict object!
+    Could not allocate list object!
+0x18004a0b0  (5 strings)
+    circulo
+    linha
+    poligono
+    retangulo
+    texto
+0x18004a360  (9 strings)
+    Could not allocate dict object!
+    Could not allocate list object!
+    Could not allocate string object!
+    altura
+    dispositivo
+    indice
+    largura
+    placa
+    principal
+0x18004be50  (5 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+    microfone
+    nome
+    padrao
+0x18004d2d0  (4 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+    D$PH
+    nome
+0x18004e7e0  (4 strings)
+    Could not allocate dict object!
+    Could not allocate list object!
+    Could not allocate string object!
+    nome
+0x18004fc60  (1 strings)
+    Could not allocate bytes object!
+0x180050a90  (2 strings)
+    Could not allocate list object!
+    Could not allocate tuple object!
+0x180051a90  (6 strings)
+    Could not allocate bytes object!
+    Could not allocate dict object!
+    Could not allocate string object!
+    altura
+    bgra
+    largura
+0x1800524d0  (11 strings)
+    bloom
+    canelado
+    cromatica
+    espelho
+    glitch
+    grao
+    inverter
+    lapis
+    nitidez
+    tvvelha
+    vazamento
+0x180052f70  (2 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+0x1800541b0  (8 strings)
+    Could not allocate dict object!
+    Could not allocate list object!
+    Could not allocate string object!
+    abertas
+    apertos_de_memoria
+    arquivos
+    soltas
+    teto
+0x180055c40  (12 strings)
+    Could not allocate dict object!
+    Could not allocate string object!
+    batidas
+    chamada
+    chamada_presa
+    episodios
+    ha_s
+    passo
+    passo_preso
+    prazo_s
+    preso
+    preso_ha_s
+0x180056bf0  (3 strings)
+    parado
+    prova: parado de proposito
+    provar_preso
+0x180056df0  (5 strings)
+    Finalize (o arquivo pode ter saido pela metade)
+    nao criei a textura da prova
+    nao criei o alvo da prova
+    parado
+    provar_textura_reaproveitada
+0x180057700  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x1800577f0  (1 strings)
+    Could not allocate dict object!
+0x180057a00  (2 strings)
+    Could not allocate dict object!
+    Could not allocate list object!
+0x180057c30  (5 strings)
+    circulo
+    linha
+    poligono
+    retangulo
+    texto
+0x180057da0  (1 strings)
+    Could not allocate list object!
+0x1800584c0  (1 strings)
+    Could not allocate bytes object!
+0x1800585f0  (3 strings)
+    parado
+    prova: parado de proposito
+    provar_preso
+0x180059cb0  (1 strings)
+    deque<T> too long
+0x18005a1f0  (2 strings)
+     to C++ type '?' (#define PYBIND11_DETAILED_ERROR_MESSAGES or compile in debug mode for details)
+    Unable to cast Python instance of type 
+0x18005aa50  (2 strings)
+    Unexpected PYBIND11_BYTES_AS_STRING() failure.
+    Unexpected PyByteArray_AsString() failure.
+0x18005ad70  (1 strings)
+    vector<bool> too long
+0x18005d690  (2 strings)
+     (HRESULT 
+    0x%08lX
+0x18005d860  (1 strings)
+    %04X:%04X:%08X:%08lX|
+0x18005dbc0  (10 strings)
+    10_0
+    10_1
+    11_0
+    11_1
+    12_0
+    12_1
+    a placa desta tela (captura)
+    abaixo de 10_0
+    nao consegui abrir o Direct3D 11 na placa da tela
+    placa sem nome
+0x18005ef30  (1 strings)
+    \$ WH
+0x18005f9e0  (7 strings)
+    '. Procurei em:
+    /shaders/
+    @USVWH
+    C:/Users/alan1/AlaukCut-leva-3110/nativo/src
+    MOTOR_SHADERS
+    nao achei o shader '
+    nao achei o shader em 
+0x180060950  (3 strings)
+    MOTOR_SHADER_SEM_OTIMIZAR
+    o shader nao compilou: 
+    sem detalhe
+0x180060ae0  (2 strings)
+    CreateShaderResourceView
+    CreateTexture2D
+0x180060fe0  (1 strings)
+    MOTOR_TRANSICOES_EM_PROVA
+0x1800610a0  (1 strings)
+    MOTOR_CACHE_MB
+0x1800612b0  (1 strings)
+    vista da textura pronta
+0x1800617e0  (3 strings)
+    CreatePixelShader(t)
+    ps_5_0
+    transicao.hlsl
+0x180061bf0  (4 strings)
+    CreateVertexShader(t)
+    VSTransicao
+    transicao.hlsl
+    vs_5_0
+0x180061f10  (1 strings)
+    nao esta' na tabela kTransicoes
+0x180061fe0  (3 strings)
+    alvo A/B CreateTexture2D
+    alvo A/B RTV
+    alvo A/B SRV
+0x180062150  (7 strings)
+    CreatePixelShader(desf)
+    CreateVertexShader(desf)
+    PSDesfoque
+    VSDesfoque
+    desfoque.hlsl
+    ps_5_0
+    vs_5_0
+0x180062920  (58 strings)
+     nao esta' guardada e veio sem pixels
+     nao esta' guardado e veio sem pixels
+    ' chegou sem os dois alvos desenhados
+    CreateBlendState
+    CreateBlendState(iso)
+    CreateBlendState(sem)
+    CreateBuffer
+    CreateBuffer(2)
+    CreateBuffer(ac)
+    CreateBuffer(desf)
+    CreateBuffer(desf-f)
+    CreateBuffer(iso-ac)
+    CreateBuffer(reg)
+    CreateBuffer(t)
+    CreatePixelShader
+    CreatePixelShader(ac)
+    CreatePixelShader(iso)
+    CreatePixelShader(reg)
+    CreateRasterizerState
+    CreateRenderTargetView
+    CreateSamplerState
+    CreateVertexShader
+    CreateVertexShader(ac)
+    CreateVertexShader(iso)
+    CreateVertexShader(reg)
+    CreateVertexShader(t)
+    LUT de arquivo ligada sem o atlas
+    PSAcabamento
+    PSIsolar
+    PSPrincipal
+    PSRegiao
+    VSAcabamento
+    VSIsolar
+    VSPrincipal
+    VSRegiao
+    VSTransicao
+    a mascara 
+    a regiao chegou sem a cena fora da tela
+    a tabela de cor 
+    a textura 
+0x1800678f0  (1 strings)
+    CreateBuffer(iso)
+0x180067a40  (2 strings)
+    alvo CreateTexture2D
+    staging CreateTexture2D
+0x180069370  (2 strings)
+     (HRESULT 
+    0x%08lX
+0x180069660  (1 strings)
+    #>u,%M
+0x1800696e0  (1 strings)
+    #>u,%M
+0x180069740  (4 strings)
+    O1A[
+    codificador de hardware sem nome
+    codificador por SOFTWARE do Windows
+    vids
+0x180069a40  (2 strings)
+    O1A[
+    vids
+0x180069dc0  (35 strings)
+    $&3 
+    AddStream
+    BeginWriting
+    MFCreateAttributes
+    MFCreateDXGIDeviceManager
+    MFCreateMediaType entrada
+    MFCreateMediaType saida
+    MFCreateSinkWriterFromURL (nao consegui abrir o arquivo de saida)
+    MFStartup
+    MF_MT_FRAME_RATE entrada
+    MF_MT_FRAME_RATE saida
+    MF_MT_FRAME_SIZE entrada
+    MF_MT_FRAME_SIZE saida
+    MF_MT_PIXEL_ASPECT_RATIO entrada
+    MF_MT_PIXEL_ASPECT_RATIO saida
+    MOTOR_QUALIDADE
+    MOTOR_VELOCIDADE
+    O1A[
+    ResetDevice (o codificador nao aceitou a placa)
+    SetInputMediaType (o codificador recusou o formato de entrada)
+    VBR com teto
+    VBR sem teto
+    codificador de hardware (o Windows nao quis dizer qual)
+    codificador por SOFTWARE do Windows (a placa desta maquina ficou marcada)
+    export: abrindo o arquivo (MFCreateSinkWriterFromURL)
+    export: comecando a escrever (BeginWriting)
+    export: configurando o codificador
+    export: criando o codificador (SetInputMediaType)
+    o padrao da placa (nao consegui falar com o codificador)
+    o padrao da placa (recusou o que pedi)
+    o padrao da placa (sem ICodecAPI)
+    qH264
+    qualidade constante (
+    software
+    vids
+0x18006b1d0  (8 strings)
+    AddBuffer
+    MFCreateDXGISurfaceBuffer
+    MFCreateSample
+    SetSampleDuration
+    SetSampleTime
+    WriteSample
+    o codificador ja' foi fechado
+    quadro nulo
+0x18006b4c0  (10 strings)
+    AddBuffer
+    CreateTexture2D do anel da gravacao
+    MFCreateDXGISurfaceBuffer
+    MFCreateSample
+    SetSampleDuration
+    SetSampleTime
+    WriteSample
+    o codificador ja' foi fechado
+    o codificador nao soltou o quadro anterior em 10 s
+    quadro nulo
+0x18006bb80  (1 strings)
+    Finalize (o arquivo pode ter saido pela metade)
+0x18006bc50  (10 strings)
+    $&3 
+    ativar_mft
+    dizer_os_tipos
+    erro
+    flush
+    qH264
+    qNV12
+    tipo_entrada_ok
+    tipo_saida_ok
+    vids
+0x18006c3f0  (24 strings)
+    $&3 
+    00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+    1_ativou
+    1_hr
+    2_destravou
+    2_e_assincrono
+    2_hr
+    2_tem_atributos
+    3_amarrou_device
+    3_criou_gerente
+    3_hr
+    3_mft_aceitou_d3d
+    4_saida_hr
+    4_saida_ok
+    5_ENTRADA_OK
+    5_entrada_hr
+    6_flush_s
+    7_aceita_bgra
+    7_bgra_hr
+    8_entrada_fourcc_
+    qH264
+    qNV12
+    total_s
+    vids
+0x18006fa10  (15 strings)
+     de 8 faixas erradas; 
+    .HNKd
+    8 de 8 faixas certas
+    a prova nao trouxe bytes para ler
+    faixa %d: Y %.0f/%d U %.0f/%d V %.0f/%d, tremor %.1f
+    o decodificador falhou na prova
+    o decodificador nao devolveu quadro
+    o decodificador nao entrega NV12
+    o decodificador recusou o H.264
+    o decodificador recusou os bytes da prova
+    o quadro lido tem tamanho inesperado
+    qH264
+    sem decodificador H.264 no Windows
+    sem memoria para ler a prova
+    vids
+0x180070a20  (1 strings)
+    qNV12
+0x1800715d0  (4 strings)
+    MOTOR_CODIFICADOR
+    memoria
+    placa
+    software
+0x1800717b0  (3 strings)
+    ProcessOutput (codificador por software)
+    o codificador por software mudou a saida e nao aceitou de volta
+    sem memoria para a saida do codificador por software
+0x180071bd0  (1 strings)
+    O1A[
+0x180071d20  (1 strings)
+    (sem nome)
+0x180071f70  (22 strings)
+     (memoria)
+     bytes, cabecalho 
+     codificadores de hardware desta maquina aceitou codificar (
+     | cor declarada: BT.709
+     | cor declarada: matriz 
+     | cor: nao declarada
+     | cor: sem SPS na prova (
+     | imagem conferida
+     | imagem: nao deu para conferir (
+    (sem nome)
+    , pela MEMORIA COMUM (direto na placa nao serviu)
+    ESTRAGADA
+    MFTEnum2
+    MOTOR_PRODUTOR_MEMORIA
+    memoria
+    mesma placa do motor (a exata, pelo LUID), provado com um quadro
+    mesma placa do motor, provado com um quadro
+    nao achei codificador H.264 de hardware
+    nenhum dos 
+    outra placa (a nossa nao serviu), provado com um quadro
+    software
+    vids
+0x180073990  (39 strings)
+    #>u,%M
+    $&3 
+    .HNKd
+    MFCreateDXGIDeviceManager
+    MFCreateDXGISurfaceBuffer na prova
+    MFCreateSample na prova
+    MFT_MESSAGE_SET_D3D_MANAGER
+    MOTOR_PRODUTOR_FORMATO
+    MOTOR_PROVA_ESTRAGADA
+    ResetDevice
+    SetOutputType (recusou H.264 nesta resolucao)
+    a imagem da prova voltou ESTRAGADA (
+    bgra
+    codificador: ativando o MFT
+    codificador: comecando a transmissao (BEGIN_STREAMING)
+    codificador: conferindo a imagem da prova
+    codificador: drenando a prova
+    codificador: ligando a placa (SET_D3D_MANAGER)
+    codificador: limpando a prova (FLUSH)
+    codificador: prova com a imagem de faixas
+    codificador: tipos de saida e entrada
+    configurou tudo e nao pediu um quadro sequer em 1,5 s (MFT mudo: costuma ser codificador de OUTRA placa)
+    direto
+    memoria
+    na placa ele converte o BGRA do jeito dele e nao declarou BT.709 (a cor sairia errada)
+    nao ativou
+    nao criei a textura da prova
+    nao gera eventos (nao e' assincrono)
+    nao montei o quadro da prova na memoria
+    nv12
+    qH264
+    qNV12
+    recebeu o quadro da prova (memoria) e nao devolveu bytes em 1,5 s
+    recebeu o quadro da prova e nao devolveu bytes em 1,5 s
+    recusou BGRA e NV12 na memoria
+    recusou BGRA na placa (so' NV12)
+    recusou o quadro da prova
+    recusou o quadro da prova (memoria)
+    vids
+0x180075180  (21 strings)
+     | imagem conferida
+     | imagem: nao deu para conferir (
+    #>u,%M
+    $&3 
+    .HNKd
+    MOTOR_PROVA_ESTRAGADA
+    a imagem da prova voltou ESTRAGADA (
+    codificador (software): comecando a transmissao
+    codificador (software): prova com a imagem de faixas
+    codificador por SOFTWARE do Windows (a placa desta maquina ja' falhou e ficou marcada), pela MEMORIA COMUM
+    nao achei o codificador H.264 por software do Windows
+    nao criei a textura da prova
+    nao montei o quadro da prova na memoria
+    nv12
+    qH264
+    qNV12
+    recusou H.264 nesta resolucao
+    recusou NV12 na entrada
+    recusou o quadro da prova
+    software
+    vids
+0x180076300  (1 strings)
+    codificador por software do Windows: 
+0x180076530  (18 strings)
+    aloca_saida
+    bytes_ate_agora
+    bytes_do_ultimo_pedaco
+    cabecalho_do_fluxo
+    candidatos
+    entradas
+    exatos_da_placa
+    flags_entrada
+    flags_saida
+    hr_baixa_latencia
+    hr_sem_b
+    imagem_prova
+    pedidos_pendentes
+    pela_memoria
+    saidas
+    segura_entrada
+    software
+    tentados
+0x180076fe0  (23 strings)
+     s (nenhum evento do MFT)
+    AddBuffer
+    GetEvent
+    MFCreateDXGISurfaceBuffer
+    MFCreateSample
+    MOTOR_PROVA_MUDO
+    ProcessInput
+    ProcessInput (codificador por software)
+    ProcessOutput (codificador por software)
+    codificador (software): descendo o quadro da placa
+    codificador (software): drenando
+    codificador (software): entregando quadro
+    codificador: descendo o quadro da placa (memoria)
+    codificador: drenando (END_OF_STREAM + DRAIN)
+    codificador: entregando quadro (ProcessInput)
+    codificador: esperando evento do MFT
+    codificador: recolhendo bytes (ProcessOutput)
+    descer o quadro para a memoria
+    direto na placa o codificador converte a cor do jeito dele e nao declarou BT.709; o proximo pedaco vai pela me
+    o codificador nao respondeu em 
+    o codificador nao respondeu em 20 s (nenhum evento do MFT) [prova]
+    o codificador por software mudou a saida e nao aceitou de volta
+    sem memoria para a saida do codificador por software
+0x180077fc0  (11 strings)
+    CreateTexture2D (a textura preta da sonda)
+    abrir_s
+    bgra
+    bytes
+    cabecalho_bytes
+    comeca_em_sps
+    entrada_bgra
+    pedaco_s
+    pela_memoria
+    primeiro_nal
+    tem_idr
+0x180079110  (3 strings)
+    O1A[
+    qMJPG
+    vids
+0x18007b600  (1 strings)
+    vector too long
+0x18007c9d0  (5 strings)
+    CreateTexture2D do quadro
+    DuplicateOutput
+    esta tela nao aceita captura (DXGI_ERROR_UNSUPPORTED) -- costuma ser sessao remota ou driver sem suporte
+    nao achei monitor nenhum pelo DXGI
+    o Windows negou a captura desta tela (E_ACCESSDENIED) -- ha' uma tela protegida ou segura em primeiro plano
+0x18007d910  (1 strings)
+    nao ha' gravacao em andamento
+0x18007dc10  (1 strings)
+    AcquireNextFrame
+0x18007ea50  (1 strings)
+    nao ha' o que pausar
+0x18007eb00  (1 strings)
+    nao ha' o que retomar
+0x18007ebb0  (11 strings)
+    cursor_copia
+    cursor_desenhados
+    cursor_recusas
+    cursor_visivel
+    cursor_x
+    cursor_y
+    erro
+    gravando
+    pausado
+    quadros
+    segundos
+0x1800811b0  (1 strings)
+    nao consegui criar o arquivo de audio
+0x18008154f  (3 strings)
+    RIFF
+    WAVEfmt 
+    data
+0x180082190  (11 strings)
+    Activate
+    GetMixFormat
+    GetService(IAudioCaptureClient)
+    IAudioClient::Initialize
+    MMDeviceEnumerator
+    Start
+    abrir a saida de som
+    abrir o microfone
+    nao ha' saida de som ligada neste computador
+    o microfone escolhido nao esta' mais ligado
+    o microfone esta' em uso por outro programa
+0x180084890  (1 strings)
+    ja' ha' captura de audio em andamento
+0x180084df0  (1 strings)
+    microfone
+0x180085790  (1 strings)
+    ja' ha' captura de audio em andamento
+0x18008dec0  (13 strings)
+    .HNKd
+    @USVWATAUAVAWH
+    GetCurrentMediaType
+    MFCreateAttributes
+    MFCreateAttributes(reader)
+    MFCreateDeviceSource
+    MFCreateMediaType
+    MFCreateSourceReaderFromMediaSource
+    SetCurrentMediaType(RGB32)
+    a camera ja' esta' aberta
+    nao achei webcam nenhuma nesta maquina
+    o Windows negou o acesso a' camera -- verifique Privacidade > Camera nas Configuracoes
+    vids
+0x18008e850  (3 strings)
+    CreateTexture2D da webcam
+    a camera nao esta' aberta
+    ja' existe uma gravacao de webcam em andamento
+0x18008eb90  (1 strings)
+    nao ha' gravacao de webcam
+0x18008fb30  (13 strings)
+    aberta
+    altura
+    camera_fps
+    camera_tipo
+    erro
+    gravando
+    largura
+    pausado
+    previa_erro_afinidade
+    previa_protegida
+    previa_sem_transparencia
+    quadros
+    segundos
+0x1800904c0  (1 strings)
+    nao ha' o que pausar
+0x180090570  (1 strings)
+    nao ha' o que retomar
+0x180090760  (2 strings)
+    @USVWAVH
+    nao abri a janela da previa
+0x180090a20  (8 strings)
+    altura
+    clipe_altura
+    clipe_largura
+    clipe_x
+    clipe_y
+    largura
+    proporcao
+    viva
+0x180091a80  (3 strings)
+    canal
+    fracao
+    sem_quadro
+0x180093820  (4 strings)
+    @USVWATAUAVAWH
+    ALAUKCUT_PREVIA_FORCAR_PLANO_B
+    ALAUKCUT_PREVIA_SEM_PROTECAO
+    CreateWindowEx da previa falhou
+0x180094980  (1 strings)
+    ReadSample
+0x1800964c0  (10 strings)
+    GetCurrentMediaType
+    MFCreateAttributes
+    MFCreateDXGIDeviceManager
+    MFCreateMediaType
+    MFCreateSourceReaderFromURL (nao consegui abrir o video)
+    MFStartup
+    ResetDevice (o decodificador nao aceitou a placa)
+    SetCurrentMediaType (a placa nao entrega ARGB32 deste video)
+    video: abrindo o arquivo (SourceReader)
+    vids
+0x180096cc0  (6 strings)
+    GetBufferByIndex
+    IMFDXGIBuffer::GetResource
+    ReadSample
+    o decodificador devolveu o quadro na MEMORIA COMUM, e nao na placa -- o ganho da Etapa F depende de ele nascer
+    video: buscando (SetCurrentPosition)
+    video: lendo quadro (ReadSample)
+0x180097460  (2 strings)
+    D2D1CreateFactory
+    DWriteCreateFactory
+0x1800975a0  (6 strings)
+    ID2D1Device
+    ID2D1DeviceContext
+    IDXGIDevice
+    IDXGISurface
+    alvo da legenda
+    bitmap do alvo
+0x180097c40  (5 strings)
+    AddFontFile
+    CreateFontCollectionFromFontSet
+    CreateFontSet
+    CreateFontSetBuilder
+    nao abri o arquivo da fonte
+0x180097e60  (2 strings)
+    Map do texto
+    staging do texto
+0x180098210  (3 strings)
+    paradas do degrade
+    pincel da palavra
+    pincel de degrade
+0x1800988b0  (2 strings)
+    AV;mP
+    CreateTextFormat (familia certa?)
+0x180098fb0  (3 strings)
+    IDXGISurface da faixa
+    bitmap da faixa
+    textura da faixa
+0x180099180  (7 strings)
+    CommandList(vertical)
+    EndDraw da faixa
+    EndDraw(vertical)
+    efeito do brilho
+    modulacao vertical
+    recorte da faixa
+    soma do brilho
+0x180099850  (4 strings)
+    CommandList(dissolver)
+    EndDraw(dissolver)
+    apagar o dissolver
+    pincel do dissolver
+0x180099b70  (23 strings)
+    Close(bisel)
+    CommandList(glow)
+    CreateCommandList
+    CreatePathGeometry
+    CreateTextLayout
+    Draw(contorno)
+    EXCLUDE do bisel
+    EndDraw antes do glow
+    EndDraw da caixa
+    EndDraw da lista
+    EndDraw da sombra
+    EndDraw do glow
+    EndDraw do texto
+    EndDraw(glow)
+    Open(bisel)
+    efeito de glow
+    efeito de sombra
+    estilo do traco
+    pincel da caixa
+    pincel do bisel
+    pincel do rim light
+    pincel do texto
+    pincel do traco
+0x18009bd70  (11 strings)
+    AV;mP
+    CreateDxgiSurfaceRenderTarget
+    CreateSolidColorBrush
+    CreateTextFormat (familia certa?)
+    CreateTextLayout
+    EndDraw
+    Map do texto
+    QueryInterface IDXGISurface
+    SetFontAxisValues
+    alvo do texto
+    staging do texto
+0x18009c750  (1 strings)
+    @SUVWH
+0x18009caa0  (2 strings)
+    a imagem do desenho nao veio e nao estava guardada: 
+    imagem do desenho
+0x18009cea0  (8 strings)
+    CreateTextLayout(desenho)
+    EndDraw da sombra(desenho)
+    desenho(fechar)
+    desenho(geo)
+    desenho(pia)
+    lista da sombra(desenho)
+    pincel de imagem(desenho)
+    sombra(desenho)
+0x18009d8a0  (1 strings)
+    EndDraw do desenho
+0x18009de90  (1 strings)
+    textura do desenho na placa
+0x18009eda0  (6 strings)
+    CreateStrokeStyle(ef)
+    D2D1CreateFactory(ef)
+    DWriteCreateFactory(ef)
+    ID2D1Device(ef)
+    ID2D1DeviceContext(ef)
+    IDXGIDevice(ef)
+0x18009f0c0  (6 strings)
+    CreateCommandList(mat)
+    CreateTextFormat(mat)
+    CreateTextLayout(mat)
+    EndDraw da lista(mat)
+    efeito de sombra(mat)
+    pincel(mat)
+0x18009f5c0  (1 strings)
+    pincel da linha
+0x18009f6e0  (14 strings)
+    EndDraw do brilho
+    EndDraw do efeito
+    IDXGISurface(ef)
+    alvo do efeito
+    bitmap do efeito
+    efeito de borrao
+    lista do brilho
+    paradas do gradiente
+    pincel do efeito
+    pincel do poligono
+    pincel radial
+    poligono(fechar)
+    poligono(geo)
+    poligono(pia)
+0x1800a0a10  (4 strings)
+    00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354
+    @SUVWAVH
+    CreateWindowEx falhou (
+    Hnao achei a janela do app (o app subiu?)
+0x1800a0dc0  (2 strings)
+    @USVWAVH
+    a janela ainda esta' subindo
+0x1800a0f60  (6 strings)
+    CreateSwapChainForHwnd
+    GetAdapter
+    IDXGIDevice
+    IDXGIFactory2
+    ResizeBuffers
+    tamanho invalido
+0x1800a14d0  (1 strings)
+    GetBuffer
+0x1800a1610  (2 strings)
+    Present
+    a cadeia nao esta' de pe'
+0x1800a16e0  (4 strings)
+    CreateRenderTargetView
+    GetBuffer
+    Present
+    a cadeia nao esta' de pe'
+0x1800a1920  (4 strings)
+    GetBuffer(prova)
+    Map da prova
+    a cadeia nao esta' de pe'
+    staging da prova
+0x1800a1c40  (6 strings)
+     cadeia=
+     erro=
+     janela=
+     retangulo=
+     visivel=
+    etapa=
+0x1800a6d40  (1 strings)
+    Caught an unknown nested exception!
+0x1800a6da0  (1 strings)
+    Caught an unknown exception!
+0x1800a77d0  (1 strings)
+    <repr raised Error>
+0x1800a9c20  (2 strings)
+    desenho falhou: 
+    erro
+0x1800a9dc0  (2 strings)
+    erro
+    o motor nativo falhou ao desenhar: 
+0x1800a9e70  (2 strings)
+    erro
+    pronta
+0x1800aa4e0  (1 strings)
+    initialization failed
+0x1800ad000  (1 strings)
+    nao abri o arquivo de saida: 
+0x1800ad0d0  (1 strings)
+    nao abri a placa da tela: 
+0x1800ad620  (1 strings)
+    nao abri o arquivo da webcam: 
+0x1800ad6d0  (1 strings)
+    nao abri a placa para a webcam: 

@@ -470,7 +470,9 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             </span>
             <span className="home-pillar-tag">Pilar 1</span>
           </div>
-          <h3>Editor Multi-Pista</h3>
+          {/* h2 (no h3): las cards van tras el h1 de la vista; h3 saltaba un
+              nivel y axe heading-order lo marca (moderate). */}
+          <h2>Editor Multi-Pista</h2>
           <p>Línea de tiempo con capas de video V1/V2, audio A1/A2, cortes precisos, zoom y preview en tiempo real.</p>
           <span className="home-pillar-cta">Abrir Editor →</span>
         </div>
@@ -488,7 +490,7 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             </span>
             <span className="home-pillar-tag">Pilar 2</span>
           </div>
-          <h3>Creador 9:16 & 16:9</h3>
+          <h2>Creador 9:16 & 16:9</h2>
           <p>Plantillas optimizadas para TikTok, Reels y Shorts con ganchos visuales en los primeros 3 segundos.</p>
           <span className="home-pillar-cta">Explorar Plantillas →</span>
         </div>
@@ -506,7 +508,7 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             </span>
             <span className="home-pillar-tag">Pilar 3</span>
           </div>
-          <h3>Subtítulos y Cues</h3>
+          <h2>Subtítulos y Cues</h2>
           <p>Generación de subtítulos automáticos con sincronización temporal exacta y exportación en SRT / VTT.</p>
           <span className="home-pillar-cta">Gestionar Subtítulos →</span>
         </div>
@@ -524,7 +526,7 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             </span>
             <span className="home-pillar-tag">Pilar 4</span>
           </div>
-          <h3>Director & Guiones IA</h3>
+          <h2>Director & Guiones IA</h2>
           <p>Asistente para estructurar ideas, generar diálogos por escena y optimizar la retención de audiencia.</p>
           <span className="home-pillar-cta">Consultar Director →</span>
         </div>
@@ -761,10 +763,6 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             <button type="button" onClick={() => onNavigate('editor')}>
               <Icon name="editor" size={15} />
               <span>Editor</span>
-            </button>
-            <button type="button" onClick={() => onNavigate('auto-edit')}>
-              <Icon name="sparkles" size={15} />
-              <span>Automático</span>
             </button>
             <button type="button" onClick={() => onNavigate('youtube')}>
               <Icon name="globe" size={15} />

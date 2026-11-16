@@ -33,6 +33,8 @@ export type ShortcutId =
   | 'edit.duplicateClip'
   | 'edit.rippleDelete'
   | 'edit.deselect'
+  | 'edit.copyAttributes'
+  | 'edit.pasteAttributes'
   | 'playback.playPause'
   // Atajos "pro" (paridad CapCut / DaVinci / Premiere): sólo acciones que ya
   // existen en la app. Detalle por área, estado de cableado y pendientes en
@@ -46,6 +48,14 @@ export type ShortcutId =
   | 'playback.goToEnd'
   | 'timeline.splitAtPlayhead'
   | 'timeline.toggleMarker'
+  | 'timeline.markerNext'
+  | 'timeline.markerPrev'
+  | 'timeline.cutLeft'
+  | 'timeline.cutRight'
+  | 'timeline.compoundClip'
+  | 'timeline.uncompoundClip'
+  | 'timeline.markerAdd'
+  | 'timeline.markerRemoveLast'
   | 'timeline.setInPoint'
   | 'timeline.setOutPoint'
   | 'timeline.clearInOut'
@@ -66,17 +76,22 @@ export type ShortcutId =
   // Timeline.tsx: ahora se reasignan desde Ajustes → Atajos.
   | 'timeline.rippleToggle'
   | 'timeline.panMode'
+  | 'timeline.skim'
   | 'timeline.copyClip'
   | 'timeline.pasteClip'
   | 'timeline.deleteWithRipple'
   | 'timeline.moveGroupLeft'
   | 'timeline.moveGroupRight'
+  | 'timeline.insertSolid'
   // Selector de herramienta de la timeline (antes V/C/A/Shift+A/Z fijos).
   | 'tools.select'
   | 'tools.split'
   | 'tools.selectBackward'
   | 'tools.selectForward'
-  | 'tools.zoom';
+  | 'tools.zoom'
+  | 'tools.slip'
+  | 'tools.slide'
+  | 'tools.roll';
 
 export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'palette.toggle': 'Paleta de comandos',
@@ -98,6 +113,8 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'edit.duplicateClip': 'Duplicar clip',
   'edit.rippleDelete': 'Eliminar clip y cerrar hueco',
   'edit.deselect': 'Deseleccionar todo',
+  'edit.copyAttributes': 'Copiar atributos del clip seleccionado',
+  'edit.pasteAttributes': 'Pegar atributos en el clip seleccionado',
   'playback.playPause': 'Reproducir / Pausar',
   'playback.shuttleForward': 'Shuttle: reproducir hacia adelante',
   'playback.shuttleReverse': 'Shuttle: reproducir hacia atrás',
@@ -108,6 +125,14 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'playback.goToEnd': 'Ir al final de la timeline',
   'timeline.splitAtPlayhead': 'Dividir clip en el playhead',
   'timeline.toggleMarker': 'Marcador en el playhead',
+  'timeline.markerNext': 'Ir al marcador siguiente',
+  'timeline.markerPrev': 'Ir al marcador anterior',
+  'timeline.cutLeft': 'Cortar en la aguja y borrar lo anterior (Q)',
+  'timeline.cutRight': 'Cortar en la aguja y borrar lo posterior (W)',
+  'timeline.compoundClip': 'Agrupar en compuesto (Alt+G)',
+  'timeline.uncompoundClip': 'Deshacer compuesto (Alt+Shift+G)',
+  'timeline.markerAdd': 'Agregar marcador sin alternar (Alt+M)',
+  'timeline.markerRemoveLast': 'Quitar el marcador más reciente (Alt+Shift+M)',
   'timeline.setInPoint': 'Punto de entrada (in) de la secuencia en el playhead',
   'timeline.setOutPoint': 'Punto de salida (out) de la secuencia en el playhead',
   'timeline.clearInOut': 'Quitar puntos de entrada/salida de la secuencia',
@@ -124,16 +149,21 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'timeline.clipTrimOut': 'Recortar el borde de salida del clip seleccionado',
   'timeline.rippleToggle': 'Activar/desactivar ripple (mover y recortar desplaza)',
   'timeline.panMode': 'Alternar modo mano (pan de la timeline)',
+  'timeline.skim': 'Pasar el mouse sobre la timeline mueve el playhead (skim)',
   'timeline.copyClip': 'Copiar clip seleccionado',
   'timeline.pasteClip': 'Pegar clip copiado',
   'timeline.deleteWithRipple': 'Borrar selección cerrando los huecos',
   'timeline.moveGroupLeft': 'Mover los clips seleccionados 1 frame a la izquierda',
   'timeline.moveGroupRight': 'Mover los clips seleccionados 1 frame a la derecha',
+  'timeline.insertSolid': 'Insertar cuadro sólido en el playhead (B)',
   'tools.select': 'Selector: herramienta Seleccionar',
   'tools.split': 'Selector: herramienta Corte ágil',
   'tools.selectBackward': 'Selector: seleccionar hacia atrás',
   'tools.selectForward': 'Selector: seleccionar hacia adelante',
   'tools.zoom': 'Selector: herramienta Zoom',
+  'tools.slip': 'Selector: herramienta Slip (deslizar fuente)',
+  'tools.slide': 'Selector: herramienta Slide (deslizar clip)',
+  'tools.roll': 'Selector: herramienta Roll (rodar corte)',
 };
 
 export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
@@ -156,6 +186,8 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'edit.duplicateClip': 'Editar',
   'edit.rippleDelete': 'Editar',
   'edit.deselect': 'Editar',
+  'edit.copyAttributes': 'Editar',
+  'edit.pasteAttributes': 'Editar',
   'playback.playPause': 'Reproducción',
   'playback.shuttleForward': 'Reproducción',
   'playback.shuttleReverse': 'Reproducción',
@@ -166,6 +198,14 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'playback.goToEnd': 'Reproducción',
   'timeline.splitAtPlayhead': 'Timeline',
   'timeline.toggleMarker': 'Timeline',
+  'timeline.markerNext': 'Timeline',
+  'timeline.markerPrev': 'Timeline',
+  'timeline.cutLeft': 'Timeline',
+  'timeline.cutRight': 'Timeline',
+  'timeline.compoundClip': 'Timeline',
+  'timeline.uncompoundClip': 'Timeline',
+  'timeline.markerAdd': 'Timeline',
+  'timeline.markerRemoveLast': 'Timeline',
   'timeline.setInPoint': 'Timeline',
   'timeline.setOutPoint': 'Timeline',
   'timeline.clearInOut': 'Timeline',
@@ -182,16 +222,21 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'timeline.clipTrimOut': 'Timeline',
   'timeline.rippleToggle': 'Timeline',
   'timeline.panMode': 'Timeline',
+  'timeline.skim': 'Timeline',
   'timeline.copyClip': 'Timeline',
   'timeline.pasteClip': 'Timeline',
   'timeline.deleteWithRipple': 'Timeline',
   'timeline.moveGroupLeft': 'Timeline',
   'timeline.moveGroupRight': 'Timeline',
+  'timeline.insertSolid': 'Timeline',
   'tools.select': 'Herramientas',
   'tools.split': 'Herramientas',
   'tools.selectBackward': 'Herramientas',
   'tools.selectForward': 'Herramientas',
   'tools.zoom': 'Herramientas',
+  'tools.slip': 'Herramientas',
+  'tools.slide': 'Herramientas',
+  'tools.roll': 'Herramientas',
 };
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
@@ -214,6 +259,11 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   'edit.duplicateClip': 'Ctrl+D',
   'edit.rippleDelete': 'Ctrl+Shift+Delete',
   'edit.deselect': 'Escape',
+  // Alt+C/V como en AlaukCut (`copiarAtributos`/`colarAtributos`): atributos
+  // del clip seleccionado, independientes del portapapeles de clips y de
+  // keyframes.
+  'edit.copyAttributes': 'Alt+C',
+  'edit.pasteAttributes': 'Alt+V',
   'playback.playPause': 'Space',
   // Shuttle: L reproduce hacia adelante, J hacia atrás (dirección en el
   // motor desde 2026-11-08), K pausa. La dirección queda activa hasta el
@@ -229,6 +279,20 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   // Timeline); el registro documenta esa tecla y permite reasignarla.
   'timeline.splitAtPlayhead': 'S',
   'timeline.toggleMarker': 'M',
+  // Shift+M / Ctrl+Shift+M como en AlaukCut (`Marcadores.proximo/anterior`).
+  'timeline.markerNext': 'Shift+M',
+  'timeline.markerPrev': 'Ctrl+Shift+M',
+  // Q/W como en AlaukCut (`cortarLadoDaAgulha`): divide en la aguja y borra
+  // la mitad anterior/posterior del clip seleccionado o de todos los clips.
+  'timeline.cutLeft': 'Q',
+  'timeline.cutRight': 'W',
+  // Alt+G / Alt+Shift+G como en AlaukCut (`compor`/`descompor`).
+  'timeline.compoundClip': 'Alt+G',
+  'timeline.uncompoundClip': 'Alt+Shift+G',
+  // Alt+M / Alt+Shift+M como en AlaukCut (`Marcadores.incluir`/
+  // `removerUltimo`): agregar sin alternar y quitar el más reciente.
+  'timeline.markerAdd': 'Alt+M',
+  'timeline.markerRemoveLast': 'Alt+Shift+M',
   // I/O como en Kdenlive: puntos de entrada/salida de la secuencia.
   'timeline.setInPoint': 'I',
   'timeline.setOutPoint': 'O',
@@ -253,16 +317,26 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   // transparente para quien nunca abrió Ajustes → Atajos.
   'timeline.rippleToggle': 'Shift+R',
   'timeline.panMode': 'H',
+  // En AlaukCut skim es «S», pero acá S divide el clip: queda «U» por defecto
+  // y se puede reasignar (o usar el botón de la barra).
+  'timeline.skim': 'U',
   'timeline.copyClip': 'Ctrl+C',
   'timeline.pasteClip': 'Ctrl+V',
   'timeline.deleteWithRipple': 'Shift+Delete',
   'timeline.moveGroupLeft': 'Alt+Shift+ArrowLeft',
   'timeline.moveGroupRight': 'Alt+Shift+ArrowRight',
+  // B como en AlaukCut (`quadroBranco` → `Telas.inserir('branco')`).
+  'timeline.insertSolid': 'B',
   'tools.select': 'V',
   'tools.split': 'C',
   'tools.selectBackward': 'Shift+A',
   'tools.selectForward': 'A',
   'tools.zoom': 'Z',
+  // Slip/slide/roll como en Premiere (Y/U/N): U ya es skim en esta app,
+  // así que slide queda en T. Son herramientas del selector de la timeline.
+  'tools.slip': 'Y',
+  'tools.slide': 'T',
+  'tools.roll': 'N',
 };
 
 const ALL_IDS = Object.keys(DEFAULT_SHORTCUTS) as ShortcutId[];

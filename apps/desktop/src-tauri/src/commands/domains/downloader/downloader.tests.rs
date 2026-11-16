@@ -443,7 +443,12 @@ fn cinematic_filter_contains_the_full_recipe() {
     assert!(filter.contains("setpts=PTS/0.98"));
     assert!(filter.contains("minterpolate=fps=60"));
     assert!(filter.contains("mi_mode=mci"));
-    assert!(filter.contains("eq=gamma=0.95:contrast=1.08:saturation=1.12"));
+    // FFmpeg 9 eliminó `eq`: la receta sale como lutyuv con los mismos
+    // valores (gamma 0.95 → pow 1/0.95=1.052632; contraste 1.08; sat 1.12).
+    assert!(filter.contains("lutyuv="));
+    assert!(filter.contains("1.052632"), "{filter}");
+    assert!(filter.contains("1.080000"), "{filter}");
+    assert!(filter.contains("1.120000"), "{filter}");
     assert!(filter.contains("scale=trunc(iw*1.04/2)*2"));
     assert!(filter.contains("hflip"));
     assert!(filter.contains("noise=alls=8:allf=t+u"));
@@ -558,7 +563,7 @@ fn pipeline_filter_orders_denoise_delogo_lanczos_and_look() {
     let denoise = filter.find("hqdn3d=").unwrap();
     let delogo = filter.find("delogo=x=160:y=20:w=140:h=50").unwrap();
     let lanczos = filter.find("flags=lanczos").unwrap();
-    let look = filter.find("eq=gamma=0.95").unwrap();
+    let look = filter.find("lutyuv=").unwrap();
     assert!(denoise < delogo);
     assert!(delogo < lanczos);
     assert!(lanczos < look);

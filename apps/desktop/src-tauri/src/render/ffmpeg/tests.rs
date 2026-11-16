@@ -120,10 +120,13 @@ fn effect_stack_reaches_the_filter_chain_in_order() {
         ]
     });
     let chain = apply_effect_stack("[0:v]scale=1920:1080[v0]".to_owned(), "v0", &effects);
-    assert!(chain.contains("eq=brightness=0.5"));
+    // FFmpeg 9 no tiene `eq`: el grado sale como `lutyuv` (brillo 0.5 → +127.5).
+    assert!(chain.contains("lutyuv="), "{chain}");
+    assert!(chain.contains("+127.500000"), "{chain}");
+    assert!(!chain.contains("eq="), "{chain}");
     assert!(chain.contains("vignette=angle=0.785"));
     // El orden importa: exposición antes que viñeta.
-    let exposure = chain.find("eq=brightness").unwrap_or(usize::MAX);
+    let exposure = chain.find("lutyuv=").unwrap_or(usize::MAX);
     let vignette = chain.find("vignette=angle").unwrap_or(0);
     assert!(exposure < vignette);
     assert!(chain.ends_with("[v0]"));
@@ -140,7 +143,9 @@ fn effect_stack_skips_disabled_and_unknown_effects() {
     });
     let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
     assert!(!chain.contains("brightness"));
-    assert!(chain.contains("eq=contrast=1.4"));
+    // contraste 1.4 → coeficiente 1.400000 en la rampa luma del lutyuv.
+    assert!(chain.contains("1.400000*(val-127.5)"), "{chain}");
+    assert!(!chain.contains("eq="), "{chain}");
 }
 
 #[test]
@@ -429,11 +434,14 @@ fn effect_keyframes_build_a_segmented_concat_graph() {
         "{graph}"
     );
     assert!(graph.contains("concat=n=2:v=1:a=0[v0]"), "{graph}");
-    // Tramo 1 (frames 0-19, medio en 10): keyframe lineal → 0.0.
-    assert!(graph.contains("eq=brightness=0[seg0]"), "{graph}");
-    // Tramo 2 sostiene el último keyframe (0.5), no el param estático (0.9).
-    assert!(graph.contains("eq=brightness=0.5[seg1]"), "{graph}");
-    assert!(!graph.contains("eq=brightness=0.9"), "{graph}");
+    // Tramo 1 (frames 0-19, medio en 10): keyframe lineal → brillo 0.
+    // Tramo 2 sostiene el último keyframe (0.5 → +127.5), no el param estático (0.9 → +229.5).
+    let seg0 = graph.split("[seg0]").next().unwrap_or("");
+    assert!(seg0.contains("lutyuv="), "{graph}");
+    assert!(seg0.contains("+0.000000"), "{graph}");
+    assert!(graph.contains("+127.500000"), "{graph}");
+    assert!(!graph.contains("+229.500000"), "{graph}");
+    assert!(!graph.contains("eq="), "{graph}");
 }
 
 #[test]
@@ -597,7 +605,11 @@ fn visual_effects_reach_the_filter_chain() {
         1,
         false,
     );
-    assert!(filter.contains("eq=brightness=0.2000"));
+    // brillo 0.2 → +51.0 en la expresión luma del lutyuv (eq ya no existe en FFmpeg 9).
+    assert!(filter.contains("lutyuv="), "{filter}");
+    assert!(filter.contains("+51.000000"), "{filter}");
+    // «eq=» a secas no debe quedar (geq=/freqeq= sí son válidos).
+    assert!(!filter.contains(",eq=") && !filter.contains("]eq="), "{filter}");
     assert!(filter.contains("colorbalance=rs=0.0750"));
     assert!(filter.contains("gblur=sigma=2.000"));
     assert!(filter.contains("hqdn3d=2.00:1.50:3.00:2.30"));
@@ -611,7 +623,9 @@ fn visual_effects_reach_the_filter_chain() {
     assert!(filter.contains("curves=master='0.0000/0.0100"));
     assert!(filter.contains("0.7500/0.7120"));
     assert!(filter.contains("curves=preset=vintage"));
-    assert!(filter.contains("gamma_r="));
+    // gamma_r/g/b ya no viajan como params de eq: quedan en los exponentes
+    // pow() de las ramas u/v del lutyuv.
+    assert!(filter.matches("pow(").count() >= 2, "{filter}");
     assert!(filter.contains("colorbalance=rs="));
     assert!(filter.contains("huesaturation="));
     assert!(filter.contains("colors=r+y"));
@@ -838,7 +852,11 @@ fn project_look_builds_a_global_grade_without_clips() {
     let root = Path::new("C:/obra");
     let filters = project_look_filters(&project, root).unwrap();
     let joined = filters.join(",");
-    assert!(joined.contains("eq=brightness=0.1500:contrast=1.2000:saturation=1.3000"));
+    // eq=brightness=0.15:contrast=1.2:saturation=1.3 → lutyuv (FFmpeg 9).
+    assert!(joined.contains("lutyuv="), "{joined}");
+    assert!(joined.contains("+38.250000"), "{joined}");
+    assert!(joined.contains("1.200000*(val-127.5)"), "{joined}");
+    assert!(joined.contains("1.300000*(val-127.5)+127.5"), "{joined}");
     assert!(joined.contains("colorbalance=rs=0.1000:bs=-0.1000"));
     assert!(joined.contains("curves=master='"));
     assert!(joined.contains("curves=preset=strong_contrast"));
@@ -919,12 +937,82 @@ fn adjustment_layers_grade_the_composite_inside_their_window() {
         .iter()
         .find(|arg| arg.contains("curves=preset=vintage"))
         .expect("falta el grade de la capa de ajuste");
-    assert!(graph.contains("eq=brightness=0.0000:contrast=1.3000"));
+    // eq=brightness=0:contrast=1.3 → lutyuv con contraste 1.3 en luma.
+    assert!(graph.contains("1.300000*(val-127.5)"), "{graph}");
+    assert!(!graph.contains("eq="), "{graph}");
     assert!(graph.contains("curves=preset=vintage:enable='between(t,0.500000,1.500000)'"));
     assert!(
         graph.contains("[adj0]"),
         "la cadena ajustada no se conectó: {graph}"
     );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn spectrum_adjustment_overlays_showfreqs_inside_its_window() {
+    let mut project = project_with_adjustment(false);
+    let clip = project["timeline"]["clips"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|clip| clip["id"] == "adjclip")
+        .expect("falta el clip de ajuste");
+    clip["effects"] = serde_json::json!({
+        "spectrum": {
+            "mode": "bars",
+            "color1": "#00FF00",
+            "color2": "#0000FF",
+            "intensity": 0.7,
+            "width": 0.8,
+            "height": 0.3,
+            "x": 0.2
+        }
+    });
+    let root = std::env::temp_dir().join(format!("editor-ia-spec-{}", uuid::Uuid::new_v4()));
+    let media = root.join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    std::fs::write(media.join("video.mp4"), b"x").unwrap();
+    std::fs::write(media.join("audio.wav"), b"x").unwrap();
+    let temp = root.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let plan = build_plan(BuildPlanInput {
+        audio_only: false,
+        project: &project,
+        root: &root,
+        profile: &profile(),
+        output_path: &root.join("salida.mp4"),
+        include_captions: false,
+        temp_dir: &temp,
+        ffprobe: Path::new("ffprobe"),
+        motion_ass: None,
+    })
+    .expect("el plan con espectro debería construirse");
+    let graph = plan
+        .args
+        .iter()
+        .find(|arg| arg.contains("showfreqs"))
+        .expect("falta la cadena showfreqs del espectro");
+    assert!(graph.contains("mode=bar"), "{graph}");
+    assert!(graph.contains("colors=0x00FF00|0x0000FF"), "{graph}");
+    assert!(graph.contains("format=rgba"), "{graph}");
+    assert!(graph.contains("colorchannelmixer=aa=0.70"), "{graph}");
+    assert!(graph.contains("[spec0]showfreqs"), "{graph}");
+    let overlay = plan
+        .args
+        .iter()
+        .find(|arg| arg.contains("[specv0]") && arg.contains("overlay="))
+        .expect("falta el overlay del espectro");
+    assert!(overlay.contains("y='H-h-0.000*H'"), "{overlay}");
+    assert!(
+        overlay.contains("enable='between(t,0.500000,1.500000)'"),
+        "{overlay}"
+    );
+    let bus = plan
+        .args
+        .iter()
+        .find(|arg| arg.contains("asplit=2") && arg.contains("[aout]"))
+        .expect("el bus de audio no se bifurcó para el espectro");
+    assert!(bus.contains("[spec0]"), "{bus}");
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -1277,12 +1365,17 @@ fn freeze_clips_render_as_looped_stills_inside_the_video_track() {
         .expect("el PNG del freeze no entró como input");
     assert_eq!(plan.args[freeze_index - 7], "-loop");
     assert_eq!(plan.args[freeze_index - 6], "1");
+    // eq=brightness=0.1:saturation=1.1 → lutyuv (FFmpeg 9) con enable entrecomas.
     let graph = plan
         .args
         .iter()
-        .find(|arg| arg.contains("brightness=0.1000"))
+        .find(|arg| arg.contains("+25.500000"))
         .expect("falta el filtro del freeze");
-    assert!(graph.contains("saturation=1.1000"));
+    assert!(graph.contains("lutyuv="), "{graph}");
+    assert!(
+        graph.contains("1.100000*(val-127.5)+127.5"),
+        "saturación 1.1 del freeze: {graph}"
+    );
     assert!(
         graph.contains("between(t,0.800000,2.000000)"),
         "el freeze no respeta el solape de entrada: {graph}"
@@ -1660,6 +1753,34 @@ fn clip_animations_reach_the_filters_and_overlay_terms() {
 }
 
 #[test]
+fn clip_zoom_and_spin_animations_emit_scale_rotate_graph() {
+    let profile = profile();
+    let clip = serde_json::json!({
+        "animationIn": { "type": "zoom-in", "durationFrames": 15 },
+        "animationOut": { "type": "spin", "durationFrames": 15 }
+    });
+    let graph = animation_transform_graph("v0", 0, &clip, 2.0, 4.0, profile.fps())
+        .expect("zoom+spin deben producir grafo");
+    assert!(graph.starts_with("[v0]scale=w='iw*("));
+    assert!(graph.contains("eval=frame"));
+    assert!(graph.contains("0.82+0.18*(min(max((t-2.000000)"));
+    assert!(graph.contains("format=rgba,rotate=a='("));
+    assert!(graph.contains("120*(min(max((t-"));
+    assert!(graph.ends_with("[v0anim]"));
+
+    // Slide/fade no generan transform: el slide va por overlay y el fade por
+    // filtros dedicados.
+    let slide = serde_json::json!({
+        "animationIn": { "type": "slide-left", "durationFrames": 15 }
+    });
+    assert!(animation_transform_graph("v0", 0, &slide, 2.0, 4.0, profile.fps()).is_none());
+    let fade = serde_json::json!({
+        "animationIn": { "type": "fade", "durationFrames": 15 }
+    });
+    assert!(animation_transform_graph("v0", 0, &fade, 2.0, 4.0, profile.fps()).is_none());
+}
+
+#[test]
 fn cover_fit_scales_up_and_center_crops() {
     let mut profile = profile();
     profile.width = 1080;
@@ -1681,6 +1802,40 @@ fn cover_fit_scales_up_and_center_crops() {
     assert!(filter.contains("force_original_aspect_ratio=increase"));
     assert!(filter.contains("crop=1080:1920"));
     assert!(!filter.contains("force_original_aspect_ratio=decrease"));
+}
+
+#[test]
+fn blur_fit_builds_blurred_background_plus_contained_foreground() {
+    let mut profile = profile();
+    profile.width = 1920;
+    profile.height = 1080;
+    profile.fit = "blur".into();
+    let clip = serde_json::json!({});
+    let filter = visual_filter(
+        0,
+        &clip,
+        &serde_json::json!({}),
+        &profile,
+        3.0,
+        0.0,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    // La fuente se parte: fondo cover+crop+boxblur atenuado y primer plano
+    // contain transparente centrado, compuestos con overlay.
+    assert!(filter.contains("[bfs0]split[bfb0][bff0]"));
+    assert!(filter.contains("gblur=sigma=28"));
+    assert!(filter.contains("curves=all='0/0.05 1/0.88'"));
+    assert!(filter.contains("force_original_aspect_ratio=increase"));
+    assert!(filter.contains("force_original_aspect_ratio=decrease"));
+    assert!(filter.contains("color=black@0"));
+    assert!(filter.contains("[bfbl0][bfbg0]overlay=0:0"));
+    assert!(!filter.contains("__blur_fit__"));
+    // La cola del clip (pad/format/setpts) sigue después del overlay.
+    assert!(filter.contains("overlay=0:0,pad=ceil(iw/2)*2"));
+    assert!(filter.contains("setpts=PTS-STARTPTS+"));
 }
 
 #[test]
@@ -1999,6 +2154,102 @@ fn software_video_args_match_each_encoder_family() {
     assert!(args.contains("-preset veryfast") && args.contains("-crf 20"));
     let args = software_video_args("h264_mf", &profile()).join(" ");
     assert!(args.contains("-b:v 8000000") && !args.contains("-crf"));
+}
+
+fn prores_profile() -> serde_json::Value {
+    serde_json::json!({
+        "id": "pr",
+        "name": "ProRes 422 HQ",
+        "container": "mov",
+        "videoCodec": "prores",
+        "audioCodec": "aac",
+        "pixelFormat": "yuv422p10le",
+        "resolution": { "width": 1920, "height": 1080 },
+        "frameRate": { "num": 30, "den": 1 },
+        "bitrate": { "mode": "crf", "crf": 20 },
+        "videoPreset": "slow",
+        "qualityGate": { "minOutputBytes": 1 }
+    })
+}
+
+#[test]
+fn prores_profile_sigue_la_matriz_mov() {
+    let parsed = parse_profile(&prores_profile()).expect("ProRes MOV es válido");
+    assert_eq!(parsed.video_codec, "prores");
+    assert_eq!(parsed.container, "mov");
+    assert_eq!(parsed.pixel_format, "yuv422p10le");
+
+    // ProRes no cabe en MP4.
+    let mut bad = prores_profile();
+    bad["container"] = serde_json::json!("mp4");
+    assert!(parse_profile(&bad).is_err(), "MP4 no lleva ProRes");
+
+    // ProRes sin 4:2:2 10-bit no se puede emitir: prores_ks no acepta yuv420p.
+    let mut bad = prores_profile();
+    bad["pixelFormat"] = serde_json::json!("yuv420p");
+    assert!(parse_profile(&bad).is_err(), "ProRes exige yuv422p10le");
+
+    // 4:2:2 10-bit no lo emite ningún otro códec.
+    let mut bad = webm_profile();
+    bad["pixelFormat"] = serde_json::json!("yuv422p10le");
+    assert!(parse_profile(&bad).is_err(), "VP9 no emite yuv422p10le");
+
+    // Sin encoder de hardware: un hardwareEncoder pedido se rechaza.
+    let mut bad = prores_profile();
+    bad["hardwareEncoder"] = serde_json::json!("h264_nvenc");
+    assert!(parse_profile(&bad).is_err(), "ProRes no tiene encoder HW");
+}
+
+#[test]
+fn prores_args_usan_prores_ks_y_el_perfil_del_codec() {
+    let parsed = parse_profile(&prores_profile()).expect("perfil");
+    let encoder = software_encoder(Path::new("ffprobe"), "prores");
+    assert_eq!(encoder, "prores_ks");
+    let args = software_video_args(&encoder, &parsed).join(" ");
+    assert!(args.contains("-c:v prores_ks"), "{args}");
+    // videoPreset "slow" → perfil HQ (3) de ProRes 4:2:2.
+    assert!(args.contains("-profile:v 3"), "{args}");
+    assert!(!args.contains("-crf"), "ProRes no habla CRF: {args}");
+
+    // Presets rápidos → perfiles livianos de ProRes.
+    for (preset, level) in [
+        ("ultrafast", 0),
+        ("veryfast", 1),
+        ("faster", 2),
+        ("medium", 3),
+    ] {
+        let mut value = prores_profile();
+        value["videoPreset"] = serde_json::json!(preset);
+        let parsed = parse_profile(&value).expect("preset válido");
+        let args = software_video_args("prores_ks", &parsed).join(" ");
+        assert!(
+            args.contains(&format!("-profile:v {level}")),
+            "preset {preset} → perfil {level}: {args}"
+        );
+    }
+}
+
+#[test]
+fn prores_4444_con_alfa_emite_yuva444p10le_y_perfil_4() {
+    // Paridad `exp-alfa` de exportar_prores.js de AlaukCut.
+    let mut value = prores_profile();
+    value["pixelFormat"] = serde_json::json!("yuva444p10le");
+    let parsed = parse_profile(&value).expect("ProRes 4444 es válido");
+    assert_eq!(parsed.pixel_format, "yuva444p10le");
+
+    let args = software_video_args("prores_ks", &parsed).join(" ");
+    // videoPreset "slow" → ProRes 4444 (perfil 4); XQ (5) queda para slower.
+    assert!(args.contains("-profile:v 4"), "{args}");
+
+    value["videoPreset"] = serde_json::json!("slower");
+    let parsed = parse_profile(&value).expect("preset slower válido");
+    let args = software_video_args("prores_ks", &parsed).join(" ");
+    assert!(args.contains("-profile:v 5"), "{args}");
+
+    // yuva444p10le no lo emite ningún otro códec.
+    let mut bad = webm_profile();
+    bad["pixelFormat"] = serde_json::json!("yuva444p10le");
+    assert!(parse_profile(&bad).is_err(), "VP9 no emite yuva444p10le");
 }
 
 #[test]
@@ -2543,6 +2794,52 @@ fn audio_stack_reaches_the_audio_chain() {
 }
 
 #[test]
+fn concat_audio_effects_reach_the_audio_chain() {
+    // Los efectos `concat.*` no tienen cadena traducida en la tabla generada:
+    // la resuelve el crate vendorado `concat-effects` con sus plantillas
+    // `{expr}`. Acá se verifica que el fragmento llega entero y evaluado.
+    let effects = serde_json::json!({
+        "audioStack": [
+            {
+                "id": "hall",
+                "effectId": "concat.hall",
+                "enabled": true,
+                "params": { "size": 50.0 }
+            },
+            {
+                "id": "echo",
+                "effectId": "concat.echo",
+                "enabled": true,
+                "params": { "delay": 0.5, "decay": 0.4 }
+            },
+            {
+                "id": "off",
+                "effectId": "concat.room",
+                "enabled": false,
+                "params": { "size": 100.0 }
+            },
+            {
+                "id": "notaudio",
+                "effectId": "concat.glow",
+                "enabled": true,
+                "params": {}
+            }
+        ]
+    });
+    let mut filters = Vec::new();
+    apply_audio_effect_stack(&mut filters, &effects, 48_000);
+    let chain = filters.join(",");
+    // concat.hall con size=50 → scale=1.25 → delays 75|138|225|338 (fixtures.toml).
+    assert!(chain.contains("aecho=0.8:0.85:75|138|225|338"), "{chain}");
+    // concat.echo con delay=0.5, decay=0.4 → 500 ms y decay 0.40.
+    assert!(chain.contains("aecho=0.8:0.85:500:0.40"), "{chain}");
+    // concat.room está apagado: su firma de plate corto no aparece.
+    assert!(!chain.contains("0.320|0.240"), "apagado: {chain}");
+    // concat.glow es un efecto visual WGSL: no tiene backend de audio.
+    assert!(!chain.contains("glow"), "{chain}");
+}
+
+#[test]
 fn audio_stack_without_instances_leaves_the_chain_untouched() {
     let mut filters = vec!["aformat=sample_fmts=fltp".to_owned()];
     apply_audio_effect_stack(&mut filters, &serde_json::json!({}), 48_000);
@@ -2787,6 +3084,1094 @@ fn extra_transitions_change_the_filter_chain() {
             && !iris_frozen_filter.contains("N/"),
         "iris congelado debería usar progreso constante: {iris_frozen_filter}"
     );
+
+    // Persiana (`blinds`, port del `persiana` de AlaukCut): 10 listones con
+    // retardo decreciente, smoothstep de 4 % y alfa multiplicado (no binario).
+    let blinds = serde_json::json!({
+        "transitionIn": { "type": "blinds", "frames": 6 }
+    });
+    let blinds_filter = visual_filter(
+        0,
+        &blinds,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        blinds_filter.contains("geq=r='r(X,Y)'")
+            && blinds_filter.contains("floor(Y/H*10)")
+            && blinds_filter.contains("0.035*floor(Y/H*10)")
+            && blinds_filter.contains("alpha(X,Y)*(1-"),
+        "blinds debería emitir su máscara geq en cascada: {blinds_filter}"
+    );
+
+    // Persiana congelada: progreso constante para el preview de un frame.
+    let blinds_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "blinds", "progress": 0.5 }
+    });
+    let blinds_frozen_filter = visual_filter(
+        0,
+        &blinds_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        blinds_frozen_filter.contains("geq=r='r(X,Y)'")
+            && blinds_frozen_filter.contains("(0.500000-0.035*floor")
+            && !blinds_frozen_filter.contains("N/"),
+        "blinds congelado debería usar progreso constante: {blinds_frozen_filter}"
+    );
+
+    // Pixelado (`pixelar`, port de la transición homónima de `transiciones_gl`):
+    // el clip entrante se muestrea por bloques grandes que se achican durante
+    // el lead (geq con `floor(X/B)` — geq no tiene `%`), más fade de alpha.
+    let pixelar = serde_json::json!({
+        "transitionIn": { "type": "pixelar", "frames": 6 }
+    });
+    let pixelar_filter = visual_filter(
+        0,
+        &pixelar,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        pixelar_filter.contains("geq=r='if(lt(N,")
+            && pixelar_filter.contains("floor(X/(")
+            && pixelar_filter.contains("floor(Y/(")
+            && pixelar_filter.contains("fade=t=in:st=0:d=")
+            && pixelar_filter.contains("alpha=1"),
+        "pixelar debería emitir su geq de bloques + fade alpha: {pixelar_filter}"
+    );
+
+    // Pixelado congelado: progreso constante, sin `N/`.
+    let pixelar_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "pixelar", "progress": 0.5 }
+    });
+    let pixelar_frozen_filter = visual_filter(
+        0,
+        &pixelar_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        pixelar_frozen_filter.contains("geq=r='if(1,r(")
+            && pixelar_frozen_filter.contains("0.500000")
+            && pixelar_frozen_filter.contains("floor(X/(")
+            && !pixelar_frozen_filter.contains("N/"),
+        "pixelar congelado debería usar progreso constante: {pixelar_frozen_filter}"
+    );
+
+    // Interferencia (`interferencia`, port de `transicoes_gl` de AlaukCut):
+    // aberración cromática radial (R/B sampleados desplazados) + ruido por
+    // canal durante el lead, con la misma disolución de alfa que pixelar.
+    let interferencia = serde_json::json!({
+        "transitionIn": { "type": "interferencia", "frames": 6 }
+    });
+    let interferencia_filter = visual_filter(
+        0,
+        &interferencia,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        interferencia_filter.contains("geq=r='if(lt(N,")
+            && interferencia_filter.contains("r(X+(")
+            && interferencia_filter.contains("b(X-(")
+            && interferencia_filter.contains("sqrt(")
+            && interferencia_filter.contains("sin(")
+            && interferencia_filter.contains("fade=t=in:st=0:d=")
+            && interferencia_filter.contains("alpha=1"),
+        "interferencia debería emitir su geq cromático+ruido + fade alpha: {interferencia_filter}"
+    );
+
+    // Interferencia congelada: progreso constante, sin `N/`.
+    let interferencia_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "interferencia", "progress": 0.5 }
+    });
+    let interferencia_frozen_filter = visual_filter(
+        0,
+        &interferencia_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        interferencia_frozen_filter.contains("geq=r='if(1,clip(")
+            && interferencia_frozen_filter.contains("0.500000")
+            && !interferencia_frozen_filter.contains("N/"),
+        "interferencia congelada debería usar progreso constante: {interferencia_frozen_filter}"
+    );
+
+    // Líquido (`liquido`, port de `transicoes_gl` de AlaukCut): el entrante
+    // se samplea con un offset de ruido suave que decae con el progreso
+    // (`(1-p)*26`), más la misma disolución de alfa que pixelar.
+    let liquido = serde_json::json!({
+        "transitionIn": { "type": "liquido", "frames": 6 }
+    });
+    let liquido_filter = visual_filter(
+        0,
+        &liquido,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        liquido_filter.contains("geq=r='if(lt(N,")
+            && liquido_filter.contains("r(X+(")
+            && liquido_filter.contains("sin(X*0.021")
+            && liquido_filter.contains("fade=t=in:st=0:d=")
+            && liquido_filter.contains("alpha=1"),
+        "liquido debería emitir su geq de desplazamiento + fade alpha: {liquido_filter}"
+    );
+
+    // Líquido congelado: progreso constante, sin `N/` en la guarda.
+    let liquido_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "liquido", "progress": 0.5 }
+    });
+    let liquido_frozen_filter = visual_filter(
+        0,
+        &liquido_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        liquido_frozen_filter.contains("geq=r='if(1,r(")
+            && liquido_frozen_filter.contains("0.500000")
+            && !liquido_frozen_filter.contains("N/"),
+        "liquido congelado debería usar progreso constante: {liquido_frozen_filter}"
+    );
+
+    // Caleidoscopio (`caleidoscopio`, port de `transicoes_gl` de
+    // AlaukCut): el entrante se samplea en coordenadas polares plegadas
+    // en 8 sectores espejados (atan2 + fold triangular) mezcladas con
+    // `(1-p)`, más la misma disolución de alfa que pixelar.
+    let caleidoscopio = serde_json::json!({
+        "transitionIn": { "type": "caleidoscopio", "frames": 6 }
+    });
+    let caleidoscopio_filter = visual_filter(
+        0,
+        &caleidoscopio,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        caleidoscopio_filter.contains("geq=r='if(lt(N,")
+            && caleidoscopio_filter.contains("atan2(")
+            && caleidoscopio_filter.contains("cos(")
+            && caleidoscopio_filter.contains("abs(2*")
+            && caleidoscopio_filter.contains("fade=t=in:st=0:d=")
+            && caleidoscopio_filter.contains("alpha=1"),
+        "caleidoscopio debería emitir su geq de fold polar + fade alpha: {caleidoscopio_filter}"
+    );
+
+    // Caleidoscopio congelado: progreso constante, sin `N/` en la guarda.
+    let caleidoscopio_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "caleidoscopio", "progress": 0.5 }
+    });
+    let caleidoscopio_frozen_filter = visual_filter(
+        0,
+        &caleidoscopio_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        caleidoscopio_frozen_filter.contains("geq=r='if(1,r(")
+            && caleidoscopio_frozen_filter.contains("0.500000")
+            && !caleidoscopio_frozen_filter.contains("N/"),
+        "caleidoscopio congelado debería usar progreso constante: {caleidoscopio_frozen_filter}"
+    );
+
+    // Desenfoque lineal (`desenfoque-lineal`, port del `LinearBlur` MIT
+    // de `transicoes_gl`): promedio de 9 taps a ~30° con paso
+    // `(1-p)*7` px que decrece con el progreso, más fade alpha.
+    let desenfoque = serde_json::json!({
+        "transitionIn": { "type": "desenfoque-lineal", "frames": 6 }
+    });
+    let desenfoque_filter = visual_filter(
+        0,
+        &desenfoque,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        desenfoque_filter.contains("geq=r='if(lt(N,")
+            && desenfoque_filter.contains("r(X+(")
+            && desenfoque_filter.contains("0.8660254")
+            && desenfoque_filter.contains(")/9")
+            && desenfoque_filter.contains("fade=t=in:st=0:d=")
+            && desenfoque_filter.contains("alpha=1"),
+        "desenfoque-lineal debería emitir su geq de taps direccionales + fade alpha: {desenfoque_filter}"
+    );
+
+    // Desenfoque congelado: progreso constante, sin `N/` en la guarda.
+    let desenfoque_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "desenfoque-lineal", "progress": 0.5 }
+    });
+    let desenfoque_frozen_filter = visual_filter(
+        0,
+        &desenfoque_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        desenfoque_frozen_filter.contains("geq=r='if(1,(r(X+")
+            && desenfoque_frozen_filter.contains("0.500000")
+            && !desenfoque_frozen_filter.contains("N/"),
+        "desenfoque-lineal congelado debería usar progreso constante: {desenfoque_frozen_filter}"
+    );
+
+    // Warp direccional (`warp-direccional`, port del `directionalwarp`
+    // MIT de `transicoes_gl`): offset `dir·sen(π·u)·36·(1-p)` con `u`
+    // la proyección perpendicular normalizada — abombamiento que se
+    // endereza, más la misma disolución de alfa.
+    let warp = serde_json::json!({
+        "transitionIn": { "type": "warp-direccional", "frames": 6 }
+    });
+    let warp_filter = visual_filter(
+        0,
+        &warp,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        warp_filter.contains("geq=r='if(lt(N,")
+            && warp_filter.contains("r(X+(sin(")
+            && warp_filter.contains("sqrt(W*W+H*H)")
+            && warp_filter.contains("*36)")
+            && warp_filter.contains("fade=t=in:st=0:d=")
+            && warp_filter.contains("alpha=1"),
+        "warp-direccional debería emitir su geq de abombamiento + fade alpha: {warp_filter}"
+    );
+
+    // Warp congelado: progreso constante, sin `N/` en la guarda.
+    let warp_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "warp-direccional", "progress": 0.5 }
+    });
+    let warp_frozen_filter = visual_filter(
+        0,
+        &warp_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        warp_frozen_filter.contains("geq=r='if(1,r(X+(sin(")
+            && warp_frozen_filter.contains("0.500000")
+            && !warp_frozen_filter.contains("N/"),
+        "warp-direccional congelado debería usar progreso constante: {warp_frozen_filter}"
+    );
+
+    // Glitch digital (`glitch-digital`, port del `GlitchDisplace` MIT
+    // de `transicoes_gl`): bloques de 16 px desplazados por hash
+    // `fract(sin(bx·a+by·b+N·c)·k)` + split cromático `sin(N·2.7)`,
+    // amplitud `(1-p)` → identidad al final, más fade alpha.
+    let glitch = serde_json::json!({
+        "transitionIn": { "type": "glitch-digital", "frames": 6 }
+    });
+    let glitch_filter = visual_filter(
+        0,
+        &glitch,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        glitch_filter.contains("geq=r='if(lt(N,")
+            && glitch_filter.contains("floor(X/16)")
+            && glitch_filter.contains("floor(sin(")
+            && glitch_filter.contains("43758.5453")
+            && glitch_filter.contains("sin(N*2.7)")
+            && glitch_filter.contains("fade=t=in:st=0:d=")
+            && glitch_filter.contains("alpha=1"),
+        "glitch-digital debería emitir su geq de bloques + split + fade alpha: {glitch_filter}"
+    );
+
+    // Glitch congelado: progreso constante, sin `N/` en la guarda de frames
+    // (el `N·` del hash sí aparece — es la semilla del parpadeo).
+    let glitch_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "glitch-digital", "progress": 0.5 }
+    });
+    let glitch_frozen_filter = visual_filter(
+        0,
+        &glitch_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        glitch_frozen_filter.contains("geq=r='if(1,r(X+(")
+            && glitch_frozen_filter.contains("0.500000")
+            && glitch_frozen_filter.contains("lt(N,") == false,
+        "glitch-digital congelado debería usar progreso constante: {glitch_frozen_filter}"
+    );
+
+    // Zoom suave (`zoom-suave`, port del `DreamyZoom` MIT de
+    // `transicoes_gl`): remap polar `centro+(pixel-centro)·k` con
+    // `k=1+(1-p)·0.18` — acercamiento que asienta + fade alpha.
+    let zoom = serde_json::json!({
+        "transitionIn": { "type": "zoom-suave", "frames": 6 }
+    });
+    let zoom_filter = visual_filter(
+        0,
+        &zoom,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        zoom_filter.contains("geq=r='if(lt(N,")
+            && zoom_filter.contains("r(clip(W/2+")
+            && zoom_filter.contains("*0.18")
+            && zoom_filter.contains("clip(H/2+")
+            && zoom_filter.contains("fade=t=in:st=0:d=")
+            && zoom_filter.contains("alpha=1"),
+        "zoom-suave debería emitir su geq de remap polar + fade alpha: {zoom_filter}"
+    );
+
+    // Zoom congelado: progreso constante, sin `N/` en la guarda.
+    let zoom_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "zoom-suave", "progress": 0.5 }
+    });
+    let zoom_frozen_filter = visual_filter(
+        0,
+        &zoom_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        zoom_frozen_filter.contains("geq=r='if(1,r(clip(W/2+")
+            && zoom_frozen_filter.contains("0.500000")
+            && !zoom_frozen_filter.contains("N/"),
+        "zoom-suave congelado debería usar progreso constante: {zoom_frozen_filter}"
+    );
+
+    // Zoom rápido (`zoom-rapido`, port del `SimpleZoom` MIT de
+    // `transicoes_gl`): remap polar `centro+(pixel-centro)·k` con
+    // `k=1-(1-p)·0.15` — acercamiento desde alejado + fade alpha.
+    let zoomr = serde_json::json!({
+        "transitionIn": { "type": "zoom-rapido", "frames": 6 }
+    });
+    let zoomr_filter = visual_filter(
+        0,
+        &zoomr,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        zoomr_filter.contains("geq=r='if(lt(N,")
+            && zoomr_filter.contains("r(clip(W/2+")
+            && zoomr_filter.contains("*0.15")
+            && zoomr_filter.contains("clip(H/2+")
+            && zoomr_filter.contains("fade=t=in:st=0:d=")
+            && zoomr_filter.contains("alpha=1"),
+        "zoom-rapido debería emitir su geq de remap polar + fade alpha: {zoomr_filter}"
+    );
+
+    // Zoom rápido congelado: progreso constante, sin `N/` en la guarda.
+    let zoomr_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "zoom-rapido", "progress": 0.5 }
+    });
+    let zoomr_frozen_filter = visual_filter(
+        0,
+        &zoomr_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        zoomr_frozen_filter.contains("geq=r='if(1,r(clip(W/2+")
+            && zoomr_frozen_filter.contains("0.500000")
+            && !zoomr_frozen_filter.contains("N/"),
+        "zoom-rapido congelado debería usar progreso constante: {zoomr_frozen_filter}"
+    );
+
+    // Reloj (`clock-wipe`, port del `relogio` de AlaukCut): barrido angular
+    // horario desde el tope vía atan2 + normalización a [0,1).
+    let clock = serde_json::json!({
+        "transitionIn": { "type": "clock-wipe", "frames": 6 }
+    });
+    let clock_filter = visual_filter(
+        0,
+        &clock,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        clock_filter.contains("geq=r='r(X,Y)'")
+            && clock_filter.contains("atan2(X-W/2,H/2-Y)")
+            && clock_filter.contains("6.28318530718")
+            && clock_filter.contains("alpha(X,Y)*(1-"),
+        "clock-wipe debería emitir su máscara geq angular: {clock_filter}"
+    );
+
+    // Reloj congelado: progreso constante para el preview de un frame.
+    let clock_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "clock-wipe", "progress": 0.5 }
+    });
+    let clock_frozen_filter = visual_filter(
+        0,
+        &clock_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        clock_frozen_filter.contains("geq=r='r(X,Y)'")
+            && clock_frozen_filter.contains("(0.500000)-0.012")
+            && !clock_frozen_filter.contains("N/"),
+        "clock-wipe congelado debería usar progreso constante: {clock_frozen_filter}"
+    );
+
+    // Tinta (`ink`, port del `tinta` de AlaukCut): mancha con borde de
+    // ruido — hashes sin() inline, caída radial y umbral `1-p*1.05`.
+    let ink = serde_json::json!({
+        "transitionIn": { "type": "ink", "frames": 6 }
+    });
+    let ink_filter = visual_filter(
+        0,
+        &ink,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        ink_filter.contains("geq=r='r(X,Y)'")
+            && ink_filter.contains("43758.5453")
+            && ink_filter.contains("sqrt((X/W-0.5)")
+            && ink_filter.contains("*1.05")
+            && ink_filter.contains("alpha(X,Y)*"),
+        "ink debería emitir su máscara geq con ruido: {ink_filter}"
+    );
+
+    // Tinta congelada: progreso constante para el preview de un frame.
+    let ink_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "ink", "progress": 0.5 }
+    });
+    let ink_frozen_filter = visual_filter(
+        0,
+        &ink_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        ink_frozen_filter.contains("geq=r='r(X,Y)'")
+            && ink_frozen_filter.contains("(0.500000)*1.05")
+            && !ink_frozen_filter.contains("N/"),
+        "ink congelado debería usar progreso constante: {ink_frozen_filter}"
+    );
+
+    // Bolhas (`bolhas`, port del `bolhas` de AlaukCut): grilla 7×7 con
+    // retardo hasheado por celda — centro de celda, distancia al cuadrado
+    // y radio al cuadrado escalado por `t²`.
+    let bolhas = serde_json::json!({
+        "transitionIn": { "type": "bolhas", "frames": 6 }
+    });
+    let bolhas_filter = visual_filter(
+        0,
+        &bolhas,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        bolhas_filter.contains("geq=r='r(X,Y)'")
+            && bolhas_filter.contains("floor(X/W*7)")
+            && bolhas_filter.contains("floor(Y/H*7)")
+            && bolhas_filter.contains("43758.5453")
+            && bolhas_filter.contains("*1.32*")
+            && bolhas_filter.contains("alpha(X,Y)*"),
+        "bolhas debería emitir su máscara geq de burbujas: {bolhas_filter}"
+    );
+
+    // Bolhas congelada: progreso constante para el preview de un frame.
+    let bolhas_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "bolhas", "progress": 0.5 }
+    });
+    let bolhas_frozen_filter = visual_filter(
+        0,
+        &bolhas_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        bolhas_frozen_filter.contains("geq=r='r(X,Y)'")
+            && bolhas_frozen_filter.contains("(0.500000)-")
+            && !bolhas_frozen_filter.contains("N/"),
+        "bolhas congelado debería usar progreso constante: {bolhas_frozen_filter}"
+    );
+
+    // Colmeia (`colmeia`, port del `colmeia` de AlaukCut): grilla hexagonal
+    // voronoi de dos redes, retardo por distancia al centro + hash, y
+    // distancia al borde del favo (`hexd`).
+    let colmeia = serde_json::json!({
+        "transitionIn": { "type": "colmeia", "frames": 6 }
+    });
+    let colmeia_filter = visual_filter(
+        0,
+        &colmeia,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        colmeia_filter.contains("geq=r='r(X,Y)'")
+            && colmeia_filter.contains("X/H*9")
+            && colmeia_filter.contains("1.7320508")
+            && colmeia_filter.contains("W/H*4.5")
+            && colmeia_filter.contains("0.8660254")
+            && colmeia_filter.contains("*0.62-0.03")
+            && colmeia_filter.contains("alpha(X,Y)*(1-"),
+        "colmeia debería emitir su máscara geq hexagonal: {colmeia_filter}"
+    );
+
+    // Colmeia congelada: progreso constante para el preview de un frame.
+    let colmeia_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "colmeia", "progress": 0.5 }
+    });
+    let colmeia_frozen_filter = visual_filter(
+        0,
+        &colmeia_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        colmeia_frozen_filter.contains("geq=r='r(X,Y)'")
+            && colmeia_frozen_filter.contains("(0.500000)-")
+            && !colmeia_frozen_filter.contains("N/"),
+        "colmeia congelado debería usar progreso constante: {colmeia_frozen_filter}"
+    );
+
+    // Chuva (`chuva`, port del `chuva` de AlaukCut): 48 columnas con
+    // velocidad/fase hasheadas; la cabeza `(p*1.9-fase)*vel` barre cada
+    // columna de abajo hacia arriba.
+    let chuva = serde_json::json!({
+        "transitionIn": { "type": "chuva", "frames": 6 }
+    });
+    let chuva_filter = visual_filter(
+        0,
+        &chuva,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        chuva_filter.contains("geq=r='r(X,Y)'")
+            && chuva_filter.contains("floor(X/W*48)")
+            && chuva_filter.contains("*1.9-")
+            && chuva_filter.contains("(1-Y/H)")
+            && chuva_filter.contains("0.35")
+            && chuva_filter.contains("alpha(X,Y)*(1-"),
+        "chuva debería emitir su máscara geq por columnas: {chuva_filter}"
+    );
+
+    // Chuva congelada: progreso constante para el preview de un frame.
+    let chuva_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "chuva", "progress": 0.5 }
+    });
+    let chuva_frozen_filter = visual_filter(
+        0,
+        &chuva_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        chuva_frozen_filter.contains("geq=r='r(X,Y)'")
+            && chuva_frozen_filter.contains("(0.500000)*1.9-")
+            && !chuva_frozen_filter.contains("N/"),
+        "chuva congelado debería usar progreso constante: {chuva_frozen_filter}"
+    );
+
+    // Vento (`vento`, port del `vento` de AlaukCut): grano hasheado por
+    // celda 320×180, frente `p*1.7-0.35` y reveal smoothstep(0.5,1,t).
+    let vento = serde_json::json!({
+        "transitionIn": { "type": "vento", "frames": 6 }
+    });
+    let vento_filter = visual_filter(
+        0,
+        &vento,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        vento_filter.contains("geq=r='r(X,Y)'")
+            && vento_filter.contains("floor(X/W*320)")
+            && vento_filter.contains("floor(Y/H*180)")
+            && vento_filter.contains("*1.7-0.35")
+            && vento_filter.contains("0.4)/0.25")
+            && vento_filter.contains("alpha(X,Y)*"),
+        "vento debería emitir su máscara geq por granos: {vento_filter}"
+    );
+
+    // Vento congelado: progreso constante para el preview de un frame.
+    let vento_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "vento", "progress": 0.5 }
+    });
+    let vento_frozen_filter = visual_filter(
+        0,
+        &vento_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        vento_frozen_filter.contains("geq=r='r(X,Y)'")
+            && vento_frozen_filter.contains("(0.500000)*1.7-0.35")
+            && !vento_frozen_filter.contains("N/"),
+        "vento congelado debería usar progreso constante: {vento_frozen_filter}"
+    );
+
+    // Triangulos (`triangulos`, port del `triangulos` de AlaukCut): grilla
+    // 6×6 corregida por aspecto, SDF de triángulo por celda y retardo por
+    // columna + hash — la máscara del entrante es `1-dentro`.
+    let triangulos = serde_json::json!({
+        "transitionIn": { "type": "triangulos", "frames": 6 }
+    });
+    let triangulos_filter = visual_filter(
+        0,
+        &triangulos,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        triangulos_filter.contains("geq=r='r(X,Y)'")
+            && triangulos_filter.contains("X/H*6")
+            && triangulos_filter.contains("Y/H*6")
+            && triangulos_filter.contains("0.6666667-0.3333334")
+            && triangulos_filter.contains("0.7071068")
+            && triangulos_filter.contains("H/(W*6)*0.55")
+            && triangulos_filter.contains("alpha(X,Y)*(1-"),
+        "triangulos debería emitir su máscara geq triangular: {triangulos_filter}"
+    );
+
+    // Triangulos congelada: progreso constante para el preview de un frame.
+    let triangulos_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "triangulos", "progress": 0.5 }
+    });
+    let triangulos_frozen_filter = visual_filter(
+        0,
+        &triangulos_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        triangulos_frozen_filter.contains("geq=r='r(X,Y)'")
+            && triangulos_frozen_filter.contains("(0.500000)-")
+            && !triangulos_frozen_filter.contains("N/"),
+        "triangulos congelado debería usar progreso constante: {triangulos_frozen_filter}"
+    );
+
+    // Persiana (`persiana`, port del `persiana` de AlaukCut): diez listones
+    // horizontales con retardo por fila (`linha=floor(Y/H*10)`) y reveal
+    // `1-smoothstep(t-0.04,t,1-f)` dentro de cada listón.
+    let persiana = serde_json::json!({
+        "transitionIn": { "type": "persiana", "frames": 6 }
+    });
+    let persiana_filter = visual_filter(
+        0,
+        &persiana,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        persiana_filter.contains("geq=r='r(X,Y)'")
+            && persiana_filter.contains("floor(Y/H*10)")
+            && persiana_filter.contains("Y/H*10-")
+            && persiana_filter.contains("/0.65,0,1)*1.05")
+            && persiana_filter.contains("1.04-")
+            && persiana_filter.contains("alpha(X,Y)*(1-"),
+        "persiana debería emitir su máscara geq de listones: {persiana_filter}"
+    );
+
+    // Persiana congelada: progreso constante para el preview de un frame.
+    let persiana_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "persiana", "progress": 0.5 }
+    });
+    let persiana_frozen_filter = visual_filter(
+        0,
+        &persiana_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        persiana_frozen_filter.contains("geq=r='r(X,Y)'")
+            && persiana_frozen_filter.contains("(0.500000)-")
+            && !persiana_frozen_filter.contains("N/"),
+        "persiana congelada debería usar progreso constante: {persiana_frozen_filter}"
+    );
+
+    // Reflexo (`reflexo`, port del `reflexo` de AlaukCut): frente diagonal
+    // `x = X/H*0.75 + (1-Y/H)*0.25`, `frente = p*(ratio*0.75+0.75)-0.25`
+    // y reveal `1-smoothstep(frente±0.015)`.
+    let reflexo = serde_json::json!({
+        "transitionIn": { "type": "reflexo", "frames": 6 }
+    });
+    let reflexo_filter = visual_filter(
+        0,
+        &reflexo,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        reflexo_filter.contains("geq=r='r(X,Y)'")
+            && reflexo_filter.contains("X/H*0.75+(1-Y/H)*0.25")
+            && reflexo_filter.contains("W/H*0.75+0.25")
+            && reflexo_filter.contains("-0.015))/0.03")
+            && reflexo_filter.contains("alpha(X,Y)*(1-"),
+        "reflexo debería emitir su máscara geq diagonal: {reflexo_filter}"
+    );
+
+    // Reflexo congelado: progreso constante para el preview de un frame.
+    let reflexo_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "reflexo", "progress": 0.5 }
+    });
+    let reflexo_frozen_filter = visual_filter(
+        0,
+        &reflexo_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        reflexo_frozen_filter.contains("geq=r='r(X,Y)'")
+            && reflexo_frozen_filter.contains("(0.500000)*")
+            && !reflexo_frozen_filter.contains("N/"),
+        "reflexo congelado debería usar progreso constante: {reflexo_frozen_filter}"
+    );
+
+    // Barrido diagonal (`barrido-diagonal`, port del `directionalwipe` MIT
+    // de transitions.dev): proyección `(X+Y)/(W+H)` con borde suave de
+    // ±0.008 — el entrante se revela de arriba-izquierda a abajo-derecha.
+    let barrido = serde_json::json!({
+        "transitionIn": { "type": "barrido-diagonal", "frames": 6 }
+    });
+    let barrido_filter = visual_filter(
+        0,
+        &barrido,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        barrido_filter.contains("geq=r='r(X,Y)'")
+            && barrido_filter.contains("((X+Y)/(W+H))")
+            && barrido_filter.contains("*1.016)-0.008")
+            && barrido_filter.contains("/0.016,0,1)")
+            && barrido_filter.contains("alpha(X,Y)*(1-"),
+        "barrido-diagonal debería emitir su máscara geq diagonal: {barrido_filter}"
+    );
+
+    // Barrido diagonal congelado: progreso constante para el preview.
+    let barrido_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "barrido-diagonal", "progress": 0.5 }
+    });
+    let barrido_frozen_filter = visual_filter(
+        0,
+        &barrido_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        barrido_frozen_filter.contains("geq=r='r(X,Y)'")
+            && barrido_frozen_filter.contains("(0.500000)*")
+            && !barrido_frozen_filter.contains("N/"),
+        "barrido-diagonal congelado debería usar progreso constante: {barrido_frozen_filter}"
+    );
+
+    // Textura de transición (`textura-*`, equivalente propio de las
+    // `transicoes_cine` de AlaukCut con fuentes lavfi en vez de assets
+    // propietarios): el clip disuelve debajo y el overlay lavfi se
+    // compone en el split post fit-scale con su envolvente alfa.
+    for (kind, tint) in [
+        ("textura-luz", false),
+        ("textura-celular", true),
+        ("textura-fractal", false),
+        ("textura-vida", false),
+    ] {
+        let clip = serde_json::json!({
+            "transitionIn": { "type": kind, "frames": 6 }
+        });
+        let mut args: Vec<String> = Vec::new();
+        let mut inputs = 1usize;
+        let texture_input = prepare_texture_input(&clip, &profile(), 0.2, &mut args, &mut inputs)
+            .expect("prepare_texture_input no debería fallar");
+        assert_eq!(texture_input, Some(1), "{kind}: debería reservar input lavfi");
+        assert_eq!(inputs, 2);
+        let joined = args.join(" ");
+        assert!(
+            joined.contains("-f lavfi")
+                && (joined.contains("gradients=")
+                    || joined.contains("cellauto=")
+                    || joined.contains("mandelbrot=")
+                    || joined.contains("life=")),
+            "{kind}: el input debería ser una fuente lavfi: {joined}"
+        );
+        let filter = visual_filter_with_format(
+            0,
+            &clip,
+            &serde_json::json!({}),
+            &profile(),
+            2.0,
+            0.2,
+            0.0,
+            1,
+            1,
+            true,
+            "rgba",
+            None,
+            texture_input,
+        );
+        assert!(
+            filter.contains("[1:v]fps=")
+                && filter.contains("[mtx0]")
+                && filter.contains("overlay=0:0:eval=frame:eof_action=pass")
+                && filter.contains("fade=t=in:st=0:d=0.200:alpha=1"),
+            "{kind}: el overlay de textura y la disolución deberían estar en la cadena: {filter}"
+        );
+        assert_eq!(
+            filter.contains("geq=r='r(X,Y)*0.10'"),
+            tint,
+            "{kind}: sólo celular lleva tinte por canal"
+        );
+        assert!(
+            filter.contains("0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y)-26"),
+            "{kind}: la textura debería modular alfa por luminancia: {filter}"
+        );
+    }
+
+    // Sin transición `textura-*` no hay input extra ni overlay.
+    let plain_clip = serde_json::json!({});
+    let mut plain_args: Vec<String> = Vec::new();
+    let mut plain_inputs = 1usize;
+    assert_eq!(
+        prepare_texture_input(&plain_clip, &profile(), 0.2, &mut plain_args, &mut plain_inputs)
+            .expect("prepare_texture_input no debería fallar"),
+        None
+    );
+    assert!(plain_args.is_empty());
 
     // Slide 3D: desplazamiento del overlay igual que slide-* más un
     // `perspective` eval=frame que comprime el eje perpendicular al lead.
@@ -3393,6 +4778,88 @@ fn mask_reaches_the_filter_chain() {
 }
 
 #[test]
+fn star_and_heart_masks_emit_geq_coverage() {
+    // Paridad de `estrela`/`corazon` de `mascara_desenho.js`: ambas usan la
+    // infraestructura nx/ny + feather de las máscaras SDF.
+    let star = serde_json::json!({
+        "mask": { "shape": "star", "x": 0, "y": 0, "width": 0.8, "height": 0.8, "feather": 0.1 }
+    });
+    let star_chain = mask_filter(&star, 30.0, 0.0).expect("estrella debería generarse");
+    assert!(star_chain.contains("atan2("));
+    assert!(star_chain.contains("mod("));
+    assert!(star_chain.contains("abs(2*("));
+
+    let heart = serde_json::json!({
+        "mask": { "shape": "heart", "x": 0, "y": 0, "width": 0.8, "height": 0.8, "feather": 0.1, "invert": true }
+    });
+    let heart_chain = mask_filter(&heart, 30.0, 0.0).expect("corazón debería generarse");
+    assert!(heart_chain.contains("pow("));
+    assert!(heart_chain.contains("1.15"));
+    assert!(heart_chain.contains("(1-("));
+}
+
+#[test]
+fn mask_expand_scales_normalized_coordinates() {
+    // expand=0,3 → factor 0,7 sobre nx/ny (la forma crece ~1/0,7).
+    let grown = serde_json::json!({
+        "mask": { "shape": "ellipse", "x": 0, "y": 0, "width": 0.8, "height": 0.8, "expand": 0.3 }
+    });
+    let grown_chain = mask_filter(&grown, 30.0, 0.0).expect("expand positivo genera");
+    assert!(grown_chain.contains("*(0.700000)"));
+
+    let shrunk = serde_json::json!({
+        "mask": { "shape": "ellipse", "x": 0, "y": 0, "width": 0.8, "height": 0.8, "expand": -0.4 }
+    });
+    let shrunk_chain = mask_filter(&shrunk, 30.0, 0.0).expect("expand negativo genera");
+    assert!(shrunk_chain.contains("*(1.400000)"));
+
+    // Sin expand no se emite factor — la expresión queda intacta.
+    let plain = serde_json::json!({
+        "mask": { "shape": "ellipse", "x": 0, "y": 0, "width": 0.8, "height": 0.8 }
+    });
+    let plain_chain = mask_filter(&plain, 30.0, 0.0).expect("sin expand genera");
+    assert!(!plain_chain.contains("*(0."));
+    assert!(!plain_chain.contains("*(1."));
+}
+
+#[test]
+fn mask_stroke_mixes_rgb_toward_color_without_touching_alpha() {
+    // #ff0000 → canal R mezcla a 1,0; G y B a 0,0. La banda es
+    // cobertura(dilatada)−cobertura(erosionada): se evalúa la forma dos
+    // veces extra (ancho×(1±sw)).
+    let stroked = serde_json::json!({
+        "mask": {
+            "shape": "ellipse", "x": 0, "y": 0,
+            "width": 0.8, "height": 0.8,
+            "strokeColor": "#ff0000", "strokeWidth": 0.1
+        }
+    });
+    let chain = mask_filter(&stroked, 30.0, 0.0).expect("trazo debería generar");
+    assert!(chain.contains("r='(r(X,Y)*(1-(max(0,min(1,"));
+    assert!(chain.contains("(1.000000)*(max(0,min(1,"));
+    assert!(chain.contains("(0.000000)*(max(0,min(1,"));
+    // El alfa sigue siendo la cobertura simple, sin banda.
+    assert!(chain.contains("a='alpha(X,Y)*(max(0,min(1,(1-(sqrt"));
+    // Dilatación 1,1 y erosión 0,9 sobre width/height.
+    assert!(chain.contains("*(1.100000)"));
+    assert!(chain.contains("*(0.900000)"));
+
+    // Sin color o sin ancho no hay mezcla: cae al geq base.
+    let no_color = serde_json::json!({
+        "mask": { "shape": "ellipse", "x": 0, "y": 0, "width": 0.8, "height": 0.8, "strokeWidth": 0.2 }
+    });
+    let plain = mask_filter(&no_color, 30.0, 0.0).expect("sin color genera");
+    assert!(plain.contains("r='r(X,Y)'"));
+    assert!(!plain.contains("*(1.200000)"));
+
+    let no_width = serde_json::json!({
+        "mask": { "shape": "ellipse", "x": 0, "y": 0, "width": 0.8, "height": 0.8, "strokeColor": "#00ff00" }
+    });
+    let plain2 = mask_filter(&no_width, 30.0, 0.0).expect("sin ancho genera");
+    assert!(plain2.contains("r='r(X,Y)'"));
+}
+
+#[test]
 #[ignore]
 fn live_polygon_mask_filter_is_renderable() {
     let clip = serde_json::json!({
@@ -3456,7 +4923,11 @@ fn polygon_mask_reaches_the_alpha_expression() {
     let mut inverted = polygon;
     inverted["mask"]["invert"] = serde_json::json!(true);
     let filter = mask_filter(&inverted, 30.0, 0.0).expect("la máscara invertida debe generarse");
-    assert!(filter.contains("1-(mod("));
+    // Desde que polygon/freehand respetan `feather` (default 0.08 como el
+    // resto de las formas), la cobertura va envuelta en `if(lte(feather…))`;
+    // el invert se verifica por el `1-(` envolvente, no por `1-(mod(` literal.
+    assert!(filter.contains("alpha(X,Y)*(1-("));
+    assert!(filter.contains("mod("));
 
     let mut animated = inverted;
     animated["mask"]["keyframes"] = serde_json::json!([
@@ -3503,7 +4974,7 @@ fn extra_mask_shapes_reach_the_alpha_expression() {
     assert!(rounded_chain.contains("sqrt("));
 
     let unknown = serde_json::json!({
-        "mask": { "shape": "heart", "x": 0, "y": 0, "width": 1, "height": 1 }
+        "mask": { "shape": "cloud", "x": 0, "y": 0, "width": 1, "height": 1 }
     });
     assert!(mask_filter(&unknown, 30.0, 0.0).is_none());
 }
@@ -4314,7 +5785,8 @@ fn stabilization_is_prepended_to_the_visual_chain() {
         "cadena inesperada: {chain}"
     );
     let transform = chain.find("vidstabtransform").expect("transform");
-    let color = chain.find("eq=brightness").expect("color");
+    // eq fue reemplazado por lutyuv en FFmpeg 9; el grado sigue después.
+    let color = chain.find("lutyuv=").expect("color");
     assert!(
         transform < color,
         "la estabilización debe ver los frames crudos antes que el color"
@@ -7767,17 +9239,18 @@ fn voice_isolation_routes_the_generated_stem_instead_of_the_source() {
     std::fs::create_dir_all(&temp).unwrap();
 
     let mut project = project();
-    for clip_id in ["c1", "c2"] {
-        let clip = project["timeline"]["clips"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|clip| clip["id"].as_str() == Some(clip_id))
-            .unwrap();
-        clip["audio"] = serde_json::json!({
-            "voiceIsolation": { "enabled": true, "model": "demucs-v4", "quality": "medium" }
-        });
-    }
+    // Sólo el clip de video pide aislamiento: el de audio (c2, sin stem)
+    // sigue con su source original — un stem ausente con voiceIsolation
+    // activo ahora es error honesto (AUD-012), no fallback silencioso.
+    let clip = project["timeline"]["clips"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|clip| clip["id"].as_str() == Some("c1"))
+        .unwrap();
+    clip["audio"] = serde_json::json!({
+        "voiceIsolation": { "enabled": true, "model": "demucs-v4", "quality": "medium" }
+    });
     let plan = build_plan(BuildPlanInput {
         audio_only: false,
         project: &project,
@@ -7832,7 +9305,7 @@ fn voice_isolation_routes_the_generated_stem_instead_of_the_source() {
 }
 
 #[test]
-fn voice_isolation_without_stem_falls_back_to_source_audio() {
+fn voice_isolation_without_stem_fails_honestly() {
     let root = std::env::temp_dir().join(format!("editor-ia-voice2-{}", uuid::Uuid::new_v4()));
     let media = root.join("media");
     std::fs::create_dir_all(&media).unwrap();
@@ -7851,7 +9324,9 @@ fn voice_isolation_without_stem_falls_back_to_source_audio() {
     clip["audio"] = serde_json::json!({
         "voiceIsolation": { "enabled": true, "model": "demucs-v4", "quality": "medium" }
     });
-    let plan = build_plan(BuildPlanInput {
+    // AUD-012: sin stem el render ya no cae en silencio al audio original;
+    // el plan falla pidiendo correr prepare_voice_isolation.
+    let error = build_plan(BuildPlanInput {
         audio_only: false,
         project: &project,
         root: &root,
@@ -7862,16 +9337,13 @@ fn voice_isolation_without_stem_falls_back_to_source_audio() {
         ffprobe: Path::new("ffprobe"),
         motion_ass: None,
     })
-    .expect("el plan deberia construirse");
-
-    // Sin stem generado el clip de audio usa el source original: no debe
-    // aparecer ningun vocals.wav en los inputs.
-    let joined = plan.args.join("\n");
+    .err()
+    .expect("sin stem y voiceIsolation activo debe fallar");
     assert!(
-        !joined.contains("vocals.wav"),
-        "sin stem no debe haber input extra"
+        error.message.contains("aislamiento de voz"),
+        "mensaje inesperado: {}",
+        error.message
     );
-    assert!(joined.contains("audio.wav"));
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -8222,4 +9694,245 @@ fn render_live_opaque_composition_matches_the_rgba_path() {
         "las salidas divergen demasiado: {average} dB\n{stderr}"
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+// --- Transición de salida (`transitionOut`, modelo AlaukCut) -----------------
+
+#[test]
+fn transition_out_resolves_into_the_next_contiguous_clip() {
+    let clip = |id: &str, start: u64, extra: Value| {
+        let mut value = serde_json::json!({
+            "id": id, "trackId": "v1", "kind": "video",
+            "startFrame": start, "durationFrames": 60,
+            "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 60 }
+        });
+        if let (Some(object), Some(extra)) = (value.as_object_mut(), extra.as_object()) {
+            for (key, item) in extra {
+                object.insert(key.clone(), item.clone());
+            }
+        }
+        value
+    };
+    let out = serde_json::json!({ "type": "dissolve", "frames": 12 });
+
+    // Contiguo en la misma pista: el entrante recibe la transición.
+    let mut clips = vec![
+        clip("a", 0, serde_json::json!({ "transitionOut": out })),
+        clip("b", 60, Value::Null),
+    ];
+    resolve_transition_out(&mut clips);
+    assert_eq!(clips[1]["transitionIn"]["type"], "dissolve");
+    assert_eq!(clips[1]["transitionIn"]["frames"], 12);
+
+    // El transitionIn propio del entrante siempre gana.
+    let mut own = vec![
+        clip("a", 0, serde_json::json!({ "transitionOut": out })),
+        clip(
+            "b",
+            60,
+            serde_json::json!({ "transitionIn": { "type": "slide-left", "frames": 6 } }),
+        ),
+    ];
+    resolve_transition_out(&mut own);
+    assert_eq!(own[1]["transitionIn"]["type"], "slide-left");
+
+    // Con hueco, en otra pista, en audio o deshabilitado: no hay transición.
+    for clips in [
+        vec![
+            clip("a", 0, serde_json::json!({ "transitionOut": out })),
+            clip("b", 90, Value::Null),
+        ],
+        vec![
+            clip("a", 0, serde_json::json!({ "transitionOut": out })),
+            {
+                let mut other = clip("b", 60, Value::Null);
+                other["trackId"] = serde_json::json!("v2");
+                other
+            },
+        ],
+        vec![
+            clip("a", 0, serde_json::json!({ "transitionOut": out })),
+            {
+                let mut audio = clip("b", 60, Value::Null);
+                audio["kind"] = serde_json::json!("audio");
+                audio
+            },
+        ],
+        vec![
+            {
+                let mut off = clip("a", 0, serde_json::json!({ "transitionOut": out }));
+                off["enabled"] = serde_json::json!(false);
+                off
+            },
+            clip("b", 60, Value::Null),
+        ],
+    ] {
+        let mut clips = clips;
+        resolve_transition_out(&mut clips);
+        assert!(
+            clips[1]["transitionIn"]["type"].as_str().is_none(),
+            "no debería inyectar: {clips:?}"
+        );
+    }
+}
+
+#[test]
+fn transition_out_fade_types_extend_the_clip_tail() {
+    let clip = |kind: &str| {
+        serde_json::json!({
+            "kind": kind,
+            "transitionOut": { "type": "dissolve", "frames": 12 }
+        })
+    };
+    // 12 frames a 30 fps = 0,4 s de cola sobre un clip de 2 s.
+    for kind in ["video", "image", "freeze"] {
+        assert!(
+            (transition_trail_seconds(&clip(kind), 30.0, 2.0) - 0.4).abs() < 1e-6,
+            "{kind} debería tener cola de salida"
+        );
+    }
+    // Los gestos no atenúan el clip saliente: los dibuja el entrante.
+    for kind in ["slide-left", "wipe-up", "iris", "clock-wipe", "ink", "bolhas", "colmeia", "chuva", "vento", "triangulos", "luma-wipe"] {
+        let mut value = clip("video");
+        value["transitionOut"]["type"] = serde_json::json!(kind);
+        assert_eq!(transition_trail_seconds(&value, 30.0, 2.0), 0.0, "{kind}");
+    }
+    // Otras clases de clip y audio no tienen cola.
+    assert_eq!(transition_trail_seconds(&clip("graphic"), 30.0, 2.0), 0.0);
+    assert_eq!(transition_trail_seconds(&clip("audio"), 30.0, 2.0), 0.0);
+}
+
+#[test]
+fn transition_out_fades_in_the_visual_filter_chain() {
+    let out = serde_json::json!({
+        "kind": "video",
+        "transitionOut": { "type": "fade-black", "frames": 6 }
+    });
+    let chain = visual_filter(
+        0,
+        &out,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.0,
+        0.0,
+        1,
+        1,
+        false,
+    );
+    // Clip de 2 s sin lead: la cola de 0,2 s arranca en t=1,8 del stream.
+    assert!(
+        chain.contains("fade=t=out:st=1.800:d=0.200"),
+        "falta el fundido de salida: {chain}"
+    );
+
+    let dissolve = serde_json::json!({
+        "kind": "video",
+        "transitionOut": { "type": "dissolve", "frames": 6 }
+    });
+    let chain = visual_filter(
+        0,
+        &dissolve,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.0,
+        0.0,
+        1,
+        1,
+        false,
+    );
+    assert!(chain.contains("fade=t=out:st=1.800:d=0.200:alpha=1"));
+}
+
+#[test]
+fn transition_out_plan_feeds_next_clip_and_fades_outgoing() {
+    let mut project = project();
+    project["timeline"]["clips"]
+        .as_array_mut()
+        .expect("clips")
+        .push(serde_json::json!({
+            "id": "c3",
+            "trackId": "v1",
+            "kind": "video",
+            "startFrame": 30,
+            "durationFrames": 30,
+            "source": { "type": "asset", "assetId": "asset1", "inFrame": 30, "outFrame": 60 }
+        }));
+    project["timeline"]["clips"][0]["transitionOut"] =
+        serde_json::json!({ "type": "dissolve", "frames": 12 });
+    let graph = plan_video_graph(&project);
+    // c1 (0-30) sale con disolvencia: fade=t=out sobre su cola de 0,4 s.
+    assert!(
+        graph.contains("fade=t=out:st=0.600:d=0.400:alpha=1"),
+        "falta el fade de salida del clip saliente: {graph}"
+    );
+    // c3 (30-60) recibe la transición como entrada: lead de 0,4 s.
+    assert!(
+        graph.contains("fade=t=in:st=0:d=0.400:alpha=1"),
+        "falta el fade de entrada del clip siguiente: {graph}"
+    );
+    // La disolvencia de salida escribe alfa: la composición es rgba.
+    assert!(graph.contains("format=rgba"), "{graph}");
+}
+
+#[test]
+fn rights_block_reason_cubre_licencias_que_impiden_exportar() {
+    let allowed = serde_json::json!({ "rights": { "license": { "commercialUse": "allowed" } } });
+    assert_eq!(plan::rights_block_reason(&allowed), None);
+    let attribution = serde_json::json!({ "rights": { "license": { "commercialUse": "requires-attribution" } } });
+    assert_eq!(plan::rights_block_reason(&attribution), None);
+    let unknown = serde_json::json!({ "rights": { "license": { "commercialUse": "unknown" } } });
+    assert!(plan::rights_block_reason(&unknown).is_some());
+    let nfr = serde_json::json!({ "rights": { "license": { "commercialUse": "not-for-redistribution" } } });
+    assert!(plan::rights_block_reason(&nfr).is_some());
+    // Sin licencia declarada no bloquea: el default del schema es allowed.
+    assert_eq!(plan::rights_block_reason(&serde_json::json!({})), None);
+}
+
+#[test]
+fn build_plan_rechaza_material_no_redistribuible() {
+    let root = std::env::temp_dir().join(format!("editor-ia-rights-{}", uuid::Uuid::new_v4()));
+    let media = root.join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    std::fs::write(media.join("video.mp4"), b"x").unwrap();
+    let project = serde_json::json!({
+        "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 } },
+        "timeline": {
+            "tracks": [{ "id": "11111111-1111-4111-8111-111111111111", "kind": "video", "label": "V1", "order": 0 }],
+            "clips": [{
+                "id": "22222222-2222-4222-8222-222222222222",
+                "trackId": "11111111-1111-4111-8111-111111111111",
+                "kind": "video",
+                "startFrame": 0,
+                "durationFrames": 30,
+                "source": { "type": "asset", "assetId": "33333333-3333-4333-8333-333333333333", "inFrame": 0, "outFrame": 30 }
+            }]
+        },
+        "assets": [{
+            "id": "33333333-3333-4333-8333-333333333333",
+            "status": "ready",
+            "rights": { "license": { "commercialUse": "not-for-redistribution" } },
+            "source": { "path": "media/video.mp4" },
+            "media": { "durationFrames": 30 }
+        }],
+        "captions": { "styles": [], "cues": [] },
+        "audio": { "master": { "gainDb": 0 } }
+    });
+    let temp = root.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let error = build_plan(BuildPlanInput {
+        audio_only: false,
+        project: &project,
+        root: &root,
+        profile: &profile(),
+        output_path: &root.join("out.mp4"),
+        include_captions: false,
+        temp_dir: &temp,
+        ffprobe: Path::new("ffprobe"),
+        motion_ass: None,
+    })
+    .expect_err("un asset no redistribuible no debería producir plan");
+    let rendered = format!("{error:?}");
+    assert!(rendered.contains("redistribución"), "{rendered}");
 }

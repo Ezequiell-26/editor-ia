@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AudioEnvelope } from './multicam';
+import type { AudioEnvelope } from '../../state/multicam';
 import type { MulticamSyncCamera, MulticamSyncRequest } from './multicam-sync';
 import { resolveMulticamSync } from './multicam-sync';
 

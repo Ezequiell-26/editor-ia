@@ -1,33 +1,12 @@
-fn find_header_end(data: &[u8]) -> Option<usize> {
-    data.windows(4).position(|window| window == b"\r\n\r\n")
-}
-
 fn read_http(stream: &mut TcpStream) -> Option<HttpRequest> {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(20)));
     let mut data: Vec<u8> = Vec::with_capacity(8_192);
     let mut buffer = [0u8; 8_192];
     loop {
-        if let Some(header_end) = find_header_end(&data) {
-            let head = String::from_utf8_lossy(&data[..header_end]).into_owned();
-            let mut lines = head.split("\r\n");
-            let mut request_parts = lines.next()?.split_whitespace();
-            let method = request_parts.next()?.to_ascii_uppercase();
-            let path = request_parts.next()?.split('?').next()?.to_owned();
-            let mut headers = BTreeMap::new();
-            for line in lines {
-                if let Some((key, value)) = line.split_once(':') {
-                    headers.insert(key.trim().to_ascii_lowercase(), value.trim().to_owned());
-                }
-            }
-            let content_length = headers
-                .get("content-length")
-                .and_then(|value| value.parse::<usize>().ok())
-                .unwrap_or(0);
-            if content_length > MAX_BODY_BYTES {
-                return None;
-            }
-            let body_start = header_end + 4;
-            while data.len() < body_start + content_length {
+        // Head completo pero inválido → request rechazada de una vez.
+        if find_header_end(&data).is_some() {
+            let head = parse_http_head(&data)?;
+            while data.len() < head.body_start + head.content_length {
                 let read = stream.read(&mut buffer).ok()?;
                 if read == 0 {
                     break;
@@ -35,17 +14,17 @@ fn read_http(stream: &mut TcpStream) -> Option<HttpRequest> {
                 data.extend_from_slice(&buffer[..read]);
             }
             let body = data
-                .get(body_start..body_start.saturating_add(content_length))
+                .get(head.body_start..head.body_start.saturating_add(head.content_length))
                 .unwrap_or(&[])
                 .to_vec();
             return Some(HttpRequest {
-                method,
-                path,
-                headers,
+                method: head.method,
+                path: head.path,
+                headers: head.headers,
                 body,
             });
         }
-        if data.len() > 128 * 1024 {
+        if data.len() > MAX_HEADER_BYTES {
             return None;
         }
         let read = stream.read(&mut buffer).ok()?;
@@ -77,10 +56,6 @@ fn respond(mut stream: TcpStream, status: u16, body: String) {
         let _ = stream.write_all(body.as_bytes());
     }
     let _ = stream.flush();
-}
-
-fn error_body(message: impl Into<String>) -> String {
-    json!({ "error": message.into() }).to_string()
 }
 
 fn handle_connection(

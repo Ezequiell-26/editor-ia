@@ -1,0 +1,471 @@
+/* ==========================================================================
+   editor-clarity.css — auditoría visual del editor (2026-11-11)
+   ==========================================================================
+   Capa ADITIVA y ÚLTIMA del cascade. No reemplaza ninguna hoja anterior:
+   corrige únicamente lo medido en vivo con Playwright sobre el editor con
+   proyecto abierto a 1600×900 / 1360×768 / 1280×720.
+
+   Defectos que corrige (todos medidos, no estimados):
+   1. `label.field > span:first-child` quedaba en 60px con `ellipsis`:
+      «Desplazamiento (frames)», «Paneo (−1 izq · +1 der)», «Reducción de
+      ruido (%)» y otras 9 etiquetas se cortaban sin tooltip. Ahora caben en
+      dos líneas reales, sin recortes.
+   2. Las 9 pestañas del rail tenían ancho fijo 50px y etiqueta con
+      `max-width: 48px` + ellipsis: «Transiciones» y «Ajustes» se veían como
+      «Transicio…». Ahora cada pestaña mide su contenido y la fila conserva
+      su scroll horizontal (patrón icono + etiqueta de CapCut).
+   3. `.fm-split-templates-note` y algunos textos del rail se cortaban con
+      `white-space: nowrap` + `overflow: hidden`.
+   4. La pestaña activa del selector de modo (barra colapsada) se recortaba.
+
+   Además da estilo a los dos controles nuevos: deslizador de zoom del
+   timeline y acceso directo «A/B» al comparador de Color Studio.
+
+   Sólo actúa con `data-theme='dark'`; el tema claro y el preset «CapCut»
+   conservan sus capas propias. No añade lógica ni contratos.
+   ========================================================================== */
+
+/* ── 1 · Inspector: TODAS las etiquetas legibles ────────────────────────── */
+:root[data-theme='dark'] .app-shell .inspector-tabpanel label.field {
+  grid-template-columns: minmax(0, 1fr) 72px !important;
+  min-height: 30px !important;
+  align-items: center !important;
+  padding: 2px !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabpanel .num-spin-wrap {
+  width: 72px !important;
+  min-width: 72px !important;
+}
+/* Dos líneas como máximo. Se evita `text-overflow: ellipsis`: el texto
+   completo queda visible, no escondido detrás de un tooltip. */
+:root[data-theme='dark'] .app-shell .inspector-tabpanel label.field > span:first-child {
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important;
+  white-space: normal !important;
+  overflow: hidden !important;
+  overflow-wrap: anywhere !important;
+  text-overflow: clip !important;
+  line-height: 1.15 !important;
+  max-height: 2.3em !important;
+  font-size: 10px !important;
+}
+
+/* ── 2 · Pestañas del rail: etiqueta completa + scroll horizontal ───────── */
+:root[data-theme='dark'] .app-shell .rail-tabs {
+  scrollbar-width: thin !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs button {
+  width: auto !important;
+  max-width: none !important;
+  flex: 0 0 auto !important;
+  /* `min-width` y padding se fijan en la sección 8 (tras el re-audit). */
+}
+:root[data-theme='dark'] .app-shell .rail-tabs button span {
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
+  font-size: 9px !important;
+}
+
+/* ── 3 · Textos auxiliares del rail: envuelven en vez de cortarse ───────── */
+:root[data-theme='dark'] .app-shell .fm-split-templates-note,
+:root[data-theme='dark'] .app-shell .rail-main .fine-print,
+:root[data-theme='dark'] .app-shell .rail-main dd {
+  white-space: normal !important;
+  overflow: visible !important;
+  overflow-wrap: anywhere !important;
+  text-overflow: clip !important;
+  line-height: 1.35 !important;
+}
+
+/* ── 4 · Selector de modo colapsado: pestaña activa completa ────────────── */
+:root[data-theme='dark'] .app-shell .editor-workspace > .editor-mode-tabs {
+  width: 118px !important;
+  max-width: 118px !important;
+}
+/* Se repite el ancho expandido para no perder el hover que define
+   filmora-polish.css (esa regla tiene :hover, especificidad mayor). */
+:root[data-theme='dark'] .app-shell .editor-workspace > .editor-mode-tabs:hover,
+:root[data-theme='dark'] .app-shell .editor-workspace > .editor-mode-tabs:focus-within {
+  width: 620px !important;
+  max-width: 620px !important;
+}
+:root[data-theme='dark'] .app-shell .editor-mode-tabs .editor-mode-tab {
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  max-width: none !important;
+}
+
+/* ── 5 · Deslizador de zoom del timeline (control nuevo, tipo CapCut) ───── */
+:root[data-theme='dark'] .app-shell .timeline-zoom-slider {
+  width: 84px !important;
+  min-width: 60px !important;
+  height: 14px !important;
+  margin: 0 6px !important;
+  padding: 0 !important;
+  flex: 0 1 auto !important;
+  accent-color: #00c1cd !important;
+  cursor: pointer !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-zoom-slider:focus-visible {
+  outline: 2px solid #00c1cd !important;
+  outline-offset: 2px !important;
+}
+
+/* ── 6 · Acceso directo A/B en el pie del panel de Color ────────────────── */
+:root[data-theme='dark'] .app-shell .fp-foot .fp-compare {
+  width: 30px !important;
+  min-width: 30px !important;
+  padding: 0 !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px !important;
+  color: #6cecf4 !important;
+  border-color: rgba(0, 193, 205, 0.45) !important;
+}
+:root[data-theme='dark'] .app-shell .fp-foot .fp-compare:hover {
+  background: rgba(0, 193, 205, 0.12) !important;
+}
+
+/* ── 7 · Segunda pasada: recortes residuales medidos ─────────────────────
+   Todo lo que sigue salió del re-audit posterior a las reglas 1–6. */
+:root[data-theme='dark'] .app-shell .rail-category-items button {
+  height: auto !important;
+  min-height: 24px !important;
+}
+/* Las entradas deshabilitadas llevan un chip «Pendiente» que dejaba sólo
+   30px para el rótulo («Diseño de variantes» → «Dise…»). El botón ya está
+   atenuado y su `title` explica el estado: el chip es ruido redundante. */
+:root[data-theme='dark'] .app-shell .rail-category-items button:disabled .rail-category-badge.is-pending {
+  display: none !important;
+}
+:root[data-theme='dark'] .app-shell .rail-category-items button > span:first-child {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere !important;
+  line-height: 1.2 !important;
+}
+/* Inspector de PROYECTO (vive fuera de `.inspector-tabpanel`). */
+:root[data-theme='dark'] .app-shell .inspector label.field > span:first-child {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere !important;
+  line-height: 1.2 !important;
+}
+/* Nombres de plantillas de efecto y ruta del proyecto. */
+:root[data-theme='dark'] .app-shell .effect-template-name,
+:root[data-theme='dark'] .app-shell .project-info-summary dd {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere !important;
+  line-height: 1.2 !important;
+}
+/* Pestaña activa del selector de modo colapsado: «Todo» ya no se corta. */
+/* La barra colapsada mide 118px: la pestaña activa la ocupa completa, así
+   su texto nunca excede su propia caja. Al desplegar (:hover) esta regla no
+   aplica y las pestañas recuperan su ancho natural. */
+:root[data-theme='dark'] .app-shell .editor-mode-tabs:not(:hover):not(:focus-within) .editor-mode-tab.active {
+  width: 110px !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+:root[data-theme='dark'] .app-shell .editor-mode-tabs .editor-mode-tab.active {
+  white-space: nowrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+
+/* ── 8 · Tercera pasada: últimos 4–12 px de recorte ─────────────────────
+   Re-audit de 62 estados: quedaban sólo estos cuatro casos, todos de pocos
+   píxeles. Se corrigen sin cambiar la altura de ninguna tarjeta. */
+:root[data-theme='dark'] .app-shell .rail-tabs button {
+  min-width: 78px !important;
+  padding-left: 10px !important;
+  padding-right: 10px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tab {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere !important;
+  line-height: 1.25 !important;
+}
+/* `.rail-facets button` tenía `max-width:108px` + ellipsis: «Subtítulos por
+   IA» con su badge pedía 113px. La fila ya tiene scroll horizontal. */
+:root[data-theme='dark'] .app-shell .rail-facets button {
+  max-width: 140px !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+/* A 1280 las tarjetas de «Pantalla dividida» tienen 80px: se ajusta la
+   tipografía en vez de partir el rótulo en dos filas (no cambia la caja). */
+:root[data-theme='dark'] .app-shell .fm-split-label {
+  font-size: 9px !important;
+  letter-spacing: -0.2px !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+/* Medidores del mezclador: el rótulo traía `width:88px` + ellipsis en un
+   estilo inline. Con dos líneas se lee completo sin agrandar la columna. */
+:root[data-theme='dark'] .app-shell .mixer-live-meter-name {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere !important;
+  line-height: 1.2 !important;
+}
+
+/* ── 9 · Navegación por keyframes (‹ ›) del clip seleccionado ───────────
+   Dos botones compactos junto al marcador, patrón CapCut. Sin etiqueta
+   visible: el nombre accesible y el tooltip dicen cuántos keyframes hay. */
+:root[data-theme='dark'] .app-shell .timeline-tools .kf-step,
+:root[data-theme='dark'] .app-shell .timeline-tools .marker-step {
+  min-width: 20px !important;
+  padding: 0 2px !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-tools .kf-step-arrow,
+:root[data-theme='dark'] .app-shell .timeline-tools .marker-step-arrow {
+  font-size: 16px !important;
+  line-height: 1 !important;
+  transform: translateY(-1px);
+}
+/* Diamante central: agrega/quita el keyframe de transformación del playhead.
+   ◇ inactivo, ◆ activo con el acento teal de la app. */
+:root[data-theme='dark'] .app-shell .timeline-tools .kf-toggle {
+  min-width: 20px !important;
+  padding: 0 2px !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-tools .kf-toggle-diamond {
+  font-size: 14px !important;
+  line-height: 1 !important;
+  color: #c9c9c9;
+}
+:root[data-theme='dark'] .app-shell .timeline-tools .kf-toggle.active {
+  border-color: rgba(0, 193, 205, 0.55) !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-tools .kf-toggle.active .kf-toggle-diamond {
+  color: #6cecf4;
+}
+
+/* ── 10 · Keyframes sobre el clip seleccionado (patrón CapCut) ───────────
+   Un diamante de 5px por clave, en su frame real. Sólo el clip activo:
+   marcar todos los clips llenaría la timeline de puntos. */
+:root[data-theme='dark'] .app-shell .timeline-keyframe-mark {
+  position: absolute;
+  top: 3px;
+  width: 5px;
+  height: 5px;
+  margin-left: -2px;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  border-radius: 1px;
+  background: #6cecf4;
+  transform: rotate(45deg);
+  pointer-events: none;
+  z-index: 4;
+}
+/* El marcador de la regla se puede arrastrar (AlaukCut): la manito y
+   `touch-action:none` evitan que el gesto scrollee la página en táctil. */
+:root[data-theme='dark'] .app-shell .timeline-marker {
+  cursor: grab;
+  touch-action: none;
+}
+:root[data-theme='dark'] .app-shell .timeline-marker:active {
+  cursor: grabbing;
+}
+/* Handle del fin de un marcador de rango: una barrita de 2px, zona de
+   agarre de 8px. */
+:root[data-theme='dark'] .app-shell .timeline-marker-range-handle {
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translateX(-50%);
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 6;
+}
+:root[data-theme='dark'] .app-shell .timeline-marker-range-handle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--marker-color, #fbbf24);
+}
+
+/* ── 11 · Catálogo de efectos/transiciones: favoritos + grilla ──────────
+   Favoritos locales por catálogo (CapCut los guarda en su plataforma de
+   efectos). La grilla de transiciones no tenía CSS propio: se define acá,
+   en 2 columnas, para el rail angosto. */
+:root[data-theme='dark'] .app-shell .catalog-fav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 0 6px;
+}
+:root[data-theme='dark'] .app-shell .catalog-fav-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #a8a8a8;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+:root[data-theme='dark'] .app-shell .catalog-fav-filter:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+:root[data-theme='dark'] .app-shell .catalog-fav-filter.active {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
+}
+:root[data-theme='dark'] .app-shell .catalog-fav-filter.active svg,
+:root[data-theme='dark'] .app-shell .catalog-fav.active svg {
+  fill: currentColor;
+}
+:root[data-theme='dark'] .app-shell .catalog-fav-count {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+/* Buscador de texto del catálogo (efectos, transiciones, filtros, looks). */
+:root[data-theme='dark'] .app-shell .catalog-search {
+  display: flex;
+  flex: 0 0 auto !important;
+  align-items: center;
+  gap: 6px;
+  height: 26px !important;
+  min-height: 26px !important;
+  max-height: 26px !important;
+  margin: 0 0 6px;
+  padding: 0 8px;
+  border: 1px solid #2a3542;
+  border-radius: 5px;
+  background: #0f1720;
+}
+:root[data-theme='dark'] .app-shell .catalog-search:focus-within {
+  border-color: rgba(0, 193, 205, 0.55);
+  box-shadow: 0 0 0 2px rgba(0, 193, 205, 0.08);
+}
+:root[data-theme='dark'] .app-shell .catalog-search input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #eaeaea;
+  font-size: 10.5px;
+}
+:root[data-theme='dark'] .app-shell .preset-card-wrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+:root[data-theme='dark'] .app-shell .preset-card-wrap > .preset-card {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+:root[data-theme='dark'] .app-shell .catalog-fav {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 18px !important;
+  height: 18px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #6f7983;
+  cursor: pointer;
+}
+:root[data-theme='dark'] .app-shell .catalog-fav:hover {
+  color: #fbbf24;
+  background: rgba(0, 0, 0, 0.75);
+}
+:root[data-theme='dark'] .app-shell .catalog-fav.active {
+  color: #fbbf24;
+}
+:root[data-theme='dark'] .app-shell .rail-transitions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+:root[data-theme='dark'] .app-shell .transition-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+:root[data-theme='dark'] .app-shell .transition-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 5px;
+  border: 1px solid #1e2935;
+  border-radius: 7px;
+  background: #0f1720;
+}
+:root[data-theme='dark'] .app-shell .transition-card .tp {
+  height: 46px;
+  margin-bottom: 2px;
+}
+:root[data-theme='dark'] .app-shell .transition-card strong {
+  overflow: hidden;
+  color: #b7c5d2;
+  font-size: 9.5px;
+  font-weight: 600;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-theme='dark'] .app-shell .transition-description {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 8.5px;
+  line-height: 1.2;
+}
+:root[data-theme='dark'] .app-shell .transition-actions {
+  display: flex;
+  gap: 3px;
+  margin-top: auto;
+}
+:root[data-theme='dark'] .app-shell .transition-actions .small {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 20px;
+  padding: 0 2px;
+  font-size: 9px;
+}

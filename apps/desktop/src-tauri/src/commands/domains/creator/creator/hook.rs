@@ -27,7 +27,7 @@ fn hook_blocking(
         hook_filter(info, hook_len, zoom),
         hook_audio_filter(info.has_audio, gain, info.duration)
     );
-    let args = vec![
+    let mut args = vec![
         "-i".into(),
         input.to_string_lossy().into_owned(),
         "-f".into(),
@@ -40,12 +40,9 @@ fn hook_blocking(
         "[v]".into(),
         "-map".into(),
         "[a]".into(),
-        "-c:v".into(),
-        "libx264".into(),
-        "-preset".into(),
-        "fast".into(),
-        "-crf".into(),
-        "20".into(),
+    ];
+    args.extend(h264_encoder_args(ffmpeg, "fast", 20).map_err(CreatorError::Ffmpeg)?);
+    args.extend([
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-c:a".into(),
@@ -56,7 +53,7 @@ fn hook_blocking(
         "+faststart".into(),
         "-shortest".into(),
         output.to_string_lossy().into_owned(),
-    ];
+    ]);
     run_ffmpeg(ffmpeg, &args, &workspace.path)?;
     metadata_output(
         output.to_path_buf(),

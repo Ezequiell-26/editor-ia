@@ -14,7 +14,8 @@ use crate::media::analysis::{
 };
 use crate::media::resolve_inside_root;
 use crate::ports::media::{
-    MediaProbe, MediaRunner, MediaTools, SceneCut, SceneDetection, StabilizationAnalysis,
+    proportional_analysis_timeout, MediaProbe, MediaRunner, MediaTools, SceneCut,
+    SceneDetection, StabilizationAnalysis, MEDIA_PROBE_TIMEOUT, MEDIA_TOOL_CHECK_TIMEOUT,
 };
 use crate::ports::projects::{ProjectDocuments, ProjectSession};
 use crate::projects::service::{OpenedProject, ProjectError, ProjectErrorCode};
@@ -107,6 +108,7 @@ pub fn detect_scenes(
         .unwrap_or(1)
         .max(1) as u32;
     let duration_frames = asset["media"]["durationFrames"].as_u64().unwrap_or(0);
+    let fps = fps_num as f64 / fps_den as f64;
     let threshold = requested_threshold(threshold);
     let filter = scene_filter(threshold);
 
@@ -122,12 +124,17 @@ pub fn detect_scenes(
         "null".to_owned(),
         "-".to_owned(),
     ];
-    let output = runner.run_ffmpeg(&ffmpeg, &args, None).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo iniciar FFmpeg para analizar escenas",
-        )
-    })?;
+    // El scene detect decodifica el video completo: el deadline es
+    // proporcional a la duración del asset (sin metadata → techo del helper).
+    let duration_seconds = if duration_frames > 0 {
+        duration_frames as f64 / fps
+    } else {
+        0.0
+    };
+    let timeout = proportional_analysis_timeout(duration_seconds);
+    // El runner ya distingue spawn ("no se pudo iniciar") de timeout
+    // ("no terminó a tiempo"); se propaga tal cual para no enmascararlo.
+    let output = runner.run_ffmpeg_with_timeout(&ffmpeg, &args, None, timeout)?;
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     if !output.status.success() {
         return Err(ProjectError::message(
@@ -140,7 +147,6 @@ pub fn detect_scenes(
         ));
     }
 
-    let fps = fps_num as f64 / fps_den as f64;
     let cuts = parse_scene_times(&stderr)
         .into_iter()
         .filter_map(|seconds| {
@@ -163,6 +169,9 @@ pub fn detect_scenes(
 
 /// Analiza el movimiento de cámara de la ventana del clip y escribe el `.trf`
 /// en `media/stabilizers` del proyecto.
+// clippy::too_many_arguments: API de aplicación alineada con el comando IPC;
+// deps y rango de frames son ejes ortogonales del análisis.
+#[allow(clippy::too_many_arguments)]
 pub fn analyze_stabilization(
     session: &dyn ProjectSession,
     documents: &dyn ProjectDocuments,
@@ -236,14 +245,11 @@ pub fn analyze_stabilization(
         "null".to_owned(),
         "-".to_owned(),
     ];
-    let output = runner
-        .run_ffmpeg(&ffmpeg, &args, Some(&directory))
-        .map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "no se pudo iniciar FFmpeg para estabilizar",
-            )
-        })?;
+    // vidstabdetect procesa la ventana completa: deadline proporcional a su
+    // duración (acotada a 1 h por la validación de arriba).
+    let timeout = proportional_analysis_timeout(duration);
+    let output =
+        runner.run_ffmpeg_with_timeout(&ffmpeg, &args, Some(&directory), timeout)?;
     if !output.status.success() {
         runner.remove_file(&transform_path);
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -297,7 +303,9 @@ pub fn probe_file_json(
         "-show_streams".to_owned(),
         path.to_string_lossy().into_owned(),
     ];
-    let output = runner.run_ffprobe(ffprobe, &args)?;
+    // ffprobe de cabeceras: sondeo acotado, un archivo que no responde en 2
+    // min está corrupto o en un disco colgado.
+    let output = runner.run_ffprobe_with_timeout(ffprobe, &args, MEDIA_PROBE_TIMEOUT)?;
     if !output.status.success() {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
@@ -319,8 +327,10 @@ pub fn probe_any_file(
     runner: &dyn MediaRunner,
     path: &str,
 ) -> Result<MediaProbe, ProjectError> {
-    let input_path = PathBuf::from(path.trim());
-    if input_path.as_os_str().is_empty() || !input_path.is_file() {
+    // Archivo suelto del usuario: política de lectura de `fs_*` (absoluta,
+    // fuera de credenciales). No hace falta sesión ni proyecto abierto.
+    let input_path = crate::application::fs::resolve_user_file_path(path)?;
+    if !input_path.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "el archivo no está en disco",
@@ -342,7 +352,7 @@ pub fn vmaf_available(tools: &dyn MediaTools, runner: &dyn MediaRunner) -> bool 
         };
         let args = ["-hide_banner".to_owned(), "-filters".to_owned()];
         runner
-            .run_ffmpeg(&ffmpeg, &args, None)
+            .run_ffmpeg_with_timeout(&ffmpeg, &args, None, MEDIA_TOOL_CHECK_TIMEOUT)
             .map(|output| String::from_utf8_lossy(&output.stdout).contains(" libvmaf "))
             .unwrap_or(false)
     })
@@ -356,6 +366,16 @@ pub fn measure_vmaf(
     original: &str,
     compressed: &str,
 ) -> Result<Option<f64>, ProjectError> {
+    // Ambos archivos son del usuario (original y comprimido): política de
+    // lectura de `fs_*` — se valida antes de gastar FFmpeg/FFprobe.
+    let original_path = crate::application::fs::resolve_user_file_path(original)?;
+    let compressed_path = crate::application::fs::resolve_user_file_path(compressed)?;
+    if !original_path.is_file() || !compressed_path.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::NotFound,
+            "el original o el comprimido no están en disco",
+        ));
+    }
     let ffmpeg = tools.ffmpeg_path().ok_or_else(|| {
         ProjectError::message(
             ProjectErrorCode::Io,
@@ -370,14 +390,6 @@ pub fn measure_vmaf(
     })?;
     if !vmaf_available(tools, runner) {
         return Ok(None);
-    }
-    let original_path = PathBuf::from(original.trim());
-    let compressed_path = PathBuf::from(compressed.trim());
-    if !original_path.is_file() || !compressed_path.is_file() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::NotFound,
-            "el original o el comprimido no están en disco",
-        ));
     }
     let value = probe_file_json(runner, Some(ffprobe.as_path()), &original_path)?;
     let streams = value["streams"]
@@ -407,12 +419,21 @@ pub fn measure_vmaf(
         "null".to_owned(),
         "-".to_owned(),
     ];
-    let output = runner.run_ffmpeg(&ffmpeg, &args, None).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo iniciar FFmpeg para medir VMAF",
-        )
-    })?;
+    // VMAF compara fotograma a fotograma los dos archivos completos: el
+    // deadline es proporcional a la duración del original ya sondeado.
+    let probe_duration = value["format"]["duration"]
+        .as_str()
+        .and_then(|text| text.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let vmaf_timeout = proportional_analysis_timeout(probe_duration);
+    let output = runner
+        .run_ffmpeg_with_timeout(&ffmpeg, &args, None, vmaf_timeout)
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo iniciar FFmpeg para medir VMAF",
+            )
+        })?;
     if !output.status.success() {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
@@ -428,3 +449,7 @@ pub fn measure_vmaf(
     })?;
     Ok(Some((score * 100.0).round() / 100.0))
 }
+
+#[cfg(test)]
+#[path = "media_analysis.tests.rs"]
+mod tests;

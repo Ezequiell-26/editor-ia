@@ -320,6 +320,39 @@ export function setParamKeyframeBezier(
 }
 
 /**
+ * Aplica la misma curva Bézier a TODAS las claves de la pista del parámetro
+ * (equivalente del «a todas las claves» de `curvas_predefinidas.js` para los
+ * keyframes de efecto). Cada clave conserva su valor y su `easing` (el bezier
+ * gana en el muestreo, igual que en `setParamKeyframeBezier`). No-op si la
+ * instancia o la pista no existen.
+ */
+export function setParamKeyframesBezier(
+  stack: EffectStack,
+  instanceId: string,
+  paramId: string,
+  bezier: NonNullable<EffectKeyframe['bezier']>,
+): EffectStack {
+  return stack.map((instance) => {
+    if (instance.id !== instanceId || !instance.keyframes?.[paramId]?.length) {
+      return instance;
+    }
+    const tracks: Record<string, EffectKeyframe[]> = {};
+    for (const [id, keys] of Object.entries(instance.keyframes ?? {})) {
+      tracks[id] = [...keys];
+    }
+    tracks[paramId] = [...instance.keyframes[paramId]!]
+      .sort(byFrame)
+      .map((key) => ({
+        frame: key.frame,
+        value: key.value,
+        ...(key.easing !== undefined ? { easing: key.easing } : {}),
+        bezier: { ...bezier },
+      }));
+    return patchInstance(instance, tracks);
+  });
+}
+
+/**
  * Escribe el preset de interpolación (`easing`) de la clave del `frame`
  * dado — gobierna el segmento que empieza en ella. Elegir un preset
  * reemplaza la curva propia de ese tramo: el bezier gana sobre easing en

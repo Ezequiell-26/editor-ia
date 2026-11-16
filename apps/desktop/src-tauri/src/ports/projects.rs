@@ -43,8 +43,11 @@ pub trait ProjectEnvironment {
     /// Diálogo "guardar como" con nombre sugerido; `None` si cancela.
     fn pick_save_path(&self, default_name: &str) -> Result<Option<PathBuf>, ProjectError>;
     fn path_exists(&self, path: &Path) -> bool;
-    /// Permite que el webview sirva los medios del proyecto por asset protocol.
-    fn allow_media_root(&self, root: &Path) -> Result<(), ProjectError>;
+    /// Permite que el webview sirva por asset protocol sólo los medios del
+    /// proyecto: el subárbol `media/` (assets copiados, proxies, stems de
+    /// aislamiento) y cada archivo fuente declarado en `project.assets`.
+    /// Nunca el root completo: ahí viven `.olyvia-history/` y el documento.
+    fn allow_media_root(&self, root: &Path, project: &Value) -> Result<(), ProjectError>;
 }
 
 /// Sesión nativa: qué proyecto está abierto y la cancelación de sus renders.

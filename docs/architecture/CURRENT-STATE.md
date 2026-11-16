@@ -4,6 +4,14 @@
 **Rama:** architecture/refactor-foundation.  
 **Estado del proyecto principal:** el loop concurrente de Devin avanzó main después del snapshot; sus cambios posteriores aún no se han integrado en esta rama.
 
+> **Nota de lectura (2026-11-12):** este documento es una **bitácora append-only
+> por olas**: cada sección describe el estado en el momento en que se escribió.
+> Las frases "No se hizo commit ni push" y "sin commit" son históricas de cada
+> ola — **la rama `architecture/refactor-foundation` ya tiene commits propios**
+> y el worktree acumula WIP sin commitear de trabajo concurrente. El conteo de
+> handlers IPC citado como "234" es el baseline inicial; el registro actual
+> (`commands/registry.rs`) ronda los **~240 handlers**.
+
 ## Topología del repositorio
 
 | Unidad | Responsabilidad | Decisión |
@@ -96,7 +104,7 @@ Todo este refactor está confinado a editor-ia-architecture y architecture/refac
 
 ### Backend Rust
 - Los 78 módulos de comandos están ordenados físicamente bajo nueve dominios en commands/domains/. Los nombres lógicos commands::<módulo> siguen disponibles mediante #[path] en commands/mod.rs.
-- commands/registry.rs reúne los 234 handlers IPC y lib.rs delega su registro.
+- commands/registry.rs reúne los ~240 handlers IPC (baseline inicial: 234) y lib.rs delega su registro.
 - Se externalizaron 16 submódulos de tests de 13 comandos grandes a archivos adyacentes con #[path], sin cambiar el namespace de los tests.
 - render/ffmpeg.rs quedó como fachada con módulos profile, visual, audio, plan y execution; tests separados en ffmpeg/tests.rs y encoder_tests.rs.
 - rustfmt --check selectivo pasó para los módulos FFmpeg, el registro Tauri y todo el árbol de comandos movido.

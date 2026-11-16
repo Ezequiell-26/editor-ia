@@ -1,0 +1,12 @@
+{
+  "exceptions": [
+    {
+      "package": "zod",
+      "severity": "high",
+      "advisory": "GHSA-mrhx-c7xc-m3w5",
+      "reason": "Memory exhaustion validating oversized constrained collections. zod solo parsea documentos del proyecto y configs locales controlados por el usuario; no hay superficie de entrada de red que alimente colecciones hostiles. Revisar al subir zod >=4.6.6.",
+      "owner": "editor-ia",
+      "expires": "2026-12-31"
+    }
+  ]
+}

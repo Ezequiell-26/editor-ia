@@ -4234,17 +4234,10 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     <>
                       <button
                         type="button"
-                        className="small primary"
-                        onClick={() => onNavigate('auto-edit')}
-                      >
-                        Auto-editar
-                      </button>
-                      <button
-                        type="button"
                         className="small"
                         onClick={() => onNavigate('editor')}
                       >
-                        Abrir en Studio
+                        Abrir en el editor
                       </button>
                       <button
                         type="button"

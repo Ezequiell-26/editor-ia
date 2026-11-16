@@ -1,6 +1,8 @@
 /// Quita el fondo de un asset del proyecto (imagen o video) y devuelve el
 /// asset nuevo ya copiado a `media/`. El original nunca se modifica.
 #[tauri::command]
+// clippy::too_many_arguments: la aridad es el contrato IPC con el frontend.
+#[allow(clippy::too_many_arguments)]
 pub async fn remove_background_asset(
     app: AppHandle,
     state: State<'_, AppState>,

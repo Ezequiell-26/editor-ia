@@ -626,3 +626,87 @@ describe('puntos in/out de la secuencia', () => {
     expect(screen.getByTestId('io').textContent).toBe('42→42');
   });
 });
+
+describe('undoTo', () => {
+  function HistoryHarness() {
+    const store = useProjectStore();
+    const project = store.state.project;
+    return (
+      <div>
+        <button
+          type="button"
+          onClick={() => {
+            store.update((doc) => addTrack(doc, 'video').project);
+          }}
+        >
+          editar
+        </button>
+        <button type="button" onClick={() => store.undoTo(0)}>
+          volver-0
+        </button>
+        <button type="button" onClick={() => store.undoTo(1)}>
+          volver-1
+        </button>
+        <button type="button" onClick={() => store.undo()}>
+          deshacer
+        </button>
+        <button type="button" onClick={() => store.redo()}>
+          rehacer
+        </button>
+        <span data-testid="tracks">{String(project?.timeline.tracks.length ?? -1)}</span>
+        <span data-testid="undo-count">{store.state.undo.length}</span>
+        <span data-testid="redo-count">{store.state.redo.length}</span>
+      </div>
+    );
+  }
+
+  function setup() {
+    const service = createFakeService();
+    const project = ensureDelivery(createEmptyProject('Historial', '2025-01-01T00:00:00Z'));
+    const opened = {
+      project,
+      label: 'historial.editoria.json',
+      path: 'C:\tmp\historial.editoria.json',
+      root: 'C:\tmp',
+    };
+    service.current = opened;
+    render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <HistoryHarness />
+      </ProjectProvider>,
+    );
+    return project;
+  }
+
+  it('restaura un snapshot intermedio y rehacer reconstruye el camino', () => {
+    const project = setup();
+    const initialTracks = project.timeline.tracks.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'editar' }));
+    fireEvent.click(screen.getByRole('button', { name: 'editar' }));
+    fireEvent.click(screen.getByRole('button', { name: 'editar' }));
+    expect(screen.getByTestId('tracks').textContent).toBe(String(initialTracks + 3));
+    expect(screen.getByTestId('undo-count').textContent).toBe('3');
+
+    // Volver al primer snapshot: quedan 2 pasos en rehacer.
+    fireEvent.click(screen.getByRole('button', { name: 'volver-0' }));
+    expect(screen.getByTestId('tracks').textContent).toBe(String(initialTracks));
+    expect(screen.getByTestId('undo-count').textContent).toBe('0');
+    expect(screen.getByTestId('redo-count').textContent).toBe('3');
+
+    // Rehacer dos veces vuelve al estado con 2 pistas agregadas.
+    fireEvent.click(screen.getByRole('button', { name: 'rehacer' }));
+    expect(screen.getByTestId('tracks').textContent).toBe(String(initialTracks + 1));
+    fireEvent.click(screen.getByRole('button', { name: 'rehacer' }));
+    expect(screen.getByTestId('tracks').textContent).toBe(String(initialTracks + 2));
+  });
+
+  it('undoTo con índice inválido no toca el estado', () => {
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'editar' }));
+    const before = screen.getByTestId('tracks').textContent;
+    fireEvent.click(screen.getByRole('button', { name: 'volver-1' }));
+    expect(screen.getByTestId('tracks').textContent).toBe(before);
+    expect(screen.getByTestId('undo-count').textContent).toBe('1');
+  });
+});

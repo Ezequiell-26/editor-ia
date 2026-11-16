@@ -1,3 +1,15 @@
+/// AUD-003: derechos que bloquean la publicación de un render. `unknown`
+/// ya lo hacía; `not-for-redistribution` se suma porque un MP4 exportado
+/// es un artefacto redistribuible y no existe todavía un mecanismo de
+/// excepción auditada (ver ADR pendiente en docs/architecture).
+pub(super) fn rights_block_reason(asset: &Value) -> Option<&'static str> {
+    match asset["rights"]["license"]["commercialUse"].as_str() {
+        Some("unknown") => Some("licencia desconocida"),
+        Some("not-for-redistribution") => Some("licencia que prohíbe la redistribución"),
+        _ => None,
+    }
+}
+
 pub(super) fn ensure_asset_unchanged(asset: &Value, path: &Path) -> Result<(), ProjectError> {
     let Some(expected) = asset["integrity"]["bytes"].as_u64() else {
         return Ok(());

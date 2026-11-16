@@ -49,9 +49,12 @@ solo.
 El lazo cerrado mide el MP4 con `loudnorm` y, si quedó a más de 1 LU del objetivo, corrige el
 master y reexporta una vez. La corrección queda en el reporte.
 
+## Estado verificado (2026-11-12)
+
+- **Preview de audio de efectos: EXISTE**. clip-audio-fx.ts resuelve 30 efectos del catálogo y usePreviewAudio.ts crea la cadena Web Audio por clip. Algunos procesadores son aproximaciones de los filtros FFmpeg; la reducción de ruido afftdn sigue siendo export-only.
+- **Keyframes de efecto en export: EXISTE**. audio.rs genera el plan de tramos y visual/effects.rs evalúa los parámetros en cada tramo antes de concatenar el audio. Test de integración: audio_stack_keyframes_build_a_segmented_concat_graph.
+
 ## Pendientes reales (no cosméticos)
 
-- **CapCut**: no hay formato de intercambio. La única vía honesta es MP4 + SRT y armarlo a mano.
-- **Preview de audio de efectos**: los efectos de audio son export-only.
-- **Keyframes de efecto en export**: el preview anima, el MP4 usa el valor estático.
+- **CapCut**: no hay formato de intercambio público para reconstruir proyectos. La vía de interoperabilidad disponible es MP4 + SRT y armado manual.
 - **Entrega por mail**: requiere backend; hoy no existe y no está planeado.

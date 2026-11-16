@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PolygonEditor } from './PolygonEditor';
-import type { MotionPoint } from './templates';
+import type { MotionPoint } from '../../state/motion-templates';
 
 const INITIAL: MotionPoint[] = [
   { x: 0.1, y: 0.1 },

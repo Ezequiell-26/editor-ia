@@ -16,6 +16,7 @@ pub async fn screen_record_snapshot(
     region_y: Option<i32>,
     region_width: Option<i32>,
     region_height: Option<i32>,
+    webcam_chroma: Option<WebcamChromaSpec>,
 ) -> Result<ScreenRecordPreview, ProjectError> {
     let fps = fps.unwrap_or(30).clamp(1, MAX_FPS);
     let screen = capture_screen.unwrap_or(true);
@@ -59,6 +60,16 @@ pub async fn screen_record_snapshot(
             ));
         }
     }
+    let chroma_chain = match webcam_chroma.as_ref() {
+        Some(spec) => {
+            spec.validate()?;
+            if webcam.is_none() {
+                return Err(invalid("webcamChroma requiere webcamDevice"));
+            }
+            Some(spec.ffmpeg_chain())
+        }
+        None => None,
+    };
 
     let settings = state.settings_snapshot()?;
     let (ffmpeg, ffprobe, _) = resolve_tools(&settings);
@@ -90,6 +101,7 @@ pub async fn screen_record_snapshot(
             region_width,
             region_height,
             fps,
+            true,
         ) {
             command.arg(arg);
         }
@@ -107,15 +119,29 @@ pub async fn screen_record_snapshot(
         webcam.is_some().then_some(0usize)
     };
     let pip = screen_idx.is_some() && webcam_idx.is_some();
-    if pip {
-        command
-            .arg("-filter_complex")
-            .arg("[1:v]scale='min(320,iw)':-2[cam];[0:v][cam]overlay=W-w-24:H-h-24[v]");
-    }
+    let graph = if pip {
+        let webcam_index = webcam_idx.expect("PiP requires a webcam input");
+        let cam = match chroma_chain.as_deref() {
+            Some(chroma) => format!("[{webcam_index}:v]{chroma},scale='min(320,iw)':-2[cam]"),
+            None => format!("[{webcam_index}:v]scale='min(320,iw)':-2[cam]"),
+        };
+        Some(format!("{cam};[0:v][cam]overlay=W-w-24:H-h-24[v]"))
+    } else if let (Some(index), Some(chroma)) = (webcam_idx, chroma_chain.as_deref()) {
+        Some(format!("[{index}:v]{chroma}[v]"))
+    } else {
+        None
+    };
     let single_map = format!("{}:v", webcam_idx.or(screen_idx).unwrap_or(0));
+    if let Some(graph) = graph.as_deref() {
+        command.arg("-filter_complex").arg(graph);
+    }
     command
         .arg("-map")
-        .arg(if pip { "[v]" } else { single_map.as_str() })
+        .arg(if graph.is_some() {
+            "[v]"
+        } else {
+            single_map.as_str()
+        })
         .arg("-frames:v")
         .arg("1")
         .arg("-an")
@@ -134,9 +160,9 @@ pub async fn screen_record_snapshot(
                     return if status.success() && out_path.exists() {
                         Ok(())
                     } else {
-                        Err(std::io::Error::other(
-                            format!("ffmpeg salió con {status} sin generar el frame"),
-                        ))
+                        Err(std::io::Error::other(format!(
+                            "ffmpeg salió con {status} sin generar el frame"
+                        )))
                     };
                 }
                 None if Instant::now() >= deadline => {

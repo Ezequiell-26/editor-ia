@@ -29,6 +29,7 @@
 export type ThemePresetId =
   | 'olyvia'
   | 'filmora'
+  | 'capcut'
   | 'resolve'
   | 'mint'
   | 'ember'
@@ -348,6 +349,21 @@ export const THEME_PRESETS: Readonly<Record<Exclude<ThemePresetId, 'custom'>, Th
     background: '#0d1116',
     surface: '#1b2026',
     text: '#e9edf1',
+  },
+  /**
+   * CapCut: grafito casi negro, superficies acromáticas y un único azul
+   * eléctrico como acento (playhead blanco, selección en azul). Es el preset
+   * que acompaña la capa `styles/capcut.css` (geometría de timeline, clips
+   * redondeados y monitor negro).
+   */
+  capcut: {
+    // Azul eléctrico con tinta blanca a 4,77:1 (AA en texto normal); un azul
+    // más claro tipo #3b82f6 se queda en 3,37:1 con la misma tinta.
+    accent: '#2563eb',
+    info: '#38bdf8',
+    background: '#0a0a0b',
+    surface: '#151517',
+    text: '#f5f6f8',
   },
   /**
    * DaVinci Resolve: grafito neutro, sin tinte azul ni verde, y un azul
@@ -680,6 +696,7 @@ export const THEME_PALETTES: Readonly<
 > = {
   olyvia: OLYVIA_PALETTE,
   filmora: FILMORA_PALETTE,
+  capcut: paletteFromBase(THEME_PRESETS.capcut),
   resolve: paletteFromBase(THEME_PRESETS.resolve),
   mint: paletteFromBase(THEME_PRESETS.mint),
   ember: paletteFromBase(THEME_PRESETS.ember),
@@ -696,6 +713,7 @@ export const THEME_PRESET_LABELS: Readonly<
 > = {
   olyvia: 'Olyvia',
   filmora: 'Grafito estudio',
+  capcut: 'CapCut',
   resolve: 'Resolve',
   mint: 'Menta',
   ember: 'Ámbar',

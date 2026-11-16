@@ -15,8 +15,8 @@ pub async fn export_short(
         ));
     }
     let duration = validate_short_range(request.start_seconds, request.end_seconds)?;
-    let output_dir = PathBuf::from(request.output_dir.trim());
-    if output_dir.as_os_str().is_empty() || !output_dir.is_dir() {
+    let output_dir = crate::application::fs::validate_user_write_path(&request.output_dir)?;
+    if !output_dir.is_dir() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "la carpeta de destino del short no existe",
@@ -30,6 +30,40 @@ pub async fn export_short(
             "FFmpeg no está disponible para exportar el short",
         ));
     };
+    // AUD-030: la exportación (face samples + encode completo) puede tardar
+    // minutos; todo el trabajo bloqueante va a spawn_blocking.
+    let ffprobe_path = ffprobe.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        export_short_blocking(
+            app,
+            request,
+            input,
+            output_dir,
+            duration,
+            ffmpeg,
+            ffprobe_path,
+        )
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la exportación del short se interrumpió antes de terminar",
+        )
+    })?
+}
+
+fn export_short_blocking(
+    app: AppHandle,
+    request: ExportShortRequest,
+    input: PathBuf,
+    output_dir: PathBuf,
+    duration: f64,
+    ffmpeg: PathBuf,
+    ffprobe: Option<PathBuf>,
+) -> Result<ExportShortResult, ProjectError> {
+    let state = app.state::<AppState>();
+    let state = state.inner();
     let source_stem = input
         .file_stem()
         .map(|value| value.to_string_lossy().into_owned())
@@ -51,13 +85,13 @@ pub async fn export_short(
                 "el catálogo no tiene el modelo de rostros",
             )
         })?;
-        if !is_model_downloaded(&state, spec) {
+        if !is_model_downloaded(state, spec) {
             return Err(ProjectError::message(
                 ProjectErrorCode::NotFound,
                 "descargá el modelo de rostros (1,2 MB) en Ajustes → Capacidades para usar smart reframe",
             ));
         }
-        if !verify_model_hash(&state, spec) {
+        if !verify_model_hash(state, spec) {
             return Err(ProjectError::message(
                 ProjectErrorCode::InvalidProject,
                 "el modelo de rostros no coincide con su checksum; volvé a descargarlo en Ajustes → Capacidades",
@@ -66,7 +100,7 @@ pub async fn export_short(
         let model_path = spec
             .files
             .first()
-            .map(|file| model_file(&state, spec, file))
+            .map(|file| model_file(state, spec, file))
             .ok_or_else(|| {
                 ProjectError::message(
                     ProjectErrorCode::NotFound,
@@ -116,6 +150,11 @@ pub async fn export_short(
     let start = format!("{:.3}", request.start_seconds);
     let length = format!("{duration:.3}");
 
+    // AUD-080: el FFmpeg empaquetado no incluye libx264; se detecta el
+    // encoder H.264 real una vez y se reutiliza en los args.
+    let h264 = crate::commands::system::h264_encoder_args(&ffmpeg, "medium", 18).map_err(|message| {
+        ProjectError::message(ProjectErrorCode::ProviderUnavailable, &message)
+    })?;
     let mut command = Command::new(ffmpeg);
     command
         .args([
@@ -137,12 +176,9 @@ pub async fn export_short(
             "0:v:0",
             "-map",
             "0:a?",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
+        ])
+        .args(&h264)
+        .args([
             "-pix_fmt",
             "yuv420p",
             "-c:a",

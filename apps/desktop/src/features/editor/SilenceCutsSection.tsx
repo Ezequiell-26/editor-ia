@@ -49,6 +49,8 @@ export function SilenceCutsSection(props: {
   const [busy, setBusy] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  /** Pistas excluidas del corte por lote (paridad `caixa_silencio.js`). */
+  const [excludedTracks, setExcludedTracks] = useState<readonly string[]>([]);
 
   const clipKey = props.clips.map((clip) => clip.id).join(',');
   // Cambiar parámetros o de clip invalida la vista previa: el plan viejo ya
@@ -57,7 +59,7 @@ export function SilenceCutsSection(props: {
     setAnalysis(null);
     setConfirming(false);
     setInfo(null);
-  }, [clipKey, thresholdDb, minSilenceSeconds, paddingSeconds]);
+  }, [clipKey, thresholdDb, minSilenceSeconds, paddingSeconds, excludedTracks]);
 
   const fps = project ? fpsOf(project) : 0;
   // Sólo clips con audio medible: video y audio montados de un asset. Los
@@ -68,8 +70,22 @@ export function SilenceCutsSection(props: {
   );
   const slowClips = candidates.filter((clip) => Math.abs(clipSpeedFactor(clip) - 1) > 0.001);
   const targets = candidates.filter((clip) => !slowClips.includes(clip));
+  // Exclusión por pista: el lote de AlaukCut permite desmarcar pistas
+  // enteras; acá se agrupan los clips candidatos por `trackId`.
+  const trackGroups = new Map<string, { label: string; count: number }>();
+  for (const clip of targets) {
+    const track = project?.timeline.tracks.find((item) => item.id === clip.trackId);
+    const group = trackGroups.get(clip.trackId) ?? {
+      label: track?.label ?? clip.trackId,
+      count: 0,
+    };
+    group.count += 1;
+    trackGroups.set(clip.trackId, group);
+  }
+  const excluded = new Set(excludedTracks);
+  const effectiveTargets = targets.filter((clip) => !excluded.has(clip.trackId));
   const lockedCount = project
-    ? targets.filter(
+    ? effectiveTargets.filter(
         (clip) =>
           project.timeline.tracks.find((item) => item.id === clip.trackId)?.locked === true,
       ).length
@@ -87,7 +103,7 @@ export function SilenceCutsSection(props: {
     analysis !== null && plans.length > 0 && excessive.length === 0 && lockedCount === 0;
 
   async function analyze(): Promise<void> {
-    if (!project || fps <= 0 || busy || targets.length === 0) return;
+    if (!project || fps <= 0 || busy || effectiveTargets.length === 0) return;
     setBusy(true);
     setInfo(null);
     setConfirming(false);
@@ -95,7 +111,7 @@ export function SilenceCutsSection(props: {
       const peaksCache = new Map<string, AudioPeaks | null>();
       const found: ClipPlan[] = [];
       let analyzedSeconds = 0;
-      for (const clip of targets) {
+      for (const clip of effectiveTargets) {
         if (clip.source.type !== 'asset') continue;
         let peaks = peaksCache.get(clip.source.assetId);
         if (peaks === undefined) {
@@ -194,11 +210,35 @@ export function SilenceCutsSection(props: {
           Se omiten clip(s) con velocidad distinta de 1× ({slowClips.map(clipDisplayName).join(', ')}).
         </p>
       ) : null}
-      {targets.length === 0 ? (
+      {trackGroups.size > 1 ? (
+        <div className="inspector-grid" data-testid="silence-track-filter">
+          {[...trackGroups.entries()].map(([trackId, group]) => (
+            <label key={trackId} className="check">
+              <input
+                type="checkbox"
+                checked={!excluded.has(trackId)}
+                onChange={(event) =>
+                  setExcludedTracks((current) =>
+                    event.target.checked
+                      ? current.filter((id) => id !== trackId)
+                      : [...current, trackId],
+                  )
+                }
+              />
+              <span>
+                {group.label} ({group.count} clip{group.count === 1 ? '' : 's'})
+              </span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+      {effectiveTargets.length === 0 ? (
         <p className="fine-print">
-          {props.clips.length === 0
-            ? 'Esta pista no tiene clips con audio para analizar.'
-            : 'Ningún clip tiene audio medible a velocidad 1×.'}
+          {targets.length === 0
+            ? props.clips.length === 0
+              ? 'Esta pista no tiene clips con audio para analizar.'
+              : 'Ningún clip tiene audio medible a velocidad 1×.'
+            : 'Todas las pistas están excluidas: marcá al menos una.'}
         </p>
       ) : null}
       {lockedCount > 0 ? (
@@ -211,7 +251,7 @@ export function SilenceCutsSection(props: {
           type="button"
           className="small"
           onClick={() => void analyze()}
-          disabled={busy || fps <= 0 || targets.length === 0}
+          disabled={busy || fps <= 0 || effectiveTargets.length === 0}
         >
           {busy ? 'Analizando…' : analysis ? 'Reanalizar' : 'Analizar silencios'}
         </button>

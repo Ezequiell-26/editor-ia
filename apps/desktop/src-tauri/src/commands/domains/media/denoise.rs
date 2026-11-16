@@ -18,66 +18,10 @@ use uuid::Uuid;
 
 use crate::commands::hide_console;
 use crate::commands::system::resolve_tools;
+use crate::media::denoise::{denoise_filter, unique_output, DenoiseMode, DenoisePreset};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::sanitize_log;
 use crate::state::AppState;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DenoisePreset {
-    Fast,
-    Balanced,
-    Quality,
-}
-
-impl DenoisePreset {
-    fn parse(value: Option<&str>) -> Result<Self, ProjectError> {
-        match value
-            .unwrap_or("balanced")
-            .trim()
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "fast" => Ok(Self::Fast),
-            "balanced" => Ok(Self::Balanced),
-            "quality" => Ok(Self::Quality),
-            _ => Err(ProjectError::message(
-                ProjectErrorCode::InvalidProject,
-                "preajuste de denoise inválido: usá fast, balanced o quality",
-            )),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DenoiseMode {
-    Video,
-    Image,
-}
-
-impl DenoiseMode {
-    fn parse(value: Option<&str>) -> Result<Self, ProjectError> {
-        match value
-            .unwrap_or("video")
-            .trim()
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "video" => Ok(Self::Video),
-            "image" | "imagen" => Ok(Self::Image),
-            _ => Err(ProjectError::message(
-                ProjectErrorCode::InvalidProject,
-                "modo de denoise inválido: usá video o image",
-            )),
-        }
-    }
-
-    fn extension(self) -> &'static str {
-        match self {
-            Self::Video => "mp4",
-            Self::Image => "png",
-        }
-    }
-}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -102,68 +46,6 @@ pub struct DenoiseResult {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub duration_seconds: Option<f64>,
-}
-
-/// Construye la cadena de filtros. Es pura para poder testearla sin FFmpeg.
-///
-/// El FFmpeg empaquetado es LGPL y **no trae `hqdn3d`** (tampoco `vaguedenoiser`
-/// ni `owdenoise`), así que el denoise espacial va con `dctdnoiz` (rápido) o
-/// `nlmeans` (calidad), y el temporal con `atadenoise`. Todos verificados contra
-/// el binario que viaja con el instalador.
-fn denoise_filter(
-    preset: DenoisePreset,
-    strength: u8,
-    temporal: bool,
-    preserve_detail: bool,
-) -> String {
-    let base = (strength.clamp(1, 100) as f32) / 100.0;
-    // Preservar detalle reduce la agresividad; nunca la sube.
-    let amount = if preserve_detail { base * 0.72 } else { base };
-    // `atadenoise` solo acepta tamaños de ventana impares entre 3 y 9.
-    let window = (3 + ((amount * 6.0).round() as u32)) | 1;
-    let temporal_stage = if temporal {
-        format!("atadenoise=s={window},")
-    } else {
-        String::new()
-    };
-    match preset {
-        DenoisePreset::Fast => {
-            // dctdnoiz: DCT 8×8, sigma alto = más limpieza.
-            let sigma = 1.5 + amount * 4.5;
-            format!("{temporal_stage}dctdnoiz=sigma={sigma:.2}")
-        }
-        DenoisePreset::Balanced => {
-            let sigma = 2.5 + amount * 7.5;
-            format!("{temporal_stage}dctdnoiz=sigma={sigma:.2}")
-        }
-        DenoisePreset::Quality => {
-            // nlmeans: s = fuerza, p = tamaño de parche, r = ventana de búsqueda.
-            let s = 1.0 + amount * 9.0;
-            format!("{temporal_stage}nlmeans=s={s:.2}:p=7:r=15")
-        }
-    }
-}
-
-fn unique_output(dir: &Path, stem: &str, extension: &str) -> PathBuf {
-    let safe_stem: String = stem
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == ' ' {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let stem = safe_stem.trim().trim_matches('-');
-    let stem = if stem.is_empty() { "archivo" } else { stem };
-    let mut candidate = dir.join(format!("{stem}-denoise.{extension}"));
-    let mut index = 2;
-    while candidate.exists() {
-        candidate = dir.join(format!("{stem}-denoise-{index}.{extension}"));
-        index += 1;
-    }
-    candidate
 }
 
 fn probe_media(
@@ -233,8 +115,8 @@ pub async fn denoise_media(
     state: State<'_, AppState>,
     request: DenoiseRequest,
 ) -> Result<DenoiseResult, ProjectError> {
-    let input_path = PathBuf::from(request.input_path.trim());
-    if input_path.as_os_str().is_empty() || !input_path.is_file() {
+    let input_path = crate::application::fs::resolve_user_file_path(&request.input_path)?;
+    if !input_path.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "el archivo para denoise no está en disco",
@@ -251,7 +133,9 @@ pub async fn denoise_media(
         .map(|meta| meta.len())
         .unwrap_or(0);
     let output_dir = match request.output_dir.as_deref() {
-        Some(value) if !value.trim().is_empty() => PathBuf::from(value.trim()),
+        Some(value) if !value.trim().is_empty() => {
+            crate::application::fs::validate_user_write_path(value)?
+        }
         _ => input_path
             .parent()
             .map(Path::to_path_buf)
@@ -410,50 +294,6 @@ pub async fn denoise_media(
 mod tests {
     use super::*;
 
-    #[test]
-    fn fast_filter_scales_with_strength_and_respects_temporal() {
-        let soft = denoise_filter(DenoisePreset::Fast, 10, false, false);
-        let strong = denoise_filter(DenoisePreset::Fast, 90, false, false);
-        let temporal = denoise_filter(DenoisePreset::Fast, 90, true, false);
-        // El FFmpeg empaquetado no trae hqdn3d: el espacial es dctdnoiz.
-        assert!(soft.starts_with("dctdnoiz=sigma="));
-        assert!(strong.starts_with("dctdnoiz=sigma="));
-        assert_ne!(soft, strong);
-        assert!(temporal.starts_with("atadenoise=s="));
-        assert!(!soft.contains("hqdn3d"));
-    }
-
-    #[test]
-    fn balanced_adds_the_temporal_stage_before_the_spatial_one() {
-        let balanced = denoise_filter(DenoisePreset::Balanced, 60, true, false);
-        let pos_atadenoise = balanced.find("atadenoise=").expect("etapa temporal");
-        let pos_dct = balanced.find("dctdnoiz=").expect("etapa espacial");
-        // La limpieza temporal va antes: si no, el dctdnoiz fijaría el ruido.
-        assert!(pos_atadenoise < pos_dct);
-    }
-
-    #[test]
-    fn temporal_window_is_always_an_odd_size_within_range() {
-        for strength in [1u8, 25, 50, 75, 100] {
-            let filter = denoise_filter(DenoisePreset::Fast, strength, true, false);
-            let size = filter
-                .split("atadenoise=s=")
-                .nth(1)
-                .and_then(|rest| rest.split(',').next())
-                .and_then(|value| value.parse::<u32>().ok())
-                .expect("ventana parseable");
-            assert!((3..=9).contains(&size) && size % 2 == 1);
-        }
-    }
-
-    #[test]
-    fn quality_filter_uses_nlmeans_and_preserves_detail_reduces_it() {
-        let normal = denoise_filter(DenoisePreset::Quality, 80, false, false);
-        let gentle = denoise_filter(DenoisePreset::Quality, 80, false, true);
-        assert!(normal.starts_with("nlmeans="));
-        assert_ne!(normal, gentle);
-    }
-
     /// Render real con el FFmpeg empaquetado: la cadena no debe nombrar filtros
     /// que no existen (`hqdn3d` no está en el build LGPL) y el encoder se
     /// resuelve igual que en Definición. Detrás de `EDITOR_IA_RUN_RENDER_TESTS`.
@@ -535,24 +375,5 @@ mod tests {
         );
         let _ = std::fs::remove_file(&output);
         assert!(status_ok, "log final: {log}");
-    }
-
-    #[test]
-    fn invalid_preset_is_rejected() {
-        assert!(DenoisePreset::parse(Some("ultra")).is_err());
-        assert!(DenoisePreset::parse(Some("fast")).is_ok());
-    }
-
-    #[test]
-    fn output_names_are_safe_and_unique() {
-        let dir = std::env::temp_dir().join(format!("editoria-denoise-test-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).expect("carpeta temporal");
-        let first = unique_output(&dir, "clip: raro/../uno", "mp4");
-        assert!(first.to_string_lossy().ends_with("-denoise.mp4"));
-        std::fs::write(&first, b"x").expect("archivo de prueba");
-        let second = unique_output(&dir, "clip: raro/../uno", "mp4");
-        assert_ne!(first, second);
-        assert!(second.to_string_lossy().contains("-denoise-2.mp4"));
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

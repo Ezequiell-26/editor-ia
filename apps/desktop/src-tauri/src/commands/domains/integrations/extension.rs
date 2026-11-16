@@ -48,9 +48,9 @@ fn extension_source(app: &AppHandle, config_dir: &Path) -> Option<PathBuf> {
             candidates.push(ancestor.join("extensions").join("editor-ia-downloader"));
         }
     }
-    if let Ok(current) = std::env::current_dir() {
-        candidates.push(current.join("extensions").join("editor-ia-downloader"));
-    }
+    // AUD-092: no se acepta `current_dir` como origen — una ruta que
+    // depende del directorio de trabajo con el que se lanzó la app es un
+    // candidato no confiable para el contenido que va a la extensión.
     candidates.push(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
@@ -65,33 +65,51 @@ fn extension_source(app: &AppHandle, config_dir: &Path) -> Option<PathBuf> {
         .find(|path| path.join("manifest.json").is_file())
 }
 
+/// Copia el árbol de la extensión sin seguir enlaces (AUD-092): misma
+/// política que `plugins::copy_dir` — `file_type` no sigue symlinks, así
+/// que un enlace dentro del árbol aborta la copia en vez de incorporar
+/// contenido de afuera.
 fn copy_dir(source: &Path, destination: &Path) -> Result<(), ProjectError> {
+    let read_error =
+        || ProjectError::message(ProjectErrorCode::Io, "No se pudo leer la extensión.");
+    let metadata = fs::symlink_metadata(source).map_err(|_| read_error())?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "La extensión contiene un enlace simbólico.",
+        ));
+    }
     fs::create_dir_all(destination).map_err(|_| {
         ProjectError::message(
             ProjectErrorCode::Io,
             "No se pudo crear la carpeta de la extensión.",
         )
     })?;
-    for entry in fs::read_dir(source)
-        .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "No se pudo leer la extensión."))?
-    {
-        let entry = entry.map_err(|_| {
-            ProjectError::message(
+    for entry in fs::read_dir(source).map_err(|_| read_error())? {
+        let entry = entry.map_err(|_| read_error())?;
+        let entry_type = entry.file_type().map_err(|_| read_error())?;
+        if entry_type.is_symlink() {
+            return Err(ProjectError::message(
                 ProjectErrorCode::Io,
-                "No se pudo leer un archivo de la extensión.",
-            )
-        })?;
+                "La extensión contiene un enlace simbólico.",
+            ));
+        }
         let source_path = entry.path();
         let target = destination.join(entry.file_name());
-        if source_path.is_dir() {
+        if entry_type.is_dir() {
             copy_dir(&source_path, &target)?;
-        } else {
+        } else if entry_type.is_file() {
             fs::copy(&source_path, &target).map_err(|_| {
                 ProjectError::message(
                     ProjectErrorCode::Io,
                     "No se pudo copiar un archivo de la extensión.",
                 )
             })?;
+        } else {
+            return Err(ProjectError::message(
+                ProjectErrorCode::Io,
+                "La extensión contiene un archivo especial.",
+            ));
         }
     }
     Ok(())
@@ -146,16 +164,57 @@ pub async fn prepare_extension(
     if source == destination {
         return Ok(status(&app, &config_dir));
     }
-    if destination.exists() {
-        fs::remove_dir_all(&destination).map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "No se pudo actualizar la carpeta de la extensión.",
-            )
-        })?;
+    // AUD-093: actualización transaccional — se copia a un staging hermano
+    // y sólo se publica cuando el árbol está completo y validado; si algo
+    // falla la versión anterior queda intacta.
+    let staging = destination.with_file_name("editor-ia-downloader.staging");
+    let _ = fs::remove_dir_all(&staging);
+    if let Err(error) = copy_dir(&source, &staging) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
     }
-    copy_dir(&source, &destination)?;
+    if !staging.join("manifest.json").is_file() {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            "La extensión copiada no tiene manifest.json.",
+        ));
+    }
+    publish_extension(&staging, &destination)?;
     Ok(status(&app, &config_dir))
+}
+
+/// Reemplaza `destination` por `staging` conservando la versión anterior
+/// como backup restaurable (AUD-093). Si el swap falla, `destination`
+/// queda como estaba.
+fn publish_extension(staging: &Path, destination: &Path) -> Result<(), ProjectError> {
+    let io_error = || {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "No se pudo actualizar la carpeta de la extensión.",
+        )
+    };
+    let backup = destination.with_file_name("editor-ia-downloader.previous");
+    let had_previous = destination.exists();
+    if had_previous {
+        let _ = fs::remove_dir_all(&backup);
+        fs::rename(destination, &backup).map_err(|_| io_error())?;
+    }
+    match fs::rename(staging, destination) {
+        Ok(()) => {
+            if had_previous {
+                let _ = fs::remove_dir_all(&backup);
+            }
+            Ok(())
+        }
+        Err(_) => {
+            if had_previous {
+                let _ = fs::rename(&backup, destination);
+            }
+            let _ = fs::remove_dir_all(staging);
+            Err(io_error())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -175,5 +234,61 @@ mod tests {
         assert!(destination.join("manifest.json").is_file());
         assert!(destination.join("icons").join("icon.png").is_file());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn copy_dir_rejects_symlinks() {
+        let root = std::env::temp_dir().join(format!("editor-ia-ext-{}", Uuid::new_v4()));
+        let source = root.join("source");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("manifest.json"), b"{}").unwrap();
+        let outside = root.join("outside.txt");
+        fs::write(&outside, b"secreto").unwrap();
+        let link = source.join("linked.txt");
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_file(&outside, &link).is_ok();
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&outside, &link).is_ok();
+        #[cfg(not(any(windows, unix)))]
+        let linked = false;
+        if !linked {
+            // Sin privilegio de symlink el SO no deja crearlo: no hay nada
+            // que probar en esta máquina.
+            let _ = fs::remove_dir_all(&root);
+            return;
+        }
+        let error = copy_dir(&source, &root.join("dest")).expect_err("debió rechazar el enlace");
+        assert!(error.message.contains("enlace"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn publish_swaps_only_when_staging_is_complete() {
+        let root = std::env::temp_dir().join(format!("editor-ia-ext-{}", Uuid::new_v4()));
+        let destination = root.join("prepared").join("editor-ia-downloader");
+        let staging = root.join("prepared").join("editor-ia-downloader.staging");
+        fs::create_dir_all(&destination).unwrap();
+        fs::write(destination.join("manifest.json"), b"{\"v\":1}").unwrap();
+
+        // Staging sin manifest: publish no debería llamarse, pero si se
+        // invocara el swap mueve carpetas igual — el guard real está en
+        // prepare_extension. Acá probamos el swap exitoso y la restauración.
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("manifest.json"), b"{\"v\":2}").unwrap();
+        publish_extension(&staging, &destination).expect("swap");
+        let current = fs::read_to_string(destination.join("manifest.json")).unwrap();
+        assert!(current.contains("\"v\":2"));
+        assert!(!root
+            .join("prepared")
+            .join("editor-ia-downloader.previous")
+            .exists());
+
+        // Swap con staging inexistente: el rename falla y el destino
+        // anterior (v:2) se restaura desde el backup.
+        let result = publish_extension(&staging, &destination);
+        assert!(result.is_err());
+        let restored = fs::read_to_string(destination.join("manifest.json")).unwrap();
+        assert!(restored.contains("\"v\":2"));
+        let _ = fs::remove_dir_all(&root);
     }
 }

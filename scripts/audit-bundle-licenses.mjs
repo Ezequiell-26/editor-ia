@@ -48,6 +48,22 @@ if (!statSync(NOTICE, { throwIfNoEntry: false })?.isFile()) {
   process.exit(1);
 }
 
+// ffmpeg.exe/ffprobe.exe son el build GPL de gyan.dev: la licencia GPL-3.0 y el
+// README del paquete deben viajar en el bundle (los copia
+// scripts/ci-bundle-resources.sh como FFMPEG-GPL-*).
+const ffmpegDir = join(RESOURCES, 'ffmpeg');
+const ffmpegFiles = statSync(ffmpegDir, { throwIfNoEntry: false })?.isDirectory()
+  ? readdirSync(ffmpegDir)
+  : [];
+const gplLicense = ffmpegFiles.find((name) => /gpl/i.test(name) && /licen[cs]e/i.test(name));
+if (!gplLicense) {
+  console.error(
+    'BUNDLE LICENCIAS: resources/ffmpeg no incluye la licencia GPL del build estático ' +
+      '(se espera FFMPEG-GPL-LICENSE.txt, la genera scripts/ci-bundle-resources.sh).',
+  );
+  process.exit(1);
+}
+
 const byDir = new Map();
 for (const file of files) {
   const relative = file.path.slice(RESOURCES.length + 1).split(/[\\/]/)[0] ?? '.';

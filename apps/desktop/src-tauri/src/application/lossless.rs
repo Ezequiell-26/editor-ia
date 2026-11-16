@@ -53,7 +53,9 @@ fn probe_duration(runner: &dyn MediaRunner, ffprobe: &Path, path: &Path) -> Opti
         "default=noprint_wrappers=1:nokey=1".to_owned(),
         path.to_string_lossy().into_owned(),
     ];
-    let output = runner.run_ffprobe(ffprobe, &args).ok()?;
+    let output = runner
+        .run_ffprobe_with_timeout(ffprobe, &args, crate::ports::media::MEDIA_PROBE_TIMEOUT)
+        .ok()?;
     parse_probe_duration(&String::from_utf8_lossy(&output.stdout))
 }
 
@@ -69,12 +71,17 @@ fn probe_audio_codec(runner: &dyn MediaRunner, ffprobe: &Path, path: &Path) -> O
         "default=noprint_wrappers=1:nokey=1".to_owned(),
         path.to_string_lossy().into_owned(),
     ];
-    let output = runner.run_ffprobe(ffprobe, &args).ok()?;
+    let output = runner
+        .run_ffprobe_with_timeout(ffprobe, &args, crate::ports::media::MEDIA_PROBE_TIMEOUT)
+        .ok()?;
     parse_audio_codec(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Corta `input` entre `start_seconds` y `end_seconds` sin recodificar
 /// (`-c copy`), o con recodificación acotada si `exact` es true.
+// clippy::too_many_arguments: API de aplicación que refleja el comando IPC;
+// las deps ya van agrupadas en traits y el rango es el contrato del frontend.
+#[allow(clippy::too_many_arguments)]
 pub fn export_lossless(
     tools: &dyn MediaTools,
     runner: &dyn MediaRunner,

@@ -274,6 +274,9 @@ impl ContentGenerator for RemoteVoiceGenerator {
             bytes: bytes.len() as u64,
             provider: PROVIDER_ID.to_owned(),
             model: self.config.model.clone(),
+            // `/audio/speech` devuelve audio crudo sin metadatos de coste:
+            // `None` honesto, nunca un número inventado. El gasto se acota
+            // con `maxCostCents` del plan antes de llamar al endpoint.
             cost_cents: None,
             license: None,
         })

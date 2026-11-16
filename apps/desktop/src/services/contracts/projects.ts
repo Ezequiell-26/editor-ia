@@ -41,6 +41,14 @@ export interface MediaFolderListing {
   readonly files: readonly MediaFolderFile[];
 }
 
+export interface MediaSearchResult {
+  readonly directory: string;
+  readonly query: string;
+  readonly files: readonly MediaFolderFile[];
+  /** true cuando el recorrido se cortó por los topes: hay más coincidencias. */
+  readonly truncated: boolean;
+}
+
 export interface FsEntry {
   readonly name: string;
   readonly path: string;
@@ -201,6 +209,8 @@ export interface CopiedMedia {
   readonly source: string;
   readonly relativePath: string;
   readonly bytes: number;
+  /** SHA-256 del archivo ya copiado (integridad real del destino). */
+  readonly sha256: string;
 }
 
 export interface VariantWritten {

@@ -172,6 +172,12 @@ export interface AudioRecipe {
   readonly fidelity: Exclude<ExportFidelity, 'preview-only'>;
   /** Por qué la aproximación no es idéntica, cuando aplica. */
   readonly note?: string;
+  /**
+   * La cadena usa la sintaxis de plantillas de `concat-effects`
+   * (`{expresión}` evaluada, no `{param}`): ver `concat-expr.ts`. Lo usan los
+   * efectos generados desde `vendor/concat` por `generate-concat.ts`.
+   */
+  readonly concatTemplate?: boolean;
 }
 
 export interface EffectManifest {

@@ -66,6 +66,7 @@ export {
   setInstanceEnabled,
   setInstanceParam,
   setParamKeyframeAt,
+  setParamKeyframesBezier,
   setParamKeyframeBezier,
   setParamKeyframeEasing,
   shiftInstance,

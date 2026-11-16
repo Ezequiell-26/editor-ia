@@ -587,3 +587,186 @@ fn los_mensajes_no_filtran_el_directorio_del_usuario() {
         text
     );
 }
+
+#[test]
+fn acepta_compounds_y_clips_de_compuesto_como_typescript() {
+    let dir = TempDir::new("compounds");
+    let mut project = valid_project();
+    let video_track = project["timeline"]["tracks"][0]["id"].clone();
+    let asset_id = project["assets"][0]["id"].clone();
+    let compound_id = ghost_id();
+    project["compounds"] = json!([{
+        "id": compound_id,
+        "label": "Secuencia reutilizable",
+        "durationFrames": 60,
+        "clips": [{
+            "id": "77777777-7777-4777-8777-777777777777",
+            "trackId": video_track,
+            "label": "Toma interna",
+            "startFrame": 0,
+            "durationFrames": 60,
+            "kind": "video",
+            "source": { "type": "asset", "assetId": asset_id, "inFrame": 0, "outFrame": 60 }
+        }]
+    }]);
+    project["timeline"]["clips"]
+        .as_array_mut()
+        .expect("el fixture debe tener clips")
+        .push(json!({
+            "id": "88888888-8888-4888-8888-888888888888",
+            "trackId": video_track,
+            "label": "Compuesto en timeline",
+            "startFrame": 0,
+            "durationFrames": 60,
+            "kind": "compound",
+            "source": { "type": "compound", "compoundId": compound_id }
+        }));
+    assert!(
+        save_project(&dir.file("compounds.editoria.json"), &project).is_ok(),
+        "un proyecto con compounds debe abrirse igual que en TypeScript"
+    );
+
+    let mut ghost_compound = project.clone();
+    let last = ghost_compound["timeline"]["clips"]
+        .as_array()
+        .unwrap()
+        .len()
+        - 1;
+    ghost_compound["timeline"]["clips"][last]["source"]["compoundId"] =
+        json!("99999999-9999-4999-8999-999999999999");
+    rejected_with(&ghost_compound, "compoundId");
+
+    let mut drifted = project;
+    drifted["timeline"]["clips"]
+        .as_array_mut()
+        .unwrap()
+        .last_mut()
+        .unwrap()["durationFrames"] = json!(59);
+    rejected_with(&drifted, "durationFrames");
+}
+
+#[test]
+fn un_clip_dentro_de_un_compound_debe_caber_en_su_duracion() {
+    let mut project = valid_project();
+    let video_track = project["timeline"]["tracks"][0]["id"].clone();
+    let asset_id = project["assets"][0]["id"].clone();
+    project["compounds"] = json!([{
+        "id": ghost_id(),
+        "label": "Compound corto",
+        "durationFrames": 30,
+        "clips": [{
+            "id": ghost_id(),
+            "trackId": video_track,
+            "label": "Se pasa",
+            "startFrame": 0,
+            "durationFrames": 60,
+            "kind": "video",
+            "source": { "type": "asset", "assetId": asset_id, "inFrame": 0, "outFrame": 60 }
+        }]
+    }]);
+    rejected_with(&project, "compounds[0].clips[0]");
+}
+
+#[test]
+fn un_asset_ready_exige_hash_media_y_licencia_resuelta() {
+    // El fixture ya es un asset ready completo y pasa (ver
+    // `un_documento_coherente_pasa_las_once_reglas`); aca van los rechazos.
+    let mut sin_hash = valid_project();
+    sin_hash["assets"][0]
+        .as_object_mut()
+        .expect("el fixture debe tener assets")
+        .remove("integrity");
+    rejected_with(&sin_hash, "assets[0].integrity");
+
+    let mut hash_corto = valid_project();
+    hash_corto["assets"][0]["integrity"]["sha256"] = json!("abcd");
+    rejected_with(&hash_corto, "assets[0].integrity");
+
+    let mut sin_media = valid_project();
+    sin_media["assets"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("media");
+    rejected_with(&sin_media, "assets[0].media");
+
+    let mut licencia_desconocida = valid_project();
+    licencia_desconocida["assets"][0]["rights"]["license"]["commercialUse"] =
+        json!("unknown");
+    rejected_with(&licencia_desconocida, "assets[0].rights.license.commercialUse");
+
+    // Un asset ready completo y nuevo tambien pasa: una fuente local.
+    let dir = TempDir::new("asset-ready");
+    let mut project = valid_project();
+    project["assets"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "id": ghost_id(),
+            "label": "Grafico listo",
+            "kind": "image",
+            "source": { "type": "local", "path": "media/logo.png" },
+            "status": "ready",
+            "integrity": {
+                "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "bytes": 1024
+            },
+            "rights": {
+                "license": { "id": "own-work", "commercialUse": "allowed" },
+                "provenance": { "origin": "user-imported", "acquiredAt": "2026-10-18T10:00:00Z" }
+            },
+            "media": { "width": 512, "height": 512 }
+        }));
+    assert!(
+        save_project(&dir.file("assets.editoria.json"), &project).is_ok(),
+        "un asset ready con hash, media y licencia debe aceptarse"
+    );
+}
+
+#[test]
+fn un_asset_no_ready_no_exige_hash_ni_licencia() {
+    let mut project = valid_project();
+    project["assets"][0]["status"] = json!("unverified");
+    project["assets"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("integrity");
+    project["assets"][0]["rights"]["license"]["commercialUse"] = json!("unknown");
+    let dir = TempDir::new("asset-unverified");
+    assert!(
+        save_project(&dir.file("obra.editoria.json"), &project).is_ok(),
+        "las reglas de ready solo aplican a assets verificados"
+    );
+}
+
+#[test]
+fn un_asset_downloaded_exige_registrar_su_url_de_origen() {
+    let mut project = valid_project();
+    project["assets"][0]["rights"]["provenance"]
+        .as_object_mut()
+        .expect("el fixture debe tener provenance")
+        .remove("sourceUrl");
+    rejected_with(&project, "assets[0].rights.provenance.sourceUrl");
+}
+
+#[test]
+fn acepta_video_hasta_32768_pixeles_como_typescript() {
+    let dir = TempDir::new("video-big");
+    let mut project = valid_project();
+    project["video"]["width"] = json!(20_000);
+    project["video"]["height"] = json!(20_000);
+    assert!(
+        save_project(&dir.file("grande.editoria.json"), &project).is_ok(),
+        "el tope del formato es 32768, igual que en TypeScript"
+    );
+}
+
+#[test]
+fn acepta_el_segmento_punto_en_rutas_relativas_como_typescript() {
+    let dir = TempDir::new("dot-segment");
+    let mut project = valid_project();
+    project["assets"][0]["source"]["path"] = json!("media/./demo.mp4");
+    assert!(
+        save_project(&dir.file("punto.editoria.json"), &project).is_ok(),
+        "TypeScript admite \".\" en segmentos; el espejo tambien"
+    );
+}

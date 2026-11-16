@@ -18,7 +18,7 @@ function renderMenuBar() {
 
 /** Abre un menú y ejecuta uno de sus ítems, como haría con teclado. */
 function abrirModal(nombreMenu: string, nombreItem: string | RegExp): HTMLElement {
-  fireEvent.click(screen.getByRole('button', { name: nombreMenu }));
+  fireEvent.click(screen.getByRole('menuitem', { name: nombreMenu }));
   fireEvent.click(screen.getByRole('menuitem', { name: nombreItem }));
   return screen.getByRole('dialog');
 }
@@ -26,16 +26,16 @@ function abrirModal(nombreMenu: string, nombreItem: string | RegExp): HTMLElemen
 describe('MenuBar · teclado del menubar', () => {
   it('roving tabindex: sólo el menú activo queda en el orden de Tab', () => {
     renderMenuBar();
-    expect(screen.getByRole('button', { name: 'Archivo' }).tabIndex).toBe(0);
-    expect(screen.getByRole('button', { name: 'Editar' }).tabIndex).toBe(-1);
-    fireEvent.focus(screen.getByRole('button', { name: 'Editar' }));
-    expect(screen.getByRole('button', { name: 'Editar' }).tabIndex).toBe(0);
-    expect(screen.getByRole('button', { name: 'Archivo' }).tabIndex).toBe(-1);
+    expect(screen.getByRole('menuitem', { name: 'Archivo' }).tabIndex).toBe(0);
+    expect(screen.getByRole('menuitem', { name: 'Editar' }).tabIndex).toBe(-1);
+    fireEvent.focus(screen.getByRole('menuitem', { name: 'Editar' }));
+    expect(screen.getByRole('menuitem', { name: 'Editar' }).tabIndex).toBe(0);
+    expect(screen.getByRole('menuitem', { name: 'Archivo' }).tabIndex).toBe(-1);
   });
 
   it('ArrowDown abre Archivo con el foco en su primer ítem y ArrowUp en el último', async () => {
     renderMenuBar();
-    const archivo = screen.getByRole('button', { name: 'Archivo' });
+    const archivo = screen.getByRole('menuitem', { name: 'Archivo' });
 
     fireEvent.keyDown(archivo, { key: 'ArrowDown' });
     const primero = await screen.findByRole('menuitem', { name: /Pantalla de inicio/i });
@@ -52,16 +52,16 @@ describe('MenuBar · teclado del menubar', () => {
 
   it('ArrowRight dentro del menú abre el hermano y enfoca su primer ítem habilitado', async () => {
     renderMenuBar();
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Archivo' }), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Archivo' }), { key: 'ArrowDown' });
     const primero = await screen.findByRole('menuitem', { name: /Pantalla de inicio/i });
     await waitFor(() => expect(document.activeElement).toBe(primero));
 
     // Sin proyecto, todos los ítems de Editar están deshabilitados: el menú
     // abre y el foco vuelve a su disparador para no perder la navegación.
     fireEvent.keyDown(primero, { key: 'ArrowRight' });
-    const editar = screen.getByRole('button', { name: 'Editar' });
+    const editar = screen.getByRole('menuitem', { name: 'Editar' });
     await waitFor(() => expect(editar.getAttribute('aria-expanded')).toBe('true'));
-    expect(screen.getByRole('button', { name: 'Archivo' }).getAttribute('aria-expanded')).toBe(
+    expect(screen.getByRole('menuitem', { name: 'Archivo' }).getAttribute('aria-expanded')).toBe(
       'false',
     );
     await waitFor(() => expect(document.activeElement).toBe(editar));
@@ -77,7 +77,7 @@ describe('MenuBar · teclado del menubar', () => {
 
   it('Escape cierra el menú, vuelve al disparador y no propaga al atajo global', async () => {
     renderMenuBar();
-    const archivo = screen.getByRole('button', { name: 'Archivo' });
+    const archivo = screen.getByRole('menuitem', { name: 'Archivo' });
     fireEvent.keyDown(archivo, { key: 'ArrowDown' });
     const primero = await screen.findByRole('menuitem', { name: /Pantalla de inicio/i });
     await waitFor(() => expect(document.activeElement).toBe(primero));
@@ -94,7 +94,7 @@ describe('MenuBar · teclado del menubar', () => {
 
   it('Tab cierra el menú y deja el foco en el disparador', async () => {
     renderMenuBar();
-    const archivo = screen.getByRole('button', { name: 'Archivo' });
+    const archivo = screen.getByRole('menuitem', { name: 'Archivo' });
     fireEvent.keyDown(archivo, { key: 'ArrowDown' });
     const primero = await screen.findByRole('menuitem', { name: /Pantalla de inicio/i });
     await waitFor(() => expect(document.activeElement).toBe(primero));
@@ -106,7 +106,7 @@ describe('MenuBar · teclado del menubar', () => {
 
   it('los ítems con estado exponen aria-checked', () => {
     renderMenuBar();
-    fireEvent.click(screen.getByRole('button', { name: 'Ver' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ver' }));
     const etiquetas = screen.getByRole('menuitemcheckbox', { name: 'Etiquetas del rail' });
     expect(etiquetas.getAttribute('aria-checked')).toBe('false');
     expect(
@@ -114,7 +114,7 @@ describe('MenuBar · teclado del menubar', () => {
     ).toBe('true');
 
     fireEvent.click(etiquetas);
-    fireEvent.click(screen.getByRole('button', { name: 'Ver' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ver' }));
     expect(
       screen.getByRole('menuitemcheckbox', { name: 'Etiquetas del rail' }).getAttribute('aria-checked'),
     ).toBe('true');

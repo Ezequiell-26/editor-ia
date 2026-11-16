@@ -37,11 +37,11 @@ sha2 = "0.10"
 ring = "0.17"
 md-5 = "0.10"
 base64 = "0.22"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking", "stream"] }
 keyring = { version = "3", features = ["windows-native"] }
 uuid = { version = "1", features = ["v4"] }
 # Exportador multiplataforma concurrente y tareas de creador.
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 # QR offline para el CTA; genera una matriz y la rasterizamos con image.
@@ -58,6 +58,9 @@ rustface = "0.1.7"
 # Decodificación de frames en proceso (MIT/Apache-2.0). Requiere FFmpeg dev.
 # `ndarray` entrega el frame en RGB24 y con su timestamp, sin pasar por FFmpeg CLI.
 video-rs = { version = "0.12", default-features = false, features = ["ndarray"] }
+# Familias tipográficas del sistema vía DirectWrite (selector de fuente de
+# subtítulos). Misma versión `windows` que ya trae Tauri: no agrega binario.
+windows = { version = "0.62", features = ["Win32_Graphics_DirectWrite"] }
 # Validación XML del FCPXML exportado. MIT.
 roxmltree = "0.21"
 # Lectura de paquetes ZIP para modelos ONNX con pesos externos (MIT).
@@ -67,6 +70,30 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 filmcraft-audio-dsp = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-audio-dsp" }
 filmcraft-color = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-color" }
 filmcraft-scopes = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-scopes" }
+# Crates del engine de Concat vendorados (AGPL-3.0-or-later, ver
+# vendor/concat/NOTICE.md). Sólo se declaran los que tienen consumidor
+# productivo directo; concat-core/concat-project entran igual por
+# transitividad de concat-effects.
+# concat-effects: catálogo de efectos (render/ffmpeg/visual/effects.rs).
+concat-effects = { path = "../../../vendor/concat/crates/concat-effects" }
+# Transcripción in-process con whisper.cpp (concat-speech-min): sólo el
+# módulo transcribe de concat-speech, sin TTS/ONNX. Compila whisper.cpp
+# con cmake+bindgen en build time (ver vendor/concat/NOTICE.md).
+concat-speech-min = { path = "../../../vendor/concat/crates/concat-speech-min" }
+# Fuera del árbol de la app por decisión (ADR
+# docs/decisions/2026-11-13-concat-vendor-scope.md, opción c): no tienen
+# consumidor productivo y sus re-exports sólo alimentaban tests del seam.
+# - concat-text (títulos→RGBA): la app resuelve títulos por la vía FFmpeg.
+# - concat-log: la app tiene su propio logging.
+# - concat-render (plan_frame + compositor wgpu): ~147 crates wgpu sin uso.
+#   Reingresa sólo si aparece un consumidor real (compositor GPU).
+# - concat-media (FFmpeg in-process, ffmpeg-the-third 6 / FFmpeg 9) está
+#   vendorado y verde en vendor/concat, pero NO se declara acá:
+#   ffmpeg-sys-the-third y ffmpeg-sys-next (vía video-rs) ambos declaran
+#   `links = "ffmpeg"` y no pueden coexistir en un binario. Integrarlo
+#   exige unificar el binding FFmpeg — decisión de arquitectura pendiente.
+# - concat-export quedó afuera: depende de concat-vision (ONNX Runtime),
+#   que no se vendoriza.
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "macros", "net", "io-util"] }

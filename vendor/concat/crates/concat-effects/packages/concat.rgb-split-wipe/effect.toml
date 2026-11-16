@@ -1,0 +1,22 @@
+format = 2
+
+[effect]
+id = "concat.rgb-split-wipe"
+name = "RGB Split"
+kind = "transition"
+category = "Glitch"
+order = 9
+description = "Red, green and blue tear apart through the cut, each switching shots at its own moment, and lock back together."
+
+[[param]]
+key = "spread"
+label = "Spread"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 60
+
+[transition]
+fallback = "cross-fade"
+entry = "effect.wgsl"

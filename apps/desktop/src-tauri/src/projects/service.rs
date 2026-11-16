@@ -24,7 +24,7 @@ use super::storage;
 
 pub const PROJECT_SCHEMA_VERSION: u64 = 1;
 
-const KNOWN_ROOT_KEYS: [&str; 20] = [
+const KNOWN_ROOT_KEYS: [&str; 21] = [
     "id",
     "name",
     "schemaVersion",
@@ -36,6 +36,7 @@ const KNOWN_ROOT_KEYS: [&str; 20] = [
     "look",
     "assets",
     "timeline",
+    "compounds",
     "captions",
     "scenes",
     "motion",
@@ -383,9 +384,11 @@ fn path_problem(value: &str) -> Option<&'static str> {
     if value.ends_with('/') {
         return Some("la ruta termina en separador");
     }
+    // TypeScript solo rechaza segmentos vacios y `..`; un "." suelto resuelve
+    // al mismo directorio y el esquema lo admite, asi que el espejo tambien.
     for segment in value.split('/') {
-        if segment.is_empty() || segment == ".." || segment == "." {
-            return Some("la ruta tiene un segmento vacio, . o ..");
+        if segment.is_empty() || segment == ".." {
+            return Some("la ruta tiene un segmento vacio o ..");
         }
     }
     None
@@ -444,9 +447,9 @@ fn envelope_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
         "video",
         video.is_some_and(|video| {
             video.get("width").and_then(Value::as_u64).unwrap_or(0) > 0
-                && video.get("width").and_then(Value::as_u64).unwrap_or(0) <= 16_384
+                && video.get("width").and_then(Value::as_u64).unwrap_or(0) <= 32_768
                 && video.get("height").and_then(Value::as_u64).unwrap_or(0) > 0
-                && video.get("height").and_then(Value::as_u64).unwrap_or(0) <= 16_384
+                && video.get("height").and_then(Value::as_u64).unwrap_or(0) <= 32_768
                 && video
                     .get("frameRate")
                     .map(|rate| {
@@ -460,10 +463,11 @@ fn envelope_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
 }
 
 fn collection_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
-    let collections: [(&str, Vec<&Value>); 12] = [
+    let collections: [(&str, Vec<&Value>); 13] = [
         ("assets", items(document, "assets")),
         ("timeline.tracks", nested(document, "timeline", "tracks")),
         ("timeline.clips", nested(document, "timeline", "clips")),
+        ("compounds", items(document, "compounds")),
         ("scenes", items(document, "scenes")),
         ("motion", items(document, "motion")),
         ("captions.styles", nested(document, "captions", "styles")),
@@ -520,6 +524,20 @@ fn missing(issues: &mut Vec<ProjectIssue>, path: String, what: &str) {
     });
 }
 
+/// Espejo de `TRACK_KINDS_FOR_CLIP`/`clipFitsTrack` de `timeline.ts`: que un
+/// clip pueda vivir en una pista no lo expresa el esquema de cada entidad.
+fn clip_fits_track(clip_kind: &str, track_kind: &str) -> bool {
+    match clip_kind {
+        "video" | "freeze" => track_kind == "video",
+        "image" => track_kind == "image",
+        "audio" => matches!(track_kind, "audio" | "narration"),
+        "graphic" => track_kind == "graphic",
+        "adjustment" => track_kind == "adjustment",
+        "compound" => matches!(track_kind, "video" | "image" | "graphic" | "adjustment"),
+        _ => false,
+    }
+}
+
 fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
     let asset_ids = id_set(&items(document, "assets"));
     let tracks = nested(document, "timeline", "tracks");
@@ -528,6 +546,8 @@ fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
     let clip_ids = id_set(&clips);
     let motion_ids = id_set(&items(document, "motion"));
     let scene_ids = id_set(&items(document, "scenes"));
+    let compounds = items(document, "compounds");
+    let compound_ids = id_set(&compounds);
     let style_ids = id_set(&nested(document, "captions", "styles"));
     let profile_ids = id_set(&items(document, "renderProfiles"));
     let sources = field(document, "provenance").map(|value| items(value, "sources"));
@@ -591,6 +611,36 @@ fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
                 }
             }
             Some("adjustment") => {}
+            Some("compound") => {
+                let path = format!("timeline.clips[{}].source.compoundId", index);
+                match text(source, "compoundId") {
+                    None => missing(issues, path, "compound"),
+                    Some(compound_id) => {
+                        if !compound_ids.contains(compound_id) {
+                            missing(issues, path, "compound");
+                        } else if let Some(compound) = compounds
+                            .iter()
+                            .find(|compound| text(compound, "id") == Some(compound_id))
+                        {
+                            let duration = number(clip, "durationFrames");
+                            let expected = number(compound, "durationFrames");
+                            if let (Some(duration), Some(expected)) = (duration, expected) {
+                                if duration != expected {
+                                    issues.push(ProjectIssue {
+                                        path: format!(
+                                            "timeline.clips[{}].durationFrames",
+                                            index
+                                        ),
+                                        message:
+                                            "un clip de compuesto debe durar lo que dura el compuesto"
+                                                .to_owned(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             Some(other) => issues.push(ProjectIssue {
                 path: format!("timeline.clips[{}].source.type", index),
                 message: format!("tipo de fuente desconocido: {}", other),
@@ -599,6 +649,96 @@ fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
                 path: format!("timeline.clips[{}].source.type", index),
                 message: "la fuente del clip no declara su tipo".to_owned(),
             }),
+        }
+    }
+
+    // Clips internos de los compounds: el espejo de TypeScript exige id unico
+    // en todo el timeline, pista existente y del kind correcto, fuentes
+    // asset/graphic resolubles y que no sobresalgan de la duracion del compound.
+    let mut all_clip_ids = clip_ids.clone();
+    for (compound_index, compound) in compounds.iter().enumerate() {
+        let compound_duration = number(compound, "durationFrames");
+        for (clip_index, inner) in items(compound, "clips").iter().enumerate() {
+            let base = format!("compounds[{}].clips[{}]", compound_index, clip_index);
+            match text(inner, "id") {
+                None => issues.push(ProjectIssue {
+                    path: format!("{}.id", base),
+                    message: "cada clip del compound necesita un id".to_owned(),
+                }),
+                Some(id) => {
+                    if !all_clip_ids.insert(id.to_owned()) {
+                        issues.push(ProjectIssue {
+                            path: format!("{}.id", base),
+                            message:
+                                "los ids de clip deben ser unicos entre el timeline y sus compounds"
+                                    .to_owned(),
+                        });
+                    }
+                }
+            }
+            if let (Some(start), Some(duration), Some(limit)) = (
+                number(inner, "startFrame"),
+                number(inner, "durationFrames"),
+                compound_duration,
+            ) {
+                if start.saturating_add(duration) > limit {
+                    issues.push(ProjectIssue {
+                        path: format!("{}.durationFrames", base),
+                        message: "un clip del compound no puede terminar despues del compound"
+                            .to_owned(),
+                    });
+                }
+            }
+            let track_path = format!("{}.trackId", base);
+            match text(inner, "trackId") {
+                None => missing(issues, track_path, "track"),
+                Some(track_id) => match tracks
+                    .iter()
+                    .find(|track| text(track, "id") == Some(track_id))
+                {
+                    None => missing(issues, track_path, "track"),
+                    Some(track) => {
+                        let clip_kind = text(inner, "kind").unwrap_or("");
+                        let track_kind = text(track, "kind").unwrap_or("");
+                        if !clip_fits_track(clip_kind, track_kind) {
+                            issues.push(ProjectIssue {
+                                path: track_path,
+                                message: format!(
+                                    "un clip {} no puede vivir en una pista {}",
+                                    clip_kind, track_kind
+                                ),
+                            });
+                        }
+                    }
+                },
+            }
+            if let Some(source) = field(inner, "source") {
+                match text(source, "type") {
+                    Some("asset") => {
+                        let path = format!("{}.source.assetId", base);
+                        match text(source, "assetId") {
+                            None => missing(issues, path, "asset"),
+                            Some(asset_id) => {
+                                if !asset_ids.contains(asset_id) {
+                                    missing(issues, path, "asset");
+                                }
+                            }
+                        }
+                    }
+                    Some("graphic") => {
+                        let path = format!("{}.source.motionId", base);
+                        match text(source, "motionId") {
+                            None => missing(issues, path, "motion"),
+                            Some(motion_id) => {
+                                if !motion_ids.contains(motion_id) {
+                                    missing(issues, path, "motion");
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -664,7 +804,7 @@ fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
                     match value.as_str() {
                         None => missing(issues, path, "clip"),
                         Some(clip_id) => {
-                            if !clip_ids.contains(clip_id) {
+                            if !all_clip_ids.contains(clip_id) {
                                 missing(issues, path, "clip");
                             }
                         }
@@ -746,6 +886,67 @@ fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
                     }
                 }
             }
+        }
+    }
+
+    // Derechos y estado de los assets: el `superRefine` de `AssetSchema` en
+    // TypeScript exige que un asset `ready` ya tenga bytes hasheados, sonda de
+    // media y licencia resuelta, y que un origen `downloaded` registre su URL.
+    for (index, asset) in items(document, "assets").iter().enumerate() {
+        let rights = field(asset, "rights");
+        let provenance = rights.and_then(|value| field(value, "provenance"));
+        let downloaded = provenance
+            .and_then(|value| text(value, "origin"))
+            .is_some_and(|origin| origin == "downloaded");
+        let has_source_url = provenance
+            .and_then(|value| text(value, "sourceUrl"))
+            .is_some_and(|url| !url.is_empty());
+        if downloaded && !has_source_url {
+            issues.push(ProjectIssue {
+                path: format!("assets[{}].rights.provenance.sourceUrl", index),
+                message: "un asset descargado debe registrar la url de origen".to_owned(),
+            });
+        }
+
+        if text(asset, "status") != Some("ready") {
+            continue;
+        }
+        let hashed = field(asset, "integrity")
+            .and_then(|integrity| text(integrity, "sha256"))
+            .is_some_and(|digest| {
+                digest.len() == 64
+                    && digest
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            });
+        if !hashed {
+            issues.push(ProjectIssue {
+                path: format!("assets[{}].integrity.sha256", index),
+                message: "un asset ready necesita integrity.sha256 con sus bytes hasheados"
+                    .to_owned(),
+            });
+        }
+        if matches!(text(asset, "kind"), Some("video" | "image" | "audio"))
+            && !field(asset, "media").is_some_and(|media| media.is_object())
+        {
+            issues.push(ProjectIssue {
+                path: format!("assets[{}].media", index),
+                message: "un asset de audio, imagen o video ready necesita la sonda de media"
+                    .to_owned(),
+            });
+        }
+        let commercial_use = rights
+            .and_then(|value| field(value, "license"))
+            .and_then(|license| text(license, "commercialUse"));
+        if !matches!(
+            commercial_use,
+            Some("allowed" | "requires-attribution" | "not-for-redistribution")
+        ) {
+            issues.push(ProjectIssue {
+                path: format!("assets[{}].rights.license.commercialUse", index),
+                message: "hay que resolver la licencia del asset antes de marcarlo ready"
+                    .to_owned(),
+            });
         }
     }
 }
@@ -982,12 +1183,12 @@ pub fn create_project_with_video(
         .get("width")
         .and_then(Value::as_u64)
         .unwrap_or(1920)
-        .clamp(16, 16_384);
+        .clamp(16, 32_768);
     let height = video
         .get("height")
         .and_then(Value::as_u64)
         .unwrap_or(1080)
-        .clamp(16, 16_384);
+        .clamp(16, 32_768);
     let (profiles, variants) = default_delivery(&frame_rate, width, height);
 
     let document = json!({

@@ -1,0 +1,25 @@
+format = 2
+
+[effect]
+id = "concat.zoom-transition"
+name = "Zoom"
+kind = "transition"
+category = "Zoom"
+order = 3
+aliases = ["zoom"]
+description = "One unbroken push of the camera: into the last shot and on out of it into the next, streaked by the speed."
+
+[[param]]
+key = "direction"
+label = "Direction"
+type = "enum"
+values = [0, 1]
+labels = ["In", "Out"]
+default = 0
+min = 0
+max = 1
+
+[transition]
+fallback = "cross-fade"
+xfade = "zoomin"
+entry = "effect.wgsl"

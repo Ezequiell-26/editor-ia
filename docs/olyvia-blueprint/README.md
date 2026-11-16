@@ -77,3 +77,24 @@ El modo autónomo no reemplaza al editor manual. Ambos trabajan sobre el mismo p
 ## Historial y documentos anteriores
 
 No se eliminan documentos previos. Cuando una auditoría histórica contradiga el estado actual, se crea una nueva medición con fecha y evidencia; no se reescribe el pasado.
+
+## Addendum 2026-11-12
+
+- **HEAD al momento de esta revisión:** `c6a23a8` (`docs(deliver): rebuild 5
+  del instalador con re-adquisicion local-gen`), sobre la rama
+  `architecture/refactor-foundation` del worktree `editor-ia-architecture`.
+- **Junction de `node_modules` resuelta:** el bloqueo de TypeScript por
+  junctions de `node_modules/@editor-ia/*` apuntando al worktree `editor-ia`
+  (main) — descrito en "Estado del árbol al crear este blueprint" — ya no
+  aplica; los paquetes del workspace se resuelven dentro de este worktree.
+- El estado real de capacidades y fases sigue mandando en código/pruebas y en
+  `docs/architecture/PDF-100-TRACKER.md` / `HANDOFF.md`.
+
+## Decisión vigente: editor permanente
+
+La regla obligatoria de que todas las herramientas se utilicen dentro del mismo editor, con preview y timeline persistentes, y que primero se termine/apruebe el frontend antes de unificar funcionalmente, está registrada en [docs/decisions/2026-11-13-permanent-editor-surface.md](../decisions/2026-11-13-permanent-editor-surface.md). Ese registro es la fuente canónica; no dupliques su contenido en otras especificaciones.
+
+
+## Arquitectura maestra
+
+Leer primero [00_MASTER_ARCHITECTURE.md](./00_MASTER_ARCHITECTURE.md) para comprender la arquitectura integral del producto, la regla del editor permanente, los límites entre frontend/backend, los datos canónicos, IA, jobs, MCP, seguridad y fases. Este documento conecta las especificaciones siguientes; no las duplica.

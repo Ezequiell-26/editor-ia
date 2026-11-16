@@ -16,6 +16,9 @@ pub(super) struct LumaMate {
 /// Resuelve el mate declarado por `transitionIn.mateClipId` (render completo)
 /// o `transitionFrozen.mateClipId` (ventana de un frame del preview). Devuelve
 /// `None` cuando el clip no usa luma wipe o cuando el lead ya terminó.
+// clippy::too_many_arguments: resuelve el clip mate de una transición luma;
+// clips, timing y posición son entradas ortogonales del plan.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn luma_mate(
     clips: &[Value],
     asset_by_id: &HashMap<String, Value>,
@@ -113,10 +116,10 @@ pub(super) fn luma_mate(
             "el mate de la transición luma wipe tiene material sin verificar",
         ));
     }
-    if asset["rights"]["license"]["commercialUse"].as_str() == Some("unknown") {
+    if let Some(reason) = rights_block_reason(asset) {
         return Err(ProjectError::message(
             ProjectErrorCode::AssetNotReady,
-            "el mate de la transición luma wipe tiene licencia desconocida",
+            &format!("el mate de la transición luma wipe tiene {reason}"),
         ));
     }
     let relative = asset["source"]["path"].as_str().unwrap_or("");

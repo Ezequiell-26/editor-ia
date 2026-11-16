@@ -9,6 +9,19 @@ function messageOf(error: unknown): string {
 }
 
 /**
+ * Destino por defecto del MP4 quemado: `<nombre>.subtitulado.mp4` junto al
+ * video fuente. El backend exige `outputPath` (.mp4) cuando `burn=true` y la
+ * tarjeta no tiene diálogo de guardado propio (AUD-076); el nombre derivado
+ * es predecible y el usuario lo ve antes de generar.
+ */
+export function defaultBurnOutput(inputPath: string): string {
+  const sep = Math.max(inputPath.lastIndexOf('/'), inputPath.lastIndexOf('\\'));
+  const dot = inputPath.lastIndexOf('.');
+  const base = dot > sep ? inputPath.slice(0, dot) : inputPath;
+  return `${base}.subtitulado.mp4`;
+}
+
+/**
  * Pipeline automático de subtítulos: video → faster-whisper → traducción
  * por proveedor → .ass → quema en MP4 (todo en Rust/FFmpeg). La traducción
  * usa el proveedor configurado en Ajustes; si es simulado se avisa.
@@ -48,6 +61,7 @@ export function SubtitlePipelineCard() {
         targetLanguage: target,
         ...(source.trim() ? { sourceLanguage: source.trim() } : {}),
         burn,
+        ...(burn ? { outputPath: defaultBurnOutput(inputPath) } : {}),
       });
       setResult(outcome);
       if (!outcome.ok) setError('El pipeline no pudo completarse; revisá el proveedor de IA y faster-whisper.');
@@ -111,6 +125,11 @@ export function SubtitlePipelineCard() {
             <input type="checkbox" checked={burn} onChange={(e) => setBurn(e.target.checked)} />
             <span>Quemar subtítulos en el video de salida</span>
           </label>
+          {burn && inputPath ? (
+            <p className="fine-print">
+              Salida: {defaultBurnOutput(inputPath)}
+            </p>
+          ) : null}
         </div>
 
         <div className="actions compact">

@@ -12,7 +12,7 @@ use thiserror::Error;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
-use crate::commands::system::resolve_tools;
+use crate::commands::system::{h264_encoder_args, resolve_tools};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
@@ -94,7 +94,8 @@ fn tools(state: &AppState) -> Result<(PathBuf, PathBuf), CreatorError> {
 }
 
 fn require_file(value: &str, label: &str) -> Result<PathBuf, CreatorError> {
-    let path = PathBuf::from(value.trim());
+    let path = crate::application::fs::resolve_user_file_path(value)
+        .map_err(|error| CreatorError::Invalid(error.message))?;
     if !path.is_file() {
         return Err(CreatorError::Invalid(format!(
             "{label} no existe o no es un archivo: {}",
@@ -105,10 +106,8 @@ fn require_file(value: &str, label: &str) -> Result<PathBuf, CreatorError> {
 }
 
 fn output_mp4(value: &str) -> Result<PathBuf, CreatorError> {
-    let raw = PathBuf::from(value.trim());
-    if raw.as_os_str().is_empty() {
-        return Err(CreatorError::Invalid("Falta la ruta de salida.".into()));
-    }
+    let raw = crate::application::fs::validate_user_write_path(value)
+        .map_err(|error| CreatorError::Invalid(error.message))?;
     let path = if raw
         .extension()
         .and_then(|extension| extension.to_str())
@@ -121,7 +120,33 @@ fn output_mp4(value: &str) -> Result<PathBuf, CreatorError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    Ok(path)
+    Ok(unique_output_path(path))
+}
+
+/// AUD-081: nunca sobrescribir una exportación previa — si el destino ya
+/// existe se sufija `-2`, `-3`, … antes de la extensión (mismo criterio que
+/// `unique_path` de shorts). El `CreatorOutput.path` devuelto refleja la
+/// ruta real escrita; quien necesite sobrescribir borra el archivo antes.
+fn unique_output_path(path: PathBuf) -> PathBuf {
+    if !path.exists() {
+        return path;
+    }
+    let stem = path
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "video".to_owned());
+    let parent = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    for index in 2..1000u32 {
+        let candidate = parent.join(format!("{stem}-{index}.mp4"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    parent.join(format!("{stem}-{nanos}.mp4"))
 }
 
 fn tail(text: &str) -> String {
@@ -295,6 +320,9 @@ fn write_hook_ass(path: &Path, width: u32, height: u32, text: &str) -> Result<()
     write_ass(path, width, height, &style, &event)
 }
 
+// clippy::too_many_arguments: helper privado de un solo caller; los
+// parámetros son la geometría y el texto del ASS, no un dominio reusable.
+#[allow(clippy::too_many_arguments)]
 fn write_cta_ass(
     path: &Path,
     width: u32,

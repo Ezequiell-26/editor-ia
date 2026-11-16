@@ -182,6 +182,16 @@ jobs:
             echo "::notice::Sin TAURI_SIGNING_PRIVATE_KEY: no se firman artefactos de updater."
           fi
 
+      - name: Compila el concat-worker de release
+        # Debe existir ANTES de `tauri build`: tauri.conf.json lo declara como
+        # resource y el bundler falla si el archivo no está.
+        run: node scripts/rust-env.mjs -- cargo build --release --manifest-path apps/concat-worker/Cargo.toml
+
+      - name: Verifica recursos declarados en tauri.conf.json
+        # Chequeo estático barato: falla acá si falta cualquier fuente de
+        # bundle.resources/icon en vez de romper el bundler a los 20 minutos.
+        run: node scripts/check-bundle-resources.mjs
+
       - name: Construye el instalador NSIS firmado
         if: steps.signing.outputs.mode == 'certificate'
         run: node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build -- --config "$TAURI_SIGNING_CONFIG_PATH"
@@ -224,6 +234,37 @@ jobs:
           $lines | Set-Content -LiteralPath 'target/release/SHA256SUMS.txt' -Encoding ascii
           Get-Content -LiteralPath 'target/release/SHA256SUMS.txt'
 
+      - name: Genera los SBOM CycloneDX (Rust + npm)
+        # SBOM de dependencias del artefacto que se publica: CycloneDX JSON,
+        # uno por crate Rust (Cargo.lock vía cargo-cyclonedx) y uno para el
+        # árbol npm del monorepo (package-lock.json vía cdxgen). Ver
+        # docs/RELEASE.md §9.
+        run: |
+          set -euo pipefail
+          mkdir -p sbom
+
+          node scripts/rust-env.mjs -- cargo install cargo-cyclonedx --locked
+          node scripts/rust-env.mjs -- cargo cyclonedx --manifest-path apps/desktop/src-tauri/Cargo.toml --format json
+          node scripts/rust-env.mjs -- cargo cyclonedx --manifest-path apps/concat-worker/Cargo.toml --format json
+          found=0
+          while IFS= read -r bom; do
+            dir="$(dirname "$bom")"
+            name="$(echo "${dir#./}" | tr '/' '-')"
+            [ "$name" = "." ] && name="root"
+            mv "$bom" "sbom/rust-${name}.cdx.json"
+            found=1
+          done < <(find . -name bom.json \
+            -not -path './target/*' -not -path './sbom/*' \
+            -not -path '*/node_modules/*' -not -path '*/target/*')
+          if [ "$found" -ne 1 ]; then
+            echo '::error::cargo-cyclonedx no generó ningún bom.json'
+            exit 1
+          fi
+
+          npx --yes @cyclonedx/cdxgen@12 --type npm \
+            --output sbom/olyvia-npm.cdx.json .
+          ls -la sbom/
+
       - name: Publica los artefactos del workflow
         uses: actions/upload-artifact@v4
         with:
@@ -233,6 +274,7 @@ jobs:
             target/release/bundle/nsis/*.exe
             target/release/SHA256SUMS.txt
             target/release/*.sig
+            sbom/*.cdx.json
           if-no-files-found: error
           retention-days: 30
 
@@ -248,6 +290,7 @@ jobs:
               target/release/editor-ia-desktop.exe \
               target/release/bundle/nsis/*.exe \
               target/release/SHA256SUMS.txt \
+              sbom/*.cdx.json \
               --clobber
           else
             gh release create "$tag" \
@@ -256,7 +299,8 @@ jobs:
               --verify-tag \
               target/release/editor-ia-desktop.exe \
               target/release/bundle/nsis/*.exe \
-              target/release/SHA256SUMS.txt
+              target/release/SHA256SUMS.txt \
+              sbom/*.cdx.json
           fi
 
       - name: Limpia la configuración temporal de firma

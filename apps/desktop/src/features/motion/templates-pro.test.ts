@@ -2,19 +2,20 @@
 import { cleanup, render } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildMotionPlan, MotionPlanError } from './plan';
+import { buildMotionPlan, MotionPlanError } from '../../state/motion-plan';
 import { MotionPreview } from './MotionPreview';
 import {
   cinemaBarsTemplate,
   cinematicTitleTemplate,
+  subscribeBellTemplate,
   glitchTextTemplate,
   lowerThirdMinimalTemplate,
   MOTION_ANIMATIONS,
   MOTION_TEMPLATES,
   templateById,
   zoomPunchTemplate,
-} from './templates';
-import type { MotionLayer, MotionTemplate } from './templates';
+} from '../../state/motion-templates';
+import type { MotionLayer, MotionTemplate } from '../../state/motion-templates';
 
 const context = {
   width: 1920,
@@ -40,6 +41,7 @@ const nuevas: readonly MotionTemplate[] = [
   zoomPunchTemplate,
   glitchTextTemplate,
   cinematicTitleTemplate,
+  subscribeBellTemplate,
 ];
 
 afterEach(() => {
@@ -207,6 +209,52 @@ describe('plantillas motion pro', () => {
 
 // Misma invariante que MotionView.test.tsx: la preview muestra las capas del
 // plan con data-layer-kind y ninguna queda afuera.
+describe('plantilla CTA de suscripción', () => {
+  it('construye un botón editable con texto y campana vectorial', () => {
+    expect(templateById('subscribe-bell')).toBe(subscribeBellTemplate);
+    expect(MOTION_TEMPLATES.filter((item) => item.id === 'subscribe-bell')).toHaveLength(1);
+
+    const plan = buildMotionPlan(
+      subscribeBellTemplate,
+      { ...subscribeBellTemplate.defaults },
+      context,
+    );
+    expectLayersValidas(plan.layers);
+
+    const text = plan.layers.filter((layer) => layer.kind === 'text');
+    expect(text.map((layer) => layer.kind === 'text' ? layer.text : '')).toContain('SUSCRÍBETE');
+    expect(text.map((layer) => layer.kind === 'text' ? layer.text : '')).toContain('Activa la campana');
+
+    const bell = plan.layers.find((layer) => layer.kind === 'rect' && layer.shape === 'custom');
+    expect(bell?.kind).toBe('rect');
+    if (bell?.kind === 'rect') {
+      expect(bell.points).toHaveLength(9);
+    }
+
+    const customized = buildMotionPlan(
+      subscribeBellTemplate,
+      {
+        ...subscribeBellTemplate.defaults,
+        label: 'SEGUINOS',
+        sublabel: 'No te pierdas el próximo vídeo',
+        buttonColor: '#be123c',
+        bellColor: '#fde047',
+      },
+      verticalContext,
+    );
+    expectLayersValidas(customized.layers);
+    expect(customized.layers.filter((layer) => layer.kind === 'text')).toHaveLength(2);
+  });
+
+  it('rechaza colores inválidos en el paquete del CTA', () => {
+    expect(() => buildMotionPlan(
+      subscribeBellTemplate,
+      { ...subscribeBellTemplate.defaults, bellColor: 'amarillo' },
+      context,
+    )).toThrow(MotionPlanError);
+  });
+});
+
 describe('plantillas motion pro en la preview', () => {
   it('muestra capas de texto y respeta el total del plan', () => {
     for (const template of nuevas) {

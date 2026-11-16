@@ -1,10 +1,10 @@
 import type { DesktopService } from "../../services/contracts";
 import type { NativeCall } from './shared';
 import * as shared from './shared';
-import type { AudioPeaks, AudioScopeData, CloneProgress, CloneVoiceResult, DialogueProgress, DialogueResult, DiarizeProviderInfo, DiarizeResult, DubProgress, DubResult, FileLoudness, LipSyncProgress, LipSyncResult, LoudnessAnalysisProgress, MixLoudnessReport, NarrationResult, TranscriptionResult, VoiceInfo, VoiceIsolationStatus } from "../../services/contracts";
+import type { AudioPeaks, AudioScopeData, CloneProgress, CloneVoiceResult, DialogueProgress, DialogueResult, DiarizeProviderInfo, DiarizeResult, DubProgress, DubResult, FileLoudness, LipSyncProgress, LipSyncResult, LoudnessAnalysisProgress, MixLoudnessReport, NarrationResult, NativeWhisperModel, NativeWhisperStatus, TranscriptionResult, VoiceInfo, VoiceIsolationStatus, WhisperModelDownloadEvent } from "../../services/contracts";
 import { listen } from "@tauri-apps/api/event";
 
-export function createAudioService(call: NativeCall): Pick<DesktopService, 'enhanceDialogue' | 'onDialogueProgress' | 'synthesizeDub' | 'onDubProgress' | 'cloneVoice' | 'onCloneProgress' | 'lipSync' | 'onLipSyncProgress' | 'getDiarizeProvider' | 'saveDiarizeProvider' | 'diarizeAudio' | 'audioPeaksPath' | 'measureFileLoudness' | 'audioPeaks' | 'analyzeMixLoudness' | 'audioScopeAnalyze' | 'audioScopeAnalyzeAsset' | 'onLoudnessAnalysisProgress' | 'transcribeAsset' | 'voiceIsolationStatus' | 'voiceIsolateMedia' | 'voiceIsolationPrepare' | 'listVoices' | 'synthesizeNarration'> {
+export function createAudioService(call: NativeCall): Pick<DesktopService, 'enhanceDialogue' | 'onDialogueProgress' | 'synthesizeDub' | 'onDubProgress' | 'cloneVoice' | 'onCloneProgress' | 'lipSync' | 'onLipSyncProgress' | 'getDiarizeProvider' | 'saveDiarizeProvider' | 'diarizeAudio' | 'audioPeaksPath' | 'measureFileLoudness' | 'audioPeaks' | 'analyzeMixLoudness' | 'audioScopeAnalyze' | 'audioScopeAnalyzeAsset' | 'onLoudnessAnalysisProgress' | 'transcribeAsset' | 'voiceIsolationStatus' | 'voiceIsolateMedia' | 'voiceIsolationPrepare' | 'listVoices' | 'synthesizeNarration' | 'whisperModelStatus' | 'whisperModelDownload' | 'whisperModelDownloadCancel' | 'onWhisperModelDownload'> {
   return {
     async enhanceDialogue(request) {
       return (await call(shared.PROJECT_COMMANDS.enhanceDialogue, {
@@ -47,8 +47,8 @@ export function createAudioService(call: NativeCall): Pick<DesktopService, 'enha
         apiKey: input.apiKey,
       })) as DiarizeProviderInfo;
     },
-    async diarizeAudio(path, language) {
-      return (await call(shared.PROJECT_COMMANDS.diarizeAudio, { path, language })) as DiarizeResult;
+    async diarizeAudio(assetId, language) {
+      return (await call(shared.PROJECT_COMMANDS.diarizeAudio, { assetId, language })) as DiarizeResult;
     },
     async audioPeaksPath(path, buckets) {
       return (await call(shared.PROJECT_COMMANDS.audioPeaksPath, {
@@ -159,6 +159,22 @@ export function createAudioService(call: NativeCall): Pick<DesktopService, 'enha
         fpsDen: input.fpsDen,
         provider: input.provider ?? null,
       })) as NarrationResult;
+    },
+    async whisperModelStatus() {
+      return (await call(shared.PROJECT_COMMANDS.whisperModelStatus)) as NativeWhisperStatus;
+    },
+    async whisperModelDownload(modelId) {
+      return (await call(shared.PROJECT_COMMANDS.whisperModelDownload, {
+        modelId,
+      })) as NativeWhisperModel;
+    },
+    async whisperModelDownloadCancel() {
+      await call(shared.PROJECT_COMMANDS.whisperModelDownloadCancel);
+    },
+    async onWhisperModelDownload(handler) {
+      return listen<WhisperModelDownloadEvent>('whisper-model-download', (event) =>
+        handler(event.payload),
+      );
     },
   };
 }

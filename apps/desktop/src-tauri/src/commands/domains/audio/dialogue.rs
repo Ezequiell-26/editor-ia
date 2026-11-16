@@ -12,90 +12,44 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use filmcraft_audio_dsp::{create_effect, AudioEffect};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::commands::hide_console;
 use crate::commands::system::resolve_tools;
+use crate::media::dialogue::{build_chain, DialoguePreset};
 use crate::media::{probe_file, MediaKind};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
-const SAMPLE_RATE: u32 = 48_000;
 const CHANNELS: usize = 2;
 const BLOCK_FRAMES: usize = 1024;
 const MAX_SECONDS: f64 = 180.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DialoguePreset {
-    Dialogue,
-    Voice,
-    Podcast,
-    Soft,
+/// Temporal que se borra al salir del scope salvo que se publique con
+/// `keep()`: cubre todos los `?` intermedios sin repetir limpieza en cada
+/// rama de error (AUD-083). Lo reusa `narration` para el WAV de SAPI.
+pub(crate) struct TempFile(PathBuf);
+
+impl TempFile {
+    pub(crate) fn new(path: PathBuf) -> Self {
+        Self(path)
+    }
+    pub(crate) fn path(&self) -> &Path {
+        &self.0
+    }
+    /// Entrega la ruta y desactiva el borrado (el archivo ya tiene dueño).
+    pub(crate) fn keep(self) -> PathBuf {
+        let path = self.0.clone();
+        std::mem::forget(self);
+        path
+    }
 }
 
-impl DialoguePreset {
-    fn parse(value: Option<&str>) -> Result<Self, ProjectError> {
-        match value
-            .unwrap_or("dialogo")
-            .trim()
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "dialogo" | "diálogo" | "dialogue" => Ok(Self::Dialogue),
-            "voz" | "voice" => Ok(Self::Voice),
-            "podcast" => Ok(Self::Podcast),
-            "suave" | "soft" => Ok(Self::Soft),
-            _ => Err(ProjectError::message(
-                ProjectErrorCode::InvalidProject,
-                "preajuste de voz inválido: usá dialogo, voz, podcast o suave",
-            )),
-        }
-    }
-
-    fn id(self) -> &'static str {
-        match self {
-            Self::Dialogue => "dialogo",
-            Self::Voice => "voz",
-            Self::Podcast => "podcast",
-            Self::Soft => "suave",
-        }
-    }
-
-    fn effect_ids(self) -> &'static [&'static str] {
-        match self {
-            Self::Dialogue => &[
-                "denoise",
-                "parametric_eq",
-                "dehum",
-                "deesser",
-                "compressor",
-                "simple_eq",
-                "speech_enhance",
-                "limiter",
-            ],
-            Self::Voice => &[
-                "denoise",
-                "dehum",
-                "deesser",
-                "compressor",
-                "speech_enhance",
-                "limiter",
-            ],
-            Self::Podcast => &[
-                "denoise",
-                "dehum",
-                "deesser",
-                "dereverb",
-                "compressor",
-                "simple_eq",
-                "speech_enhance",
-                "limiter",
-            ],
-            Self::Soft => &["denoise", "deesser", "speech_enhance", "limiter"],
-        }
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
     }
 }
 
@@ -117,88 +71,6 @@ pub struct DialogueResult {
     pub preset: String,
     /// Cadena aplicada en orden, para que la UI no invente el procesamiento.
     pub effects: Vec<String>,
-}
-
-fn set(fx: &mut Box<dyn AudioEffect>, id: &str, value: f32) {
-    let _ = fx.set_param(id, value);
-}
-
-fn build_chain(preset: DialoguePreset) -> Result<Vec<Box<dyn AudioEffect>>, ProjectError> {
-    let mut chain: Vec<Box<dyn AudioEffect>> = Vec::new();
-    for id in preset.effect_ids() {
-        let effect = create_effect(id, SAMPLE_RATE as f32, CHANNELS).ok_or_else(|| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "el DSP local no tiene todos los efectos de la cadena de voz",
-            )
-        })?;
-        chain.push(effect);
-    }
-    for fx in chain.iter_mut() {
-        match fx.id() {
-            "denoise" => {
-                let reduction = match preset {
-                    DialoguePreset::Dialogue => 14.0,
-                    DialoguePreset::Voice => 18.0,
-                    DialoguePreset::Podcast => 16.0,
-                    DialoguePreset::Soft => 8.0,
-                };
-                set(fx, "reduction", reduction);
-                set(fx, "threshold", 6.0);
-                set(fx, "smoothing", 60.0);
-            }
-            "parametric_eq" => {
-                set(fx, "b1.on", 1.0);
-                set(fx, "b1.type", 4.0); // high-pass
-                set(fx, "b1.freq", 80.0);
-                set(fx, "b1.q", 0.707);
-                set(fx, "b2.on", 0.0);
-            }
-            "dehum" => {
-                set(fx, "frequency", 0.0); // 50 Hz
-                set(fx, "harmonics", 4.0);
-                set(fx, "q", 30.0);
-                set(fx, "amount", 85.0);
-            }
-            "deesser" => {
-                set(fx, "frequency", 6000.0);
-                set(fx, "threshold", -14.0);
-                set(fx, "reduction", 6.0);
-            }
-            "dereverb" => {
-                set(fx, "amount", 35.0);
-                set(fx, "rt60", 0.6);
-            }
-            "compressor" => {
-                set(fx, "threshold", -22.0);
-                set(fx, "ratio", 3.0);
-                set(fx, "knee", 6.0);
-                set(fx, "attack", 8.0);
-                set(fx, "release", 160.0);
-                set(fx, "makeup", 2.0);
-            }
-            "simple_eq" => {
-                set(fx, "low", -2.0);
-                set(fx, "low_freq", 120.0);
-                set(fx, "mid", 1.5);
-                set(fx, "mid_freq", 2200.0);
-                set(fx, "mid_q", 0.8);
-                set(fx, "high", 1.5);
-                set(fx, "high_freq", 8000.0);
-            }
-            "speech_enhance" => {
-                set(fx, "mix", 100.0);
-                set(fx, "tone", 0.0); // Low Tone: menos sibilancia
-            }
-            "limiter" => {
-                set(fx, "ceiling", -1.0);
-                set(fx, "true_peak", 1.0);
-                set(fx, "release", 60.0);
-            }
-            _ => {}
-        }
-    }
-    Ok(chain)
 }
 
 fn process_audio<F: FnMut(f64, &str)>(
@@ -295,8 +167,8 @@ fn process_audio<F: FnMut(f64, &str)>(
         right.push(work_r[index]);
     }
 
-    let raw_path = output_dir.join(format!(".voz-{}.f32", Uuid::new_v4()));
-    let mut raw = std::fs::File::create(&raw_path).map_err(|error| {
+    let raw_path = TempFile::new(output_dir.join(format!(".voz-{}.f32", Uuid::new_v4())));
+    let mut raw = std::fs::File::create(raw_path.path()).map_err(|error| {
         ProjectError::message(
             ProjectErrorCode::Io,
             format!("no se pudo escribir el audio procesado: {error}").as_str(),
@@ -337,15 +209,15 @@ fn process_audio<F: FnMut(f64, &str)>(
         final_path = output_dir.join(format!("{base}-voz-{index}.wav"));
         index += 1;
     }
-    let temp_wav = output_dir.join(format!(".voz-{}.wav", Uuid::new_v4()));
+    let temp_wav = TempFile::new(output_dir.join(format!(".voz-{}.wav", Uuid::new_v4())));
     let mut encode = Command::new(ffmpeg);
     encode
         .args([
             "-v", "error", "-y", "-f", "f32le", "-ar", "48000", "-ac", "2", "-i",
         ])
-        .arg(&raw_path)
+        .arg(raw_path.path())
         .args(["-c:a", "pcm_s24le"])
-        .arg(&temp_wav)
+        .arg(temp_wav.path())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
@@ -356,9 +228,8 @@ fn process_audio<F: FnMut(f64, &str)>(
             format!("no se pudo codificar el WAV: {error}").as_str(),
         )
     })?;
-    let _ = std::fs::remove_file(&raw_path);
+    drop(raw_path);
     if !encoded.status.success() {
-        let _ = std::fs::remove_file(&temp_wav);
         let detail = String::from_utf8_lossy(&encoded.stderr);
         return Err(ProjectError::message(
             ProjectErrorCode::Io,
@@ -369,22 +240,21 @@ fn process_audio<F: FnMut(f64, &str)>(
             .as_str(),
         ));
     }
-    let measured = probe_file(ffprobe, &temp_wav, MediaKind::Audio)?;
+    let measured = probe_file(ffprobe, temp_wav.path(), MediaKind::Audio)?;
     let duration = measured.duration_seconds.unwrap_or(0.0);
     if duration <= 0.0 {
-        let _ = std::fs::remove_file(&temp_wav);
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProviderResponse,
             "el WAV procesado no tiene una duración válida",
         ));
     }
-    std::fs::rename(&temp_wav, &final_path).map_err(|error| {
-        let _ = std::fs::remove_file(&temp_wav);
+    std::fs::rename(temp_wav.path(), &final_path).map_err(|error| {
         ProjectError::message(
             ProjectErrorCode::Io,
             format!("no se pudo publicar el WAV: {error}").as_str(),
         )
     })?;
+    temp_wav.keep();
     let bytes = std::fs::metadata(&final_path)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
@@ -409,15 +279,17 @@ pub async fn enhance_dialogue(
     state: State<'_, AppState>,
     request: DialogueRequest,
 ) -> Result<DialogueResult, ProjectError> {
-    let input = PathBuf::from(request.input_path.trim());
-    if input.as_os_str().is_empty() || !input.is_file() {
+    let input = crate::application::fs::resolve_user_file_path(&request.input_path)?;
+    if !input.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "el audio para mejorar no está en disco",
         ));
     }
     let output_dir = match request.output_dir.as_deref() {
-        Some(value) if !value.trim().is_empty() => PathBuf::from(value.trim()),
+        Some(value) if !value.trim().is_empty() => {
+            crate::application::fs::validate_user_write_path(value)?
+        }
         _ => input
             .parent()
             .map(Path::to_path_buf)
@@ -467,23 +339,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presets_build_the_expected_chain() {
-        let dialogue = build_chain(DialoguePreset::Dialogue).expect("cadena diálogo");
-        assert_eq!(dialogue.len(), 8);
-        assert_eq!(dialogue[0].id(), "denoise");
-        assert_eq!(dialogue.last().map(|fx| fx.id()), Some("limiter"));
-        let soft = build_chain(DialoguePreset::Soft).expect("cadena suave");
-        assert_eq!(soft.len(), 4);
-        assert_eq!(soft[0].id(), "denoise");
-    }
+    fn temp_file_borra_al_salir_y_keep_lo_conserva() {
+        let dir = std::env::temp_dir().join(format!("editor-ia-tmp-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temporal");
+        let dropped = TempFile::new(dir.join("sale.bin"));
+        std::fs::write(dropped.path(), b"x").expect("escribir");
+        drop(dropped);
+        assert!(!dir.join("sale.bin").exists());
 
-    #[test]
-    fn preset_parser_rejects_unknown_values() {
-        assert_eq!(
-            DialoguePreset::parse(Some("PODCAST")).expect("podcast"),
-            DialoguePreset::Podcast
-        );
-        assert!(DialoguePreset::parse(Some("telefono")).is_err());
+        let kept = TempFile::new(dir.join("queda.bin"));
+        std::fs::write(kept.path(), b"x").expect("escribir");
+        let published = kept.keep();
+        assert!(published.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -533,23 +401,5 @@ mod tests {
             result.bytes, result.duration_seconds, result.path
         );
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn dialogue_dsp_processes_finite_audio() {
-        let mut chain = build_chain(DialoguePreset::Dialogue).expect("cadena");
-        let mut left: Vec<f32> = (0..4800)
-            .map(|index| 0.2 * (index as f32 * 0.05).sin() + 0.01)
-            .collect();
-        let mut right = left.clone();
-        let mut channels = [&mut left[..], &mut right[..]];
-        for fx in chain.iter_mut() {
-            fx.process(&mut channels);
-        }
-        assert!(left
-            .iter()
-            .chain(right.iter())
-            .all(|value| value.is_finite()));
-        assert!(left.iter().any(|value| value.abs() > 0.0001));
     }
 }

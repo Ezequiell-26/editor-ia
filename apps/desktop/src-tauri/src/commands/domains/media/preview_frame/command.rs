@@ -39,9 +39,14 @@ pub async fn render_preview_frame(
     let frame = request.frame;
     let native = request.native;
     let wants_composite = request.composite.unwrap_or(true) && !native;
+    // Firma del frame (prerender/agendador): misma firma → mismo PNG.
+    let signature = frame_signature(&project, &clip_id, frame, native, wants_composite);
     tauri::async_runtime::spawn_blocking(move || {
+        if let Some(cached) = cache_lookup(&output_dir, &signature) {
+            return Ok(cached);
+        }
         let mut fallback_reason = None;
-        if wants_composite {
+        let rendered = if wants_composite {
             match composite_frame(
                 &ffmpeg,
                 &ffprobe,
@@ -51,20 +56,32 @@ pub async fn render_preview_frame(
                 frame,
                 &output_dir,
             ) {
-                Ok(result) => return Ok(result),
-                Err(error) => fallback_reason = Some(error.message),
+                Ok(result) => Some(result),
+                Err(error) => {
+                    fallback_reason = Some(error.message);
+                    None
+                }
             }
-        }
-        let mut result = render_frame(
-            &ffmpeg,
-            &root,
-            &project,
-            &clip_id,
-            frame,
-            native,
-            &output_dir,
-        )?;
-        result.fallback_reason = fallback_reason;
+        } else {
+            None
+        };
+        let mut result = match rendered {
+            Some(result) => result,
+            None => {
+                let mut result = render_frame(
+                    &ffmpeg,
+                    &root,
+                    &project,
+                    &clip_id,
+                    frame,
+                    native,
+                    &output_dir,
+                )?;
+                result.fallback_reason = fallback_reason;
+                result
+            }
+        };
+        result = cache_store(&output_dir, &signature, &result);
         Ok(result)
     })
     .await

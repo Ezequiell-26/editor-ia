@@ -1,3 +1,9 @@
+/// Marcador interno del encuadre `blur` (fondo desenfocado): ocupa el
+/// lugar del fit lineal y `chain_with_frame` lo reemplaza por el
+/// sub-grafo split → fondo blur + primer plano contain → overlay.
+const BLUR_FIT_MARKER: &str = "__blur_fit__";
+
+#[cfg(test)]
 pub(crate) fn visual_filter(
     input_index: usize,
     clip: &Value,
@@ -22,6 +28,8 @@ pub(crate) fn visual_filter(
         speed_den,
         is_image,
         "rgba",
+        None,
+        None,
     )
 }
 
@@ -41,6 +49,15 @@ pub(crate) fn visual_filter_with_format(
     speed_den: u32,
     is_image: bool,
     compose_format: &str,
+    // Input FFmpeg del PNG del marco del monitor (`monitorFrame`), si el
+    // clip lo tiene. Se compone dentro del layer justo después del fit-scale
+    // para heredar scale/keyframes/flip/rotate/perspectiva/opacity como el
+    // overlay SVG del preview.
+    frame_input: Option<usize>,
+    // Input FFmpeg de la textura lavfi de una transición `textura-*`
+    // (`textura-luz`, `textura-celular`): se overlay-ea en el mismo punto
+    // que el marco, después de él, con envolvente alfa limitada al lead.
+    texture_input: Option<usize>,
 ) -> String {
     let lead = lead_seconds.clamp(0.0, clip_seconds.max(0.0));
     let total_seconds = clip_seconds + lead;
@@ -148,12 +165,24 @@ pub(crate) fn visual_filter_with_format(
             profile.width, profile.height
         ));
         filters.push(format!("crop={}:{}", profile.width, profile.height));
+    } else if profile.fit == "blur" {
+        // Fondo desenfocado (paridad `fondo_desfocado` de `rastreamento.js`
+        // de AlaukCut): el encuadre se resuelve en `chain_with_frame`
+        // partiendo la fuente en fondo cover+boxblur atenuado y primer
+        // plano contain centrado encima. El marcador ocupa el lugar del
+        // fit lineal; `frame_split` queda apuntando al inicio de la cola.
+        filters.push(BLUR_FIT_MARKER.to_owned());
     } else {
         filters.push(format!(
             "scale=w={}:h={}:force_original_aspect_ratio=decrease:force_divisible_by=2",
             profile.width, profile.height
         ));
     }
+    // Punto de inyección del marco: el layer ya tiene el tamaño final del
+    // contenido ajustado (cover => lienzo; contain => media fitted), antes de
+    // scaleX/keyframes/flip, así el PNG se compone 1:1 y hereda todo el
+    // transform restante de la capa.
+    let frame_split = filters.len();
     if (scale_x - 1.0).abs() > 0.001 || (scale_y - 1.0).abs() > 0.001 {
         filters.push(format!("scale=iw*{scale_x:.6}:ih*{scale_y:.6}"));
     }
@@ -286,7 +315,7 @@ pub(crate) fn visual_filter_with_format(
                 (1.0 + gamma_rgb[2]).clamp(0.1, 10.0)
             ));
         }
-        filters.push(eq);
+        filters.push(crate::render::ffmpeg::rewrite_eq_filters(&eq));
     }
     if lift_rgb.iter().any(|value| value.abs() > 0.001)
         || gain_rgb.iter().any(|value| value.abs() > 0.001)
@@ -523,11 +552,99 @@ pub(crate) fn visual_filter_with_format(
                     .unwrap_or_else(|| "0x000000".to_owned());
                 filters.push(format!("fade=t=in:st=0:d={lead:.3}:color={color}"));
             }
-            wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris") => {
+            wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris" | "blinds" | "clock-wipe" | "ink" | "bolhas" | "colmeia" | "chuva" | "vento" | "triangulos" | "persiana" | "reflexo" | "barrido-diagonal") => {
                 filters.push(wipe_transition_filter(wipe, lead, fps));
             }
             slide3d @ ("slide-3d-left" | "slide-3d-right" | "slide-3d-up" | "slide-3d-down") => {
                 filters.push(slide3d_transition_filter(slide3d, lead, fps));
+            }
+            // `pixelar`: el entrante nace pixelado y se resuelve durante el
+            // lead; el alfa entra en disolución sobre el clip saliente.
+            "pixelar" => {
+                filters.push(pixelar_transition_filter(lead, fps));
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            // `interferencia`: aberración cromática + ruido durante el lead,
+            // con la misma disolución de alfa que pixelar.
+            "interferencia" => {
+                filters.push(interferencia_transition_filter(lead, fps));
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            // `liquido`: el entrante entra deformado por un campo de ruido
+            // que decae hasta 0; misma disolución de alfa que pixelar.
+            "liquido" => {
+                filters.push(liquido_transition_filter(lead, fps));
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            // `caleidoscopio`: el entrante entra plegado en 8 sectores
+            // espejados que se abren con el progreso; misma disolución.
+            "caleidoscopio" => {
+                filters.push(caleidoscopio_transition_filter(lead, fps));
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            // `desenfoque-lineal`: el entrante entra con estelas
+            // direccionales que se acortan hasta quedar nítido.
+            "desenfoque-lineal" => {
+                filters.push(desenfoque_lineal_transition_filter(lead, fps));
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            // `warp-direccional`: el entrante entra abombado hacia un
+            // lado y se endereza con el progreso; misma disolución.
+            "warp-direccional" => {
+                filters.push(warp_direccional_transition_filter(lead, fps));
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            // `glitch-digital`: el entrante entra con bloques desplazados
+            // y split cromático que se resuelven con el progreso.
+            "glitch-digital" => {
+                filters.push(glitch_digital_transition_filter(lead, fps));
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            // `zoom-suave`: el entrante asienta desde un acercamiento
+            // del 18 %; misma disolución de alfa.
+            "zoom-suave" => {
+                filters.push(zoom_suave_transition_filter(lead, fps));
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            // `zoom-rapido`: el entrante acerca desde un 15 % alejado.
+            "zoom-rapido" => {
+                filters.push(zoom_rapido_transition_filter(lead, fps));
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            // `textura-*`: el efecto es el overlay lavfi que compone
+            // `prepare_texture_input` en el split post fit-scale; el clip
+            // entrante disuelve debajo como `dissolve` para que el corte
+            // se lea como transición y no como corte seco + flash.
+            "textura-luz" | "textura-celular" | "textura-fractal" | "textura-vida" => {
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1"));
+            }
+            _ => {}
+        }
+    }
+    // `transitionOut`: los fundidos atenúan el propio clip durante su cola
+    // (como `opacidadTransicion` de AlaukCut). Los gestos los compone el
+    // entrante del siguiente clip; sin sucesor no hay nada que mezclar.
+    let trail = transition_trail_seconds(clip, fps, clip_seconds);
+    if trail > 0.001 {
+        let at = (total_seconds - trail).max(0.0);
+        match clip["transitionOut"]["type"].as_str().unwrap_or("") {
+            "dissolve" => {
+                filters.push(format!("fade=t=out:st={at:.3}:d={trail:.3}:alpha=1"))
+            }
+            "fade-black" => {
+                filters.push(format!("fade=t=out:st={at:.3}:d={trail:.3}"))
+            }
+            "fade-white" => filters.push(format!(
+                "fade=t=out:st={at:.3}:d={trail:.3}:color=white"
+            )),
+            "dip-color" => {
+                let color = clip["transitionOut"]["color"]
+                    .as_str()
+                    .map(hex_color)
+                    .unwrap_or_else(|| "0x000000".to_owned());
+                filters.push(format!(
+                    "fade=t=out:st={at:.3}:d={trail:.3}:color={color}"
+                ));
             }
             _ => {}
         }
@@ -684,6 +801,88 @@ pub(crate) fn visual_filter_with_format(
                 ));
             }
         }
+        // Pixelar congelado: el bloque ya viene resuelto por el preview.
+        if mode == "pixelar" {
+            let progress = frozen
+                .get("progress")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            filters.push(pixelar_frozen_filter(progress));
+        }
+        // Interferencia congelada: mismo criterio, con el progreso del frame.
+        if mode == "interferencia" {
+            let progress = frozen
+                .get("progress")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            filters.push(interferencia_frozen_filter(progress));
+        }
+        // Líquido congelado: mismo criterio — el offset ya viene del
+        // progreso del frame.
+        if mode == "liquido" {
+            let progress = frozen
+                .get("progress")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            filters.push(liquido_frozen_filter(progress));
+        }
+        // Caleidoscopio congelado: el fold ya viene del progreso del frame.
+        if mode == "caleidoscopio" {
+            let progress = frozen
+                .get("progress")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            filters.push(caleidoscopio_frozen_filter(progress));
+        }
+        // Desenfoque lineal congelado: los taps ya vienen del progreso.
+        if mode == "desenfoque-lineal" {
+            let progress = frozen
+                .get("progress")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            filters.push(desenfoque_lineal_frozen_filter(progress));
+        }
+        // Warp direccional congelado: el abombamiento ya viene del progreso.
+        if mode == "warp-direccional" {
+            let progress = frozen
+                .get("progress")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            filters.push(warp_direccional_frozen_filter(progress));
+        }
+        // Glitch digital congelado: los offsets ya vienen del progreso.
+        if mode == "glitch-digital" {
+            let progress = frozen
+                .get("progress")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            filters.push(glitch_digital_frozen_filter(progress));
+        }
+        // Zoom suave congelado: el factor ya viene del progreso del frame.
+        if mode == "zoom-suave" {
+            let progress = frozen
+                .get("progress")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            filters.push(zoom_suave_frozen_filter(progress));
+        }
+        // Zoom rápido congelado: el factor ya viene del progreso.
+        if mode == "zoom-rapido" {
+            let progress = frozen
+                .get("progress")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            filters.push(zoom_rapido_frozen_filter(progress));
+        }
         if alpha < 0.999 {
             match mode {
                 "black" => filters.push(format!(
@@ -720,6 +919,46 @@ pub(crate) fn visual_filter_with_format(
             }
         }
     }
+    // Fundido de salida congelado en el frame pedido (`transitionOutFrozen`
+    // lo emite el preview): `keep` es la fracción de clip que queda (1 al
+    // inicio de la cola, 0 al final). Disolución atenúa alfa; los fundidos
+    // a color mezclan RGB hacia el color conservando el alfa, igual que el
+    // `fade=t=out` del compuesto completo.
+    if let Some(frozen) = clip["transitionOutFrozen"].as_object() {
+        let keep = frozen
+            .get("keep")
+            .and_then(Value::as_f64)
+            .map(|value| value.clamp(0.0, 1.0))
+            .unwrap_or(1.0);
+        if keep < 0.999 {
+            match frozen.get("mode").and_then(Value::as_str).unwrap_or("") {
+                "black" => filters.push(format!(
+                    "colorchannelmixer=rr={keep:.6}:gg={keep:.6}:bb={keep:.6}"
+                )),
+                "white" => {
+                    let floor = 1.0 - keep;
+                    filters.push(format!(
+                        "curves=r='0/{floor:.6} 1/1':g='0/{floor:.6} 1/1':b='0/{floor:.6} 1/1'"
+                    ));
+                }
+                "color" => {
+                    if let Some((r, g, b)) = frozen
+                        .get("color")
+                        .and_then(Value::as_str)
+                        .and_then(hex_rgb01)
+                    {
+                        let floor = 1.0 - keep;
+                        let (ir, ig, ib) = (floor * r, floor * g, floor * b);
+                        let (yr, yg, yb) = (keep + ir, keep + ig, keep + ib);
+                        filters.push(format!(
+                            "curves=r='0/{ir:.6} 1/{yr:.6}':g='0/{ig:.6} 1/{yg:.6}':b='0/{ib:.6} 1/{yb:.6}'"
+                        ));
+                    }
+                }
+                _ => filters.push(format!("colorchannelmixer=aa={keep:.6}")),
+            }
+        }
+    }
     if let Some(perspective) = perspective_filter(clip, profile) {
         filters.push(perspective);
     }
@@ -735,6 +974,87 @@ pub(crate) fn visual_filter_with_format(
             filters.push(format!("colorchannelmixer=aa={alpha:.6}"));
         }
     }
+    // Cadena del clip con los overlays extra compuestos (marco del monitor
+    // y textura de transición `textura-*`): la cabeza llega hasta el
+    // fit-scale, cada overlay se aplica 1:1 en orden y el resto de filtros
+    // sigue sobre la salida del último overlay. Sin extras es la cadena
+    // lineal de siempre. Se evalúa al final porque el `setpts` de rebase se
+    // pushea después del branch de máscara de texto.
+    let texture_kind = texture_input.and(texture_transition_kind(clip));
+    let chain_with_frame = |filters: &[String]| -> String {
+        // Overlays extra en el punto de inyección, en orden: marco del
+        // monitor → textura de transición. `prev` es el label del stream
+        // compuesto hasta el momento; la salida del último overlay queda
+        // sin label para que la cola de filtros la continúe.
+        let append_overlays = |graph: &mut String, base: &str| {
+            let mut prev = base.to_owned();
+            if let Some(frame_index) = frame_input {
+                graph.push_str(&format!(
+                    ";[{frame_index}:v]format=rgba,fps={},setpts=PTS-STARTPTS[mff{input_index}];\
+                     [{prev}][mff{input_index}]overlay=0:0[mfo{input_index}]",
+                    profile.fps_arg()
+                ));
+                prev = format!("mfo{input_index}");
+            }
+            if let (Some(texture_index), Some(kind)) = (texture_input, texture_kind) {
+                graph.push_str(&texture_overlay_segment(
+                    &prev, texture_index, kind, profile, lead, input_index,
+                ));
+            }
+        };
+        // `fit == "blur"`: el marcador parte la cadena en sub-grafos `;`.
+        // La fuente se divide en fondo cover + boxblur atenuado y primer
+        // plano contain transparente centrado encima; la cola de filters
+        // (scale/keyframes/flip/pad/format) se aplica sobre el composite.
+        if let Some(pos) = filters.iter().position(|f| f == BLUR_FIT_MARKER) {
+            let head = filters[..pos].join(",");
+            let tail = filters[pos + 1..].join(",");
+            let tail = if tail.is_empty() {
+                String::new()
+            } else {
+                format!(",{tail}")
+            };
+            let mut graph = format!(
+                "{head}[bfs{input_index}];\
+                 [bfs{input_index}]split[bfb{input_index}][bff{input_index}];\
+                 [bfb{input_index}]scale=w={}:h={}:force_original_aspect_ratio=increase:force_divisible_by=2,\
+                 crop={}:{},gblur=sigma=28,curves=all='0/0.05 1/0.88',format=rgba\
+                 [bfbl{input_index}];\
+                 [bff{input_index}]scale=w={}:h={}:force_original_aspect_ratio=decrease:force_divisible_by=2,\
+                 format=rgba,pad={}:{}:(ow-iw)/2:(oh-ih)/2:color=black@0\
+                 [bfbg{input_index}];\
+                 [bfbl{input_index}][bfbg{input_index}]overlay=0:0",
+                profile.width,
+                profile.height,
+                profile.width,
+                profile.height,
+                profile.width,
+                profile.height,
+                profile.width,
+                profile.height,
+            );
+            if frame_input.is_some() || texture_input.is_some() {
+                graph.push_str(&format!("[bfcomp{input_index}]"));
+                append_overlays(&mut graph, &format!("bfcomp{input_index}"));
+            }
+            graph.push_str(&tail);
+            return graph;
+        }
+        if frame_input.is_none() && texture_input.is_none() {
+            return filters.join(",");
+        }
+        let head = filters[..frame_split].join(",");
+        let tail = filters[frame_split..].join(",");
+        let tail = if tail.is_empty() {
+            String::new()
+        } else {
+            format!(",{tail}")
+        };
+        let mut graph = format!("{head}[mfl{input_index}]");
+        append_overlays(&mut graph, &format!("mfl{input_index}"));
+        graph.push_str(&tail);
+        graph
+    };
     let text_mask = clip["mask"]["shape"].as_str() == Some("text")
         && clip["mask"]["text"]
             .as_str()
@@ -774,7 +1094,7 @@ pub(crate) fn visual_filter_with_format(
                  drawtext=fontfile='{}':text='{}':fontcolor=white:fontsize={:.0}:x=(w-text_w)/2+({:.6})*w:y=(h-text_h)/2+({:.6})*h:alpha=1:expansion=none,\
                  alphaextract{}{}[{mask_label}];\
                  [{base_label}][{mask_label}]alphamerge,format=rgba,setpts=PTS-STARTPTS+{}/TB[v{}]",
-                filters.join(","),
+                chain_with_frame(&filters),
                 profile.width,
                 profile.height,
                 profile.fps_arg(),
@@ -799,7 +1119,10 @@ pub(crate) fn visual_filter_with_format(
     // Keep the asset read so a malformed source is caught by the compiler of
     // this function even if future transforms stop using it directly.
     let _ = asset;
-    format!("[{input_index}:v]{}[v{input_index}]", filters.join(","))
+    format!(
+        "[{input_index}:v]{}[v{input_index}]",
+        chain_with_frame(&filters)
+    )
 }
 
 /// Paneo animado de pista: ganancias por canal (balance lineal, la misma

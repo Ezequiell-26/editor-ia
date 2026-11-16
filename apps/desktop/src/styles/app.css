@@ -299,6 +299,111 @@ code {
   flex-wrap: wrap;
 }
 
+/* ── Menú «Layout» del editor (paridad `menu-layout` de AlaukCut) ── */
+.topbar-layout {
+  position: relative;
+  display: flex;
+}
+
+.layout-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 240px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-panel-2);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+}
+
+.layout-opcion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.layout-opcion:hover {
+  color: var(--color-text);
+  border-color: var(--color-border);
+  background: var(--color-panel-3);
+}
+
+.layout-opcion.activo {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.layout-opcion-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.layout-opcion-txt strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.layout-opcion-txt small {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+}
+
+/* Miniatura del layout: el dibujo ES la explicación (como en AlaukCut). */
+.layout-thumb {
+  flex: none;
+  width: 88px;
+  height: 50px;
+  border-radius: 3px;
+  background: var(--color-bg);
+}
+
+.layout-thumb .lt-topo {
+  fill: var(--color-panel-3);
+}
+
+.layout-thumb .lt-painel {
+  fill: var(--color-panel);
+  stroke: var(--color-border);
+  stroke-width: 0.6;
+}
+
+.layout-thumb .lt-pantalla {
+  fill: color-mix(in srgb, var(--color-accent) 22%, var(--color-panel));
+  stroke: var(--color-accent);
+  stroke-width: 0.6;
+}
+
+.layout-thumb .lt-timeline {
+  fill: var(--color-panel-2);
+  stroke: var(--color-border);
+  stroke-width: 0.6;
+}
+
+/* Columna de IA del layout «Edición»: tinte de acento para distinguirla
+   del monitor (que usa el mismo trazo pero otra lectura visual). */
+.layout-thumb .lt-ia {
+  fill: color-mix(in srgb, var(--color-accent) 14%, var(--color-panel));
+  stroke: var(--color-accent);
+  stroke-width: 0.6;
+  stroke-dasharray: 2 1.5;
+}
+
 .banner {
   display: flex;
   align-items: center;
@@ -1483,6 +1588,8 @@ textarea.auto-expand {
   opacity: 1;
   visibility: visible;
   transform: translateX(-50%) translateY(-12px) scale(1);
+  /* dicas.js: 340 ms de espera antes de mostrar (sale sin delay). */
+  transition-delay: 340ms;
 }
 
 .tooltip::before {
@@ -2490,6 +2597,10 @@ textarea {
   min-height: 0;
 }
 
+/* Las reglas del layout «Vertical (Shorts)」viven en `layouts.css`, que se
+   importa al final de main.tsx: los presets declaran la grilla con
+   `!important` y este archivo debe cargar después para ganar la cascada. */
+
 .asset-rail {
   grid-column: 1;
   grid-row: 1;
@@ -2578,6 +2689,19 @@ textarea {
   height: 100%;
   object-fit: contain;
   transform-origin: center center;
+}
+
+/* Ventana de transición (lead): el wrapper revela la capa entrante con
+   opacity/clip-path/mask/transform calculados por preview-transition.ts y el
+   underlay pinta el color del fundido (dip-color/fade) debajo de ella. */
+.preview-transition-layer,
+.preview-transition-underlay {
+  position: absolute;
+  inset: 0;
+}
+
+.preview-transition-underlay {
+  pointer-events: none;
 }
 
 .preview-badge {
@@ -2689,6 +2813,70 @@ textarea {
   gap: 6px;
 }
 
+/* Monitor de origen (paridad `previa_midia` de AlaukCut, en el Inspector). */
+
+.source-monitor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.source-monitor-media {
+  width: 100%;
+  max-height: 180px;
+  border-radius: var(--radius-1);
+  background: #000;
+  object-fit: contain;
+}
+
+.source-monitor-wave-row {
+  position: relative;
+}
+
+.source-monitor-wave {
+  width: 100%;
+  height: 36px;
+  color: var(--color-accent);
+  opacity: 0.8;
+}
+
+.source-monitor-wave-mode {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  height: 20px;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.source-monitor-bar {
+  position: relative;
+}
+
+.source-monitor-range {
+  position: absolute;
+  top: 50%;
+  height: 4px;
+  transform: translateY(-50%);
+  background: var(--color-accent);
+  opacity: 0.3;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.source-monitor-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-monitor-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--color-text-dim, var(--color-text));
+  opacity: 0.8;
+}
+
 /* ---------------- timeline ---------------- */
 
 .timeline-panel {
@@ -2750,6 +2938,61 @@ textarea {
   height: 1px;
   margin: 4px 7px;
   background: var(--color-border);
+}
+
+.timeline-menu-empty {
+  margin: 4px 10px;
+  color: var(--color-empty);
+  font-size: 11px;
+}
+
+.timeline-menu-sfx-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.timeline-menu-sfx-preview {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.timeline-menu-sfx-preview:hover {
+  background: var(--color-hover, rgba(255, 255, 255, 0.08));
+  color: var(--color-text);
+}
+
+.timeline-menu-sfx-add {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timeline-menu-sfx-add:hover:not(:disabled) {
+  background: var(--color-hover, rgba(255, 255, 255, 0.08));
+}
+
+.timeline-menu-sfx-add:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .ruler-corner {
@@ -2977,6 +3220,29 @@ textarea {
   font-size: 8px;
   white-space: nowrap;
   pointer-events: none;
+}
+
+.clip-edit-delta {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  z-index: 2;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 14px;
+  pointer-events: none;
+}
+
+/* Herramientas de edición del selector (slip/slide/roll): el cursor anuncia
+   el gesto horizontal sobre la ventana de origen o el corte. */
+.timeline[data-tool='slip'] .timeline-clip,
+.timeline[data-tool='slide'] .timeline-clip,
+.timeline[data-tool='roll'] .timeline-clip {
+  cursor: ew-resize;
 }
 
 .trim-handle.start {
@@ -4963,4 +5229,253 @@ textarea::placeholder {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
   align-items: center;
+}
+
+/* ── Dibujo de máscara a mano sobre el monitor ────────────────────────── */
+.preview-mask-draw {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  cursor: crosshair;
+  touch-action: none;
+}
+.preview-mask-draw-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.preview-mask-draw-svg polyline {
+  fill: rgba(96, 165, 250, 0.14);
+  stroke: #7cc4ff;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.preview-doodle-color {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.preview-doodle-width {
+  height: 24px;
+  font-size: 11px;
+}
+.preview-doodle-draw .preview-mask-draw-svg polyline {
+  fill: none;
+  stroke: #ffd23f;
+}
+/* Manito del modo dibujar (`maozinha`): sigue al puntero en px; la punta
+   del lápiz queda sobre el punto exacto del trazo. */
+.preview-doodle-hand {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 41;
+  font-size: 26px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  /* El JS mueve `transform: translate(x,y)`; la rotación y el offset de la
+     punta van por propiedades separadas para no pisarse. */
+  margin-left: -14px;
+  margin-top: -30px;
+  rotate: -12deg;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+  transition: opacity 120ms ease;
+  will-change: transform;
+}
+.preview-doodle-draw {
+  cursor: none;
+}
+.preview-mask-draw-hint {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(10, 14, 20, 0.82);
+  border: 1px solid rgba(124, 196, 255, 0.35);
+  color: #bfe0ff;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── Biblioteca de efectos de sonido (paridad sons.js) ────────────────── */
+.sfx-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sfx-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.sfx-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.som-play {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 10px;
+  line-height: 1;
+}
+.som-play.tocando {
+  color: #ff5d5d;
+  border-color: rgba(255, 93, 93, 0.55);
+}
+.sfx-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+}
+.sfx-info strong {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sfx-info span {
+  font-size: 10.5px;
+  opacity: 0.65;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sfx-card .small.ghost {
+  flex: none;
+}
+/* Grupos colapsables del panel Sons (paridad `som-grupo` de AlaukCut). */
+.sfx-group {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 2px 6px 6px;
+}
+.sfx-group > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  user-select: none;
+}
+.sfx-group > summary::-webkit-details-marker {
+  display: none;
+}
+.sfx-group > summary::before {
+  content: '▸';
+  font-size: 9px;
+  transition: transform 0.12s ease;
+}
+.sfx-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+.sfx-group-count {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.6;
+}
+.sfx-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.preview-spectrum {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.preview-spectrum-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.preview-spectrum-region {
+  position: absolute;
+  z-index: 4;
+  border: 1px dashed rgba(125, 211, 252, 0.65);
+  border-radius: 3px;
+  cursor: move;
+  touch-action: none;
+}
+
+.preview-spectrum-region:hover {
+  border-color: rgba(125, 211, 252, 0.95);
+  background: rgba(125, 211, 252, 0.05);
+}
+
+.preview-spectrum-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #0b1220;
+  border: 1.5px solid #7dd3fc;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
+.preview-spectrum-handle.nw { left: -6px; top: -6px; cursor: nwse-resize; }
+.preview-spectrum-handle.ne { right: -6px; top: -6px; cursor: nesw-resize; }
+.preview-spectrum-handle.sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.preview-spectrum-handle.se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+.preview-spectrum-handle.n { left: 50%; top: -6px; margin-left: -5px; cursor: ns-resize; }
+.preview-spectrum-handle.s { left: 50%; bottom: -6px; margin-left: -5px; cursor: ns-resize; }
+.preview-spectrum-handle.e { right: -6px; top: 50%; margin-top: -5px; cursor: ew-resize; }
+.preview-spectrum-handle.w { left: -6px; top: 50%; margin-top: -5px; cursor: ew-resize; }
+
+/* Onda de click del cursor propio (paridad `cursor_editar` de AlaukCut):
+   anillo que se expande y se apaga donde se pulsó. */
+.app-cursor-ripple {
+  position: absolute;
+  z-index: 60;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 2px solid var(--color-accent, #7dd3fc);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: app-cursor-ripple 480ms ease-out forwards;
+}
+
+@keyframes app-cursor-ripple {
+  0% {
+    transform: scale(0.35);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
 }

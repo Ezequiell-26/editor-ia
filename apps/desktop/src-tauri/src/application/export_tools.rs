@@ -56,12 +56,12 @@ pub fn verify_export_file(
         "json".to_owned(),
         path.to_string_lossy().into_owned(),
     ];
-    let output = runner.run_ffprobe(ffprobe, &args).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo iniciar FFprobe para verificar el archivo",
-        )
-    })?;
+    // El runner distingue spawn de timeout; se propaga tal cual.
+    let output = runner.run_ffprobe_with_timeout(
+        ffprobe,
+        &args,
+        crate::ports::media::MEDIA_PROBE_TIMEOUT,
+    )?;
     let document: Value = serde_json::from_slice(&output.stdout).unwrap_or(Value::Null);
     if !output.status.success() || document["streams"].is_null() {
         return Err(ProjectError::message(

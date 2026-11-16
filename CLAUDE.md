@@ -35,3 +35,9 @@ Cuando el usuario diga frases como **“seguí”, “sigue”, “continúa”,
 ## Criterio de calidad
 
 La meta es un editor de video profesional y fiable, no una lista de funciones ficticia. Prioriza integración funcional de extremo a extremo, UX coherente, accesibilidad, estabilidad, rendimiento en el PC real, seguridad, licencias de terceros y pruebas. No declares el proyecto “100 % terminado” mientras queden brechas conocidas; documenta límites y siguiente paso.
+
+## Toolchain Rust en esta máquina (2026-11-10)
+
+- `D:\DevCache` quedó **read-only** para el usuario (ACLs RX). `CARGO_HOME=D:\DevCache\Rust\cargo` ya no puede escribir index/src → `cargo check` falla con "failed to write cache" / "failed to download".
+- Workaround activo: `CARGO_HOME=C:\Users\ofici\.cargo-w` (copias de registry cache+index+git; `src` se re-extrae solo). Siempre correr cargo vía `node scripts/rust-env.mjs -- cargo ...` (exporta FFMPEG_DIR/PKG_CONFIG_PATH/LIB de MSVC — sin eso falla `ffmpeg-sys-next` y `OLDNAMES.lib`).
+- `Cargo.lock` pineaba `zerocopy 0.8.63` que no estaba en el cache local → se bajó a `0.8.57` con `cargo update -p zerocopy --precise 0.8.57 --offline`. Si vuelve a aparecer un crate no cacheado, la red funciona: correr sin `--offline`.

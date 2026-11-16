@@ -4,6 +4,8 @@ import {
   sampleTransformKeyframes,
   cubicBezierProgress,
   getBezierFromEasing,
+  BEZIER_PRESETS,
+  bezierPresetId,
 } from './keyframes.ts';
 
 describe('cubicBezierProgress', () => {
@@ -118,5 +120,57 @@ describe('muestreo con bezier explícito en keyframes', () => {
       { frame: 100, scale: 100, easing: 'linear' },
     ] as unknown as ClipTransformKeyframe[];
     expect(sampleTransformKeyframes(keyframes, 50).scale).toBeCloseTo(50, 6);
+  });
+});
+
+describe('BEZIER_PRESETS', () => {
+  it('expone las 13 curvas con ids únicos y coords en rango de esquema', () => {
+    expect(BEZIER_PRESETS).toHaveLength(13);
+    const ids = new Set(BEZIER_PRESETS.map((preset) => preset.id));
+    expect(ids.size).toBe(13);
+    for (const preset of BEZIER_PRESETS) {
+      const { cp1X, cp1Y, cp2X, cp2Y } = preset.bezier;
+      expect(cp1X).toBeGreaterThanOrEqual(0);
+      expect(cp1X).toBeLessThanOrEqual(1);
+      expect(cp2X).toBeGreaterThanOrEqual(0);
+      expect(cp2X).toBeLessThanOrEqual(1);
+      expect(cp1Y).toBeGreaterThanOrEqual(-1);
+      expect(cp1Y).toBeLessThanOrEqual(2);
+      expect(cp2Y).toBeGreaterThanOrEqual(-1);
+      expect(cp2Y).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('bezierPresetId reconoce la curva y devuelve null para personalizadas', () => {
+    const linear = BEZIER_PRESETS.find((preset) => preset.id === 'linear')!;
+    expect(bezierPresetId(linear.bezier)).toBe('linear');
+    expect(bezierPresetId({ cp1X: 0.1, cp1Y: 0.2, cp2X: 0.3, cp2Y: 0.4 })).toBeNull();
+    expect(bezierPresetId(undefined)).toBeNull();
+  });
+
+  it('los presets de rebote producen overshoot real (y fuera de [0,1])', () => {
+    const reboteSalida = BEZIER_PRESETS.find((preset) => preset.id === 'rebote-salida')!;
+    const values = [0.1, 0.3, 0.5, 0.7, 0.9].map((t) =>
+      cubicBezierProgress(t, reboteSalida.bezier.cp1X, reboteSalida.bezier.cp1Y, reboteSalida.bezier.cp2X, reboteSalida.bezier.cp2Y),
+    );
+    expect(Math.max(...values)).toBeGreaterThan(1);
+    const reboteEntrada = BEZIER_PRESETS.find((preset) => preset.id === 'rebote-entrada')!;
+    const entrada = [0.1, 0.3, 0.5, 0.7, 0.9].map((t) =>
+      cubicBezierProgress(t, reboteEntrada.bezier.cp1X, reboteEntrada.bezier.cp1Y, reboteEntrada.bezier.cp2X, reboteEntrada.bezier.cp2Y),
+    );
+    expect(Math.min(...entrada)).toBeLessThan(0);
+  });
+
+  it('un preset aplicado como bezier muestrea con overshoot en scale', () => {
+    const rebote = BEZIER_PRESETS.find((preset) => preset.id === 'rebote-salida')!;
+    const keyframes: ClipTransformKeyframe[] = [
+      { frame: 0, scale: 1, bezier: { ...rebote.bezier } },
+      { frame: 100, scale: 2 },
+    ];
+    // Con overshoot, algún punto intermedio supera el valor final relativo.
+    const samples = [10, 30, 50, 70, 90].map((frame) =>
+      sampleTransformKeyframes(keyframes, frame).scale!,
+    );
+    expect(Math.max(...samples)).toBeGreaterThan(2);
   });
 });

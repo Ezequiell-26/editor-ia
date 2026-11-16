@@ -18,18 +18,13 @@ pub async fn screen_record_start(
     audio_device: Option<String>,
     stream_url: Option<String>,
     encoder: Option<String>,
+    cursor_overlay: Option<CursorOverlaySpec>,
+    webcam_chroma: Option<WebcamChromaSpec>,
 ) -> Result<ScreenRecordStatus, ProjectError> {
-    {
-        let guard = RECORDING.lock().unwrap_or_else(|e| e.into_inner());
-        if guard.is_some() {
-            return Err(ProjectError::message(
-                ProjectErrorCode::ProviderRejected,
-                "ya hay una grabación en curso",
-            ));
-        }
-    }
-    let dir = PathBuf::from(output_dir.trim());
-    if dir.as_os_str().is_empty() || !dir.is_dir() {
+    // AUD-094: la reserva del slot se toma más abajo, recién antes de
+    // lanzar ffmpeg — todo lo anterior es validación pura y no toca estado.
+    let dir = crate::application::fs::validate_user_write_path(&output_dir)?;
+    if !dir.is_dir() {
         return Err(invalid("elegí una carpeta de destino válida"));
     }
     let fps = fps.unwrap_or(30).clamp(1, MAX_FPS);
@@ -95,6 +90,31 @@ pub async fn screen_record_start(
     if !matches!(encoder.as_str(), "x264" | "nvenc" | "qsv" | "amf" | "mf") {
         return Err(invalid("encoder debe ser x264, nvenc, qsv, amf o mf"));
     }
+    // Cursor estilizado: se muestrea durante la captura y se quema en un
+    // segundo pase ffmpeg (ver cursor_track.rs). Sólo escritorio completo:
+    // en ventana/región el origen del frame respecto al cursor no es fiable.
+    if let Some(spec) = cursor_overlay.as_ref() {
+        spec.validate()?;
+        if !(screen && target == "desktop") {
+            return Err(invalid(
+                "el cursor estilizado sólo aplica a captura de escritorio completa",
+            ));
+        }
+    }
+    // Chroma key de la webcam en la misma pasada de captura (paridad
+    // `gravar_webcam_chroma` de AlaukCut). Sólo tiene sentido con webcam.
+    let chroma_chain = match webcam_chroma.as_ref() {
+        Some(spec) => {
+            spec.validate()?;
+            if webcam.is_none() {
+                return Err(invalid(
+                    "webcamChroma requiere webcamDevice: no hay fuente que keyear",
+                ));
+            }
+            Some(spec.ffmpeg_chain())
+        }
+        None => None,
+    };
 
     let settings = state.settings_snapshot()?;
     let (ffmpeg, _, _) = resolve_tools(&settings);
@@ -105,8 +125,30 @@ pub async fn screen_record_start(
         ));
     };
 
+    // AUD-094: reserva atómica ANTES de construir/lanzar ffmpeg. Un segundo
+    // `start` concurrente ve `Starting`/`Active`/`Stopping` y se rechaza —
+    // no hay ventana check-then-set donde dos procesos puedan lanzarse.
+    {
+        let mut guard = RECORDING.lock().unwrap_or_else(|e| e.into_inner());
+        if !matches!(*guard, RecordState::Idle) {
+            return Err(ProjectError::message(
+                ProjectErrorCode::ProviderRejected,
+                "ya hay una grabación en curso",
+            ));
+        }
+        *guard = RecordState::Starting;
+    }
+
+    // Todo el lanzamiento vive en un async block: cualquier `?`/`return
+    // Err` interno devuelve `Err` acá (verificado: `return` en async block
+    // sale del bloque, no de la función) y la reserva se libera a `Idle`
+    // — nunca queda un slot trabado en `Starting` ni un ffmpeg huérfano.
+    let outcome = (async move {
     let stamp = chrono_lite_stamp();
-    let output = dir.join(format!("screen-{stamp}.mp4"));
+    // AUD-094: el timestamp tiene precisión de segundos — dos grabaciones
+    // en la misma carpeta dentro del mismo segundo (o un reintento tras un
+    // stop rápido) colisionaban y `-y` pisaba el MP4 anterior.
+    let output = unique_screen_output(&dir, &stamp);
 
     let mut command = Command::new(&ffmpeg);
     command
@@ -129,6 +171,9 @@ pub async fn screen_record_start(
             region_width,
             region_height,
             fps,
+            // Con overlay de cursor el cursor del sistema no se graba: lo
+            // dibuja el ASS en el postproceso.
+            cursor_overlay.is_none(),
         ) {
             command.arg(arg);
         }
@@ -161,12 +206,27 @@ pub async fn screen_record_start(
         webcam.is_some().then_some(0usize)
     };
     let pip = screen_idx.is_some() && webcam_idx.is_some();
-    let graph = pip
-        .then(|| "[1:v]scale='min(320,iw)':-2[cam];[0:v][cam]overlay=W-w-24:H-h-24[v]".to_owned());
+    // `chroma_chain` ya es una lista de filtros separados por comas
+    // (`chromakey=…,format=yuva420p`): se concatena directo antes del scale.
+    let graph = if pip {
+        let cam = match chroma_chain.as_deref() {
+            Some(c) => format!("[1:v]{c},scale='min(320,iw)':-2[cam]"),
+            None => "[1:v]scale='min(320,iw)':-2[cam]".to_owned(),
+        };
+        Some(format!("{cam};[0:v][cam]overlay=W-w-24:H-h-24[v]"))
+    } else if let (Some(idx), Some(c)) = (webcam_idx, chroma_chain.as_deref()) {
+        // Webcam como única fuente: el chroma sale por etiqueta [v].
+        Some(format!("[{idx}:v]{c}[v]"))
+    } else {
+        None
+    };
     let single_map = format!("{}:v", webcam_idx.or(screen_idx).unwrap_or(0));
 
+    let to_args = |items: &[&str]| {
+        items.iter().map(|s| s.to_string()).collect::<Vec<String>>()
+    };
     let video_codec: Vec<String> = match encoder.as_str() {
-        "nvenc" => vec![
+        "nvenc" => to_args(&[
             "-c:v",
             "h264_nvenc",
             "-preset",
@@ -175,31 +235,30 @@ pub async fn screen_record_start(
             "23",
             "-pix_fmt",
             "yuv420p",
-        ],
-        "qsv" => vec![
+        ]),
+        "qsv" => to_args(&[
             "-c:v",
             "h264_qsv",
             "-global_quality",
             "23",
             "-pix_fmt",
             "yuv420p",
-        ],
-        "amf" => vec![
+        ]),
+        "amf" => to_args(&[
             "-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23",
-        ],
-        "mf" => vec!["-c:v", "h264_mf", "-rate_control", "quality"],
-        _ => vec![
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
-        ],
-    }
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+        ]),
+        "mf" => to_args(&["-c:v", "h264_mf", "-rate_control", "quality"]),
+        // "x264" = mejor H.264 de software disponible: el bundle LGPL no
+        // incluye libx264 y pedirlo fijo mataba ffmpeg tras el arranque.
+        _ => h264_software_video_args(&ffmpeg, 23).map_err(|e| {
+            ProjectError::message(ProjectErrorCode::ProviderUnavailable, e.as_str())
+        })?,
+    };
 
     fn push_output(
         command: &mut Command,
         graph: Option<&str>,
-        pip: bool,
+        map_v_label: bool,
         single_map: &str,
         audio_index: Option<usize>,
         video_codec: &[String],
@@ -211,7 +270,7 @@ pub async fn screen_record_start(
         }
         command
             .arg("-map")
-            .arg(if pip { "[v]" } else { single_map });
+            .arg(if map_v_label { "[v]" } else { single_map });
         if let Some(aidx) = audio_index {
             command
                 .arg("-map")
@@ -235,10 +294,11 @@ pub async fn screen_record_start(
         command.arg(dest);
     }
 
+    let map_v_label = graph.is_some();
     push_output(
         &mut command,
         graph.as_deref(),
-        pip,
+        map_v_label,
         &single_map,
         audio_index,
         &video_codec,
@@ -250,7 +310,7 @@ pub async fn screen_record_start(
         push_output(
             &mut command,
             graph.as_deref(),
-            pip,
+            map_v_label,
             &single_map,
             audio_index,
             &video_codec,
@@ -314,18 +374,78 @@ pub async fn screen_record_start(
         }
     }
 
-    {
-        let mut guard = RECORDING.lock().unwrap_or_else(|e| e.into_inner());
-        *guard = Some(Recording {
-            child: spawned,
-            stdin,
-            output: output.clone(),
-            started: Instant::now(),
-            webcam: webcam.clone(),
-            streaming: stream_url.is_some(),
+    // Drain de stderr durante toda la vida del proceso: sin lector el pipe
+    // se llena (~64 KB) y ffmpeg se bloquearía; la cola queda para el error
+    // que `status` reporta si la grabación muere sola. AUD-098: ffmpeg
+    // eco-a la URL RTMP con la stream key en stderr — la cola se redacta
+    // en cada chunk para no conservar el secreto ni siquiera en memoria.
+    let stderr_tail = Arc::new(Mutex::new(Vec::<u8>::new()));
+    if let Some(mut stderr) = spawned.stderr.take() {
+        let tail = Arc::clone(&stderr_tail);
+        let secrets = stream_secret_bytes(stream_url.as_deref());
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = [0u8; 8192];
+            loop {
+                match stderr.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if let Ok(mut stored) = tail.lock() {
+                            stored.extend_from_slice(&buf[..n]);
+                            for secret in &secrets {
+                                redact_secret_bytes(
+                                    &mut stored,
+                                    secret,
+                                    STREAM_URL_REDACTED.as_bytes(),
+                                );
+                            }
+                            if stored.len() > 16_384 {
+                                let keep_from = stored.len() - 8_192;
+                                stored.drain(..keep_from);
+                            }
+                        }
+                    }
+                }
+            }
         });
     }
-    Ok(status_inner())
+
+    // Tracker de cursor: arranca recién cuando ffmpeg ya demostró estar vivo,
+    // así no hay muestras de una grabación que murió al iniciar.
+    let cursor_tracker = if cursor_overlay.is_some() {
+        Some(CursorTracker::start())
+    } else {
+        None
+    };
+
+    Ok(Recording {
+        child: spawned,
+        stdin,
+        output,
+        started: Instant::now(),
+        webcam,
+        streaming: stream_url.is_some(),
+        cursor_tracker,
+        cursor_spec: cursor_overlay,
+        stderr_tail,
+        stream_url,
+    })
+    })
+    .await;
+
+    match outcome {
+        Ok(recording) => {
+            *RECORDING.lock().unwrap_or_else(|e| e.into_inner()) = RecordState::Active(recording);
+            Ok(status_inner())
+        }
+        Err(error) => {
+            // Fallo de validación tardía, spawn o verificación de arranque:
+            // el slot vuelve a Idle y cualquier Child ya fue matado en su
+            // rama de error — no queda grabación fantasma.
+            *RECORDING.lock().unwrap_or_else(|e| e.into_inner()) = RecordState::Idle;
+            Err(error)
+        }
+    }
 }
 
 /// Medición real del MP4 generado con ffprobe (duración, resolución, audio).

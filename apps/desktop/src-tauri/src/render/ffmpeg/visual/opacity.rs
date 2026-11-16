@@ -88,6 +88,80 @@ pub(crate) fn transition_lead_seconds(
     )
 }
 
+/// `transitionOut` del clip saliente se convierte en `transitionIn` del
+/// siguiente clip contiguo de la misma pista: es el modelo de AlaukCut
+/// (`transicao_saida` vive en el clip de la izquierda del corte). El
+/// `transitionIn` propio del entrante siempre gana; la resolución corre
+/// antes de planificar para que lead, máscaras y preview vean el resultado.
+pub(crate) fn resolve_transition_out(clips: &mut [Value]) {
+    let visual_kind = |clip: &Value| {
+        matches!(
+            clip["kind"].as_str().unwrap_or(""),
+            "video" | "image" | "freeze"
+        ) && clip["enabled"].as_bool() != Some(false)
+    };
+    // Primer clip visual habilitado que arranca en cada (pista, frame).
+    let mut by_start: HashMap<(String, u64), usize> = HashMap::new();
+    for (index, clip) in clips.iter().enumerate() {
+        if !visual_kind(clip) {
+            continue;
+        }
+        let key = (
+            clip["trackId"].as_str().unwrap_or("").to_owned(),
+            clip["startFrame"].as_u64().unwrap_or(0),
+        );
+        by_start.entry(key).or_insert(index);
+    }
+    let mut injections: Vec<(usize, Value)> = Vec::new();
+    for clip in clips.iter() {
+        if !visual_kind(clip) {
+            continue;
+        }
+        let transition = &clip["transitionOut"];
+        if transition["type"].as_str().is_none() {
+            continue;
+        }
+        let end = clip["startFrame"].as_u64().unwrap_or(0)
+            + clip["durationFrames"].as_u64().unwrap_or(0);
+        let key = (
+            clip["trackId"].as_str().unwrap_or("").to_owned(),
+            end,
+        );
+        let Some(&target) = by_start.get(&key) else {
+            continue;
+        };
+        if clips[target]["transitionIn"]["type"].as_str().is_some() {
+            continue;
+        }
+        injections.push((target, transition.clone()));
+    }
+    for (target, transition) in injections {
+        clips[target]["transitionIn"] = transition;
+    }
+}
+
+/// Cola de `transitionOut`: sólo los fundidos atenúan el propio clip (como
+/// `opacidadTransicion` de AlaukCut). Los gestos (slide, wipe, iris…) los
+/// compone el entrante del siguiente clip, que ya recibió la transición por
+/// `resolve_transition_out`; sin sucesor no hay nada que mezclar.
+pub(crate) fn transition_trail_seconds(clip: &Value, fps: f64, clip_seconds: f64) -> f64 {
+    let kind = clip["kind"].as_str().unwrap_or("");
+    if kind != "video" && kind != "image" && kind != "freeze" {
+        return 0.0;
+    }
+    if !matches!(
+        clip["transitionOut"]["type"].as_str().unwrap_or(""),
+        "dissolve" | "fade-black" | "fade-white" | "dip-color"
+    ) {
+        return 0.0;
+    }
+    let frames = clip["transitionOut"]["frames"].as_f64().unwrap_or(0.0);
+    if frames <= 0.0 {
+        return 0.0;
+    }
+    (frames / fps.max(1.0)).clamp(0.0, clip_seconds.max(0.0))
+}
+
 /// Even dimensions that preserve aspect ratio and fit inside the profile.
 pub(crate) fn even_fit(width: u64, height: u64, max_width: u64, max_height: u64) -> (u32, u32) {
     let width = width.max(2) as f64;

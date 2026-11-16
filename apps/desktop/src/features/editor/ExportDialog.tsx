@@ -3,10 +3,14 @@ import type {
   ExportCapabilities,
   ExportVerification,
   HardwareEncoders,
+  QualityGateCheck,
+  QualityGateReport,
+  RenderDiaryEntry,
   RenderFinishedEvent,
   RenderProgressEvent,
 } from '../../services/project-service';
-import { basename } from '../../lib/format';
+import { basename, dirname } from '../../lib/format';
+import { classifyDiaryEntry } from './export-diary';
 import {
   COMPRESSION_PRESETS,
   applyCompression,
@@ -39,15 +43,22 @@ import {
 import { useProjectStore } from '../../state/project-store';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { recordDirectorOutcome } from '../../state/editor-memory';
+import {
+  recordGpuRenderFailure,
+  shouldWarnGpuFailures,
+} from '../../state/gpu-failures';
 import { evaluateProjectQuality } from '../../state/quality';
-import { buildProjectMotionPlans } from '../motion/plan';
+import { buildProjectMotionPlans } from '../../state/motion-plan';
 import { chooseExportProfile } from '../../state/render-profile';
 import { hasEmoji } from '../emoji/emoji';
 import { gpuRecommendation } from './gpu-policy';
 import { RenderSuccessCard } from './FilmoraStates';
 import {
   deleteExportPreset,
+  estimateOutputBytes,
   loadExportPresets,
+  PRORES_BITS_PER_PIXEL,
+  PRORES_4444_BITS_PER_PIXEL,
   saveExportPreset,
   type SavedExportPreset,
 } from './export-presets';
@@ -58,6 +69,7 @@ import {
   type ExportValidationReport,
 } from './export-validation';
 import { detectQueueCapabilities, queueCapabilityTitle } from './queue-capabilities';
+import { ConcatWorkerExportPanel } from './ConcatWorkerExportPanel';
 
 interface ExportDialogProps {
   readonly open: boolean;
@@ -120,6 +132,24 @@ const EXPORT_CODECS = ['H.264', 'H.265/HEVC', 'VP9', 'AV1'];
 const EXPORT_QUALITIES = ['Baja', 'Media', 'Alta', 'Máxima'];
 const EXPORT_MEDIA_TYPES = ['Video', 'Audio', 'Imagen', 'Live Photo'];
 
+/** Etiquetas legibles de los checks del Quality Gate nativo (`quality_gate_review`). */
+const QUALITY_GATE_CHECK_LABELS: Record<QualityGateCheck, string> = {
+  'missing-resources': 'Recursos faltantes',
+  'clip-range': 'Rango de clip',
+  'caption-sync': 'Sincronía de subtítulos',
+  loudness: 'Sonoridad',
+  resolution: 'Resolución',
+  color: 'Color',
+  'render-verify': 'Verificación de render',
+  rights: 'Derechos de uso',
+};
+
+/**
+ * A partir de esta cantidad de entregas finalizadas se pide confirmación
+ * antes de vaciar la cola persistida del equipo.
+ */
+const QUEUE_CLEAR_CONFIRM_AT = 5;
+
 export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const store = useProjectStore();
   const project = store.state.project;
@@ -143,9 +173,13 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const [progress, setProgress] = useState<RenderProgressEvent | null>(null);
   const [finished, setFinished] = useState<RenderFinishedEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [encoderNotice, setEncoderNotice] = useState<string | null>(null);
+  const [gpuFailures, setGpuFailures] = useState(0);
   const [batchProfiles, setBatchProfiles] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+  // Bitácora de exports (`export_diario.js`): últimas entradas del backend.
+  const [diary, setDiary] = useState<RenderDiaryEntry[]>([]);
   // Presets de exportación guardables por el usuario (por equipo) y validación
   // visible del archivo final con FFprobe. La validación nunca se inventa: si
   // el entorno no expone FFprobe se muestra "no disponible".
@@ -162,6 +196,21 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   // disponible (feature-detect) y la UI no ofrece opciones no soportadas.
   const [capabilities, setCapabilities] = useState<ExportCapabilities | null>(null);
   const [verification, setVerification] = useState<ExportVerification | null>(null);
+  // Portada del vídeo (paridad `capaDoQuadro` de `exportar_resumo.js`):
+  // un frame real del punto medio del proyecto, compuesto con todas las
+  // pistas, mostrado como preview del resultado.
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  // Entregable derivado del MP4 renderizado (paridad formatos extra de
+  // AlaukCut): GIF/MP3/WAV generados por `convert_file` sobre el archivo
+  // final, en la misma carpeta de salida.
+  const [extraFormat, setExtraFormat] = useState<'none' | 'gif' | 'mp3' | 'wav'>('none');
+  const [extraBusy, setExtraBusy] = useState(false);
+  const [extraResult, setExtraResult] = useState<string | null>(null);
+  const [extraError, setExtraError] = useState<string | null>(null);
+  // Opciones del GIF (paridad `exp-gif-lado`/`exp-gif-taxa` de AlaukCut).
+  const [gifSide, setGifSide] = useState('auto');
+  const [gifFps, setGifFps] = useState('15');
+  const [gifQuality, setGifQuality] = useState('auto');
   // La cola sobrevive al cierre del diálogo: se hidrata en el primer render
   // (no en un efecto) y se persiste en cada cambio. Hidratar en un efecto
   // dejaría un render con la cola vacía que pisaría lo guardado.
@@ -170,6 +219,12 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     return loadRenderQueue(window.localStorage);
   });
   const [queueBusy, setQueueBusy] = useState(false);
+  const [queueClearing, setQueueClearing] = useState(false);
+  // Quality Gate nativo (`quality_gate_review`): evalúa el documento
+  // persistido, así que el botón guarda antes de pedir el veredicto.
+  const [gateReport, setGateReport] = useState<QualityGateReport | null>(null);
+  const [gateBusy, setGateBusy] = useState(false);
+  const [gateError, setGateError] = useState<string | null>(null);
   const jobRef = useRef<string | null>(null);
   const batchResolverRef = useRef<((event: RenderFinishedEvent) => void) | null>(null);
   // true cuando el backend confirmó su cola persistida: recién ahí se le
@@ -307,6 +362,8 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     setPresetName('');
     setValidation(null);
     setValidating(false);
+    setGateReport(null);
+    setGateError(null);
     // Only reset when the dialog opens, not on every project render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -380,6 +437,24 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
       active = false;
     };
   }, [open, store.service]);
+
+  // Bitácora de exports: se recarga al abrir el diálogo y cada vez que un
+  // render termina (la entrada nueva ya está escrita por el worker).
+  useEffect(() => {
+    if (!open || !store.service.available) return;
+    let active = true;
+    void store.service
+      .renderDiary(12)
+      .then((entries) => {
+        if (active) setDiary(entries);
+      })
+      .catch(() => {
+        // Backend sin bitácora todavía: la sección queda vacía.
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, store.service, finished]);
 
   // Runner de la cola: toma el primer pendiente y lo drena de a uno. El guardia
   // de `queueBusy` evita arrancar dos renders si el efecto se reejecuta por un
@@ -487,6 +562,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     });
     void store.service.onRenderFinished((event) => {
       if (!mounted) return;
+      // placa_perdida.js: cada GPU_RENDER_FAILED cuenta en la ventana de
+      // 10 min; a la ≥2ª el aviso con instrucciones aparece abajo.
+      if (event.status === 'failed' && event.code === 'GPU_RENDER_FAILED') {
+        setGpuFailures(recordGpuRenderFailure());
+      }
       if (jobRef.current !== null && event.jobId !== jobRef.current) return;
       setFinished(event);
       setJobId(null);
@@ -548,6 +628,42 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   // comando Rust todavía no responde, cae a `probeMediaFile`; si tampoco hay
   // probe se declara no disponible. En navegador (service.available=false) se
   // declara no disponible en vez de simular un "verificado".
+  useEffect(() => {
+    if (!open || !project) {
+      setCoverUrl(null);
+      return;
+    }
+    const anchor = project.timeline.clips.find(
+      (clip) =>
+        clip.kind === 'video' ||
+        clip.kind === 'image' ||
+        clip.kind === 'freeze' ||
+        clip.kind === 'graphic',
+    );
+    if (!anchor || store.durationFrames <= 0) {
+      setCoverUrl(null);
+      return;
+    }
+    let active = true;
+    // Portada elegida: marcador con role 'cover' (paridad `extra("capa")`)
+    // o, en su defecto, el punto medio del proyecto.
+    const coverMarker = project.markers.find((marker) => marker.role === 'cover');
+    const frame = coverMarker
+      ? coverMarker.frame
+      : Math.floor(store.durationFrames / 2);
+    void store.service
+      .renderPreviewFrame({ project, clipId: anchor.id, frame, composite: true })
+      .then((result) => {
+        if (active) setCoverUrl(store.service.absoluteFileUrl(result.path));
+      })
+      .catch(() => {
+        if (active) setCoverUrl(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, project, store.service, store.durationFrames]);
+
   useEffect(() => {
     if (!open || !finished || finished.status !== 'completed' || !finished.outputPath) {
       setValidation(null);
@@ -617,6 +733,91 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     });
   };
 
+  /**
+   * Quality Gate nativo: revisa el documento persistido y la integridad de
+   * los archivos declarados por los assets. El backend evalúa lo último
+   * guardado en disco, así que primero se persiste el proyecto en memoria.
+   */
+  async function reviewQualityGate(): Promise<void> {
+    setGateBusy(true);
+    setGateError(null);
+    try {
+      const saved = await store.saveNow();
+      if (!saved) {
+        setGateError('No se pudo guardar el proyecto; el Quality Gate no se ejecutó.');
+        return;
+      }
+      setGateReport(await store.service.qualityGateReview());
+    } catch (cause) {
+      setGateError(cause instanceof Error ? cause.message : 'el Quality Gate falló');
+    } finally {
+      setGateBusy(false);
+    }
+  }
+
+  /**
+   * Vacía las entregas finalizadas de la cola persistida del equipo
+   * (`render_queue_clear_finished`). Si el runtime no soporta el comando
+   * (devuelve null) se limpia la copia local con el mismo criterio global.
+   */
+  async function clearFinishedQueue(): Promise<void> {
+    if (finishedQueueCount === 0 || queueClearing) return;
+    if (
+      finishedQueueCount >= QUEUE_CLEAR_CONFIRM_AT &&
+      !window.confirm(
+        `Se van a quitar ${finishedQueueCount} entregas finalizadas de todos los proyectos guardados en este equipo. ¿Continuar?`,
+      )
+    ) {
+      return;
+    }
+    setQueueClearing(true);
+    try {
+      const remaining = await store.service.renderQueueClearFinished();
+      // `null` = runtime sin cola durable: misma limpieza global en memoria;
+      // el efecto de persistencia la espeja a localStorage/backend.
+      setQueue(remaining ?? clearSettled(queue));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'no se pudo limpiar la cola');
+    } finally {
+      setQueueClearing(false);
+    }
+  }
+
+  /** Genera el entregable derivado (GIF/MP3/WAV) del MP4 ya renderizado. */
+  async function generateExtraFormat(): Promise<void> {
+    if (!finished?.outputPath || extraFormat === 'none' || extraBusy) return;
+    setExtraBusy(true);
+    setExtraError(null);
+    setExtraResult(null);
+    try {
+      const result = await store.service.convertFile({
+        inputPath: finished.outputPath,
+        target: extraFormat,
+        outputDir: dirname(finished.outputPath),
+        ...(extraFormat === 'gif'
+          ? {
+              ...(gifSide === 'auto' ? {} : { maxWidth: Number(gifSide) }),
+              fps: Number(gifFps),
+              // Calidad → u8 del pipeline de conversión (bajo 40 / medio 70 /
+              // alto 90); "auto" deja el default del backend.
+              ...(gifQuality === 'auto'
+                ? {}
+                : {
+                    quality:
+                      gifQuality === 'alto' ? 90 : gifQuality === 'medio' ? 70 : 40,
+                  }),
+            }
+          : {}),
+      });
+      setExtraResult(result.path);
+      store.setNotice(`Entregable ${extraFormat.toUpperCase()} generado.`);
+    } catch (cause) {
+      setExtraError(cause instanceof Error ? cause.message : 'no se pudo generar el formato');
+    } finally {
+      setExtraBusy(false);
+    }
+  }
+
   if (!open || !project) return null;
   const currentProject = project;
   const quality = evaluateProjectQuality(currentProject);
@@ -633,6 +834,13 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const scopedPendingCount = queue.filter(
     (entry) => entry.status === 'pending' && queueEntryInScope(entry, projectScope),
   ).length;
+  // Terminadas de TODOS los proyectos: el comando nativo
+  // `render_queue_clear_finished` vacía la cola durable completa, a
+  // diferencia de «Limpiar terminadas» que sólo toca este proyecto.
+  const finishedQueueCount = queue.filter(
+    (entry) =>
+      entry.status === 'done' || entry.status === 'error' || entry.status === 'cancelled',
+  ).length;
 
   const profiles = project.renderProfiles;
   const selected = profiles.find((profile) => profile.id === profileId) ?? profiles[0];
@@ -640,6 +848,25 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const fps = fpsOf(project);
   const selectedBatchProfiles = profiles.filter((profile) => batchProfiles.has(profile.id));
   const compression = selected ? compressionPresetOf(selected) : 'custom';
+  // Peso estimado del archivo (paridad `exp.tamañoCerca` de AlaukCut):
+  // aproximación por bitrate típico, no un cálculo exacto del contenido.
+  const estimatedBytes =
+    selected && project && store.durationFrames > 0
+      ? estimateOutputBytes(
+          {
+            width: selected.resolution.width,
+            height: selected.resolution.height,
+            fps: selected.frameRate.num / selected.frameRate.den,
+            audioBitsPerSecond: selected.audioBitsPerSecond,
+          },
+          store.durationFrames / fps,
+          selected.videoCodec === 'prores'
+            ? selected.pixelFormat === 'yuva444p10le'
+              ? PRORES_4444_BITS_PER_PIXEL
+              : PRORES_BITS_PER_PIXEL
+            : undefined,
+        )
+      : 0;
   // 4:4:4 sólo se ofrece si el FFmpeg sondeado tiene un encoder que lo emite de
   // verdad (libvpx-vp9 o libaom-av1) y TODOS los perfiles son WebM VP9/AV1:
   // applyPixelFormat toca todos los perfiles y el backend valida cada uno.
@@ -698,6 +925,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
 
   async function start(): Promise<void> {
     setError(null);
+    setEncoderNotice(null);
     setFinished(null);
     setProgress(null);
     setStarting(true);
@@ -721,6 +949,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
       if (!started) {
         setStarting(false);
         return;
+      }
+      if (started.encoderFallback) {
+        setEncoderNotice(
+          `El encoder ${started.encoderFallback} no pasó la prueba; se exporta con el encoder de software.`,
+        );
       }
       jobRef.current = started.jobId;
       setJobId(started.jobId);
@@ -889,6 +1122,19 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   <span>Títulos</span>
                   <span className="export-settings-hint">Nombre del proyecto y del archivo</span>
                 </div>
+                {coverUrl ? (
+                  <figure className="export-cover">
+                    <img
+                      src={coverUrl}
+                      alt="Portada: frame real del punto medio del proyecto"
+                    />
+                    <figcaption>
+                      {project.markers.some((marker) => marker.role === 'cover')
+                        ? 'Portada · marcador de portada'
+                        : 'Portada · frame del medio del proyecto'}
+                    </figcaption>
+                  </figure>
+                ) : null}
                 <label className="field">
                   <span>Nombre</span>
                   <input
@@ -1003,7 +1249,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     <p>Velocidad: {compression}</p>
                     <p>Perfil activo: {selected?.name ?? '—'}</p>
                     <p>Duración estimada: {store.durationFrames} frames</p>
-                    <p>Tamaño estimado: {exportQuality} · {exportResolution}</p>
+                    <p>
+                      Tamaño estimado del archivo:{' '}
+                      {estimatedBytes > 0 ? `~${formatBytes(estimatedBytes)}` : '—'} ·{' '}
+                      {exportQuality} · {exportResolution}
+                    </p>
                   </div>
                 ) : null}
               </div>
@@ -1195,7 +1445,12 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                             applyCompression(
                               current,
                               compression === 'custom' ? 'equilibrado' : compression,
-                              event.target.value as 'h264' | 'h265' | 'vp9' | 'av1',
+                              event.target.value as
+                                | 'h264'
+                                | 'h265'
+                                | 'vp9'
+                                | 'av1'
+                                | 'prores',
                             ),
                           )
                         }
@@ -1204,6 +1459,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                         <option value="h265">H.265/HEVC · archivos más chicos</option>
                         <option value="vp9">VP9 · WebM, buen equilibrio</option>
                         <option value="av1">AV1 · WebM, máxima compresión</option>
+                        {capabilities && !capabilities.videoCodecs.prores ? null : (
+                          <option value="prores">
+                            ProRes 422 · MOV para edición (archivos grandes)
+                          </option>
+                        )}
                       </select>
                     </label>
                     <label className="field">
@@ -1215,13 +1475,20 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                           store.update((current) =>
                             applyProfileFit(
                               current,
-                              event.target.value === 'cover' ? 'cover' : 'contain',
+                              event.target.value === 'cover'
+                                ? 'cover'
+                                : event.target.value === 'blur'
+                                  ? 'blur'
+                                  : 'contain',
                             ),
                           )
                         }
                       >
                         <option value="contain">Contener · mostrar todo</option>
                         <option value="cover">Recortar para llenar · sin barras</option>
+                        <option value="blur">
+                          Fondo desenfocado · rellenar sin barras
+                        </option>
                       </select>
                     </label>
                     <label className="field">
@@ -1233,15 +1500,38 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                           store.update((current) =>
                             applyPixelFormat(
                               current,
-                              event.target.value === 'yuv444p' ? 'yuv444p' : 'yuv420p',
+                              event.target.value === 'yuv444p'
+                                ? 'yuv444p'
+                                : event.target.value === 'yuv422p10le'
+                                  ? 'yuv422p10le'
+                                  : event.target.value === 'yuva444p10le'
+                                    ? 'yuva444p10le'
+                                    : 'yuv420p',
                             ),
                           )
                         }
                       >
-                        <option value="yuv420p">4:2:0 · compatible</option>
-                        <option value="yuv444p" disabled={!pixel444Capable}>
+                        {/* Con ProRes los formatos de entrega 8-bit son
+                            inválidos (el schema y `pixel_format_for` los
+                            rechazan): se deshabilitan para no producir un
+                            perfil que el backend no puede emitir. */}
+                        <option value="yuv420p" disabled={selected.videoCodec === 'prores'}>
+                          4:2:0 · compatible
+                        </option>
+                        <option
+                          value="yuv444p"
+                          disabled={!pixel444Capable || selected.videoCodec === 'prores'}
+                        >
                           4:4:4 · más nitidez en texto
                         </option>
+                        {selected.videoCodec === 'prores' ? (
+                          <>
+                            <option value="yuv422p10le">4:2:2 10-bit · ProRes</option>
+                            <option value="yuva444p10le">
+                              4:4:4 10-bit · ProRes 4444 con alfa
+                            </option>
+                          </>
+                        ) : null}
                         {selected.pixelFormat !== 'yuv420p' &&
                         selected.pixelFormat !== 'yuv444p' ? (
                           <option value={selected.pixelFormat}>
@@ -1302,7 +1592,13 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   </div>
                   <div>
                     <dt>Encuadre</dt>
-                    <dd>{selected.fit === 'cover' ? 'Recortar para llenar' : 'Contener'}</dd>
+                    <dd>
+                      {selected.fit === 'cover'
+                        ? 'Recortar para llenar'
+                        : selected.fit === 'blur'
+                          ? 'Fondo desenfocado'
+                          : 'Contener'}
+                    </dd>
                   </div>
                   <div>
                     <dt>Verificación</dt>
@@ -1346,6 +1642,49 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     >
                       Corregir loudness (-14 LUFS)
                     </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {store.service.available ? (
+                <div className="export-quality">
+                  <p className="eyebrow">Quality Gate del proyecto</p>
+                  <p className="fine-print">
+                    Revisa el documento guardado y la integridad de los archivos de los assets.
+                    El proyecto se guarda antes de evaluar.
+                  </p>
+                  <div className="actions compact">
+                    <button
+                      type="button"
+                      className="small"
+                      onClick={() => void reviewQualityGate()}
+                      disabled={gateBusy || running}
+                    >
+                      {gateBusy ? 'Revisando…' : 'Revisar calidad'}
+                    </button>
+                  </div>
+                  {gateError ? <p className="notice notice-error">{gateError}</p> : null}
+                  {gateReport ? (
+                    <div role="status">
+                      <p className={gateReport.passed ? 'fine-print' : 'notice notice-warning'}>
+                        {gateReport.passed
+                          ? 'Aprobado: sin errores bloqueantes.'
+                          : `No aprobado: ${gateReport.errors} error(es) · ${gateReport.warnings} advertencia(s).`}
+                      </p>
+                      {gateReport.findings.length > 0 ? (
+                        <ul>
+                          {gateReport.findings.map((finding, index) => (
+                            <li
+                              key={`${finding.check}-${finding.path}-${index}`}
+                              className={`quality-${finding.severity}`}
+                            >
+                              <strong>{QUALITY_GATE_CHECK_LABELS[finding.check] ?? finding.check}</strong>{' '}
+                              {finding.message}
+                              <span className="fine-print"> · {finding.path}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               ) : null}
@@ -1604,6 +1943,15 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   >
                     Limpiar terminadas
                   </button>
+                  <button
+                    type="button"
+                    className="small ghost"
+                    onClick={() => void clearFinishedQueue()}
+                    disabled={queueClearing || finishedQueueCount === 0}
+                    title="Quita las entregas finalizadas (listas, con error o canceladas) de todos los proyectos guardados en este equipo"
+                  >
+                    {queueClearing ? 'Limpiando…' : 'Limpiar finalizadas del equipo'}
+                  </button>
                 </div>
                 {queue.length > 0 ? (
                   <ul className="batch-results">
@@ -1672,6 +2020,37 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                 })()}
               </div>
 
+              {/* Motor alternativo: `render_export` del concat-worker. Es una
+                  composición manual de clips (no usa los perfiles de arriba);
+                  el estado del worker se lee con `concat_worker_status`. */}
+              <ConcatWorkerExportPanel />
+
+              {diary.length > 0 ? (
+                <details className="batch-export">
+                  <summary className="eyebrow">Registro de exports</summary>
+                  <ul className="batch-results">
+                    {diary.map((entry) => {
+                      const motive =
+                        entry.status === 'failed' ? classifyDiaryEntry(entry).label : '';
+                      return (
+                        <li key={entry.jobId} className={entry.status}>
+                          <strong>{entry.profile || 'Export'}</strong>
+                          <span>
+                            {entry.status === 'completed'
+                              ? `OK · ${entry.output ?? ''} · ${formatBytes(entry.outputBytes ?? 0)}`
+                              : entry.status === 'cancelled'
+                                ? 'Cancelado'
+                                : `Falló${motive ? ` · ${motive}` : ''} · ${entry.message ?? entry.code ?? 'error'}`}
+                            {' · '}
+                            {new Date(entry.ts).toLocaleString()}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </details>
+              ) : null}
+
               {progress ? (
                 <div className="progress-block" role="status" aria-live="polite">
                   <div className="progress-head">
@@ -1688,6 +2067,16 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
               ) : null}
 
               {error ? <p className="notice notice-error">{error}</p> : null}
+              {encoderNotice ? <p className="notice notice-warning">{encoderNotice}</p> : null}
+              {shouldWarnGpuFailures(gpuFailures) ? (
+                <p className="notice notice-warning" data-testid="gpu-failure-warning">
+                  La placa gráfica falló {gpuFailures} veces en los últimos 10
+                  minutos. Actualizá el driver de video, cerrá programas que
+                  usen la GPU (juegos, OBS, navegadores con aceleración) o
+                  reiniciá el equipo. El proyecto sigue guardado
+                  automáticamente.
+                </p>
+              ) : null}
 
               {finished ? (
                 <div className={finished.status === 'completed' ? 'render-result success' : 'render-result'}>
@@ -1741,6 +2130,87 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                           Abrir carpeta
                         </button>
                       </div>
+                      {/* Formatos extra del entregable (paridad AlaukCut:
+                          GIF/MP3/WAV del vídeo exportado). */}
+                      <div className="export-extra-format">
+                        <label className="field">
+                          <span>Formato adicional</span>
+                          <select
+                            value={extraFormat}
+                            onChange={(event) =>
+                              setExtraFormat(
+                                event.target.value as 'none' | 'gif' | 'mp3' | 'wav',
+                              )
+                            }
+                            disabled={extraBusy}
+                          >
+                            <option value="none">Ninguno</option>
+                            <option value="gif">GIF</option>
+                            <option value="mp3">MP3 (audio)</option>
+                            <option value="wav">WAV (audio)</option>
+                          </select>
+                        </label>
+                        {extraFormat === 'gif' ? (
+                          <>
+                            <label className="field">
+                              <span>Lado</span>
+                              <select
+                                value={gifSide}
+                                onChange={(event) => setGifSide(event.target.value)}
+                                disabled={extraBusy}
+                              >
+                                <option value="auto">Automático</option>
+                                <option value="240">240P</option>
+                                <option value="360">360P</option>
+                                <option value="480">480P</option>
+                                <option value="720">720P</option>
+                                <option value="1080">1080P</option>
+                              </select>
+                            </label>
+                            <label className="field">
+                              <span>FPS</span>
+                              <select
+                                value={gifFps}
+                                onChange={(event) => setGifFps(event.target.value)}
+                                disabled={extraBusy}
+                              >
+                                {[10, 12, 15, 20, 24, 25, 30].map((fpsOption) => (
+                                  <option key={fpsOption} value={String(fpsOption)}>
+                                    {fpsOption} fps
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="field">
+                              <span>Calidad</span>
+                              <select
+                                value={gifQuality}
+                                onChange={(event) => setGifQuality(event.target.value)}
+                                disabled={extraBusy}
+                              >
+                                <option value="auto">Automática</option>
+                                <option value="bajo">Baja</option>
+                                <option value="medio">Media</option>
+                                <option value="alto">Alta</option>
+                              </select>
+                            </label>
+                          </>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="small"
+                          disabled={extraFormat === 'none' || extraBusy}
+                          onClick={() => void generateExtraFormat()}
+                        >
+                          {extraBusy ? 'Generando…' : 'Generar'}
+                        </button>
+                      </div>
+                      {extraResult ? (
+                        <p className="fine-print">
+                          Listo: <code>{basename(extraResult)}</code> en la misma carpeta.
+                        </p>
+                      ) : null}
+                      {extraError ? <p className="notice notice-warning">{extraError}</p> : null}
                     </>
                   ) : finished.status === 'cancelled' ? (
                     <strong>Render cancelado. No se reporta ningún archivo.</strong>

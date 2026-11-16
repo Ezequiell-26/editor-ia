@@ -8,7 +8,7 @@
 //! driver y MCP.
 
 use serde_json::Value;
-use tauri::{AppHandle, State};
+use tauri::State;
 use uuid::Uuid;
 
 use crate::application::production as use_cases;
@@ -58,8 +58,8 @@ pub async fn production_plan_from_text(
     let parsed: crate::application::studio_planner::PlanTextRequest =
         serde_json::from_value(request)
             .map_err(|e| ProjectError::message(ProjectErrorCode::InvalidProject, &e.to_string()))?;
-    let settings = crate::infrastructure::ai::StateProviderSettings::new(&state);
-    let secrets = crate::infrastructure::ai::KeyringProviderSecrets;
+    let settings = state.provider_settings();
+    let secrets = state.provider_secrets();
     let (config, _simulated, key) = crate::application::providers::generation_provider(
         &settings,
         &secrets,
@@ -73,7 +73,7 @@ pub async fn production_plan_from_text(
             "el proveedor mock no interpreta lenguaje natural; configurá un proveedor real",
         ));
     }
-    let chat = crate::infrastructure::ai::ReqwestProviderChat;
+    let chat = state.provider_chat();
     crate::application::studio_planner::plan_from_text(&chat, &config, key, &parsed.text).await
 }
 
@@ -96,7 +96,6 @@ pub async fn production_list(
 
 #[tauri::command]
 pub async fn production_resume(
-    app: AppHandle,
     state: State<'_, AppState>,
     run_id: String,
 ) -> Result<ProductionRun, ProjectError> {
@@ -105,7 +104,7 @@ pub async fn production_resume(
     // Reanudar implica querer que la corrida avance: se arranca el driver
     // (idempotente si ya hay uno). Si falla el arranque la corrida queda
     // reanudada igual — la UI puede seguir avanzándola a mano.
-    let _ = crate::infrastructure::studio::run_driver::start(&app, &run_id);
+    let _ = state.production_driver_start(&run_id);
     Ok(run)
 }
 
@@ -124,11 +123,12 @@ pub async fn production_pause(
 /// terminal/pausado/fallido. Idempotente; reanuda si estaba pausada o
 /// fallida. Devuelve `true` si quedó un driver activo.
 #[tauri::command]
-pub async fn production_start(app: AppHandle, run_id: String) -> Result<bool, ProjectError> {
-    crate::infrastructure::studio::run_driver::start(&app, &run_id)?;
-    Ok(crate::infrastructure::studio::run_driver::is_active(
-        &run_id,
-    ))
+pub async fn production_start(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> Result<bool, ProjectError> {
+    state.production_driver_start(&run_id)?;
+    Ok(state.production_driver_active(&run_id))
 }
 
 #[tauri::command]

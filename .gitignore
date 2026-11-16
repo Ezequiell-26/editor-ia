@@ -76,3 +76,10 @@ logs/
 
 # Instaladores de release (binarios grandes, se regeneran con tauri build)
 deliverables/**/*.exe
+
+# Overlay local de CARGO_HOME (workaround de ACL del cache en D:\DevCache)
+.cargo-home/
+
+# local rust build env (system cargo/rustup not writable)
+.rustup-local/
+.cargo-local/

@@ -1,4 +1,4 @@
-import type { BrowserInstanceInfo, CaptureDevices, ExtensionInstallStatus, FlowBrowserStatus, FlowEmbedStatus, McpAutoconnectResult, McpCallResult, McpDetectedClient, McpProbeResult, McpServerConfig, McpServerInfo, McpServerInput, McpSessionInfo, ObsScene, ObsSceneInput, PluginInfo, ScreenRecordPreview, ScreenRecordResult, ScreenRecordStatus, StickmanKeyframeInput, StickmanRenderResult, WebSessionsStatus } from '../integrations';
+import type { BrowserInstanceInfo, CaptureDevices, CursorOverlaySpec, WebcamChromaSpec, ExtensionInstallStatus, FlowBrowserStatus, FlowEmbedStatus, McpAuditTail, McpAutoconnectResult, McpCallResult, McpDetectedClient, McpProbeResult, McpServerConfig, McpServerInfo, McpServerInput, McpSessionInfo, ObsScene, ObsSceneInput, PluginInfo, ScreenRecordPreview, ScreenRecordResult, ScreenRecordStatus, StickmanKeyframeInput, StickmanRenderResult, WebSessionsStatus, WhiteboardRenderResult, WhiteboardStatus } from '../integrations';
 import type { FlowGenerateResult } from '../media';
 import type { SystemInfo } from '../providers';
 import type { UnlistenFn } from '../events';
@@ -22,6 +22,9 @@ setFlowProxy(accountId: string, proxy: string | null): Promise<Record<string, st
   startMcpServer(): Promise<McpServerInfo>;
 
 mcpServerStatus(): Promise<McpServerInfo | null>;
+
+/** Frena el servidor MCP embebido y libera el puerto; `true` si había algo que detener. */
+  mcpServerStop(): Promise<boolean>;
 
 mcpRespond(id: string, ok: boolean, text: string): Promise<boolean>;
 
@@ -56,6 +59,15 @@ callMcpTool(id: string, tool: string, args: unknown): Promise<McpCallResult>;
 
 /** Sesiones vivas ahora mismo. */
   mcpSessionStatus(): Promise<McpSessionInfo[]>;
+
+/**
+   * Últimas `limit` entradas del audit log JSONL del servidor MCP propio
+   * (`<config_dir>/mcp-audit.jsonl`), ya parseadas y sanitizadas. `limit`
+   * default 50, tope 500 en el backend. Archivo inexistente → cola vacía;
+   * archivo ilegible → error (la UI distingue "sin auditoría" de "no pude
+   * leerla").
+   */
+  mcpAuditTail(limit?: number): Promise<McpAuditTail>;
 
 flowBrowserStatus(): Promise<FlowBrowserStatus>;
 
@@ -110,9 +122,30 @@ screenRecordStart(input: {
     audioDevice?: string;
     streamUrl?: string;
     encoder?: 'x264' | 'nvenc' | 'qsv' | 'amf' | 'mf';
+    cursorOverlay?: CursorOverlaySpec | null;
+    webcamChroma?: WebcamChromaSpec | null;
   }): Promise<ScreenRecordStatus>;
 
 screenRecordStop(): Promise<ScreenRecordResult>;
+
+/**
+   * Captura UN frame PNG con la configuración de fuentes indicada (mismo
+   * motor y filtergraph PiP que `screen_record_start`, sin grabar). Devuelve
+   * la ruta del PNG en `path`; `ok: false` + `error` si la captura falla
+   * (sin ffmpeg, dispositivo ocupado, timeout).
+   */
+screenRecordSnapshot(input: {
+    fps?: number;
+    webcamDevice?: string;
+    captureScreen?: boolean;
+    captureTarget?: 'desktop' | 'window' | 'region';
+    windowTitle?: string;
+    regionX?: number;
+    regionY?: number;
+    regionWidth?: number;
+    regionHeight?: number;
+    webcamChroma?: WebcamChromaSpec | null;
+  }): Promise<ScreenRecordPreview>;
 
 browserInstanceLaunch(input: {
     profileId: string;
@@ -158,7 +191,24 @@ stickmanRender(input: {
     };
   }): Promise<StickmanRenderResult>;
 
+/**
+ * Generador "Pizarra blanca" (whiteboard-animator, MIT): convierte
+ * `imagePath` en un MP4 donde una mano dibuja los trazos. `audioPath`
+ * opcional sincroniza el dibujo con una narración; `quality` es
+ * `low|medium|high`. El video queda en el cache de la app y la UI lo revela.
+ */
+whiteboardStatus(): Promise<WhiteboardStatus>;
+whiteboardGenerate(input: {
+    imagePath: string;
+    audioPath?: string;
+    durationSeconds?: number;
+    quality?: 'low' | 'medium' | 'high';
+  }): Promise<WhiteboardRenderResult>;
+
 systemInfo(): Promise<SystemInfo>;
+
+/** Familias tipográficas instaladas en el sistema (DirectWrite en Windows). */
+listSystemFonts(): Promise<string[]>;
 
 chooseTool(tool: 'ffmpeg' | 'ffprobe'): Promise<SystemInfo | null>;
 

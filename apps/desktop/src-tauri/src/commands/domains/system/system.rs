@@ -251,6 +251,60 @@ pub fn resolve_tools(
     (ffmpeg, ffprobe, powershell)
 }
 
+/// Argumentos `-c:v …` del encoder H.264 que el FFmpeg resuelto realmente
+/// tiene (AUD-080). El FFmpeg empaquetado no incluye `libx264`: se listan
+/// los encoders reales (`-encoders`) y se elige el mejor software
+/// disponible. `libx264` acepta `-preset`/`-crf`; los fallback no y usan
+/// `-b:v` fijo — por eso los args cambian según el encoder detectado.
+pub fn h264_encoder_args(ffmpeg: &Path, preset: &str, crf: u32) -> Result<Vec<String>, String> {
+    let mut command = Command::new(ffmpeg);
+    command
+        .args(["-hide_banner", "-encoders"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let output = command
+        .output()
+        .map_err(|error| format!("no se pudo consultar los encoders de FFmpeg: {error}"))?;
+    if !output.status.success() {
+        return Err("FFmpeg no pudo listar sus encoders".to_owned());
+    }
+    let list = String::from_utf8_lossy(&output.stdout);
+    let has = |name: &str| {
+        list.lines()
+            .any(|line| line.split_whitespace().any(|token| token == name))
+    };
+    let candidates: [(&str, Vec<String>); 3] = [
+        (
+            "libx264",
+            vec![
+                "-preset".to_owned(),
+                preset.to_owned(),
+                "-crf".to_owned(),
+                crf.to_string(),
+            ],
+        ),
+        ("libopenh264", vec!["-b:v".to_owned(), "8M".to_owned()]),
+        ("h264_mf", vec!["-b:v".to_owned(), "8M".to_owned()]),
+    ];
+    for (name, extra) in candidates {
+        if has(name) {
+            let mut args = vec!["-c:v".to_owned(), name.to_owned()];
+            args.extend(extra);
+            return Ok(args);
+        }
+    }
+    Err(
+        "el FFmpeg disponible no tiene un encoder H.264 compatible (libx264/libopenh264/h264_mf)"
+            .to_owned(),
+    )
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemInfo {
@@ -283,6 +337,8 @@ pub async fn system_info(state: State<'_, AppState>) -> Result<SystemInfo, Proje
             hevc: None,
             av1: None,
             vp9: None,
+            h264_software: None,
+            hevc_software: None,
             checked: ffmpeg.is_some(),
         },
         config_dir: state.config_dir.to_string_lossy().into_owned(),
@@ -338,7 +394,7 @@ pub async fn choose_tool(
 
 #[tauri::command]
 pub async fn reveal_output(app: AppHandle, path: String) -> Result<(), ProjectError> {
-    let path = PathBuf::from(path);
+    let path = crate::application::fs::resolve_user_file_path(&path)?;
     if !path.exists() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
@@ -395,6 +451,79 @@ pub async fn open_external_url(app: AppHandle, url: String) -> Result<(), Projec
         })
 }
 
+/// Familias tipográficas instaladas en el sistema, para el selector de fuente
+/// de subtítulos (paridad de la lista completa de `lista_fontes.js` de
+/// AlaukCut). En Windows se enumeran con DirectWrite — el mismo motor que
+/// usa libass para rasterizar el ASS— así el nombre devuelto es el que el
+/// export va a resolver. Si DirectWrite no responde, la lista queda vacía y
+/// el frontend cae a su lista curada.
+#[cfg(windows)]
+fn system_font_families() -> Vec<String> {
+    use windows::Win32::Graphics::DirectWrite::{
+        DWriteCreateFactory, DWRITE_FACTORY_TYPE_SHARED, IDWriteFactory,
+        IDWriteFontCollection,
+    };
+    let Ok(factory) =
+        (unsafe { DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED) })
+    else {
+        return Vec::new();
+    };
+    let mut collection_slot: Option<IDWriteFontCollection> = None;
+    if unsafe { factory.GetSystemFontCollection(&mut collection_slot, false) }.is_err() {
+        return Vec::new();
+    }
+    let Some(collection) = collection_slot else {
+        return Vec::new();
+    };
+    let count = unsafe { collection.GetFontFamilyCount() };
+    let mut names: Vec<String> = Vec::with_capacity(count.min(2000) as usize);
+    for index in 0..count {
+        let Ok(family) = (unsafe { collection.GetFontFamily(index) }) else {
+            continue;
+        };
+        let Ok(localized) = (unsafe { family.GetFamilyNames() }) else {
+            continue;
+        };
+        // Índice 0 = primer nombre localizado disponible; la mayoría de las
+        // familias tiene una sola entrada en inglés.
+        let Ok(length) = (unsafe { localized.GetStringLength(0) }) else {
+            continue;
+        };
+        if length == 0 {
+            continue;
+        }
+        let mut buffer = vec![0u16; length as usize + 1];
+        if unsafe { localized.GetString(0, &mut buffer) }.is_err() {
+            continue;
+        }
+        let end = buffer.iter().position(|&unit| unit == 0).unwrap_or(buffer.len());
+        let name = String::from_utf16_lossy(&buffer[..end]);
+        let name = name.trim();
+        if !name.is_empty() {
+            names.push(name.to_owned());
+        }
+    }
+    names.sort_by_key(|name| name.to_lowercase());
+    names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    names
+}
+
+#[cfg(not(windows))]
+fn system_font_families() -> Vec<String> {
+    Vec::new()
+}
+
+#[tauri::command]
+pub async fn list_system_fonts() -> Result<Vec<String>, ProjectError> {
+    // DirectWrite es COM: se resuelve en un hilo bloqueante para no pegarle al
+    // runtime async de Tauri.
+    tauri::async_runtime::spawn_blocking(system_font_families)
+        .await
+        .map_err(|_| {
+            ProjectError::message(ProjectErrorCode::Io, "no se pudieron listar las fuentes")
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,6 +550,16 @@ mod tests {
         assert!(validate_external_url("http://elevenlabs.io/app").is_err());
         assert!(validate_external_url("https://user:pass@example.com").is_err());
         assert!(validate_external_url("not a url").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn system_fonts_include_core_windows_families() {
+        let fonts = system_font_families();
+        assert!(fonts.len() > 20, "se esperaban fuentes del sistema, llegaron {}", fonts.len());
+        assert!(fonts.iter().any(|name| name == "Arial"));
+        assert!(fonts.iter().any(|name| name == "Segoe UI"));
+        assert!(fonts.windows(2).all(|pair| pair[0].to_lowercase() <= pair[1].to_lowercase()));
     }
 }
 

@@ -17,9 +17,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use serde::Serialize;
 use tauri::State;
 
+use crate::application::voice_isolation::{
+    cached_outcome, invalid, isolation_stem_path, validate_model, validate_quality, write_marker,
+    VoiceIsolationOutcome, VoiceIsolationStatus, ISOLATION_DIR, MAX_ISOLATION_SECONDS,
+};
 use crate::commands::system::resolve_tools;
 use crate::media::resolve_inside_root;
 use crate::projects::service::{self, ProjectError, ProjectErrorCode};
@@ -27,18 +30,8 @@ use crate::state::AppState;
 
 const SCRIPT: &str =
     include_str!("../../../../../../../scripts/ai-voice-isolation/demucs-wrapper.py");
-const ISOLATION_DIR: &str = "media/isolation";
 const INSTALL_HINT: &str =
     "instalá el motor con `python -m pip install torch torchaudio demucs soundfile` y reiniciá Olyvia";
-
-/// Estado medido del motor: `python` sólo se completa cuando el intérprete
-/// puede `import demucs` de verdad (un `python --version` no alcanza).
-#[derive(Debug, Clone, Serialize)]
-pub struct VoiceIsolationStatus {
-    pub available: bool,
-    pub python: Option<PathBuf>,
-    pub reason: Option<String>,
-}
 
 fn command_succeeds(program: &Path, args: &[&str]) -> bool {
     Command::new(program)
@@ -93,22 +86,6 @@ pub fn voice_isolation_status() -> VoiceIsolationStatus {
     status().clone()
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct VoiceIsolationOutcome {
-    pub vocals_path: PathBuf,
-    pub accompaniment_path: Option<PathBuf>,
-    pub duration_seconds: f64,
-    pub sample_rate: u32,
-    pub channels: u32,
-    pub processing_time_ms: u64,
-    /// true cuando se reutilizó un stem ya generado (no corrió el modelo).
-    pub cached: bool,
-}
-
-fn invalid(message: &str) -> ProjectError {
-    ProjectError::message(ProjectErrorCode::InvalidProject, message)
-}
-
 fn unavailable(reason: Option<String>) -> ProjectError {
     ProjectError::message(
         ProjectErrorCode::ProviderUnavailable,
@@ -116,27 +93,6 @@ fn unavailable(reason: Option<String>) -> ProjectError {
             .as_deref()
             .unwrap_or("la isolación de voz no está disponible"),
     )
-}
-
-fn validate_quality(quality: Option<&str>) -> Result<&'static str, ProjectError> {
-    match quality.unwrap_or("medium") {
-        "low" => Ok("low"),
-        "medium" => Ok("medium"),
-        "high" => Ok("high"),
-        "best" => Ok("best"),
-        _ => Err(invalid("la calidad debe ser low, medium, high o best")),
-    }
-}
-
-fn validate_model(model: Option<&str>) -> Result<String, ProjectError> {
-    let model = model.unwrap_or("htdemucs");
-    if !model
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
-        return Err(invalid("el nombre del modelo no es válido"));
-    }
-    Ok(model.to_owned())
 }
 
 /// Lanza el wrapper Python y parsea el JSON de resultado.
@@ -188,22 +144,43 @@ async fn run_isolation(
         .arg(quality)
         .arg("--device")
         .arg("auto")
-        .arg("--stdout-json");
+        .arg("--stdout-json")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1");
 
-    let output = tauri::async_runtime::spawn_blocking(move || command.output())
-        .await
-        .map_err(|error| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                format!("no se pudo lanzar el aislador de voz: {error}").as_str(),
-            )
-        })?
-        .map_err(|error| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                format!("no se pudo ejecutar el aislador de voz: {error}").as_str(),
-            )
-        })?;
+    // AUD-008: deadline generoso (3 h) — Demucs en CPU sobre material largo
+    // puede tardar mucho, pero un proceso colgado no puede bloquear el comando.
+    let timed = tauri::async_runtime::spawn_blocking(move || {
+        crate::commands::output_with_timeout(
+            &mut command,
+            std::time::Duration::from_secs(3 * 3600),
+        )
+    })
+    .await
+    .map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudo lanzar el aislador de voz: {error}").as_str(),
+        )
+    })?
+    .map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudo ejecutar el aislador de voz: {error}").as_str(),
+        )
+    })?;
+    if timed.timed_out {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "el aislador de voz superó el tiempo máximo (3 h) y se canceló",
+        ));
+    }
+    let Some(output) = timed.into_output() else {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "el aislador de voz terminó de forma inesperada",
+        ));
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -286,7 +263,9 @@ pub async fn voice_isolate_media(
     model: Option<String>,
     quality: Option<String>,
 ) -> Result<VoiceIsolationOutcome, ProjectError> {
-    let input = PathBuf::from(&input_path);
+    // Archivo arbitrario del disco (uso MCP/herramientas): política de
+    // lectura de `fs_*` — absoluta, fuera de credenciales y secretos.
+    let input = crate::application::fs::resolve_user_file_path(&input_path)?;
     if !input.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
@@ -340,13 +319,27 @@ fn resolve_project_asset(
     Ok((session.root, source))
 }
 
-/// Stem cacheado de un asset: `<root>/media/isolation/<assetId>/vocals.wav`.
-/// Es la ruta fija que el render consulta cuando el clip tiene
-/// `audio.voiceIsolation.enabled`.
-pub fn isolation_stem_path(root: &Path, asset_id: &str) -> PathBuf {
-    root.join(ISOLATION_DIR.replace('/', "\\"))
-        .join(asset_id)
-        .join("vocals.wav")
+fn probe_duration_seconds(ffprobe: &Path, input: &Path) -> Option<f64> {
+    let output = Command::new(ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(input)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|d| d.is_finite() && *d > 0.0)
 }
 
 /// Genera (o reutiliza) el stem de voz de un asset del proyecto en la ruta
@@ -365,28 +358,38 @@ pub async fn prepare_voice_isolation(
     {
         return Err(invalid("el id del material no es válido"));
     }
+    let quality = validate_quality(quality.as_deref())?;
+    let model = "htdemucs".to_owned();
     let (root, source) = resolve_project_asset(&state, &asset_id)?;
     let output_dir = isolation_stem_path(&root, &asset_id)
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| root.join(ISOLATION_DIR.replace('/', "\\")).join(&asset_id));
-    let vocals = isolation_stem_path(&root, &asset_id);
-    if force != Some(true) && vocals.is_file() {
-        return Ok(VoiceIsolationOutcome {
-            vocals_path: vocals,
-            accompaniment_path: output_dir.join("accompaniment.wav").into(),
-            duration_seconds: 0.0,
-            sample_rate: 44_100,
-            channels: 2,
-            processing_time_ms: 0,
-            cached: true,
-        });
+    if force != Some(true) {
+        if let Some(cached) = cached_outcome(&root, &asset_id, &source, quality, &model) {
+            return Ok(cached);
+        }
     }
-    let quality = validate_quality(quality.as_deref())?;
-    let model = "htdemucs".to_owned();
+    // AUD-009: sin límite, una entrada de varias horas puede agotar la RAM.
+    let settings = state.settings_snapshot()?;
+    let (_, ffprobe, _) = resolve_tools(&settings);
+    if let Some(ffprobe) = ffprobe {
+        if let Some(seconds) = probe_duration_seconds(&ffprobe, &source) {
+            if seconds > MAX_ISOLATION_SECONDS {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    &format!(
+                        "la isolación de voz admite hasta 2 horas de material; este asset dura {:.1} min. Partilo en tramos.",
+                        seconds / 60.0
+                    ),
+                ));
+            }
+        }
+    }
     let mut outcome = run_isolation(&state, &source, &output_dir, &model, quality).await?;
-    outcome.vocals_path = vocals;
+    outcome.vocals_path = isolation_stem_path(&root, &asset_id);
     outcome.accompaniment_path = Some(output_dir.join("accompaniment.wav"));
+    write_marker(&root, &asset_id, &source, quality, &model, &outcome);
     Ok(outcome)
 }
 
@@ -399,19 +402,5 @@ mod tests {
         // En CI no hay demucs: el estado debe ser false con motivo, nunca panic.
         let status = status();
         assert!(!status.available || status.python.is_some());
-    }
-
-    #[test]
-    fn isolation_stem_path_is_deterministic() {
-        let root = Path::new("D:\\proyecto");
-        let stem = isolation_stem_path(root, "asset-123");
-        assert!(stem.ends_with("media\\isolation\\asset-123\\vocals.wav"));
-    }
-
-    #[test]
-    fn validate_quality_rejects_unknown() {
-        assert!(validate_quality(Some("ultra")).is_err());
-        assert_eq!(validate_quality(None).unwrap(), "medium");
-        assert_eq!(validate_quality(Some("best")).unwrap(), "best");
     }
 }

@@ -7,10 +7,11 @@ import { fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { LottiePanel } from './LottiePanel';
 import { StickmanPanel } from './StickmanPanel';
+import { WhiteboardPanel } from '../whiteboard/WhiteboardPanel';
 import { MotionForm } from './MotionForm';
 import { MotionPreview } from './MotionPreview';
-import { buildMotionPlan, MOTION_TEMPLATES } from './plan';
-import type { MotionPlan, MotionTemplate } from './templates';
+import { buildMotionPlan, MOTION_TEMPLATES } from '../../state/motion-plan';
+import type { MotionPlan, MotionTemplate } from '../../state/motion-templates';
 import './motion-view.css';
 
 function messageOf(error: unknown): string {
@@ -204,6 +205,8 @@ export function MotionView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
       <LottiePanel onNavigate={onNavigate} />
 
       <StickmanPanel onNavigate={onNavigate} />
+
+      <WhiteboardPanel onNavigate={onNavigate} />
 
       <div className="motion-layout">
         <aside className="motion-gallery" aria-label="Plantillas de motion">

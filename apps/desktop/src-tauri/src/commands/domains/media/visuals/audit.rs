@@ -78,7 +78,31 @@ pub(crate) fn audit_project(
                 "wipe-up",
                 "wipe-down",
                 "iris",
+                "blinds",
+                "clock-wipe",
+                "ink",
+                "bolhas",
+                "colmeia",
+                "chuva",
+                "vento",
+                "triangulos",
+                "persiana",
+                "reflexo",
+                "barrido-diagonal",
+                "pixelar",
+                "interferencia",
+                "liquido",
+                "caleidoscopio",
+                "desenfoque-lineal",
+                "warp-direccional",
+                "glitch-digital",
+                "zoom-suave",
+                "zoom-rapido",
                 "luma-wipe",
+                "textura-luz",
+                "textura-celular",
+                "textura-fractal",
+                "textura-vida",
             ];
             if !allowed.contains(&kind) {
                 findings.push(finding(
@@ -138,6 +162,97 @@ pub(crate) fn audit_project(
                     format!(
                         "El renderer limita el solape a 2 s ({max_useful:.1} frames a {fps:.1} fps)."
                     ),
+                    clip_id,
+                    label,
+                ));
+            }
+        }
+        // `transitionOut`: misma validación, pero el límite útil es el final
+        // del clip (su cola), no el solape del entrante.
+        if let Some(transition) = clip.get("transitionOut").filter(|value| value.is_object()) {
+            transitions += 1;
+            let kind = transition["type"].as_str().unwrap_or("");
+            let allowed = [
+                "dissolve",
+                "fade-black",
+                "fade-white",
+                "dip-color",
+                "slide-left",
+                "slide-right",
+                "slide-up",
+                "slide-down",
+                "slide-3d-left",
+                "slide-3d-right",
+                "slide-3d-up",
+                "slide-3d-down",
+                "wipe-left",
+                "wipe-right",
+                "wipe-up",
+                "wipe-down",
+                "iris",
+                "blinds",
+                "clock-wipe",
+                "ink",
+                "bolhas",
+                "colmeia",
+                "chuva",
+                "vento",
+                "triangulos",
+                "persiana",
+                "reflexo",
+                "barrido-diagonal",
+                "pixelar",
+                "interferencia",
+                "liquido",
+                "caleidoscopio",
+                "desenfoque-lineal",
+                "warp-direccional",
+                "glitch-digital",
+                "zoom-suave",
+                "zoom-rapido",
+                "luma-wipe",
+                "textura-luz",
+                "textura-celular",
+                "textura-fractal",
+                "textura-vida",
+            ];
+            if !allowed.contains(&kind) {
+                findings.push(finding(
+                    "error",
+                    "transition-unknown",
+                    format!("Transición de salida desconocida: {kind}."),
+                    clip_id,
+                    label,
+                ));
+            }
+            if kind == "luma-wipe"
+                && transition["mateClipId"]
+                    .as_str()
+                    .is_none_or(|mate| mate.is_empty())
+            {
+                findings.push(finding(
+                    "error",
+                    "transition-luma-mate",
+                    "El barrido por luminancia de salida necesita un clip mate asignado."
+                        .to_owned(),
+                    clip_id,
+                    label,
+                ));
+            }
+            let frames = transition["frames"].as_f64().unwrap_or(0.0);
+            if frames <= 0.0 || frames > 120.0 {
+                findings.push(finding(
+                    "error",
+                    "transition-frames",
+                    "La transición de salida debe durar entre 1 y 120 frames.".to_owned(),
+                    clip_id,
+                    label,
+                ));
+            } else if frames > duration {
+                findings.push(finding(
+                    "error",
+                    "transition-longer-than-clip",
+                    "La transición de salida es más larga que el clip que sale.".to_owned(),
                     clip_id,
                     label,
                 ));

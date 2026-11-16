@@ -72,6 +72,9 @@ pub enum ImportLimit {
 ///   error normal.
 /// - `confirm_rights`/`provider`: declaran procedencia cuando la persona
 ///   confirmó derechos sobre material generado.
+// clippy::too_many_arguments: API de aplicación que replica los argumentos
+// del comando de importación; agrupar fps/flags en structs es cosmético.
+#[allow(clippy::too_many_arguments)]
 pub fn import_local_files(
     root: &Path,
     ffprobe: &Path,

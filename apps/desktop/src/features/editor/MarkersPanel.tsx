@@ -278,7 +278,10 @@ export function MarkersPanel() {
                     aria-label={`Ir al marcador ${marker.label} en ${formatTimecode(marker.frame, fps)}`}
                   >
                     <span style={timecodeStyle}>{formatTimecode(marker.frame, fps)}</span>
-                    <span>{marker.label}</span>
+                    <span>
+                      {marker.label}
+                      {marker.role === 'cover' ? ' · Portada' : ''}
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -338,6 +341,20 @@ export function MarkersPanel() {
                       </span>
                     </div>
                     <div style={editorActionsStyle}>
+                      <button
+                        type="button"
+                        style={smallButtonStyle}
+                        aria-pressed={marker.role === 'cover'}
+                        onClick={() =>
+                          store.update((current) =>
+                            updateMarker(current, marker.id, {
+                              role: marker.role === 'cover' ? undefined : 'cover',
+                            }),
+                          )
+                        }
+                      >
+                        {marker.role === 'cover' ? 'Quitar portada' : 'Usar como portada'}
+                      </button>
                       <button
                         type="button"
                         style={smallButtonStyle}

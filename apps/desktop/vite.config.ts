@@ -95,7 +95,10 @@ export default defineConfig({
     },
   },
   server: {
-    host: '0.0.0.0',
+    // Loopback por defecto (SEC-GATE-005): el dev server no debe ser
+    // alcanzable desde la LAN. Si hace falta acceso desde otro dispositivo,
+    // EDITOR_IA_DEV_HOST=0.0.0.0 npm run dev lo reexpone de forma explícita.
+    host: process.env.EDITOR_IA_DEV_HOST ?? '127.0.0.1',
     port: 3000,
     // Las herramientas de edición escriben con rename atómico y dejan carpetas
     // temporales `.archivo.<pid>.<uuid>.tmpdir/` dentro de `src/styles`. En

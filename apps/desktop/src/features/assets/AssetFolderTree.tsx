@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
 import { Icon } from '../../components/Icon';
+import { onKeyboardActivate } from '../../lib/a11y';
 
 export interface FolderStructure {
   readonly name: string;
@@ -51,7 +52,13 @@ export function AssetFolderTree({
       <div key={folder.path} className="folder-tree-item" style={{ paddingLeft: `${depth * 16}px` }}>
         <div
           className={`folder-row ${isSelected ? 'selected' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-pressed={isSelected}
+          aria-label={`Carpeta ${folder.name}`}
           onClick={() => onFolderClick(folder.path)}
+          onKeyDown={(event: KeyboardEvent<HTMLDivElement>) =>
+            onKeyboardActivate(event, () => onFolderClick(folder.path))}
         >
           {hasSubfolders && (
             <button

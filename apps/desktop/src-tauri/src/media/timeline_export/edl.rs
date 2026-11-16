@@ -158,7 +158,7 @@ pub fn build_edl(project: &Value) -> (String, usize, Vec<String>) {
                 clip["label"].as_str().unwrap_or("clip")
             ));
         }
-        if clip.get("transitionIn").is_some() {
+        if clip.get("transitionIn").is_some() || clip.get("transitionOut").is_some() {
             warnings.push(format!(
                 "{} tiene transición; no se escribe en el EDL",
                 clip["label"].as_str().unwrap_or("clip")
@@ -260,6 +260,24 @@ mod tests {
         assert!(text.contains("TITLE: Demo"));
         assert!(text.contains("00:00:01:00 00:00:03:00"));
         assert!(text.contains("* FROM CLIP NAME: Toma"));
+    }
+
+    #[test]
+    fn edl_warns_about_transition_out_too() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": { "clips": [{
+                "id": "c", "kind": "video", "label": "Salida", "startFrame": 0,
+                "durationFrames": 30,
+                "transitionOut": { "type": "fade-black", "frames": 6 },
+                "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 }
+            }] }
+        });
+        let (_, _, warnings) = build_edl(&project);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("transición"), "{warnings:?}");
     }
 
     #[test]

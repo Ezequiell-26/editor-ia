@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
+use crate::application::web_sessions::{sanitize_slot, slot_port_for};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 
 use super::flow_embed;
@@ -92,29 +93,18 @@ fn session_cdp_port(app: &AppHandle, slot: &str) -> Option<u16> {
                 .and_then(|u| u.rsplit(':').next())
                 .and_then(|p| p.parse::<u16>().ok())
         })
-        .or_else(|| Some(flow_embed::slot_port_for(slot)))
+        .or_else(|| Some(slot_port_for(slot)))
 }
 
-fn cdp_alive(port: u16) -> bool {
-    let url = format!("http://127.0.0.1:{port}/json/version");
-    reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-        .ok()
-        .and_then(|client| client.get(&url).send().ok())
-        .map(|response| response.status().is_success())
-        .unwrap_or(false)
-}
-
+/// Espera el endpoint CDP con los timeouts propios de este flujo
+/// (2 s por intento, 20 s totales — ver `application::cdp`).
 fn wait_cdp(port: u16) -> bool {
-    let deadline = Instant::now() + CDP_READY_TIMEOUT;
-    while Instant::now() < deadline {
-        if cdp_alive(port) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(400));
-    }
-    false
+    crate::application::cdp::wait_cdp(
+        port,
+        Duration::from_secs(2),
+        CDP_READY_TIMEOUT,
+        Duration::from_millis(400),
+    )
 }
 
 fn materialize_script() -> Result<PathBuf, ProjectError> {
@@ -155,7 +145,7 @@ pub async fn flow_generate_image(
         }
         PathBuf::from(trimmed)
     };
-    let name = flow_embed::sanitize_slot_pub(slot.as_deref().unwrap_or("flow"))?;
+    let name = sanitize_slot(slot.as_deref().unwrap_or("flow"))?;
     let target_url = if name == "flow" {
         url.as_deref().unwrap_or("").trim().to_owned()
     } else {
@@ -178,16 +168,7 @@ pub async fn flow_generate_image(
         Some(target_url)
     };
     let open_slot = Some(name.clone());
-    tauri::async_runtime::spawn_blocking(move || {
-        flow_embed::web_session_open(app_for_open, open_url, open_slot)
-    })
-    .await
-    .map_err(|error| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo abrir la sesión web: {error}").as_str(),
-        )
-    })??;
+    flow_embed::web_session_open(app_for_open, open_url, open_slot).await?;
 
     let port = session_cdp_port(&app, &name).ok_or_else(|| {
         ProjectError::message(

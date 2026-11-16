@@ -1,23 +1,6 @@
-import {
-  AiHubView,
-  AssetsPanel,
-  AutoEditView,
-  CreatorHubView,
-  DirectorView,
-  DownloadsHubView,
-  EditorWorkspace,
-  HomeView,
-  LearnView,
-  McpView,
-  MediaLabView,
-  NodeGraphView,
-  ProductionView,
-  ScriptView,
-  SettingsHome,
-} from './view-registry';
-import { ProjectHome } from '../features/projects/ProjectHome';
+import { EditorWorkspace } from './view-registry';
 import type { ViewId } from './navigation';
-import { editorModeForView, type EditorModeId } from './view-routing';
+import { EDITOR_TOOL_HOSTS, editorModeForView, type EditorModeId } from './view-routing';
 
 export interface WorkspaceViewProps {
   readonly id: ViewId;
@@ -35,112 +18,63 @@ export interface WorkspaceViewProps {
   readonly hubTab: string | null;
   readonly hubRequest: number;
   readonly editorMode: EditorModeId;
+  /** Paleta de comandos global — la reenvía el chrome AlaukCut del editor. */
+  readonly openPalette?: () => void;
 }
 
-export function WorkspaceView({ id, toolActive, toolView, toolTab, toolRequest, hasProject, navigate, editorRequest, clearTool, handleModeChange, openTour, openShortcuts, hubTab, hubRequest, editorMode }: WorkspaceViewProps) {
-      // T1 · UN SOLO EDITOR: con proyecto abierto, los 7 hosts y los 12 alias
-      // a hubs se montan como PANEL del modo «Todo» (timeline siempre visible).
-      if (toolActive && toolView !== null) {
-        return (
+/**
+ * UN SOLO EDITOR: ya no existe una pantalla standalone por herramienta.
+ * Toda `ViewId` termina montada dentro de `EditorWorkspace` — como modo de
+ * flujo, como panel del modo «Todo» o como tab de editor — con o sin
+ * proyecto abierto. Enmienda 2026-11-14: `settings` también se unificó;
+ * ya NO hay excepciones de ventana flotante ni superficie propia.
+ *
+ * UN SOLO MONTAJE: todas las ramas de edición devuelven el MISMO fragmento
+ * con `EditorWorkspace` en la primera posición. Antes la rama `editor`
+ * devolvía un fragmento y las de herramienta el elemento suelto: React veía
+ * tipos de raíz distintos y desmontaba/remontaba el editor entero (Preview,
+ * Timeline, motores) al navegar. Con raíz idéntica la instancia de
+ * `EditorWorkspace` — y todo lo que cuelga de ella — sobrevive a cualquier
+ * cambio de vista/herramienta.
+ */
+export function WorkspaceView({ id, toolActive, toolView, toolTab, toolRequest, navigate, editorRequest, clearTool, handleModeChange, openTour, openShortcuts, hubTab, editorMode, openPalette }: WorkspaceViewProps) {
+      // Panel de herramientas dentro del editor (modo «Todo»). `settings`
+      // también resuelve acá: es un host de herramientas más.
+      const toolPanel = toolActive && toolView !== null;
+
+      // Las seis vistas de flujo tienen un modo propio dentro del editor.
+      const embeddedMode = id !== 'editor' ? editorModeForView(id) : undefined;
+
+      const initialMode: EditorModeId = toolPanel
+        ? 'tools'
+        : embeddedMode ?? (id === 'editor' ? editorMode : 'tools');
+      const resolvedToolView = toolPanel
+        ? toolView
+        : embeddedMode === undefined && id !== 'editor' && EDITOR_TOOL_HOSTS.has(id)
+          ? id
+          : undefined;
+      const resolvedToolTab = toolPanel ? toolTab : embeddedMode === undefined && id !== 'editor' ? hubTab : undefined;
+
+      // P7 · UN SOLO EDITOR: el overlay `MinimalEditor` se retiró del camino
+      // de producción — `EditorWorkspace` ES la superficie permanente (su
+      // modo timeline ya lleva el chrome AlaukCut). El componente queda en
+      // el repo sólo para el arnés de verificación de la réplica. La raíz
+      // sigue siendo el fragmento para no cambiar la reconciliación.
+      return (
+        <>
           <EditorWorkspace
             onNavigate={navigate}
-            initialMode="tools"
+            initialMode={initialMode}
             modeRequest={editorRequest}
-            toolView={toolView}
-            {...(toolTab ? { toolTab } : {})}
+            {...(resolvedToolView ? { toolView: resolvedToolView } : {})}
+            {...(resolvedToolTab ? { toolTab: resolvedToolTab } : {})}
             toolRequest={toolRequest}
             onClearTool={clearTool}
             onModeChange={handleModeChange}
             onOpenTour={openTour}
             onOpenShortcuts={openShortcuts}
+            {...(openPalette ? { onOpenPalette: openPalette } : {})}
           />
-        );
-      }
-      // F2: las seis vistas de flujo tienen un modo propio dentro del editor.
-      // Sin proyecto siguen siendo pantallas independientes con su empty-state.
-      const embeddedMode = hasProject && id !== 'editor' ? editorModeForView(id) : undefined;
-      if (embeddedMode) {
-        return (
-          <EditorWorkspace
-            onNavigate={navigate}
-            initialMode={embeddedMode}
-            modeRequest={editorRequest}
-            onModeChange={handleModeChange}
-            onOpenTour={openTour}
-            onOpenShortcuts={openShortcuts}
-          />
-        );
-      }
-      switch (id) {
-        case 'home':
-          return <HomeView onNavigate={navigate} />;
-        case 'projects':
-          return <ProjectHome onNavigate={navigate} />;
-        case 'director':
-          return <DirectorView onNavigate={navigate} />;
-        case 'auto-edit':
-          return <AutoEditView onNavigate={navigate} />;
-        case 'production':
-          return <ProductionView onNavigate={navigate} />;
-        case 'creator':
-          return (
-            <CreatorHubView
-              onNavigate={navigate}
-              initialTab={hubTab ?? undefined}
-              requestId={hubRequest}
-            />
-          );
-        case 'editor':
-          return (
-            <EditorWorkspace
-              onNavigate={navigate}
-              initialMode={editorMode}
-              modeRequest={editorRequest}
-              onModeChange={handleModeChange}
-              onOpenTour={openTour}
-              onOpenShortcuts={openShortcuts}
-            />
-          );
-        case 'lab':
-          return (
-            <MediaLabView
-              onNavigate={navigate}
-              initialTab={hubTab ?? undefined}
-              requestId={hubRequest}
-            />
-          );
-        case 'script':
-          return <ScriptView onNavigate={navigate} />;
-        case 'assets':
-          return <AssetsPanel onNavigate={navigate} />;
-        case 'download':
-          return (
-            <DownloadsHubView
-              onNavigate={navigate}
-              initialTab={hubTab ?? undefined}
-              requestId={hubRequest}
-            />
-          );
-        case 'ai-hub':
-          return <AiHubView onNavigate={navigate} />;
-        case 'learn':
-          return (
-            <LearnView
-              onNavigate={navigate}
-              onOpenTour={openTour}
-              onOpenShortcuts={openShortcuts}
-            />
-          );
-        case 'mcp':
-          return <McpView />;
-        case 'nodes':
-          return <NodeGraphView onNavigate={navigate} />;
-        case 'settings':
-          return <SettingsHome />;
-        default:
-          // Una ViewId sin caso renderiza nada en silencio: avisar en
-          // consola para que la regresión sea visible en desarrollo.
-          console.warn(`[Olyvia] renderView sin caso para la vista «${id}»`);
-          return null;
-      }
+        </>
+      );
     }

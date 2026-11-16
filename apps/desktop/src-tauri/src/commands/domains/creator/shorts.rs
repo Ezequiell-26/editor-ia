@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 use crate::commands::face::{self, FaceSample};

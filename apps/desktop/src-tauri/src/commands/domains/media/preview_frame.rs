@@ -8,7 +8,6 @@
 //! sin escribir un MP4. El frame nativo (`native: true`) sigue siendo el clip
 //! a la resolución del medio para inspección 1:1.
 
-use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -23,15 +22,22 @@ use crate::commands::system::resolve_tools;
 use crate::media::resolve_inside_root;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{
-    alpha_video_decoder, apply_lut_to_chain, build_plan, eased_fraction, effects_lut,
-    expand_compounds, transition_lead_seconds, visual_filter, BuildPlanInput, Profile,
+    alpha_video_decoder, apply_lut_to_chain, build_plan, camera_lut_path, effects_lut,
+    prepare_frame_input, visual_filter_with_format,
+    BuildPlanInput, Profile,
 };
 use crate::render::motion::has_visible_graphic_clips;
 use crate::state::AppState;
 
+// La ventana de un frame (reencuadre de timeline, transiciones/animaciones
+// congeladas) es dominio puro y vive en `render::preview_window`; este
+// re-export mantiene los nombres para composite.rs y los tests.
+pub(crate) use crate::render::preview_window::{
+    composite_metadata, preview_copy, project_fps, timeline_frames, window_project,
+};
 include!("preview_frame/types.rs");
+include!("preview_frame/cache.rs");
 include!("preview_frame/decode.rs");
-include!("preview_frame/timeline.rs");
 include!("preview_frame/graph.rs");
 include!("preview_frame/composite.rs");
 include!("preview_frame/render.rs");

@@ -1,10 +1,10 @@
 import type { DesktopService } from "../../services/contracts";
 import type { NativeCall } from './shared';
 import * as shared from './shared';
-import type { BrowserInstanceInfo, CaptureDevices, ExtensionInstallStatus, FlowBrowserStatus, FlowEmbedStatus, FlowGenerateResult, McpAutoconnectResult, McpCallResult, McpDetectedClient, McpProbeResult, McpServerConfig, McpServerInfo, McpSessionInfo, ObsScene, PluginInfo, ScreenRecordPreview, ScreenRecordResult, ScreenRecordStatus, StickmanRenderResult, SystemInfo, WebSessionsStatus } from "../../services/contracts";
+import type { BrowserInstanceInfo, CaptureDevices, ExtensionInstallStatus, FlowBrowserStatus, FlowEmbedStatus, FlowGenerateResult, McpAuditTail, McpAutoconnectResult, McpCallResult, McpDetectedClient, McpProbeResult, McpServerConfig, McpServerInfo, McpSessionInfo, ObsScene, PluginInfo, ScreenRecordPreview, ScreenRecordResult, ScreenRecordStatus, StickmanRenderResult, SystemInfo, WebSessionsStatus, WhiteboardRenderResult, WhiteboardStatus } from "../../services/contracts";
 import { listen } from "@tauri-apps/api/event";
 
-export function createIntegrationsService(call: NativeCall): Pick<DesktopService, 'listPlugins' | 'installPlugin' | 'removePlugin' | 'setPluginEnabled' | 'getFlowProxies' | 'setFlowProxy' | 'startMcpServer' | 'mcpServerStatus' | 'mcpRespond' | 'mcpDetectClients' | 'mcpAutoconnect' | 'onMcpCall' | 'extensionStatus' | 'prepareExtension' | 'notifyUser' | 'listMcpServers' | 'saveMcpServer' | 'deleteMcpServer' | 'probeMcpServer' | 'callMcpTool' | 'closeMcpSession' | 'mcpSessionStatus' | 'flowBrowserStatus' | 'flowBrowserLaunch' | 'flowBrowserStop' | 'flowEmbedStatus' | 'flowEmbedOpen' | 'flowEmbedClose' | 'flowEmbedNav' | 'flowEmbedEval' | 'webSessionsStatus' | 'webSessionOpen' | 'webSessionClose' | 'webSessionNav' | 'webSessionEval' | 'flowGenerateImage' | 'screenRecordStatus' | 'screenRecordDevices' | 'screenRecordStart' | 'screenRecordStop' | 'stickmanRender' | 'browserInstanceLaunch' | 'browserInstanceClose' | 'browserInstanceList' | 'browserInstanceNavigate' | 'browserInstanceEval' | 'obsSceneList' | 'obsSceneSave' | 'obsSceneDelete' | 'obsSceneStart' | 'obsScenePreview' | 'systemInfo' | 'chooseTool' | 'revealOutput' | 'openExternalUrl'> {
+export function createIntegrationsService(call: NativeCall): Pick<DesktopService, 'listPlugins' | 'installPlugin' | 'removePlugin' | 'setPluginEnabled' | 'getFlowProxies' | 'setFlowProxy' | 'startMcpServer' | 'mcpServerStatus' | 'mcpServerStop' | 'mcpRespond' | 'mcpDetectClients' | 'mcpAutoconnect' | 'onMcpCall' | 'extensionStatus' | 'prepareExtension' | 'notifyUser' | 'listMcpServers' | 'saveMcpServer' | 'deleteMcpServer' | 'probeMcpServer' | 'callMcpTool' | 'closeMcpSession' | 'mcpSessionStatus' | 'mcpAuditTail' | 'flowBrowserStatus' | 'flowBrowserLaunch' | 'flowBrowserStop' | 'flowEmbedStatus' | 'flowEmbedOpen' | 'flowEmbedClose' | 'flowEmbedNav' | 'flowEmbedEval' | 'webSessionsStatus' | 'webSessionOpen' | 'webSessionClose' | 'webSessionNav' | 'webSessionEval' | 'flowGenerateImage' | 'screenRecordStatus' | 'screenRecordDevices' | 'screenRecordStart' | 'screenRecordStop' | 'screenRecordSnapshot' | 'stickmanRender' | 'whiteboardStatus' | 'whiteboardGenerate' | 'browserInstanceLaunch' | 'browserInstanceClose' | 'browserInstanceList' | 'browserInstanceNavigate' | 'browserInstanceEval' | 'obsSceneList' | 'obsSceneSave' | 'obsSceneDelete' | 'obsSceneStart' | 'obsScenePreview' | 'systemInfo' | 'listSystemFonts' | 'chooseTool' | 'revealOutput' | 'openExternalUrl'> {
   return {
     async listPlugins() {
       return (await call(shared.PROJECT_COMMANDS.listPlugins, {})) as PluginInfo[];
@@ -32,6 +32,9 @@ export function createIntegrationsService(call: NativeCall): Pick<DesktopService
     },
     async mcpServerStatus() {
       return (await call(shared.PROJECT_COMMANDS.mcpServerStatus, {})) as McpServerInfo | null;
+    },
+    async mcpServerStop() {
+      return (await call(shared.PROJECT_COMMANDS.mcpServerStop, {})) === true;
     },
     async mcpRespond(id, ok, text) {
       return (await call(shared.PROJECT_COMMANDS.mcpRespond, { id, ok, text })) as boolean;
@@ -82,6 +85,11 @@ export function createIntegrationsService(call: NativeCall): Pick<DesktopService
     async mcpSessionStatus() {
       const raw = await call(shared.PROJECT_COMMANDS.mcpSessionStatus);
       return Array.isArray(raw) ? (raw as McpSessionInfo[]) : [];
+    },
+    async mcpAuditTail(limit) {
+      return (await call(shared.PROJECT_COMMANDS.mcpAuditTail, {
+        limit: limit ?? null,
+      })) as McpAuditTail;
     },
     async flowBrowserStatus() {
       return (await call(shared.PROJECT_COMMANDS.flowBrowserStatus)) as FlowBrowserStatus;
@@ -170,13 +178,40 @@ export function createIntegrationsService(call: NativeCall): Pick<DesktopService
         audioDevice: input.audioDevice ?? null,
         streamUrl: input.streamUrl ?? null,
         encoder: input.encoder ?? null,
+        cursorOverlay: input.cursorOverlay ?? null,
+        webcamChroma: input.webcamChroma ?? null,
       })) as ScreenRecordStatus;
     },
     async screenRecordStop() {
       return (await call(shared.PROJECT_COMMANDS.screenRecordStop)) as ScreenRecordResult;
     },
+    async screenRecordSnapshot(input) {
+      return (await call(shared.PROJECT_COMMANDS.screenRecordSnapshot, {
+        fps: input.fps ?? null,
+        webcamDevice: input.webcamDevice ?? null,
+        captureScreen: input.captureScreen ?? null,
+        captureTarget: input.captureTarget ?? null,
+        windowTitle: input.windowTitle ?? null,
+        regionX: input.regionX ?? null,
+        regionY: input.regionY ?? null,
+        regionWidth: input.regionWidth ?? null,
+        regionHeight: input.regionHeight ?? null,
+        webcamChroma: input.webcamChroma ?? null,
+      })) as ScreenRecordPreview;
+    },
     async stickmanRender(input) {
       return (await call(shared.PROJECT_COMMANDS.stickmanRender, { request: input })) as StickmanRenderResult;
+    },
+    async whiteboardStatus() {
+      return (await call(shared.PROJECT_COMMANDS.whiteboardStatus)) as WhiteboardStatus;
+    },
+    async whiteboardGenerate(input) {
+      return (await call(shared.PROJECT_COMMANDS.whiteboardGenerate, {
+        imagePath: input.imagePath,
+        audioPath: input.audioPath ?? null,
+        durationSeconds: input.durationSeconds ?? null,
+        quality: input.quality ?? null,
+      })) as WhiteboardRenderResult;
     },
     async browserInstanceLaunch(input) {
       return (await call(shared.PROJECT_COMMANDS.browserInstanceLaunch, {
@@ -214,6 +249,9 @@ export function createIntegrationsService(call: NativeCall): Pick<DesktopService
     },
     async systemInfo() {
       return (await call(shared.PROJECT_COMMANDS.systemInfo)) as SystemInfo;
+    },
+    async listSystemFonts() {
+      return (await call(shared.PROJECT_COMMANDS.listSystemFonts)) as string[];
     },
     async chooseTool(tool) {
       return (await call(shared.PROJECT_COMMANDS.chooseTool, { tool })) as SystemInfo | null;

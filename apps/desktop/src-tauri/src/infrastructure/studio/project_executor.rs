@@ -217,7 +217,24 @@ impl ProjectStageExecutor {
                     }
                 }
             }
-            // Requisitos `image` con convención `gen:` piden generación
+            // Requisitos `sfx` que nombran un preset del catálogo los
+            // satisface el sintetizador local (WAV procedural propio);
+            // el resto sigue el camino normal de adquisición.
+            if req.kind == StudioResourceKind::Sfx
+                && crate::infrastructure::studio::local_sfx::is_sfx_prompt(&req.query)
+            {
+                match self.acquire_sfx(ctx, req, &plan.id) {
+                    Ok(entries) => {
+                        acquired.extend(entries);
+                        continue;
+                    }
+                    Err(_) => {
+                        unsatisfied.push(req.id.clone());
+                        continue;
+                    }
+                }
+            }
+            // Requisitos `image`/`graphic` con convención `gen:` piden generación
             // remota (BYOK): el resto del texto es el prompt. Si el
             // generador no está configurado o falla, el requisito queda
             // insatisfecho con la razón — nunca se sustituye en silencio
@@ -236,11 +253,14 @@ impl ProjectStageExecutor {
                     }
                 }
             }
-            // Requisitos `image` con convención `title:`/`card:` los
-            // satisface el generador local de tarjetas (ffmpeg drawtext);
-            // con `pattern:`/`gradient:`/`texture:` el de patrones lavfi.
-            // Otros `image` siguen el camino normal de adquisición.
-            if req.kind == StudioResourceKind::Image {
+            // Requisitos `image`/`graphic` con convención `title:`/`card:`
+            // los satisface el generador local de tarjetas (ffmpeg
+            // drawtext); con `pattern:`/`gradient:`/`texture:` el de
+            // patrones lavfi. `graphic` produce el mismo PNG compuesto.
+            // Otros `image`/`graphic` siguen el camino normal de adquisición.
+            if req.kind == StudioResourceKind::Image
+                || req.kind == StudioResourceKind::Graphic
+            {
                 match self.acquire_title_cards(ctx, req, &plan.id) {
                     Ok(Some(entries)) => {
                         acquired.extend(entries);
@@ -671,7 +691,7 @@ impl ProjectStageExecutor {
         Ok(entries)
     }
 
-    /// Genera tarjetas de título para requisitos `image` con la
+    /// Genera tarjetas de título para requisitos `image`/`graphic` con la
     /// convención `title:`/`card:`. Devuelve `None` si el query no la usa
     /// (el requisito sigue el camino normal de adquisición).
     fn acquire_title_cards(
@@ -691,7 +711,7 @@ impl ProjectStageExecutor {
         for i in 0..req.max_count.max(1) {
             let request = GenerationRequest {
                 request_id: format!("{plan_id}-{}-{i}", req.id),
-                kind: StudioResourceKind::Image,
+                kind: req.kind,
                 prompt: req.query.clone(),
                 duration_seconds: None,
                 voice: None,
@@ -717,9 +737,9 @@ impl ProjectStageExecutor {
         Ok(Some(entries))
     }
 
-    /// Genera patrones/texturas para requisitos `image` con la convención
-    /// `pattern:`/`gradient:`/`texture:` (fuentes lavfi de ffmpeg).
-    /// Devuelve `None` si el query no la usa.
+    /// Genera patrones/texturas para requisitos `image`/`graphic` con la
+    /// convención `pattern:`/`gradient:`/`texture:` (fuentes lavfi de
+    /// ffmpeg). Devuelve `None` si el query no la usa.
     fn acquire_patterns(
         &self,
         ctx: &StageContext,
@@ -736,7 +756,7 @@ impl ProjectStageExecutor {
         for i in 0..req.max_count.max(1) {
             let request = GenerationRequest {
                 request_id: format!("{plan_id}-{}-{i}", req.id),
-                kind: StudioResourceKind::Image,
+                kind: req.kind,
                 prompt: req.query.clone(),
                 duration_seconds: None,
                 voice: None,
@@ -880,6 +900,46 @@ impl ProjectStageExecutor {
         Ok(entries)
     }
 
+    /// Genera efectos de sonido para requisitos `sfx` que nombran un
+    /// preset del catálogo (`sfx:<id>`, `click`, `sfx-boom`…). Síntesis
+    /// procedural propia en Rust — sin ffmpeg ni samples de terceros.
+    fn acquire_sfx(
+        &self,
+        ctx: &StageContext,
+        req: &crate::studio::plan::ResourceRequirement,
+        plan_id: &str,
+    ) -> Result<Vec<Value>, ProjectError> {
+        let generator = crate::infrastructure::studio::local_sfx::LocalSfxGenerator::new();
+        let mut entries = Vec::new();
+        for i in 0..req.max_count.max(1) {
+            let request = GenerationRequest {
+                request_id: format!("{plan_id}-{}-{i}", req.id),
+                kind: StudioResourceKind::Sfx,
+                prompt: req.query.clone(),
+                duration_seconds: None,
+                voice: None,
+                params: json!({}),
+            };
+            let result = generator.generate(&request, &ctx.project_root)?;
+            let asset_id = self.register_generated_asset_typed(
+                ctx,
+                &result.path,
+                generator.provider_id(),
+                &req.query,
+                "audio",
+            )?;
+            entries.push(json!({
+                "requirementId": req.id,
+                "path": result.path,
+                "bytes": result.bytes,
+                "externalId": request.request_id,
+                "sourceId": generator.provider_id(),
+                "assetId": asset_id,
+            }));
+        }
+        Ok(entries)
+    }
+
     /// Registra un archivo generado localmente (voz, etc.) como
     /// `project.assets`. Mismo contrato que `register_remote_asset`:
     /// ffprobe para `media.*`, escritura atómica, idempotente por path.
@@ -922,6 +982,9 @@ impl ProjectStageExecutor {
     /// `rights.license.commercialUse`. La generación remota declara
     /// `provider-terms`/`unknown` — los derechos los define el proveedor,
     /// no se inventan.
+    // clippy::too_many_arguments: registra un asset con sus metadatos de
+    // derechos; los strings son columnas planas del proyecto.
+    #[allow(clippy::too_many_arguments)]
     fn register_asset_with_rights(
         &self,
         ctx: &StageContext,

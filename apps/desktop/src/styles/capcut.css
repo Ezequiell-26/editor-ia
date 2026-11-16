@@ -1,0 +1,171 @@
+/* ==========================================================================
+   CapCut · capa visual del preset «CapCut»
+   --------------------------------------------------------------------------
+   Se aplica SÓLO cuando el documento lleva `data-preset="capcut"`, atributo
+   que escribe `applyAppearance` (state/appearance.ts). El color no se decide
+   acá: lo emite el motor de 34 tokens (`state/theme-palette.ts`) con el preset
+   `capcut` (grafito casi negro + azul eléctrico). Esta hoja sólo ajusta
+   geometría y detalles para acercar el workspace al lenguaje del editor de
+   referencia:
+
+   - monitor negro puro (el vídeo manda, sin marcos);
+   - timeline grafito con regla fina y cabeceras de pista más estrechas;
+   - clips saturados con esquinas redondeadas y selección azul de 2 px;
+   - playhead blanco de 2 px con mango triangular;
+   - transporte con barra fina y knob claro.
+
+   Cascada: estos selectores llevan `:root[data-preset='capcut']` delante, así
+   que ganan por especificidad a las capas Filmora/premium (que usan
+   `!important` con `.app-shell …`). Se importa al final de `main.tsx`, después
+   de `filmora-polish.css`.
+   ========================================================================== */
+
+:root[data-preset='capcut'] {
+  --tl-ruler-h: 26px;
+  --tl-track-head-w: 128px;
+  --timeline-height: 300px;
+}
+
+/* ─────────────────────────────────────────────── 1 · Rejilla ───────────── */
+
+/* Proporciones del editor de referencia: biblioteca estrecha, monitor grande
+   y panel de propiedades de 360 px. El inspector sigue leyendo
+   `--inspector-width`, así que conserva su divisor y su ancho persistido. */
+:root[data-preset='capcut'] .app-shell .editor-grid {
+  grid-template-columns:
+    clamp(272px, 21vw, 320px) minmax(0, 1fr) 1px
+    var(--inspector-width, 360px) !important;
+  grid-template-rows: minmax(0, 1fr) var(--timeline-height, 300px) !important;
+}
+
+:root[data-preset='capcut'] .app-shell .editor-splitter:hover,
+:root[data-preset='capcut'] .app-shell .editor-splitter:focus-visible {
+  background: var(--color-accent) !important;
+}
+
+/* ─────────────────────────────────────────── 2 · Monitor negro ─────────── */
+
+:root[data-preset='capcut'] .app-shell .preview-panel {
+  background: color-mix(in srgb, var(--color-bg) 62%, rgb(0 0 0)) !important;
+}
+
+:root[data-preset='capcut'] .app-shell .preview-stage {
+  background:
+    radial-gradient(
+      ellipse 120% 90% at 50% 0%,
+      color-mix(in srgb, var(--color-text) 2.5%, transparent),
+      transparent 62%
+    ),
+    color-mix(in srgb, var(--color-bg) 58%, rgb(0 0 0)) !important;
+}
+
+:root[data-preset='capcut'] .app-shell .preview-canvas {
+  border-radius: 2px !important;
+  box-shadow: 0 10px 34px rgb(0 0 0 / 55%) !important;
+}
+
+/* ──────────────────────────────────────────── 3 · Timeline ────────────── */
+
+:root[data-preset='capcut'] .app-shell .timeline-panel,
+:root[data-preset='capcut'] .app-shell .timeline-scroll,
+:root[data-preset='capcut'] .app-shell .timeline-surface {
+  background: var(--color-panel) !important;
+}
+
+:root[data-preset='capcut'] .app-shell .ruler-row,
+:root[data-preset='capcut'] .app-shell .ruler-lane,
+:root[data-preset='capcut'] .app-shell .ruler-corner,
+:root[data-preset='capcut'] .app-shell .track-head {
+  background: var(--color-panel-2) !important;
+}
+
+:root[data-preset='capcut'] .app-shell .track-lane {
+  background: var(--color-panel) !important;
+}
+
+/* Regla: marcas finas y texto de 10 px, como el timeline de referencia. */
+:root[data-preset='capcut'] .app-shell .ruler-tick {
+  color: color-mix(in srgb, var(--color-text) 62%, var(--color-bg)) !important;
+  font-size: 10px !important;
+}
+
+:root[data-preset='capcut'] .app-shell .ruler-minor {
+  background: color-mix(in srgb, var(--color-text) 12%, transparent) !important;
+}
+
+/* ───────────────────────────────────────── 4 · Clips y playhead ────────── */
+
+:root[data-preset='capcut'] .app-shell .timeline-clip {
+  border-radius: 5px !important;
+  border: 1px solid color-mix(in srgb, var(--color-text) 12%, transparent) !important;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 45%) !important;
+}
+
+:root[data-preset='capcut'] .app-shell .timeline-clip.selected,
+:root[data-preset='capcut'] .app-shell .timeline-clip[aria-selected='true'] {
+  outline: 2px solid var(--color-accent) !important;
+  outline-offset: -2px !important;
+  box-shadow: none !important;
+}
+
+:root[data-preset='capcut'] .app-shell .clip-thumb {
+  border-radius: 4px !important;
+}
+
+:root[data-preset='capcut'] .app-shell .trim-handle {
+  width: 3px !important;
+  border-radius: 2px !important;
+  background: var(--color-accent) !important;
+}
+
+:root[data-preset='capcut'] .app-shell .playhead-line {
+  width: 2px !important;
+  background: var(--color-text) !important;
+}
+
+:root[data-preset='capcut'] .app-shell .playhead-grip {
+  width: 12px !important;
+  height: 11px !important;
+  background: var(--color-text) !important;
+  border-radius: 1px !important;
+  clip-path: polygon(0 0, 100% 0, 100% 58%, 50% 100%, 0 58%);
+}
+
+:root[data-preset='capcut'] .app-shell .timeline-marker-flag {
+  border-radius: 2px !important;
+}
+
+/* ─────────────────────────────────────────── 5 · Transporte ───────────── */
+
+:root[data-preset='capcut'] .app-shell .transport-scrub {
+  height: 3px !important;
+  border-radius: 2px !important;
+}
+
+:root[data-preset='capcut'] .app-shell .transport-scrub-knob {
+  width: 10px !important;
+  height: 10px !important;
+  margin-left: -5px !important;
+  border-width: 1px !important;
+  background: var(--color-text) !important;
+}
+
+:root[data-preset='capcut'] .app-shell .transport-button.primary-transport {
+  border-radius: 6px !important;
+}
+
+/* ─────────────────────────────────────── 6 · Pestañas y botones ───────── */
+
+/* Subrayado de acento de 2 px, sin relleno: el patrón de las pestañas del
+   panel de propiedades del editor de referencia. */
+:root[data-preset='capcut'] .app-shell .inspector-tabs button.active,
+:root[data-preset='capcut'] .app-shell .inspector-tabs button[aria-selected='true'] {
+  color: var(--color-text) !important;
+  border-color: transparent !important;
+  border-bottom-color: var(--color-accent) !important;
+  background: transparent !important;
+}
+
+:root[data-preset='capcut'] .app-shell .topbar-export-btn {
+  border-radius: 6px !important;
+}

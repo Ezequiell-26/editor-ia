@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Clip } from '@editor-ia/project-schema';
 import { useProjectStore } from '../../state/project-store';
 import { applySpeakerSegments } from '../../state/speakers';
+import { providerUrlProblem } from '../../services/project-service';
 import { InspectorSection } from './InspectorSection';
 
 /**
@@ -20,7 +21,6 @@ const KINDS = [
 
 export function SpeakersSection({ clip }: { readonly clip: Clip }) {
   const store = useProjectStore();
-  const root = store.state.opened?.root ?? '';
   const [kind, setKind] = useState('none');
   const [language, setLanguage] = useState('es');
   const [baseUrl, setBaseUrl] = useState('');
@@ -51,6 +51,15 @@ export function SpeakersSection({ clip }: { readonly clip: Clip }) {
   }, []);
 
   async function save(): Promise<void> {
+    // La clave y el audio viajan a este host: http sólo en loopback,
+    // https obligatorio para proveedores remotos (misma regla que el backend).
+    if (baseUrl.trim()) {
+      const problem = providerUrlProblem(baseUrl);
+      if (problem) {
+        setMessage(problem);
+        return;
+      }
+    }
     setBusy(true);
     setMessage(null);
     try {
@@ -71,18 +80,17 @@ export function SpeakersSection({ clip }: { readonly clip: Clip }) {
   }
 
   async function label(): Promise<void> {
-    if (clip.source.type !== 'asset' || !root) {
+    if (clip.source.type !== 'asset') {
       setMessage('El clip no tiene un archivo en disco.');
       return;
     }
     const assetId = clip.source.assetId;
     const asset = store.state.project?.assets.find((item) => item.id === assetId);
     if (!asset) return;
-    const path = `${root.replace(/[\\/]+$/, '')}\\${asset.source.path.replace(/^[\\/]+/, '')}`;
     setBusy(true);
     setMessage(null);
     try {
-      const result = await store.service.diarizeAudio(path, language);
+      const result = await store.service.diarizeAudio(assetId, language);
       let labelled = 0;
       const ok = store.update((current) => {
         const applied = applySpeakerSegments(current, clip.id, result.segments, { prefix });

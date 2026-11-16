@@ -23,6 +23,8 @@ import { BackupCard } from './BackupCard';
 import { EditorPreferencesCard } from './EditorPreferencesCard';
 import { ShortcutsCard } from './ShortcutsCard';
 import { VpnCard } from './VpnCard';
+import { ConcatWorkerCard } from './ConcatWorkerCard';
+import { WhisperModelsCard } from './WhisperModelsCard';
 import {
   DEFAULT_ASSISTANT_TOKEN_BUDGET,
   MAX_ASSISTANT_TOKEN_BUDGET,
@@ -709,6 +711,8 @@ export function SettingsHome({
               </p>
             </article>
             <VpnCard />
+            <ConcatWorkerCard />
+            <WhisperModelsCard />
           </SettingsSection>
 
           <SettingsSection section={sectionById('datos')} active={activeSection === 'datos'}>

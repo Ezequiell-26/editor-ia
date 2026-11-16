@@ -4,6 +4,9 @@ fn qr_overlay_graph(qr_size: u32, start: f64, end: f64) -> String {
     )
 }
 
+// clippy::too_many_arguments: bloque `spawn_blocking` del comando; las rutas
+// y los flags replican el payload IPC y se consumen una sola vez.
+#[allow(clippy::too_many_arguments)]
 fn cta_blocking(
     ffmpeg: &Path,
     ffprobe: &Path,
@@ -62,12 +65,9 @@ fn cta_blocking(
         "[v]".into(),
         "-map".into(),
         "0:a?".into(),
-        "-c:v".into(),
-        "libx264".into(),
-        "-preset".into(),
-        "fast".into(),
-        "-crf".into(),
-        "20".into(),
+    ]);
+    args.extend(h264_encoder_args(ffmpeg, "fast", 20).map_err(CreatorError::Ffmpeg)?);
+    args.extend([
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-c:a".into(),

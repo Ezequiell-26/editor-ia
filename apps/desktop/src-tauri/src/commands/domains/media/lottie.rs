@@ -7,7 +7,7 @@
 //! fuerce el decoder que expone el canal alfa.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -17,66 +17,15 @@ use tauri::State;
 use crate::commands::hide_console;
 use crate::commands::system::resolve_tools;
 use crate::media::import_file;
+use crate::media::lottie::{
+    frame_path, invalid, sequence_dir, validate_sequence, MAX_BATCH, MAX_FRAME_BYTES, MAX_FRAMES,
+    PNG_SIGNATURE,
+};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
-const MAX_FRAMES: u32 = 3600;
-const MAX_SIDE: u32 = 3840;
-const MAX_FPS: u32 = 120;
-const MAX_BATCH: usize = 24;
-const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
-const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
-
-fn invalid(message: &str) -> ProjectError {
-    ProjectError::message(ProjectErrorCode::InvalidProject, message)
-}
-
 fn failure(message: &str) -> ProjectError {
     ProjectError::message(ProjectErrorCode::Io, message)
-}
-
-/// El token es un UUID v4 generado por el frontend: 36 caracteres hex y guiones.
-/// Se usa como nombre de carpeta temporal, nunca como ruta.
-fn sequence_dir(token: &str) -> Result<PathBuf, ProjectError> {
-    let valid = token.len() == 36
-        && token
-            .chars()
-            .all(|character| character.is_ascii_hexdigit() || character == '-');
-    if !valid {
-        return Err(invalid("el identificador de la secuencia no es válido"));
-    }
-    Ok(std::env::temp_dir().join(format!("olyvia-lottie-{token}")))
-}
-
-fn frame_path(dir: &Path, index: u32) -> PathBuf {
-    dir.join(format!("frame-{index:05}.png"))
-}
-
-fn validate_sequence(
-    width: u32,
-    height: u32,
-    frame_count: u32,
-    fps_num: u32,
-    fps_den: u32,
-) -> Result<(), ProjectError> {
-    if width < 2 || height < 2 || width > MAX_SIDE || height > MAX_SIDE {
-        return Err(invalid(
-            "las dimensiones de la secuencia están fuera de rango",
-        ));
-    }
-    if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
-        return Err(invalid("las dimensiones de la secuencia deben ser pares"));
-    }
-    if frame_count == 0 || frame_count > MAX_FRAMES {
-        return Err(invalid("la cantidad de frames está fuera de rango"));
-    }
-    if fps_num == 0 || fps_den == 0 {
-        return Err(invalid("la tasa de la secuencia está fuera de rango"));
-    }
-    if fps_num > MAX_FPS.saturating_mul(fps_den) {
-        return Err(invalid("la tasa de la secuencia está fuera de rango"));
-    }
-    Ok(())
 }
 
 /// Escribe un lote de PNG. El lote 0 reinicia la carpeta para que una
@@ -192,21 +141,28 @@ pub(crate) fn encode_sequence(
     Ok(())
 }
 
+/// Parámetros de la secuencia Lottie: rotulan el asset y describen el
+/// video con alfa que se va a importar.
+struct SequenceSpec {
+    label: String,
+    width: u32,
+    height: u32,
+    frame_count: u32,
+    fps_num: u32,
+    fps_den: u32,
+}
+
 /// Construye el asset final: el WebM ya está en `media/` con su hash y su
 /// probe; se fijan los conteos exactos y la marca de alfa que lee el renderer.
 fn build_asset(
     root: &Path,
     webm: &Path,
     ffprobe: &Path,
-    label: &str,
-    width: u32,
-    height: u32,
-    frame_count: u32,
-    fps_num: u32,
-    fps_den: u32,
+    spec: &SequenceSpec,
 ) -> Result<Value, ProjectError> {
-    let mut asset = import_file(root, webm, ffprobe, fps_num, fps_den)?;
-    let clean_label: String = label
+    let mut asset = import_file(root, webm, ffprobe, spec.fps_num, spec.fps_den)?;
+    let clean_label: String = spec
+        .label
         .trim()
         .chars()
         .filter(|c| !c.is_control())
@@ -230,12 +186,12 @@ fn build_asset(
             provenance.insert("origin".into(), json!("generated-locally"));
         }
         if let Some(media) = object.get_mut("media").and_then(Value::as_object_mut) {
-            media.insert("width".into(), json!(width));
-            media.insert("height".into(), json!(height));
-            media.insert("durationFrames".into(), json!(frame_count));
+            media.insert("width".into(), json!(spec.width));
+            media.insert("height".into(), json!(spec.height));
+            media.insert("durationFrames".into(), json!(spec.frame_count));
             media.insert(
                 "frameRate".into(),
-                json!({ "num": fps_num, "den": fps_den }),
+                json!({ "num": spec.fps_num, "den": spec.fps_den }),
             );
             media.insert("alpha".into(), json!(true));
         }
@@ -249,14 +205,15 @@ fn build_asset(
 async fn alpha_frames_to_asset_impl(
     state: &AppState,
     token: String,
-    label: String,
-    width: u32,
-    height: u32,
-    frame_count: u32,
-    fps_num: u32,
-    fps_den: u32,
+    spec: SequenceSpec,
 ) -> Result<Value, ProjectError> {
-    validate_sequence(width, height, frame_count, fps_num, fps_den)?;
+    validate_sequence(
+        spec.width,
+        spec.height,
+        spec.frame_count,
+        spec.fps_num,
+        spec.fps_den,
+    )?;
     let session = state.require_session()?;
     let settings = state.settings_snapshot()?;
     let (ffmpeg, ffprobe, _) = resolve_tools(&settings);
@@ -268,7 +225,7 @@ async fn alpha_frames_to_asset_impl(
     if !dir.is_dir() {
         return Err(invalid("la secuencia temporal ya no está en disco"));
     }
-    for index in 0..frame_count {
+    for index in 0..spec.frame_count {
         if !frame_path(&dir, index).is_file() {
             return Err(invalid(&format!(
                 "falta el frame {index} de la secuencia Lottie"
@@ -276,23 +233,20 @@ async fn alpha_frames_to_asset_impl(
         }
     }
     let webm = std::env::temp_dir().join(format!("olyvia-lottie-{token}.webm"));
-    let encoded = encode_sequence(&ffmpeg, &dir, &webm, frame_count, fps_num, fps_den);
+    let encoded = encode_sequence(
+        &ffmpeg,
+        &dir,
+        &webm,
+        spec.frame_count,
+        spec.fps_num,
+        spec.fps_den,
+    );
     if let Err(error) = encoded {
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_file(&webm);
         return Err(error);
     }
-    let result = build_asset(
-        &session.root,
-        &webm,
-        &ffprobe,
-        &label,
-        width,
-        height,
-        frame_count,
-        fps_num,
-        fps_den,
-    );
+    let result = build_asset(&session.root, &webm, &ffprobe, &spec);
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::remove_file(&webm);
     result
@@ -301,6 +255,9 @@ async fn alpha_frames_to_asset_impl(
 /// Codifica los frames escritos para `token` y devuelve el asset ya importado.
 /// La carpeta temporal y el WebM intermedio se borran siempre.
 #[tauri::command]
+// clippy::too_many_arguments: la aridad es el contrato IPC con el frontend;
+// los parámetros planos son los que el cliente ya envía.
+#[allow(clippy::too_many_arguments)]
 pub async fn alpha_frames_to_asset(
     state: State<'_, AppState>,
     token: String,
@@ -314,12 +271,14 @@ pub async fn alpha_frames_to_asset(
     alpha_frames_to_asset_impl(
         &state,
         token,
-        label,
-        width,
-        height,
-        frame_count,
-        fps_num,
-        fps_den,
+        SequenceSpec {
+            label,
+            width,
+            height,
+            frame_count,
+            fps_num,
+            fps_den,
+        },
     )
     .await
 }
@@ -432,12 +391,14 @@ mod tests {
             &media_root,
             &webm,
             &ffprobe,
-            "Logo Lottie",
-            64,
-            64,
-            frame_count,
-            30,
-            1,
+            &SequenceSpec {
+                label: "Logo Lottie".to_owned(),
+                width: 64,
+                height: 64,
+                frame_count,
+                fps_num: 30,
+                fps_den: 1,
+            },
         )
         .unwrap();
         assert_eq!(asset["kind"], "video");
@@ -506,12 +467,14 @@ mod tests {
         let asset = alpha_frames_to_asset_impl(
             &state,
             token.clone(),
-            "Badge Lottie".to_owned(),
-            64,
-            64,
-            6,
-            30,
-            1,
+            SequenceSpec {
+                label: "Badge Lottie".to_owned(),
+                width: 64,
+                height: 64,
+                frame_count: 6,
+                fps_num: 30,
+                fps_den: 1,
+            },
         )
         .await
         .unwrap();

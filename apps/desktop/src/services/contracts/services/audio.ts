@@ -1,4 +1,4 @@
-import type { AudioPeaks, AudioScopeData, AudioScopeRange, CloneProgress, CloneVoiceRequest, CloneVoiceResult, DialogueProgress, DialogueRequest, DialogueResult, DiarizeProviderInfo, DiarizeResult, DubProgress, DubResult, FileLoudness, LipSyncProgress, LipSyncRequest, LipSyncResult, LoudnessAnalysisProgress, MixLoudnessReport, SynthesizeDubRequest, VoiceIsolationOutcome, VoiceIsolationStatus } from '../audio';
+import type { AudioPeaks, AudioScopeData, AudioScopeRange, CloneProgress, CloneVoiceRequest, CloneVoiceResult, DialogueProgress, DialogueRequest, DialogueResult, DiarizeProviderInfo, DiarizeResult, DubProgress, DubResult, FileLoudness, LipSyncProgress, LipSyncRequest, LipSyncResult, LoudnessAnalysisProgress, MixLoudnessReport, NativeWhisperModel, NativeWhisperStatus, SynthesizeDubRequest, VoiceIsolationOutcome, VoiceIsolationStatus, WhisperModelDownloadEvent } from '../audio';
 import type { TranscriptionResult } from '../subtitles';
 import type { NarrationResult, VoiceInfo } from '../assistant';
 import type { UnlistenFn } from '../events';
@@ -26,7 +26,7 @@ saveDiarizeProvider(input: {
   }): Promise<DiarizeProviderInfo>;
 
 /** Hablantes por proveedor externo (Deepgram o AssemblyAI). */
-  diarizeAudio(path: string, language?: string): Promise<DiarizeResult>;
+  diarizeAudio(assetId: string, language?: string): Promise<DiarizeResult>;
 
 /**
    * Mide el loudness de la mezcla del proyecto guardado (BS.1770-4 / EBU R128)
@@ -97,4 +97,33 @@ onCloneProgress(handler: (event: CloneProgress) => void): Promise<UnlistenFn>;
 lipSync(request: LipSyncRequest): Promise<LipSyncResult>;
 
 onLipSyncProgress(handler: (event: LipSyncProgress) => void): Promise<UnlistenFn>;
+
+/**
+   * Estado del motor nativo whisper.cpp: tabla de modelos `ggml` con su
+   * estado en disco, modelo cargado, transcripción activa y descarga en
+   * curso. No descarga nada ni toca red.
+   */
+whisperModelStatus(): Promise<NativeWhisperStatus>;
+
+/**
+   * Descarga un modelo `ggml` del motor nativo. `modelId` es el id de la
+   * tabla del crate (`tiny`, `tiny.en`, `base`, `base.en`, `small`,
+   * `small.en`). Devuelve la entrada del modelo ya actualizada; el progreso
+   * llega por `onWhisperModelDownload` con bytes reales.
+   */
+whisperModelDownload(modelId: string): Promise<NativeWhisperModel>;
+
+/**
+   * Cancela la descarga de modelo en curso. No-op si no hay ninguna.
+   */
+whisperModelDownloadCancel(): Promise<void>;
+
+/**
+   * Evento `whisper-model-download`: progreso real de la descarga (y un
+   * último evento con `error` si falló). Los eventos pueden llegar también
+   * por descargas implícitas disparadas por `transcribe_asset`.
+   */
+onWhisperModelDownload(
+    handler: (event: WhisperModelDownloadEvent) => void,
+  ): Promise<UnlistenFn>;
 }

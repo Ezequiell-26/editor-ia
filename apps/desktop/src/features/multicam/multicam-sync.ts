@@ -1,5 +1,5 @@
-import type { AudioEnvelope } from './multicam';
-import { syncOffsetsFromEnvelopes } from './multicam';
+import type { AudioEnvelope } from '../../state/multicam';
+import { syncOffsetsFromEnvelopes } from '../../state/multicam';
 import type { TimecodeSyncResult } from './multicam-timecode';
 
 /**

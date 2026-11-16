@@ -126,9 +126,12 @@ pub fn proxy_asset_id(name: &str) -> Option<String> {
     }
 }
 
-/// Encoder de video a usar para proxies: GPU si existe, libx264 si no.
-pub fn proxy_video_args(hardware: Option<&str>) -> Vec<String> {
-    let Some(encoder) = hardware else {
+/// Args de códec para proxies. El caller pasa el encoder H.264 ya resuelto
+/// (hardware si existe, si no el de software que el binario declare — el
+/// bundle LGPL no trae `libx264`). `None` sólo si la detección falló del
+/// todo: se conserva el fallback histórico a libx264.
+pub fn proxy_video_args(encoder: Option<&str>) -> Vec<String> {
+    let Some(encoder) = encoder else {
         return vec![
             "-c:v".into(),
             "libx264".into(),
@@ -139,7 +142,14 @@ pub fn proxy_video_args(hardware: Option<&str>) -> Vec<String> {
         ];
     };
     let mut args = vec!["-c:v".into(), encoder.to_owned()];
-    if encoder.ends_with("_nvenc") {
+    if encoder == "libx264" {
+        args.extend([
+            "-preset".into(),
+            "veryfast".into(),
+            "-crf".into(),
+            "26".into(),
+        ]);
+    } else if encoder.ends_with("_nvenc") {
         args.extend(["-preset".into(), "p1".into(), "-cq".into(), "30".into()]);
     } else if encoder.ends_with("_amf") {
         // AMF no comparte el preset textual de NVENC.
@@ -160,6 +170,10 @@ pub fn proxy_video_args(hardware: Option<&str>) -> Vec<String> {
             "-global_quality".into(),
             "30".into(),
         ]);
+    } else {
+        // libopenh264/h264_mf/vaapi/vulkan/d3d12va no comparten preset ni
+        // CRF: los proxies son ≤720p de vista previa, 4 Mbps alcanzan.
+        args.extend(["-b:v".into(), "4M".into()]);
     }
     args
 }

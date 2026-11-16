@@ -22,6 +22,7 @@ import {
 import { artifactPaths, buildFlowArgs, flowFailure } from '../../state/flow';
 import { generateWithRotation, parseFlowAccounts, type FlowAccount } from '../../state/flow-accounts';
 import { FlowQueueCard } from './FlowQueueCard';
+import { McpAuditLog } from './McpAuditLog';
 import { useProjectStore } from '../../state/project-store';
 import type { Asset } from '@editor-ia/project-schema';
 
@@ -408,6 +409,39 @@ export function McpView() {
     } catch (failure) {
       setOwnError(
         failure instanceof Error ? failure.message : 'no se pudo iniciar el servidor MCP de Olyvia',
+      );
+    } finally {
+      setOwnBusy(false);
+    }
+  }
+
+  /**
+   * Frena el endpoint HTTP del servidor MCP propio: el backend aborta el
+   * accept loop (libera el puerto 31417) y borra el `automation.json` que
+   * leen los clientes stdio, para que no queden apuntando a un endpoint
+   * muerto. Después se relee el estado: si el backend ya no lo tenía
+   * activo, la vista vuelve al panel de "iniciar".
+   */
+  async function stopOwnServer(): Promise<void> {
+    setOwnBusy(true);
+    setOwnError(null);
+    setOwnCopied(null);
+    try {
+      const stopped = await store.service.mcpServerStop();
+      await refreshOwnServer();
+      setOwnTokenVisible(false);
+      store.setNotice(
+        stopped
+          ? 'Servidor MCP de Olyvia detenido; el puerto quedó libre y los clientes externos ya no pueden conectarse.'
+          : 'El servidor MCP de Olyvia ya estaba detenido.',
+      );
+    } catch (failure) {
+      // Aunque falle la llamada, el estado real puede haber cambiado:
+      // refrescar evita mostrar un endpoint que ya no responde. El error se
+      // reporta después porque refreshOwnServer limpia ownError al entrar.
+      await refreshOwnServer();
+      setOwnError(
+        failure instanceof Error ? failure.message : 'no se pudo detener el servidor MCP de Olyvia',
       );
     } finally {
       setOwnBusy(false);
@@ -1080,6 +1114,14 @@ export function McpView() {
                   >
                     Comprobar estado
                   </button>
+                  <button
+                    type="button"
+                    className="small danger-ghost"
+                    onClick={() => void stopOwnServer()}
+                    disabled={ownBusy}
+                  >
+                    {ownBusy ? 'Deteniendo…' : 'Detener servidor'}
+                  </button>
                 </div>
                 {ownTokenVisible ? (
                   <p className="fine-print">
@@ -1120,13 +1162,15 @@ export function McpView() {
               </>
             )}
             <p className="fine-print">
-              El servidor se inicia con Olyvia y se apaga al cerrarla. Esta versión no expone un
-              comando para detenerlo o reiniciarlo desde la interfaz: «Iniciar» sólo lo levanta si
-              todavía no está activo.
+              El servidor se inicia con Olyvia y se apaga al cerrarla. «Detener» lo frena y
+              libera el puerto; los clientes externos pierden la conexión hasta que lo vuelvas a
+              iniciar. «Iniciar» sólo lo levanta si todavía no está activo.
             </p>
           </>
         )}
       </section>
+
+      <McpAuditLog />
 
       <section className="card" aria-labelledby="mcp-connect-title">
         <div className="production-card-head">

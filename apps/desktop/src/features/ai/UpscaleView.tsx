@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
+import { SafeText } from '../../components/SafeText';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import type { UpscaleResult, UpscaleVideoResult } from '../../services/project-service';
 import { useProjectStore } from '../../state/project-store';
@@ -163,7 +164,7 @@ export function UpscaleView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
 
       {error ? (
         <p className="notice notice-warning" role="alert">
-          {error}
+          <SafeText value={error} />
         </p>
       ) : null}
 

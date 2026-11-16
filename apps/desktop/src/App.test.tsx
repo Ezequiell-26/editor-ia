@@ -42,18 +42,30 @@ async function hubTab(label: string): Promise<void> {
   fireEvent.click(await screen.findByRole('tab', { name: label }));
 }
 
+/**
+ * UN SOLO EDITOR (enmienda 2026-11-14): AI Hub ya no se abre desde un
+ * diálogo de Ajustes ni desde una pantalla propia — es un MODO del editor.
+ * El helper usa la pestaña de modos, que es la puerta canónica dentro del
+ * workspace, y espera el chunk lazy (bajo suite serial tarda >1 s).
+ */
 async function openAiHub(): Promise<void> {
-  await nav('Ajustes');
-  const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
-  fireEvent.click(
-    within(dialog).getByRole('button', { name: /Inteligencia artificial/i }),
+  const tabs = screen.getByRole('tablist', { name: 'Modos de edición' });
+  fireEvent.click(within(tabs).getByRole('tab', { name: 'AI Hub' }));
+  await waitFor(
+    () => expect(screen.getByRole('main').textContent).toContain('Skills compactas'),
+    { timeout: 10_000 },
   );
-  fireEvent.click(await within(dialog).findByRole('button', { name: /Abrir AI Hub/i }));
 }
 
 async function createProject(name = 'Obra de prueba'): Promise<void> {
   await nav('Proyectos');
-  const input = within(screen.getByRole('main')).getByRole('textbox', { name: /nombre/i });
+  // T2: Proyectos es un panel lazy DENTRO del editor; `getByRole` sincrónico
+  // pierde la carrera contra el Suspense cuando la CPU está cargada.
+  const input = await within(screen.getByRole('main')).findByRole(
+    'textbox',
+    { name: /nombre/i },
+    { timeout: 10_000 },
+  );
   fireEvent.change(input, { target: { value: name } });
   fireEvent.click(screen.getByRole('button', { name: /Crear y elegir ubicación/i }));
   await waitFor(
@@ -63,7 +75,7 @@ async function createProject(name = 'Obra de prueba'): Promise<void> {
       // antes de que el panel lazy termine de montarse.
       expect(document.querySelector('.timeline-surface')).toBeTruthy();
     },
-    { timeout: 5000 },
+    { timeout: 10_000 },
   );
 }
 
@@ -82,7 +94,7 @@ describe('shell de Olyvia', () => {
     expect(within(banner).queryByRole('heading', { level: 1 })).toBeNull();
     expect(banner.textContent).toContain('Olyvia');
     for (const menu of ['Archivo', 'Editar', 'Ver', 'Reproducción', 'Herramientas', 'Ayuda']) {
-      expect(within(banner).getByRole('button', { name: menu })).toBeTruthy();
+      expect(within(banner).getByRole('menuitem', { name: menu })).toBeTruthy();
     }
     const navigation = screen.getByRole('navigation', { name: /vistas/i });
     expect(
@@ -108,9 +120,13 @@ describe('shell de Olyvia', () => {
       within(navigation).getByRole('button', { name: /Más herramientas/i }),
     ).toBeTruthy();
     expect(navigation.querySelectorAll('.nav-separator')).toHaveLength(3);
+    // UN SOLO EDITOR: la app arranca en Edición, no en el lanzador «Inicio».
+    expect(
+      within(navigation).getByRole('button', { name: /Editor/ }).getAttribute('aria-current'),
+    ).toBe('page');
     expect(
       within(navigation).getByRole('button', { name: /Inicio/ }).getAttribute('aria-current'),
-    ).toBe('page');
+    ).toBeNull();
     expect(
       within(navigation).getByRole('button', { name: /Inicio/ }).getAttribute('data-tooltip'),
     ).toMatch(/Estado del estudio/i);
@@ -132,50 +148,77 @@ describe('shell de Olyvia', () => {
     expect(within(navigation).getByRole('button', { name: 'MCP' })).toBeTruthy();
     expect(within(navigation).queryByRole('button', { name: 'Denoise' })).toBeNull();
     fireEvent.click(within(navigation).getByRole('button', { name: 'AI Hub' }));
-    await waitFor(() =>
-      expect(screen.getByRole('main').textContent).toContain('Skills compactas'),
+    // AI Hub es un MODO del editor: el contenido aparece dentro del mismo
+    // workspace, nunca en una pantalla paralela.
+    await waitFor(
+      () => expect(screen.getByRole('main').textContent).toContain('Skills compactas'),
+      { timeout: 10_000 },
     );
+    expect(document.querySelectorAll('.editor-workspace.alaukcut-chrome')).toHaveLength(1);
+    expect(document.querySelectorAll('.alauk-topbar')).toHaveLength(1);
   });
 
-  it('abre en Inicio con la preparación y la extensión listas para configurar', async () => {
+  it('arranca en el editor unificado: sin pantalla de Inicio ni lanzador previo', async () => {
     renderApp();
+    await waitFor(
+      () => expect(document.querySelector('.editor-workspace.alaukcut-chrome')).toBeTruthy(),
+      { timeout: 10_000 },
+    );
     const main = screen.getByRole('main');
-    await waitFor(() => expect(main.textContent).toContain('Estudio Web'));
-    expect(main.textContent).toContain('Extensión de Chrome / Edge');
-    expect(main.textContent).toContain('Motor de Medios & Descargas');
-    expect(main.textContent).toContain('Canvas 2D + Web Audio Activo');
-    expect(main.textContent).toContain('Todas las herramientas');
-    expect(within(main).getAllByRole('button', { name: /YouTube/i }).length).toBeGreaterThan(0);
-    expect(within(main).getAllByRole('button', { name: /Automático/i }).length).toBeGreaterThan(0);
-    fireEvent.click(within(main).getAllByRole('button', { name: /Nuevo proyecto/i })[0]!);
-    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Crear un proyecto'));
+    expect(main.textContent).not.toContain('Estudio Web');
+    expect(main.textContent).toContain('Estudio de Edición de Video');
+    expect(document.querySelectorAll('.alauk-topbar')).toHaveLength(1);
+    expect(document.querySelectorAll('.alauk-footer')).toHaveLength(1);
+    // El mapa de herramientas se abre DENTRO del editor, no en otra pantalla.
+    fireEvent.click(screen.getByRole('button', { name: 'Herramientas' }));
+    await waitFor(() =>
+      expect(document.querySelector('.editor-workspace')?.getAttribute('data-editor-mode')).toBe(
+        'tools',
+      ),
+    );
+    expect(document.querySelectorAll('.editor-workspace.alaukcut-chrome')).toHaveLength(1);
   });
 
-  it('abre la paleta desde el buscador del topbar', async () => {
+  it('abre la paleta desde el buscador del chrome del editor', async () => {
     renderApp();
-    fireEvent.click(screen.getByRole('button', { name: /Buscar o ejecutar un comando/i }));
-    expect(await screen.findByRole('dialog', { name: /Paleta de comandos/i })).toBeTruthy();
-    expect(screen.getAllByText(/Automático/i).length).toBeGreaterThan(0);
+    // El buscador del topbar clásico sigue en el DOM (el browser lo oculta
+    // por CSS); el canónico es el del chrome AlaukCut. Se apunta a ése.
+    const editorBar = screen.getByRole('toolbar', { name: 'Barra del editor' });
+    fireEvent.click(
+      within(editorBar).getByRole('button', { name: /Buscar o ejecutar un comando/i }),
+    );
+    const palette = await screen.findByRole('dialog', { name: /Paleta de comandos/i });
+    // «Automático» existe como tab del editor pero no debe ser comando de la paleta.
+    expect(within(palette).queryByText('Automático', { exact: true })).toBeNull();
     expect(screen.getAllByText(/YouTube/i).length).toBeGreaterThan(0);
   });
 
-  it('abre los menús y ejecuta acciones reales', async () => {
+  it('abre los menús y ejecuta acciones reales dentro del editor', async () => {
     const service = renderApp();
-    fireEvent.click(screen.getByRole('button', { name: 'Archivo' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Archivo' }));
     expect(screen.getByRole('menuitem', { name: /Abrir proyecto/i })).toBeTruthy();
     fireEvent.click(screen.getByRole('menuitem', { name: /Abrir proyecto/i }));
     await waitFor(() => expect(service.calls.open).toBe(1));
-    fireEvent.click(screen.getByRole('button', { name: 'Ver' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ver' }));
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Ajustes' }));
-    // Ajustes se abre como ventana flotante, no como vista de `main`.
-    const dialog = await screen.findByRole('dialog', { name: 'Configuración' }, { timeout: 5000 });
-    await waitFor(() => expect(dialog.textContent).toContain('Apariencia'), { timeout: 5000 });
+    // UN SOLO EDITOR: Ajustes es un panel del modo «Todo», no una ventana
+    // flotante ni una vista fuera de `main`.
+    const sections = await screen.findByRole(
+      'navigation',
+      { name: /Secciones de Ajustes/i },
+      { timeout: 10_000 },
+    );
+    expect(within(sections).getByRole('button', { name: /Apariencia/i })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Configuración' })).toBeNull();
+    expect(document.querySelector('.editor-workspace.alaukcut-chrome')?.contains(sections)).toBe(
+      true,
+    );
   });
 
   it('empaqueta el proyecto desde Archivo y avisa dónde quedó el ZIP', async () => {
     const service = renderApp();
     await createProject('Obra empaquetada');
-    fireEvent.click(screen.getByRole('button', { name: 'Archivo' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Archivo' }));
     const item = screen.getByRole('menuitem', { name: /Empaquetar proyecto/i });
     fireEvent.click(item);
     await waitFor(() => expect(service.deliveries).toHaveLength(1), { timeout: 5000 });
@@ -208,14 +251,15 @@ describe('shell de Olyvia', () => {
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Ver 1 archivo(s) en Medios'));
     expect(screen.getByRole('main').textContent).toContain('video.mp4');
     expect(
-      within(screen.getByRole('main')).getByRole('button', { name: /Abrir en Studio/i }),
+      within(screen.getByRole('main')).getByRole('button', { name: /Abrir en el editor/i }),
     ).toBeTruthy();
+    expect(
+      within(screen.getByRole('main')).queryByRole('button', { name: /Auto-editar/i }),
+    ).toBeNull();
     fireEvent.click(
-      within(screen.getByRole('main')).getByRole('button', { name: /Auto-editar/i }),
+      within(screen.getByRole('main')).getByRole('button', { name: /Abrir en el editor/i }),
     );
-    await waitFor(() =>
-      expect(screen.getByRole('main').textContent).toContain('Editor automático'),
-    );
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Edición' }).getAttribute('aria-selected')).toBe('true'));
   });
 
   it('descarga sin proyecto y deja el archivo en la carpeta de descargas', async () => {
@@ -271,7 +315,14 @@ describe('shell de Olyvia', () => {
 
   it('acepta un enlace de YouTube sin https desde Proyectos y lo deja listo sin proyecto', async () => {
     renderApp();
-    const quick = screen.getByRole('textbox', { name: /URL para descargar/i });
+    // Ya no arranca en «Inicio»: el formulario rápido vive en el panel
+    // Proyectos, que es un host de herramientas DENTRO del editor.
+    await nav('Proyectos');
+    const quick = await screen.findByRole(
+      'textbox',
+      { name: /URL para descargar/i },
+      { timeout: 10_000 },
+    );
     fireEvent.change(quick, { target: { value: 'youtube.com/watch?v=abc123' } });
     const quickForm = quick.closest('form');
     if (!quickForm) throw new Error('se esperaba el formulario de descarga rápida');
@@ -282,6 +333,7 @@ describe('shell de Olyvia', () => {
     ).toBe('https://youtube.com/watch?v=abc123');
     expect(screen.getByRole('main').textContent).toMatch(/No necesitás un proyecto para descargar/);
     expect(screen.getByRole('main').textContent).toMatch(/Descargas\/Videos descargados/);
+    expect(document.querySelectorAll('.editor-workspace.alaukcut-chrome')).toHaveLength(1);
   });
 
   it('pega una URL en Proyectos y abre Descargar con el análisis listo', async () => {
@@ -315,6 +367,17 @@ describe('shell de Olyvia', () => {
     ).toBe('https://youtube.com/watch?v=hub');
   });
 
+  it('conserva Automático dentro del editor, no como acceso independiente', async () => {
+    renderApp();
+    await createProject('Obra editor completo');
+    const mainNavigation = screen.getByRole('navigation', { name: /vistas/i });
+    expect(within(mainNavigation).queryByRole('button', { name: 'Automático' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Automático' }));
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Editor automático'));
+    expect(document.querySelector('.timeline-surface')).toBeTruthy();
+  });
+
   it('abre los modos de edición sin perder la timeline', async () => {
     renderApp();
     await createProject('Obra modos');
@@ -344,6 +407,22 @@ describe('shell de Olyvia', () => {
     expect(screen.getByRole('tab', { name: 'Guía' }).getAttribute('aria-selected')).toBe('true');
   });
 
+  it('un deep link de shell experimental no crea otra interfaz: sigue el editor único', async () => {
+    renderAppAt('?shell=studio');
+    const navigation = screen.getByRole('navigation', { name: /vistas/i });
+    await waitFor(
+      () => expect(document.querySelector('.editor-workspace.alaukcut-chrome')).toBeTruthy(),
+      { timeout: 10_000 },
+    );
+    expect(screen.queryByRole('navigation', { name: /Áreas principales/i })).toBeNull();
+    expect(document.querySelectorAll('.editor-workspace.alaukcut-chrome')).toHaveLength(1);
+
+    // Ctrl+Shift+S queda disponible para «Guardar como»; ya no cambia de interfaz.
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true, shiftKey: true });
+    expect(screen.getByRole('navigation', { name: /vistas/i })).toBe(navigation);
+    expect(document.querySelectorAll('.editor-workspace.alaukcut-chrome')).toHaveLength(1);
+  });
+
   it('redirige un deep link de utilidad al Laboratorio con su tab', async () => {
     renderAppAt('?view=convert');
     const main = screen.getByRole('main');
@@ -369,15 +448,20 @@ describe('shell de Olyvia', () => {
   it('redirige un deep link de modo del editor al editor canónico', async () => {
     renderAppAt('?view=mixer');
     const main = screen.getByRole('main');
+    // Sin proyecto el modo existe dentro del editor y avisa que la
+    // herramienta necesita un documento abierto.
     await waitFor(
-      () => expect(within(main).getByRole('heading', { name: /Estudio de Edici.n de Video/ })).toBeTruthy(),
+      () =>
+        expect(
+          within(main).getByRole('heading', { name: /necesita un proyecto/i }),
+        ).toBeTruthy(),
       { timeout: 5000 },
     );
     const rail = screen.getByRole('navigation', { name: /vistas/i });
     expect(
       within(rail).getByRole('button', { name: 'Editor' }).getAttribute('aria-current'),
     ).toBe('page');
-    expect(within(main).queryByText('Mezcla de audio')).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Mezcla' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('abre Motion como tab interno del editor sin perder la timeline', async () => {
@@ -604,7 +688,10 @@ describe('shell de Olyvia', () => {
     const service = renderApp();
     fireEvent.click(screen.getByRole('button', { name: /Abrir proyecto/i }));
     await waitFor(() => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Timeline 01/));
-    fireEvent.click(screen.getByRole('button', { name: /^Guardar$/ }));
+    // Dos barras conviven en el DOM (la clásica queda oculta por CSS en el
+    // browser). El botón canónico es el del chrome AlaukCut del editor.
+    const editorBar = screen.getByRole('toolbar', { name: 'Barra del editor' });
+    fireEvent.click(within(editorBar).getByRole('button', { name: /^Guardar$/ }));
     await waitFor(() => expect(service.calls.save).toBe(1));
     expect(screen.getByRole('contentinfo').textContent).toMatch(/Guardado/i);
   });
@@ -624,7 +711,8 @@ describe('shell de Olyvia', () => {
     const service = renderApp();
     await createProject('Obra con fallo');
     service.setSaveFailure('disco lleno');
-    fireEvent.click(screen.getByRole('button', { name: /^Guardar$/ }));
+    const editorBar = screen.getByRole('toolbar', { name: 'Barra del editor' });
+    fireEvent.click(within(editorBar).getByRole('button', { name: /^Guardar$/ }));
     await waitFor(() => {
       expect(screen.getByRole('alert').textContent).toMatch(/disco lleno/i);
     });
@@ -701,20 +789,25 @@ describe('shell de Olyvia', () => {
     expect(within(main).getByRole('button', { name: /Importar medios/i })).toBeTruthy();
   });
 
-  it('Ajustes abre una ventana aparte con todas las secciones', async () => {
+  it('Ajustes se abre como panel del editor con todas las secciones', async () => {
     renderApp();
     await nav('Ajustes');
-    const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
-    await waitFor(() => expect(dialog.textContent).toContain('FFmpeg'));
-    expect(dialog.textContent).toMatch(/Render MP4 H\.264\/AAC/);
-    expect(dialog.textContent).toMatch(/Remotion queda fuera/i);
-    expect(dialog.textContent).toMatch(/Administrador de credenciales de Windows/i);
-    const sections = within(dialog).getByRole('navigation', { name: /Secciones de Ajustes/i });
+    const main = screen.getByRole('main');
+    await waitFor(() => expect(main.textContent).toContain('FFmpeg'), { timeout: 10_000 });
+    expect(main.textContent).toMatch(/Render MP4 H\.264\/AAC/);
+    expect(main.textContent).toMatch(/Remotion queda fuera/i);
+    expect(main.textContent).toMatch(/Administrador de credenciales de Windows/i);
+    const sections = within(main).getByRole('navigation', { name: /Secciones de Ajustes/i });
     expect(within(sections).getByRole('button', { name: /Apariencia/ })).toBeTruthy();
     const tools = within(sections).getByRole('button', { name: /Herramientas/ });
     fireEvent.click(tools);
     expect(tools.getAttribute('aria-current')).toBe('location');
-    expect(within(dialog).getByRole('heading', { name: 'Herramientas', level: 2 })).toBeTruthy();
+    expect(within(main).getByRole('heading', { name: 'Herramientas', level: 2 })).toBeTruthy();
+    // Ni diálogo ni ventana: el panel cuelga del workspace unificado.
+    expect(screen.queryByRole('dialog', { name: 'Configuración' })).toBeNull();
+    expect(document.querySelector('.editor-workspace.alaukcut-chrome')?.contains(sections)).toBe(
+      true,
+    );
   });
 
   it('ofrece recuperar la sesión interrumpida y permite descartarla con confirmación', async () => {
@@ -734,18 +827,26 @@ describe('shell de Olyvia', () => {
     );
   });
 
-  it('la ventana de Ajustes se cierra con Escape sin cambiar la vista de fondo', async () => {
+  it('Ajustes no reemplaza la superficie: el editor conserva su identidad al volver', async () => {
     renderApp();
-    await nav('Inicio');
-    const main = screen.getByRole('main');
-    expect(main.textContent).toContain('Ruta de producción');
     await nav('Ajustes');
-    const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
-    expect(dialog).toBeTruthy();
-    // El fondo sigue en Inicio: Ajustes no reemplaza la vista.
-    expect(screen.getByRole('main').textContent).toContain('Ruta de producción');
+    const sections = await screen.findByRole(
+      'navigation',
+      { name: /Secciones de Ajustes/i },
+      { timeout: 10_000 },
+    );
+    expect(sections).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Configuración' })).toBeNull();
+    const workspace = document.querySelector('.editor-workspace.alaukcut-chrome');
+    expect(workspace).toBeTruthy();
+    expect(workspace?.contains(sections)).toBe(true);
+    // Escape ya no cierra una ventana inexistente; volver a Edición deja UN
+    // solo workspace con el mismo chrome.
     fireEvent.keyDown(window, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Configuración' })).toBeNull());
+    await nav('Editor');
+    expect(document.querySelectorAll('.editor-workspace.alaukcut-chrome')).toHaveLength(1);
+    expect(document.querySelectorAll('.alauk-topbar')).toHaveLength(1);
+    expect(document.querySelectorAll('.alauk-footer')).toHaveLength(1);
   });
 
   it('Cumplimiento muestra reglas por red y audita el proyecto', async () => {
@@ -1111,6 +1212,8 @@ describe('shell de Olyvia', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Copiar atributos' }));
     fireEvent.contextMenu(clips[1]!, { clientX: 80, clientY: 50 });
     fireEvent.click(screen.getByRole('menuitem', { name: 'Pegar atributos' }));
+    // Con varios grupos copiados, primero se elige qué pegar (colarAtributos).
+    fireEvent.click(screen.getByRole('menuitem', { name: /Pegar \(\d+\)/ }));
     await waitFor(() =>
       expect(screen.getByText(/Atributos pegados/)).toBeTruthy(),
     );
@@ -1344,8 +1447,8 @@ describe('shell de Olyvia', () => {
     );
     expect(noiseSection?.textContent).toContain('Reducción de ruido');
     expect(noiseSection?.textContent).toContain('Puerta de ruido');
-    // La preview Web Audio no simula afftdn/agate: la sección lo declara.
-    expect(noiseSection?.textContent).toContain('preview no las simula');
+    // La preview aproxima afftdn con sustracción espectral; no equivale al export.
+    expect(noiseSection?.textContent).toContain('preview la aproxima con sustracción espectral');
     fireEvent.click(voiceTab);
     await waitFor(() =>
       expect(
@@ -1357,6 +1460,47 @@ describe('shell de Olyvia', () => {
     );
     expect(voiceSection?.textContent).toContain('Filtros de voz');
     expect(voiceSection?.textContent).toContain('Efecto de voz');
+  });
+
+  it('habilita la sub-pestaña «Rampas de IA» con la sugerencia real por pulsos', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    const service = createFakeService();
+    const base = ensureDelivery(createEmptyProject('Obra rampas', '2025-01-01T00:00:00Z'));
+    const asset = readyAsset();
+    const seeded = addClipFromAsset(addAsset(base, asset), asset, {
+      atFrame: 0,
+      durationFrames: 90,
+    }).project;
+    const seededOpened = {
+      project: seeded,
+      label: 'rampas.editoria.json',
+      path: 'C:\\tmp\\rampas.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.createProject = async () => seededOpened;
+    service.current = seededOpened;
+    render(<App service={service} />);
+    await createProject('Obra rampas');
+    const clip = document.querySelector('.timeline-clip.kind-video');
+    expect(clip).toBeTruthy();
+    fireEvent.keyDown(clip as Element, { key: 'Enter' });
+    const speedTab = await screen.findByRole('tab', { name: 'Velocidad' });
+    fireEvent.click(speedTab);
+    const rampsTab = await screen.findByRole('tab', { name: 'Rampas de IA' });
+    expect((rampsTab as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(rampsTab);
+    await waitFor(() =>
+      expect(
+        document.querySelector('.clip-inspector')?.getAttribute('data-subtab'),
+      ).toBe('ramps'),
+    );
+    const section = document.querySelector(
+      '.inspector-section[data-subtab~="ramps"]',
+    );
+    expect(section?.textContent).toContain('Rampa sugerida por pulsos');
+    expect(section?.textContent).toContain('Sugerir rampa desde pulsos');
+    expect(section?.textContent).toContain('determinista');
   });
 
   it('busca clips por nombre, atenúa el resto y salta al coincidente', async () => {
@@ -1536,7 +1680,7 @@ describe('menú principal por flujo de trabajo', () => {
   });
 
   it(
-    'abre AI Hub desde Ajustes sin un acceso propio en el rail',
+    'AI Hub es un modo del editor, sin acceso propio en el rail ni pantalla aparte',
     async () => {
       renderApp();
       await openAiHub();
@@ -1546,6 +1690,8 @@ describe('menú principal por flujo de trabajo', () => {
         ),
       );
       expect(railLabels()).not.toContain('AI Hub');
+      expect(screen.queryByRole('dialog', { name: 'Configuración' })).toBeNull();
+      expect(document.querySelectorAll('.editor-workspace.alaukcut-chrome')).toHaveLength(1);
     },
     // Bajo suite serial (CPU saturada) este flujo con lazy chunks + gate de CSS
     // supera los 5 s por defecto; aislado tarda ~2,3 s.
@@ -1602,19 +1748,21 @@ describe('F2 · un solo editor', () => {
     expect(document.querySelector('.timeline-panel')).toBeTruthy();
   });
 
-  it('sin proyecto, Guion conserva su empty-state standalone', async () => {
+  it('sin proyecto, Guion muestra su empty-state dentro del editor', async () => {
     renderApp();
     await nav('Guion');
     await waitFor(() =>
       expect(screen.getByRole('main').textContent).toContain('No hay un proyecto abierto'),
     );
-    expect(document.querySelector('.editor-workspace')).toBeNull();
+    // UN SOLO EDITOR: la vista de flujo ya no es una pantalla paralela.
+    expect(document.querySelector('.editor-workspace')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Guion' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('el menú Avanzado abre un modo del editor sin perder la timeline', async () => {
     renderApp();
     await createProject('Obra menú avanzado');
-    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Avanzado' }));
+    fireEvent.click(within(screen.getByRole('banner')).getByRole('menuitem', { name: 'Avanzado' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Mezcla de audio/i }));
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'Mezcla' }).getAttribute('aria-selected')).toBe('true'),
@@ -1631,7 +1779,7 @@ describe('T2 · todas las herramientas dentro del editor', () => {
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'Todo' }).getAttribute('aria-selected')).toBe('true'),
     );
-    expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length);
+    expect(document.querySelectorAll('.editor-tool-map-groups .editor-tool-chip')).toHaveLength(NAV_VIEWS.length);
     expect(document.querySelector('.timeline-panel')).toBeTruthy();
     expect(screen.getByText(`${NAV_VIEWS.length} / ${NAV_VIEWS.length}`)).toBeTruthy();
   });
@@ -1640,7 +1788,7 @@ describe('T2 · todas las herramientas dentro del editor', () => {
     renderApp();
     await createProject('Obra hubs embebidos');
     fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
-    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-map-groups .editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
     fireEvent.click(screen.getByRole('button', { name: /^Descargar:/ }));
     await waitFor(() => expect(screen.getByText(/Volver al mapa/i)).toBeTruthy());
     expect(document.querySelector('.editor-workspace')).toBeTruthy();
@@ -1648,18 +1796,21 @@ describe('T2 · todas las herramientas dentro del editor', () => {
 
     // Volver al mapa y abrir un ALIAS: debe reutilizar el mismo host con su tab.
     fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
-    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-map-groups .editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
     fireEvent.click(screen.getByRole('button', { name: /^YouTube:/ }));
     await waitFor(() => expect(screen.getByText(/Volver al mapa/i)).toBeTruthy());
     expect(document.querySelector('.editor-workspace')).toBeTruthy();
     expect(document.querySelector('.timeline-panel')).toBeTruthy();
   });
 
-  it('sin proyecto las herramientas conservan su pantalla standalone', async () => {
+  it('sin proyecto las herramientas se montan como panel del editor', async () => {
     renderApp();
     await nav('Descargar');
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Guardar en'));
-    expect(document.querySelector('.editor-workspace')).toBeNull();
+    // UN SOLO EDITOR: aunque no haya proyecto, la herramienta vive en el
+    // modo «Todo» del workspace y no hay pantalla paralela.
+    expect(document.querySelector('.editor-workspace')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Volver al mapa/i })).toBeTruthy();
   });
 
   it('Creador y Laboratorio se montan como panel del editor con retorno persistente', async () => {
@@ -1685,7 +1836,7 @@ describe('T2 · todas las herramientas dentro del editor', () => {
     // El default de waitFor (1 s) es corto bajo la carga de la suite completa:
     // el desmonte del hub lazy y el mapa pueden tardar más en commitear.
     await waitFor(
-      () => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length),
+      () => expect(document.querySelectorAll('.editor-tool-map-groups .editor-tool-chip')).toHaveLength(NAV_VIEWS.length),
       { timeout: 10_000 },
     );
     expect(document.querySelector('.timeline-panel')).toBeTruthy();
@@ -1712,7 +1863,7 @@ describe('T2 · todas las herramientas dentro del editor', () => {
     renderApp();
     await createProject('Obra aliases F4');
     fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
-    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-map-groups .editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
 
     // Fábrica es alias de Creador: monta el hub con su pestaña pedida.
     fireEvent.click(screen.getByRole('button', { name: /^Fábrica:/ }));
@@ -1724,7 +1875,7 @@ describe('T2 · todas las herramientas dentro del editor', () => {
 
     // Upscale es alias de Laboratorio: mismo host, otra pestaña inicial.
     fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
-    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-map-groups .editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
     fireEvent.click(screen.getByRole('button', { name: /^Upscale:/ }));
     const lab = await screen.findByRole('region', { name: 'Laboratorio de medios' });
     await waitFor(() =>
@@ -1732,6 +1883,29 @@ describe('T2 · todas las herramientas dentro del editor', () => {
     );
     expect(document.querySelector('.timeline-panel')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Volver al mapa/i })).toBeTruthy();
+  }, 20_000);
+});
+
+describe('arranque · launcher', () => {
+  it('muestra el StartScreen y al entrar queda el único editor con su monitor', async () => {
+    const service = createFakeService();
+    render(<App service={service} initialShowStart />);
+
+    // El launcher es la pantalla de entrada: el editor todavía no está montado.
+    expect(await screen.findByText('Creation Studio')).toBeTruthy();
+    expect(screen.queryByRole('tablist', { name: 'Modos de edición' })).toBeNull();
+
+    // Plantilla rápida: crea el proyecto y entra al editor (una sola pantalla,
+    // monitor persistente — el preview en vivo vive en el mismo workspace).
+    const templates = await screen.findByRole('group', { name: /Plantillas de Redes/i });
+    fireEvent.click(within(templates).getByRole('button', { name: /TikTok \/ Reels/i }));
+    await waitFor(
+      () => {
+        expect(screen.getByRole('tablist', { name: 'Modos de edición' })).toBeTruthy();
+        expect(document.querySelector('.preview-panel')).toBeTruthy();
+      },
+      { timeout: 10_000 },
+    );
   }, 20_000);
 });
 

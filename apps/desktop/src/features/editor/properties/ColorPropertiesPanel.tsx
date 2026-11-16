@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   createNeutralHdrWheels,
   createNeutralLayer,
@@ -18,6 +18,8 @@ import { wheelValueFromXY, xyFromWheelValue } from '../../color/wheel-math';
 import { GradeCurveEditor } from '../../color/GradeCurves';
 import { FilmoraWheel } from './FilmoraWheel';
 import { PropertySlider } from './PropertySlider';
+import { useProjectStore } from '../../../state/project-store';
+import type { ImageContent } from '../../../services/project-service';
 import './properties.css';
 
 /**
@@ -645,6 +647,138 @@ function LayersPanel({ ctx }: { readonly ctx: PanelContext }) {
   );
 }
 
+/* ── Paleta medida del medio fuente ──────────────────────────────────────
+   `analyze_media_frames` extrae la paleta y las señales de color del
+   archivo (muestreo real, no IA generativa). El panel las muestra tal
+   cual vienen: no hay look implícito ni corrección escondida. */
+
+type PaletteState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'loading' }
+  | { readonly status: 'ready'; readonly content: ImageContent }
+  | { readonly status: 'error'; readonly message: string };
+
+function PalettePanel({ clipId }: { readonly clipId: string }) {
+  const store = useProjectStore();
+  const project = store.state.project;
+  const clip = project?.timeline.clips.find((item) => item.id === clipId);
+  const sourceAssetId =
+    clip && clip.source.type === 'asset' ? clip.source.assetId : null;
+  const asset = sourceAssetId
+    ? project?.assets.find((item) => item.id === sourceAssetId)
+    : undefined;
+  const visualAssetId =
+    asset && (asset.kind === 'video' || asset.kind === 'image')
+      ? sourceAssetId
+      : null;
+  const [state, setState] = useState<PaletteState>({ status: 'idle' });
+  const service = store.service;
+
+  useEffect(() => {
+    if (!visualAssetId) {
+      setState({ status: 'idle' });
+      return;
+    }
+    let active = true;
+    setState({ status: 'loading' });
+    service
+      .analyzeMediaFrames([visualAssetId])
+      .then((contents) => {
+        if (!active) return;
+        const content = contents[0];
+        setState(
+          content
+            ? { status: 'ready', content }
+            : { status: 'error', message: 'El análisis no devolvió resultados para este medio.' },
+        );
+      })
+      .catch((cause: unknown) => {
+        if (!active) return;
+        setState({
+          status: 'error',
+          message:
+            cause instanceof Error ? cause.message : 'No se pudo analizar el medio.',
+        });
+      });
+    return () => {
+      active = false;
+    };
+  }, [visualAssetId, service]);
+
+  if (!sourceAssetId || !visualAssetId) {
+    return (
+      <p className="fine-print">
+        La paleta se mide sobre el archivo fuente del clip: seleccioná un clip
+        de vídeo o imagen con medio importado.
+      </p>
+    );
+  }
+  if (state.status === 'loading' || state.status === 'idle') {
+    return <p className="fine-print">Midiendo la paleta del medio…</p>;
+  }
+  if (state.status === 'error') {
+    return (
+      <p className="fp-notice fp-notice--error" role="status">
+        {state.message}
+      </p>
+    );
+  }
+  const { content } = state;
+  const temperatureLabel =
+    content.temperature === 'warm'
+      ? 'Cálida'
+      : content.temperature === 'cool'
+        ? 'Fría'
+        : 'Neutra';
+  return (
+    <div className="fp-palette">
+      {content.palette.length > 0 ? (
+        <div
+          className="fp-palette-swatches"
+          role="list"
+          aria-label="Colores dominantes medidos del medio"
+        >
+          {content.palette.map((hex) => (
+            <span
+              key={hex}
+              role="listitem"
+              className="fp-palette-swatch"
+              style={{ background: hex }}
+              title={hex}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="fine-print">El análisis no detectó colores dominantes.</p>
+      )}
+      <dl className="fp-palette-stats">
+        <div>
+          <dt>Temperatura</dt>
+          <dd>{temperatureLabel}</dd>
+        </div>
+        <div>
+          <dt>Tono dominante</dt>
+          <dd>{Math.round(content.dominantHue)}°</dd>
+        </div>
+        <div>
+          <dt>Colorido</dt>
+          <dd>{content.colorfulness.toFixed(0)}</dd>
+        </div>
+        {content.sampledAtSeconds !== undefined ? (
+          <div>
+            <dt>Cuadro medido</dt>
+            <dd>{content.sampledAtSeconds.toFixed(1)} s</dd>
+          </div>
+        ) : null}
+      </dl>
+      <p className="fine-print">
+        Paleta medida del archivo fuente por análisis local de fotogramas —
+        no es una paleta generada por IA.
+      </p>
+    </div>
+  );
+}
+
 /* ── Orquestador ──────────────────────────────────────────────────────── */
 
 export function ColorPropertiesPanel({
@@ -657,16 +791,25 @@ export function ColorPropertiesPanel({
   const api = useClipGrade(clipId);
   const [notice, setNotice] = useState<string | null>(null);
   const [advanced, setAdvanced] = useState(false);
+  // «A/B» abre el estudio ya comparando; «Estudio avanzado» lo abre normal.
+  const [advancedCompare, setAdvancedCompare] = useState(false);
   const ctx = usePanelContext(api, setNotice);
   const { layer, resetLayer, addLayer, error } = api;
 
   if (advanced) {
     return (
       <div className="fp-root fp-root--advanced">
-        <button type="button" className="fp-back" onClick={() => setAdvanced(false)}>
+        <button
+          type="button"
+          className="fp-back"
+          onClick={() => {
+            setAdvanced(false);
+            setAdvancedCompare(false);
+          }}
+        >
           <Icon name="chevron-down" size={12} /> Volver a propiedades
         </button>
-        <ColorStudio clipId={clipId} />
+        <ColorStudio clipId={clipId} initialCompare={advancedCompare} />
       </div>
     );
   }
@@ -686,6 +829,7 @@ export function ColorPropertiesPanel({
         {subTab === 'curves' ? <CurvesPanel ctx={ctx} /> : null}
         {subTab === 'wheels' ? <WheelsPanel ctx={ctx} /> : null}
         {subTab === 'hdr' ? <HdrPanel ctx={ctx} /> : null}
+        {subTab === 'palette' ? <PalettePanel clipId={clipId} /> : null}
         {subTab === 'all' ? <BasicPanel ctx={ctx} /> : null}
 
         {(error || notice) ? (
@@ -694,6 +838,18 @@ export function ColorPropertiesPanel({
       </div>
 
       <footer className="fp-foot">
+        <button
+          type="button"
+          className="fp-ghost fp-compare"
+          onClick={() => {
+            setAdvancedCompare(true);
+            setAdvanced(true);
+          }}
+          title="Comparar antes / después: abre el visor con la línea divisoria"
+          aria-label="Comparar antes y después"
+        >
+          A/B
+        </button>
         <button
           type="button"
           className="fp-ghost"
@@ -718,7 +874,14 @@ export function ColorPropertiesPanel({
           Guardar como personalizado
         </button>
       </footer>
-      <button type="button" className="fp-advanced" onClick={() => setAdvanced(true)}>
+      <button
+        type="button"
+        className="fp-advanced"
+        onClick={() => {
+          setAdvancedCompare(false);
+          setAdvanced(true);
+        }}
+      >
         Estudio avanzado de color <Icon name="chevron-down" size={11} />
       </button>
     </div>

@@ -56,7 +56,7 @@ describe('registro de navegación', () => {
     }
     const secondary = SECONDARY_NAV_VIEWS.map((view) => view.id);
     expect(secondary).toContain('director');
-    expect(secondary).toContain('nodes');
+    // Nodos ya se abre dentro del mapa del editor, no en una pantalla aparte.
     // Las superficies de IA estaban sólo en la paleta o en Ajustes.
     expect(secondary).toContain('ai-hub');
     expect(secondary).toContain('mcp');
@@ -68,8 +68,8 @@ describe('registro de navegación', () => {
   });
 
   it('F3 · no repite en «Más» las vistas que ya son tabs del editor', () => {
-    // Contrato de puertas únicas: texto/Multicámara/Mezcla/VFX/Motion/Efectos
-    // se abren como tabs del editor (resolveViewRoute -> editorMode), así que
+    // Contrato de puertas únicas: Texto/Multicámara/Mezcla/VFX/Nodos/Motion/Efectos
+    // se abren como modos del editor (resolveViewRoute -> editorMode), así que
     // no pueden tener una segunda puerta con el mismo nombre en «Más».
     const secondary = new Set(SECONDARY_NAV_VIEWS.map((view) => view.id));
     for (const id of [
@@ -77,26 +77,23 @@ describe('registro de navegación', () => {
       'multicam',
       'mixer',
       'vfx',
+      'nodes',
       'motion',
       'visuals',
     ] as const) {
       expect(secondary.has(id)).toBe(false);
     }
-    // Director, Automático y AI Hub SÍ quedan: tienen pantalla standalone
-    // cuando no hay proyecto abierto (F2), no son un duplicado puro.
+    // Director y AI Hub son independientes; AutoEdit solo vive en el editor.
     expect(secondary.has('director')).toBe(true);
-    expect(secondary.has('auto-edit')).toBe(true);
+    expect(secondary.has('auto-edit')).toBe(false);
     expect(secondary.has('ai-hub')).toBe(true);
+    expect(NAV_VIEWS.some((view) => view.id === 'auto-edit')).toBe(false);
     // Y ninguna etiqueta de «Más» puede colisionar con una tab del editor.
     const editorTabLabels = new Set(['Edición', 'Todo', 'Guion', 'Medios', 'Producción', 'Director', 'Automático', 'AI Hub', 'Guía', 'Cerebro', 'Texto', 'Multicámara', 'Mezcla', 'VFX', 'Motion', 'Efectos']);
     const collisions = SECONDARY_NAV_VIEWS.filter((view) => editorTabLabels.has(view.label));
-    // Director/Automático/AI Hub comparten nombre a propósito (misma función,
-    // superficie dual); el resto no puede repetir.
-    expect(collisions.map((view) => view.id).sort()).toEqual([
-      'ai-hub',
-      'auto-edit',
-      'director',
-    ]);
+    // Director y AI Hub comparten nombre con tabs internas a propósito;
+    // AutoEdit no ofrece una puerta standalone que vuelva a competir.
+    expect(collisions.map((view) => view.id).sort()).toEqual(['ai-hub', 'director']);
   });
 
   it('describe AI Hub y Director por lo que hacen de verdad, sin prometer LLM', () => {

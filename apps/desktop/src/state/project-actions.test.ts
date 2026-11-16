@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Asset, ProjectDocument, Scene } from '@editor-ia/project-schema';
-import { createEmptyProject, parseProject } from '@editor-ia/project-schema';
+import {
+  MAX_TRANSFORM_KEYFRAMES,
+  createEmptyProject,
+  parseProject,
+} from '@editor-ia/project-schema';
 import { captionMotionPreset } from './caption-motion';
-import { addMarker, markersFromScenes } from './markers';
+import { addMarker, markersFromCuts, markersFromScenes } from './markers';
 import { TITLE_TEMPLATES } from './title-templates';
 import {
   ProjectActionError,
@@ -16,7 +20,11 @@ import {
   applyAudioPresetToAll,
   applyPixelFormat,
   applySpeedCurve,
+  applyBreathingLoop,
+  applyClickPulse,
+  applyFaceBlurOverlay,
   applyFaceCenter,
+  applyMaskTrack,
   applySpeedRamp,
   applyTransitionToCuts,
   applyProfileFit,
@@ -31,8 +39,11 @@ import {
   applyScenePlan,
   captionsFromScenes,
   captureTransformKeyframe,
+  canPasteTransformKeyframes,
+  clipsCoveringFrame,
   clipTransformAtFrame,
   closeGaps,
+  cutSideAtPlayhead,
   deleteClip,
   detachAudio,
   duplicateClip,
@@ -53,9 +64,13 @@ import {
   setSlowMotionSmoothing,
   setAssetProxy,
   pasteClip,
+  pasteTransformKeyframes,
+  pasteTransformKeyframesAtPlayhead,
   rippleDeleteClip,
   setMaskKeyframe,
   setTransformKeyframe,
+  applyTransformBezierToAllKeyframes,
+  snapshotTransformKeyframes,
   splitClip,
   splitClipAtFrames,
   splitClipsAtMarkers,
@@ -66,6 +81,7 @@ import {
   trimClip,
   updateAssetMetadata,
   updateCaptionCue,
+  updateCaptionStyle,
   updateClip,
   updateMotionProps,
   updateAudioMix,
@@ -295,6 +311,58 @@ describe('biblioteca y timeline', () => {
     expect(left.source.outFrame).toBe(120);
     expect(right.source.inFrame).toBe(120);
     expect(right.source.outFrame).toBe(300);
+  });
+
+  it('corte lateral en la aguja: left borra antes, right borra después', () => {
+    const project = base();
+    const asset = videoAsset();
+    const added = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0 });
+    // Clip 0..300; aguja en 120.
+    const left = cutSideAtPlayhead(added.project, 120, 'left');
+    expect(left).not.toBeNull();
+    const afterLeft = validated(left!.project);
+    expect(afterLeft.timeline.clips).toHaveLength(1);
+    const keptRight = afterLeft.timeline.clips[0]!;
+    expect(keptRight.startFrame).toBe(120);
+    expect(keptRight.durationFrames).toBe(180);
+    expect(left!.keptClipIds).toEqual([keptRight.id]);
+
+    const right = cutSideAtPlayhead(added.project, 120, 'right');
+    expect(right).not.toBeNull();
+    const afterRight = validated(right!.project);
+    expect(afterRight.timeline.clips).toHaveLength(1);
+    const keptLeft = afterRight.timeline.clips[0]!;
+    expect(keptLeft.id).toBe(added.clipId);
+    expect(keptLeft.startFrame).toBe(0);
+    expect(keptLeft.durationFrames).toBe(120);
+    expect(right!.keptClipIds).toEqual([added.clipId]);
+  });
+
+  it('corte lateral con onlyClipId respeta la selección y la aguja fuera da null', () => {
+    const project = base();
+    const asset = videoAsset();
+    const first = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0 });
+    const v2 = addTrack(first.project, 'video', 'V2');
+    const secondAsset = videoAsset(300);
+    const second = addClipFromAsset(addAsset(v2.project, secondAsset), secondAsset, {
+      atFrame: 0,
+      trackId: v2.trackId,
+    });
+    // Aguja en 120: ambos clips la contienen. Con selección sólo corta uno.
+    const selected = cutSideAtPlayhead(second.project, 120, 'left', first.clipId);
+    expect(selected).not.toBeNull();
+    expect(selected!.keptClipIds).toHaveLength(1);
+    const after = validated(selected!.project);
+    const untouched = after.timeline.clips.find(
+      (clip) => clip.id !== selected!.keptClipIds[0],
+    );
+    expect(untouched?.durationFrames).toBe(300);
+    expect(untouched?.startFrame).toBe(0);
+
+    // Aguja fuera del clip → null (como partirNaAgulha devolviendo falsy).
+    expect(cutSideAtPlayhead(second.project, 400, 'left', first.clipId)).toBeNull();
+    // Sin selección, aguja fuera de todo → null.
+    expect(cutSideAtPlayhead(second.project, 400, 'right')).toBeNull();
   });
 
   it('reparte los keyframes al dividir y no los reinicia en el clip derecho', () => {
@@ -972,6 +1040,55 @@ describe('marcadores desde escenas', () => {
   });
 });
 
+describe('marcadores desde cortes de escena', () => {
+  it('crea un marcador por corte ordenado, sin duplicar frames', () => {
+    const project = validated(base());
+    const result = markersFromCuts(project, [240.4, 60, 120, 60.2]);
+    expect(result.added).toBe(3);
+    expect(result.skipped).toBe(0);
+    const next = validated(result.project);
+    expect(next.markers.map((marker) => [marker.frame, marker.label])).toEqual([
+      [60, 'Corte 1'],
+      [120, 'Corte 2'],
+      [240, 'Corte 3'],
+    ]);
+  });
+
+  it('salta frames que ya tienen marcador y no toca el proyecto si no agrega', () => {
+    const asset = videoAsset(300);
+    let project = addAsset(base(), asset);
+    const placed = addClipFromAsset(project, asset, {
+      atFrame: 0,
+      durationFrames: 300,
+    });
+    project = validated(placed.project);
+    project = validated(addMarker(project, 60, { label: 'Manual' }).project);
+    const result = markersFromCuts(project, [60, 120]);
+    expect(result.added).toBe(1);
+    expect(result.skipped).toBe(1);
+    const next = validated(result.project);
+    expect(next.markers.map((marker) => [marker.frame, marker.label])).toEqual([
+      [60, 'Manual'],
+      [120, 'Corte 2'],
+    ]);
+    const again = markersFromCuts(next, [60, 120]);
+    expect(again.added).toBe(0);
+    expect(again.skipped).toBe(2);
+    expect(again.project).toBe(next);
+  });
+
+  it('ignora frames negativos o vacíos', () => {
+    const project = validated(base());
+    const result = markersFromCuts(project, []);
+    expect(result.added).toBe(0);
+    expect(result.project).toBe(project);
+    const withNegative = markersFromCuts(project, [-10, 0]);
+    // El frame 0 es válido; los negativos se recortan a 0 y deduplican.
+    expect(withNegative.added).toBe(1);
+    expect(validated(withNegative.project).markers[0]?.frame).toBe(0);
+  });
+});
+
 describe('activar y desactivar clip', () => {
   it('marca enabled false y lo limpia al reactivar', () => {
     const asset = videoAsset();
@@ -1214,6 +1331,257 @@ describe('seguimiento de rostro', () => {
       ]),
     ).toThrow(/Ken Burns/);
   });
+
+  it('suaviza el centro de las muestras cuando se pide smoothing', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 150,
+    });
+    const width = added.project.video.width;
+    const samples = [
+      { time: 0, centerX: 0.5, centerY: 0.5 },
+      { time: 0.5, centerX: 0.9, centerY: 0.5 }, // pico de jitter
+      { time: 1, centerX: 0.5, centerY: 0.5 },
+      { time: 1.5, centerX: 0.5, centerY: 0.5 },
+      { time: 2, centerX: 0.5, centerY: 0.5 },
+    ];
+    const raw = applyFaceCenter(added.project, added.clipId, samples);
+    const rawClip = raw.timeline.clips.find((item) => item.id === added.clipId);
+    const rawKeyframes =
+      rawClip?.kind === 'video' ? (rawClip.transform?.keyframes ?? []) : [];
+    const jitterFrame = rawKeyframes.find((keyframe) => keyframe.frame === 15);
+    // Sin suavizar el pico de 0.9 genera un offset grande (~-0.4·width).
+    expect(Math.abs(jitterFrame?.offsetX ?? 0)).toBeGreaterThan(width * 0.2);
+
+    const smoothed = applyFaceCenter(added.project, added.clipId, samples, {
+      smoothing: 0.35,
+    });
+    const smoothClip = smoothed.timeline.clips.find(
+      (item) => item.id === added.clipId,
+    );
+    const smoothKeyframes =
+      smoothClip?.kind === 'video' ? (smoothClip.transform?.keyframes ?? []) : [];
+    const smoothJitter = smoothKeyframes.find(
+      (keyframe) => keyframe.frame === 15,
+    );
+    // Con EMA el pico queda amortiguado: el offset del frame 15 es menor.
+    expect(Math.abs(smoothJitter?.offsetX ?? 0)).toBeLessThan(
+      Math.abs(jitterFrame?.offsetX ?? 0),
+    );
+    validated(smoothed);
+  });
+
+  it('topa la escala del encuadre en 2.5 (ZOOM_TETO del auto-reframe)', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 150,
+    });
+    // Desplazamiento extremo (centro fuera del cuadro) pediría escala >2.5.
+    const next = applyFaceCenter(added.project, added.clipId, [
+      { time: 0, centerX: 0.5, centerY: 0.5 },
+      { time: 1, centerX: -0.25, centerY: 0.5 },
+      { time: 2, centerX: 0.5, centerY: 0.5 },
+    ]);
+    const clip = next.timeline.clips.find((item) => item.id === added.clipId);
+    expect(clip?.kind === 'video' ? clip.transform?.scaleX : undefined).toBe(2.5);
+    validated(next);
+  });
+
+  it('aplica una respiración en loop de escala sobre el clip', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 150,
+    });
+    const next = applyBreathingLoop(added.project, added.clipId);
+    const clip = next.timeline.clips.find((item) => item.id === added.clipId);
+    if (clip?.kind !== 'video') throw new Error('se esperaba video');
+    const keyframes = clip.transform?.keyframes ?? [];
+    // 150 frames a 30fps = 5s; período default 2.4s → ~2 ciclos → ~5 claves.
+    expect(keyframes.length).toBeGreaterThanOrEqual(4);
+    expect(keyframes.length).toBeLessThanOrEqual(MAX_TRANSFORM_KEYFRAMES);
+    expect(keyframes[0]).toMatchObject({ frame: 0, scale: 1 });
+    const last = keyframes[keyframes.length - 1]!;
+    expect(last.frame).toBe(149);
+    expect(last.scale).toBe(1);
+    expect(keyframes.some((keyframe) => (keyframe.scale ?? 1) > 1.02)).toBe(true);
+    // Estrictamente crecientes y válidas.
+    validated(next);
+    // No pisa la escala estática ni las demás propiedades del transform.
+    clip.transform = { ...clip.transform, scaleX: 1.5 };
+    // Reaplicar sobre clip con keyframes debe fallar.
+    expect(() => applyBreathingLoop(next, added.clipId)).toThrow(/keyframes/);
+  });
+
+  it('la respiración respeta el tope de keyframes en clips largos', () => {
+    const asset = videoAsset(3000); // 100 s a 30fps
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 3000,
+    });
+    const next = applyBreathingLoop(added.project, added.clipId);
+    const clip = next.timeline.clips.find((item) => item.id === added.clipId);
+    const keyframes = clip?.transform?.keyframes ?? [];
+    expect(keyframes.length).toBeLessThanOrEqual(MAX_TRANSFORM_KEYFRAMES);
+    expect(keyframes[0]!.frame).toBe(0);
+    expect(keyframes[keyframes.length - 1]!.frame).toBe(2999);
+    validated(next);
+  });
+
+  it('aplica la pulsación de clic del manito en keyframes de escala', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 150,
+    });
+    const next = applyClickPulse(added.project, added.clipId);
+    const clip = next.timeline.clips.find((item) => item.id === added.clipId);
+    if (clip?.kind !== 'video') throw new Error('se esperaba video');
+    const keyframes = clip.transform?.keyframes ?? [];
+    // Pulso: reposo → presión 0.82 → rebote 1.06 → asentamiento, ~60 %.
+    expect(keyframes).toHaveLength(5);
+    expect(keyframes[0]).toMatchObject({ frame: 0, scale: 1 });
+    const at = keyframes[1]!.frame;
+    expect(at).toBe(Math.round(150 * 0.6));
+    expect(keyframes[2]).toMatchObject({ frame: at + 2, scale: 0.82 });
+    expect(keyframes[3]).toMatchObject({ frame: at + 4, scale: 1.06 });
+    expect(keyframes[4]).toMatchObject({ frame: at + 6, scale: 1 });
+    validated(next);
+    // Reaplicar sobre clip con keyframes debe fallar.
+    expect(() => applyClickPulse(next, added.clipId)).toThrow(/keyframes/);
+  });
+
+  it('el clic respeta el offset pedido y el mínimo de duración', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 150,
+    });
+    const next = applyClickPulse(added.project, added.clipId, { atOffset: 30 });
+    const clip = next.timeline.clips.find((item) => item.id === added.clipId);
+    expect(clip?.transform?.keyframes?.[1]).toMatchObject({ frame: 30 });
+    // Clip demasiado corto: no entra el pulso de 8 frames.
+    const short = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 10,
+    });
+    expect(() => applyClickPulse(short.project, short.clipId)).toThrow(/corto/);
+  });
+
+  it('crea un overlay con blur y máscara que sigue al rostro', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 150,
+    });
+    const result = applyFaceBlurOverlay(
+      added.project,
+      added.clipId,
+      [
+        { time: 0, centerX: 0.4, centerY: 0.45, size: 0.2 },
+        { time: 1, centerX: 0.6, centerY: 0.55, size: 0.22 },
+        { time: 2, centerX: 0.5, centerY: 0.5, size: 0.2 },
+      ],
+      { smoothing: 0 },
+    );
+    const next = validated(result.project);
+    const overlay = next.timeline.clips.find((item) => item.id === result.clipId);
+    const original = next.timeline.clips.find((item) => item.id === added.clipId);
+    if (overlay?.kind !== 'video' || original?.kind !== 'video') {
+      throw new Error('se esperaba overlay y original de video');
+    }
+    expect(overlay.trackId).not.toBe(original.trackId);
+    const overlayTrack = next.timeline.tracks.find(
+      (track) => track.id === overlay.trackId,
+    );
+    const originalTrack = next.timeline.tracks.find(
+      (track) => track.id === original.trackId,
+    );
+    expect(overlayTrack?.order).toBeGreaterThan(originalTrack?.order ?? 0);
+    expect(overlay.startFrame).toBe(original.startFrame);
+    expect(overlay.durationFrames).toBe(original.durationFrames);
+    expect(overlay.effects?.blur).toBe(14);
+    expect(overlay.audio?.muted).toBe(true);
+    expect(overlay.mask?.shape).toBe('ellipse');
+    expect(overlay.mask?.invert).toBe(false);
+    const keyframes = overlay.mask?.keyframes ?? [];
+    expect(keyframes.length).toBeGreaterThanOrEqual(2);
+    expect(keyframes[0]).toMatchObject({ frame: 0, easing: 'linear' });
+    expect(keyframes[0]!.x).toBeCloseTo(-0.2, 5);
+    const middle = keyframes.find((keyframe) => keyframe.frame === 30);
+    expect(middle?.x).toBeCloseTo(0.2, 5);
+    expect(middle?.width).toBeCloseTo(0.658, 2);
+
+    expect(() =>
+      applyFaceBlurOverlay(added.project, added.clipId, [
+        { time: 0, centerX: 0.5, centerY: 0.5, size: 0.2 },
+      ]),
+    ).toThrow(/muestras/);
+
+    const withMotion = updateClip(added.project, added.clipId, {
+      motion: { type: 'zoom-in', intensity: 0.1 },
+    });
+    expect(() =>
+      applyFaceBlurOverlay(withMotion, added.clipId, [
+        { time: 0, centerX: 0.4, centerY: 0.5, size: 0.2 },
+        { time: 1, centerX: 0.6, centerY: 0.5, size: 0.2 },
+      ]),
+    ).toThrow(/transformación|movimiento/);
+  });
+
+  it('applyMaskTrack escribe la máscara elíptica con keyframes en el clip', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 150,
+    });
+    const next = validated(
+      applyMaskTrack(added.project, added.clipId, [
+        { time: 0, centerX: 0.4, centerY: 0.45, size: 0.2 },
+        { time: 1, centerX: 0.6, centerY: 0.55, size: 0.2 },
+        { time: 2, centerX: 0.5, centerY: 0.5, size: 0.2 },
+      ]),
+    );
+    const clip = next.timeline.clips.find((item) => item.id === added.clipId);
+    if (clip?.kind !== 'video') throw new Error('se esperaba video');
+    expect(clip.mask?.shape).toBe('ellipse');
+    expect(clip.mask?.invert).toBe(false);
+    const keyframes = clip.mask?.keyframes ?? [];
+    expect(keyframes.length).toBeGreaterThanOrEqual(2);
+    expect(keyframes[0]).toMatchObject({ frame: 0, easing: 'linear' });
+    expect(keyframes[0]!.x).toBeCloseTo(-0.2, 5);
+    expect(next.timeline.clips).toHaveLength(1);
+
+    expect(() =>
+      applyMaskTrack(added.project, added.clipId, [
+        { time: 0, centerX: 0.5, centerY: 0.5, size: 0.2 },
+      ]),
+    ).toThrow(/muestras/);
+
+    // Con suavizado alto el centro converge más lento hacia el salto:
+    // la keyframe del medio queda más cerca del inicio que sin suavizar.
+    const smoothed = validated(
+      applyMaskTrack(
+        added.project,
+        added.clipId,
+        [
+          { time: 0, centerX: 0.4, centerY: 0.45, size: 0.2 },
+          { time: 1, centerX: 0.6, centerY: 0.55, size: 0.2 },
+          { time: 2, centerX: 0.5, centerY: 0.5, size: 0.2 },
+        ],
+        { smoothing: 0.9 },
+      ),
+    );
+    const smoothedClip = smoothed.timeline.clips.find(
+      (item) => item.id === added.clipId,
+    );
+    const smoothedMiddle = (smoothedClip?.kind === 'video'
+      ? smoothedClip.mask?.keyframes
+      : undefined)?.find((keyframe) => keyframe.frame === 30);
+    expect(smoothedMiddle?.x).toBeLessThan(0.2);
+  });
 });
 
 describe('subtítulos', () => {
@@ -1228,6 +1596,25 @@ describe('subtítulos', () => {
     const cueTwo = next.captions.cues.find((cue) => cue.id === second.cueId);
     expect(cueTwo?.startFrame).toBe(90);
     expect(next.captions.cues.every((cue) => cue.styleId)).toBe(true);
+  });
+
+  it('updateCaptionStyle cambia la familia tipográfica con fallback', () => {
+    const project = base();
+    const created = addCaptionCue(project, {
+      text: 'Fuente',
+      startFrame: 0,
+      durationFrames: 30,
+    });
+    const styleId = created.project.captions.styles[0]!.id;
+    const renamed = validated(
+      updateCaptionStyle(created.project, styleId, { fontFamily: '  Impact  ' }),
+    );
+    expect(renamed.captions.styles[0]?.fontFamily).toBe('Impact');
+    // Vacío cae al default, igual que los demás campos de texto.
+    const cleared = validated(
+      updateCaptionStyle(renamed, styleId, { fontFamily: '   ' }),
+    );
+    expect(cleared.captions.styles[0]?.fontFamily).toBe('Segoe UI');
   });
 
   it('aplica y quita el movimiento de dos keyframes', () => {
@@ -2103,6 +2490,25 @@ describe('velocidad y efectos de clip', () => {
     validated(mp4);
   });
 
+  it('aplica ProRes: MOV + AAC + 4:2:2 10-bit en todos los perfiles', () => {
+    const prores = applyCompression(base(), 'maximo', 'prores');
+    for (const profile of prores.renderProfiles) {
+      expect(profile.videoCodec).toBe('prores');
+      expect(profile.container).toBe('mov');
+      expect(profile.audioCodec).toBe('aac');
+      expect(profile.pixelFormat).toBe('yuv422p10le');
+    }
+    validated(prores);
+
+    // Volver a H.264 restaura MP4 + 4:2:0 (nunca deja el pixel format ProRes).
+    const back = applyCompression(prores, 'equilibrado', 'h264');
+    for (const profile of back.renderProfiles) {
+      expect(profile.container).toBe('mp4');
+      expect(profile.pixelFormat).toBe('yuv420p');
+    }
+    validated(back);
+  });
+
   it('rechaza velocidad en imágenes y limita el rango', () => {
     const project = base();
     const image = imageAsset();
@@ -2256,6 +2662,213 @@ describe('keyframes de opacidad', () => {
     expect(() => setTransformKeyframe(project, clipId, 0, { opacity: 1.5 })).toThrow(
       ProjectActionError,
     );
+  });
+
+  it('acepta un bezier con overshoot en Y y lo persiste', () => {
+    const { project, clipId } = clipWithOpacity(base());
+    const next = validated(
+      setTransformKeyframe(project, clipId, 0, {
+        scale: 1,
+        bezier: { cp1X: 0.17, cp1Y: 0.89, cp2X: 0.32, cp2Y: 1.27 },
+      }),
+    );
+    const saved = next.timeline.clips
+      .find((item) => item.id === clipId)
+      ?.transform?.keyframes?.find((keyframe) => keyframe.frame === 0);
+    expect(saved?.bezier?.cp2Y).toBe(1.27);
+  });
+
+  it('rechaza un bezier con X fuera de 0..1 o Y fuera de -1..2', () => {
+    const { project, clipId } = clipWithOpacity(base());
+    expect(() =>
+      setTransformKeyframe(project, clipId, 0, {
+        scale: 1,
+        bezier: { cp1X: -0.1, cp1Y: 0, cp2X: 1, cp2Y: 1 },
+      }),
+    ).toThrow(ProjectActionError);
+    expect(() =>
+      setTransformKeyframe(project, clipId, 0, {
+        scale: 1,
+        bezier: { cp1X: 0, cp1Y: 0, cp2X: 1, cp2Y: 2.5 },
+      }),
+    ).toThrow(ProjectActionError);
+  });
+
+  it('bezier: null borra la curva y vuelve a regir el easing', () => {
+    const { project, clipId } = clipWithOpacity(base());
+    const withCurve = validated(
+      setTransformKeyframe(project, clipId, 0, {
+        scale: 1,
+        easing: 'linear',
+        bezier: { cp1X: 0.6, cp1Y: -0.28, cp2X: 0.73, cp2Y: 0.04 },
+      }),
+    );
+    const cleared = validated(
+      setTransformKeyframe(withCurve, clipId, 0, { easing: 'ease-in', bezier: null }),
+    );
+    const saved = cleared.timeline.clips
+      .find((item) => item.id === clipId)
+      ?.transform?.keyframes?.find((keyframe) => keyframe.frame === 0);
+    expect(saved?.bezier).toBeUndefined();
+    expect(saved?.easing).toBe('ease-in');
+  });
+
+  it('applyTransformBezierToAllKeyframes aplica la curva a todas las claves', () => {
+    const { project, clipId } = clipWithOpacity(base());
+    const two = validated(
+      setTransformKeyframe(project, clipId, 0, { scale: 1, easing: 'ease-in' }),
+    );
+    const three = validated(
+      setTransformKeyframe(two, clipId, 30, { scale: 1.5, easing: 'ease-out' }),
+    );
+    const bezier = { cp1X: 0.17, cp1Y: 0.89, cp2X: 0.32, cp2Y: 1.27 };
+    const next = validated(applyTransformBezierToAllKeyframes(three, clipId, bezier));
+    const keyframes = next.timeline.clips
+      .find((item) => item.id === clipId)
+      ?.transform?.keyframes;
+    expect(keyframes).toHaveLength(2);
+    for (const keyframe of keyframes ?? []) {
+      expect(keyframe.bezier).toEqual(bezier);
+      expect(keyframe.easing).toBe('linear');
+      // Los valores animados de cada clave no se tocan.
+    }
+    expect(keyframes?.[0]?.scale).toBe(1);
+    expect(keyframes?.[1]?.scale).toBe(1.5);
+  });
+
+  it('applyTransformBezierToAllKeyframes exige claves existentes', () => {
+    const { project, clipId } = clipWithOpacity(base());
+    expect(() =>
+      applyTransformBezierToAllKeyframes(project, clipId, {
+        cp1X: 0, cp1Y: 0, cp2X: 1, cp2Y: 1,
+      }),
+    ).toThrow(ProjectActionError);
+  });
+});
+
+describe('copiar y pegar keyframes de transformación', () => {
+  function clipWithKeys(project: ProjectDocument) {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0 });
+    return added;
+  }
+
+  it('snapshotTransformKeyframes devuelve null sin clave en el frame', () => {
+    const { project, clipId } = clipWithKeys(base());
+    const clip = project.timeline.clips.find((item) => item.id === clipId);
+    if (!clip) throw new Error('falta el clip');
+    expect(snapshotTransformKeyframes(clip, 10)).toBeNull();
+  });
+
+  it('copia valores, easing y bezier de la clave del instante', () => {
+    const { project, clipId } = clipWithKeys(base());
+    const withCurve = validated(
+      setTransformKeyframe(project, clipId, 30, {
+        scale: 1.5,
+        opacity: 0.4,
+        easing: 'ease-out',
+        bezier: { cp1X: 0, cp1Y: 0, cp2X: 0.58, cp2Y: 1 },
+      }),
+    );
+    const clip = withCurve.timeline.clips.find((item) => item.id === clipId);
+    if (!clip) throw new Error('falta el clip');
+    const snapshot = snapshotTransformKeyframes(clip, 30);
+    expect(snapshot).toEqual({
+      scale: 1.5,
+      opacity: 0.4,
+      easing: 'ease-out',
+      bezier: { cp1X: 0, cp1Y: 0, cp2X: 0.58, cp2Y: 1 },
+    });
+    // El snapshot es una copia: mutarlo no toca el proyecto.
+    if (snapshot?.bezier) snapshot.bezier.cp2Y = 0;
+    expect(
+      clip.transform?.keyframes?.find((keyframe) => keyframe.frame === 30)?.bezier?.cp2Y,
+    ).toBe(1);
+  });
+
+  it('pega la copia sobre la clave del playhead sin pisar otras propiedades', () => {
+    const { project, clipId } = clipWithKeys(base());
+    const source = validated(
+      setTransformKeyframe(project, clipId, 0, { scale: 2, opacity: 0.5 }),
+    );
+    const sourceClip = source.timeline.clips.find((item) => item.id === clipId);
+    if (!sourceClip) throw new Error('falta el clip');
+    const snapshot = snapshotTransformKeyframes(sourceClip, 0);
+    if (!snapshot) throw new Error('sin snapshot');
+
+    const target = validated(
+      setTransformKeyframe(source, clipId, 60, { rotationDeg: 45 }),
+    );
+    const pasted = validated(pasteTransformKeyframes(target, clipId, 60, snapshot));
+    const keyframe = pasted.timeline.clips
+      .find((item) => item.id === clipId)
+      ?.transform?.keyframes?.find((item) => item.frame === 60);
+    expect(keyframe?.scale).toBe(2);
+    expect(keyframe?.opacity).toBe(0.5);
+    expect(keyframe?.rotationDeg).toBe(45);
+  });
+
+  it('pega creando una clave nueva cuando no hay una en el frame', () => {
+    const { project, clipId } = clipWithKeys(base());
+    const source = validated(
+      setTransformKeyframe(project, clipId, 0, { scale: 1.25 }),
+    );
+    const sourceClip = source.timeline.clips.find((item) => item.id === clipId);
+    if (!sourceClip) throw new Error('falta el clip');
+    const snapshot = snapshotTransformKeyframes(sourceClip, 0);
+    if (!snapshot) throw new Error('sin snapshot');
+
+    const pasted = validated(pasteTransformKeyframes(source, clipId, 90, snapshot));
+    const keyframe = pasted.timeline.clips
+      .find((item) => item.id === clipId)
+      ?.transform?.keyframes?.find((item) => item.frame === 90);
+    expect(keyframe?.scale).toBe(1.25);
+  });
+
+  it('canPasteTransformKeyframes rechaza frames fuera del clip', () => {
+    const { project, clipId } = clipWithKeys(base());
+    expect(canPasteTransformKeyframes(project, clipId, 0)).toBe(true);
+    expect(canPasteTransformKeyframes(project, clipId, 299)).toBe(true);
+    expect(canPasteTransformKeyframes(project, clipId, 300)).toBe(false);
+    expect(canPasteTransformKeyframes(project, 'no-existe', 0)).toBe(false);
+  });
+
+  it('pega en todos los clips visuales bajo el playhead', () => {
+    const asset = videoAsset(300);
+    const first = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    // Segundo clip en otra pista que cubre el mismo tramo.
+    const { project: withTrack, trackId } = addTrack(first.project, 'video', 'V2');
+    const secondAsset = videoAsset(300);
+    const withAsset = addAsset(withTrack, secondAsset);
+    const second = addClipFromAsset(withAsset, secondAsset, {
+      atFrame: 0,
+      trackId,
+    });
+    const source = validated(
+      setTransformKeyframe(second.project, first.clipId, 0, { scale: 2 }),
+    );
+    const sourceClip = source.timeline.clips.find((item) => item.id === first.clipId);
+    if (!sourceClip) throw new Error('falta el clip');
+    const snapshot = snapshotTransformKeyframes(sourceClip, 0);
+    if (!snapshot) throw new Error('sin snapshot');
+
+    const covering = clipsCoveringFrame(source, 50);
+    const targetIds = covering.map((clip) => clip.id);
+    expect(targetIds).toContain(first.clipId);
+    expect(targetIds).toContain(second.clipId);
+
+    const { project: pasted, applied } = pasteTransformKeyframesAtPlayhead(
+      source,
+      50,
+      snapshot,
+    );
+    expect(applied).toBe(2);
+    for (const clipId of [first.clipId, second.clipId]) {
+      const keyframe = pasted.timeline.clips
+        .find((item) => item.id === clipId)
+        ?.transform?.keyframes?.find((item) => item.frame === 50);
+      expect(keyframe?.scale).toBe(2);
+    }
   });
 });
 

@@ -22,6 +22,7 @@ import {
   setInstanceEnabled,
   setInstanceParam,
   setParamKeyframeAt,
+  setParamKeyframesBezier,
   setParamKeyframeBezier,
   setParamKeyframeEasing,
   shiftInstance,
@@ -292,6 +293,27 @@ describe('keyframes por parámetro', () => {
     // null quita la curva de esa clave.
     stack = setParamKeyframeBezier(stack, 'a', 'exposure', 0, null);
     expect(stack[0]?.keyframes?.exposure?.find((key) => key.frame === 0)?.bezier).toBeUndefined();
+  });
+
+  it('setParamKeyframesBezier aplica la misma curva a todas las claves conservando valores', () => {
+    const curve = { cp1X: 0.2, cp1Y: 0.1, cp2X: 0.8, cp2Y: 0.9 };
+    let stack = setParamKeyframeBezier(animated(), 'a', 'exposure', 0, {
+      cp1X: 0.9, cp1Y: 0.9, cp2X: 0.1, cp2Y: 0.1,
+    });
+    stack = setParamKeyframeEasing(stack, 'a', 'exposure', 30, 'ease-out');
+    stack = setParamKeyframesBezier(stack, 'a', 'exposure', curve);
+    const keys = stack[0]?.keyframes?.exposure ?? [];
+    expect(keys).toHaveLength(2);
+    for (const key of keys) {
+      expect(key.bezier).toEqual(curve);
+    }
+    expect(keys.find((key) => key.frame === 0)?.value).toBe(-1);
+    expect(keys.find((key) => key.frame === 30)?.value).toBe(1);
+    // El easing de cada clave se conserva (el bezier gana en el muestreo).
+    expect(keys.find((key) => key.frame === 30)?.easing).toBe('ease-out');
+    // No-op sin pista.
+    const plain = [createInstance(exposure, { id: 'b' })];
+    expect(setParamKeyframesBezier(plain, 'b', 'exposure', curve)[0]?.keyframes).toBeUndefined();
   });
 
   it('setParamKeyframeBezier es no-op sin pista o sin clave en el frame', () => {

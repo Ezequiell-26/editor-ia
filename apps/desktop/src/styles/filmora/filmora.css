@@ -1002,6 +1002,47 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .timeline-clip.kind-narration { background: var(--fm-clip-audio) !important; border-color: #3bb8c4 !important; }
 .app-shell .timeline-clip.selected { outline: 1px solid var(--fm-accent) !important; outline-offset: -1px; }
 .app-shell .clip-thumb { border-radius: 0 !important; }
+/* Spy de la timeline (espiada_midia): ventanita fija junto al cursor con
+   el frame del asset bajo esa posición. */
+.app-shell .clip-spy {
+  position: fixed !important;
+  z-index: 80 !important;
+  width: 176px !important;
+  background: #000 !important;
+  border: 1px solid var(--fm-line) !important;
+  border-radius: 4px !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45) !important;
+}
+.app-shell .clip-spy img { display: block !important; width: 100% !important; }
+.app-shell .clip-spy-time {
+  position: absolute !important;
+  left: 4px !important;
+  bottom: 3px !important;
+  padding: 0 4px !important;
+  font-size: var(--fm-type-xs) !important;
+  color: #fff !important;
+  background: rgba(0, 0, 0, 0.65) !important;
+  border-radius: 2px !important;
+}
+
+/* Preview karaoke del subtítulo (previa_legendas): caja oscura con las
+   palabras que se encienden en su ventana de tiempo vía keyframes CSS. */
+.app-shell .caption-karaoke {
+  margin: 8px 0 !important;
+  padding: 10px 12px !important;
+  background: #000 !important;
+  border: 1px solid var(--fm-line) !important;
+  border-radius: 4px !important;
+}
+.app-shell .caption-karaoke-text {
+  margin: 0 !important;
+  font-size: var(--fm-type-sm) !important;
+  line-height: 1.5 !important;
+  color: #e8ecf2 !important;
+}
+.app-shell .caption-karaoke-word { opacity: 0.4; }
 .app-shell .clip-label { font-size: var(--fm-type-xs) !important; font-weight: 500 !important; }
 .app-shell .clip-color-dot { border-radius: 1px !important; }
 .app-shell .trim-handle { background: var(--fm-accent) !important; width: 4px !important; border-radius: 0 !important; }
@@ -2619,6 +2660,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 .app-shell .preview-hud-chip.strong { color: var(--fm2-ink) !important; font-weight: 600 !important; }
 .app-shell .preview-ratio-select,
+.app-shell .preview-safearea-select,
 .app-shell .preview-tool {
   height: 20px !important;
   border-radius: 2px !important;
@@ -2629,7 +2671,8 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: none !important;
 }
 .app-shell .preview-tool:hover:not(:disabled),
-.app-shell .preview-ratio-select:hover { border-color: var(--fm2-line-strong) !important; color: var(--fm2-ink) !important; }
+.app-shell .preview-ratio-select:hover,
+.app-shell .preview-safearea-select:hover { border-color: var(--fm2-line-strong) !important; color: var(--fm2-ink) !important; }
 .app-shell .transport {
   background: var(--fm2-canvas) !important;
   border-top: 1px solid var(--fm2-line) !important;
@@ -3015,6 +3058,27 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 !important;
   justify-content: center !important;
 }
+
+/* previa_stickers.js: los badges de las tarjetas respiran en loop —
+   mini-preview animada del sticker antes de insertarlo. Retardo
+   escalonado por tarjeta para que la grilla no pulse al unísono. */
+.app-shell .sticker-emoji-live {
+  display: inline-block !important;
+  animation: sticker-breathe 2.8s ease-in-out infinite !important;
+}
+.app-shell .sticker-grid .sticker-card:nth-child(3n + 2) .sticker-emoji-live {
+  animation-delay: -0.9s !important;
+}
+.app-shell .sticker-grid .sticker-card:nth-child(3n) .sticker-emoji-live {
+  animation-delay: -1.8s !important;
+}
+@keyframes sticker-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.92; }
+  50% { transform: scale(1.07); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell .sticker-emoji-live { animation: none !important; }
+}
 .app-shell .rail-list { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 
 /* Con el visor en 388 px la fila HUD+herramientas no entra. En lugar de
@@ -3246,6 +3310,8 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .clip-inspector[data-subtab='ia'] .inspector-section[data-subtab]:not([data-subtab~='ia']),
 .app-shell .clip-inspector[data-subtab='uniform'] .inspector-section[data-subtab]:not([data-subtab~='uniform']),
 .app-shell .clip-inspector[data-subtab='ramp'] .inspector-section[data-subtab]:not([data-subtab~='ramp']),
+.app-shell .clip-inspector[data-subtab='ramps'] .inspector-section[data-subtab]:not([data-subtab~='ramps']),
+.app-shell .clip-inspector[data-subtab='palette'] .inspector-section[data-subtab]:not([data-subtab~='palette']),
 .app-shell .clip-inspector[data-subtab='trim'] .inspector-section[data-subtab]:not([data-subtab~='trim']),
 .app-shell .clip-inspector[data-subtab='fine'] .inspector-section[data-subtab]:not([data-subtab~='fine']),
 .app-shell .clip-inspector[data-subtab='in'] .inspector-section[data-subtab]:not([data-subtab~='in']),
@@ -3865,6 +3931,37 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 600 !important;
 }
 .export-settings-hint { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-2xs) !important; font-weight: 400 !important; }
+.export-cover {
+  margin: 8px 0 4px !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--fm2-line, rgba(255, 255, 255, 0.08)) !important;
+  background: #000;
+}
+.export-cover img {
+  display: block !important;
+  width: 100% !important;
+  max-height: 180px !important;
+  object-fit: cover !important;
+}
+.export-cover figcaption {
+  padding: 4px 8px !important;
+  color: var(--fm2-ink-4) !important;
+  font-size: var(--fm-type-2xs) !important;
+}
+.export-extra-format {
+  display: flex !important;
+  align-items: flex-end !important;
+  gap: 8px !important;
+  margin-top: 10px !important;
+}
+.export-extra-format .field {
+  flex: 1 1 auto !important;
+  margin: 0 !important;
+}
+.export-extra-format .field select {
+  width: 100% !important;
+}
 .export-settings-card .field > span { color: var(--fm2-ink-3) !important; font-size: var(--fm-type-xs) !important; }
 .export-settings-card input[type='text'],
 .export-settings-card select {
@@ -3914,6 +4011,45 @@ h1, h2, h3, h4, h5, h6 {
 .export-settings-foot button { color: var(--fm2-accent) !important; font-size: var(--fm-type-xs) !important; }
 .export-advanced { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 4px 12px !important; }
 .export-advanced p { margin: 0 !important; color: var(--fm2-ink-3) !important; font-size: var(--fm-type-xs) !important; }
+.concat-worker-curve {
+  display: grid !important;
+  gap: 6px !important;
+  padding: 6px !important;
+  border: 1px solid var(--fm2-line) !important;
+  border-radius: 6px !important;
+}
+.concat-worker-curve-point {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto !important;
+  gap: 6px !important;
+  align-items: end !important;
+}
+.concat-worker-curve-point .field { margin: 0 !important; }
+.concat-worker-curve-preview {
+  display: block !important;
+  width: 100% !important;
+  height: 60px !important;
+  background: var(--fm2-panel-2) !important;
+  border: 1px solid var(--fm2-line) !important;
+  border-radius: var(--fm2-radius) !important;
+}
+.concat-worker-curve-preview-path {
+  fill: none !important;
+  stroke: var(--fm2-accent) !important;
+  stroke-width: 1.5 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+.concat-worker-curve-preview-ref {
+  stroke: var(--fm2-ink-4) !important;
+  stroke-width: 1 !important;
+  stroke-dasharray: 3 3 !important;
+}
+.concat-worker-curve-preview-point {
+  fill: var(--fm2-panel) !important;
+  stroke: var(--fm2-accent) !important;
+  stroke-width: 1.5 !important;
+}
 
 /* ── 14.21 · Modales: onboarding (94), novedades (98/99) y login (101) ─── */
 .start-screen .start-onboarding-backdrop {
@@ -4339,4 +4475,401 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .editor-tool-map-empty { color: var(--fm-ink-3) !important; font-size: var(--fm-type-sm) !important; }
 @media (max-width: 1240px) {
   .app-shell .editor-tool-map-groups { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+/* ── Preview animado de transiciones (paridad previa_transicoes.js) ──────
+   Dos capas ilustrativas (.tp-a saliente / .tp-b entrante / .tp-veil para
+   fundidos a color) ciclan el gesto de cada transición via la variable
+   registrada --tp-p (0 = todo A, 1 = todo B). Es CSS puro: sin assets ni
+   WebGL; si @property no existiera, el preview queda estático en A. */
+@property --tp-p {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+.app-shell .tp {
+  position: relative;
+  width: 100%;
+  height: 52px;
+  margin: 0 0 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #0b0f14;
+  flex: 0 0 auto;
+}
+.app-shell .tp > i {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.app-shell .tp-a {
+  background: linear-gradient(135deg, #274b73, #123a5c);
+}
+.app-shell .tp-b {
+  background: linear-gradient(135deg, #f59e0b, #e11d48);
+  opacity: 0;
+  animation: tpCycle 2.8s ease-in-out infinite;
+}
+.app-shell .tp-veil {
+  opacity: 0;
+}
+@keyframes tpCycle {
+  0%, 16% { --tp-p: 0; }
+  44%, 72% { --tp-p: 1; }
+  100% { --tp-p: 0; }
+}
+
+/* Disolución: el entrante aparece encima del saliente. */
+.app-shell .tp[data-tp='dissolve'] .tp-b,
+.app-shell .tp[data-tp='luma-wipe'] .tp-b { opacity: var(--tp-p); }
+
+/* Deslices: el entrante entra desde fuera del cuadro. */
+.app-shell .tp[data-tp='slide-left'] .tp-b { transform: translateX(calc((1 - var(--tp-p)) * 112%)); }
+.app-shell .tp[data-tp='slide-right'] .tp-b { transform: translateX(calc((1 - var(--tp-p)) * -112%)); }
+.app-shell .tp[data-tp='slide-up'] .tp-b { transform: translateY(calc((1 - var(--tp-p)) * 112%)); }
+.app-shell .tp[data-tp='slide-down'] .tp-b { transform: translateY(calc((1 - var(--tp-p)) * -112%)); }
+.app-shell .tp[data-tp='slide-left'] .tp-b,
+.app-shell .tp[data-tp='slide-right'] .tp-b,
+.app-shell .tp[data-tp='slide-up'] .tp-b,
+.app-shell .tp[data-tp='slide-down'] .tp-b { opacity: 1; }
+
+/* Deslizes 3D: mismo gesto con perspectiva y giro. */
+.app-shell .tp[data-tp='slide-3d-left'] .tp-b { transform: perspective(140px) translateX(calc((1 - var(--tp-p)) * 115%)) rotateY(28deg); opacity: 1; }
+.app-shell .tp[data-tp='slide-3d-right'] .tp-b { transform: perspective(140px) translateX(calc((1 - var(--tp-p)) * -115%)) rotateY(-28deg); opacity: 1; }
+.app-shell .tp[data-tp='slide-3d-up'] .tp-b { transform: perspective(140px) translateY(calc((1 - var(--tp-p)) * 115%)) rotateX(-28deg); opacity: 1; }
+.app-shell .tp[data-tp='slide-3d-down'] .tp-b { transform: perspective(140px) translateY(calc((1 - var(--tp-p)) * -115%)) rotateX(28deg); opacity: 1; }
+
+/* Barridos: el entrante se revela por clip-path. */
+.app-shell .tp[data-tp='wipe-left'] .tp-b { clip-path: inset(0 calc((1 - var(--tp-p)) * 100%) 0 0); opacity: 1; }
+.app-shell .tp[data-tp='wipe-right'] .tp-b { clip-path: inset(0 0 0 calc((1 - var(--tp-p)) * 100%)); opacity: 1; }
+.app-shell .tp[data-tp='wipe-up'] .tp-b { clip-path: inset(calc((1 - var(--tp-p)) * 100%) 0 0 0); opacity: 1; }
+.app-shell .tp[data-tp='wipe-down'] .tp-b { clip-path: inset(0 0 calc((1 - var(--tp-p)) * 100%) 0); opacity: 1; }
+.app-shell .tp[data-tp='iris'] .tp-b { clip-path: circle(calc(var(--tp-p) * 80%) at 50% 50%); opacity: 1; }
+
+/* Persianas: bandas horizontales que se desplazan. */
+.app-shell .tp[data-tp='blinds'] .tp-b {
+  opacity: var(--tp-p);
+  -webkit-mask-image: repeating-linear-gradient(to bottom, #000 0 12%, transparent 12% 24%);
+  mask-image: repeating-linear-gradient(to bottom, #000 0 12%, transparent 12% 24%);
+  -webkit-mask-position: 0 calc((1 - var(--tp-p)) * -24%);
+  mask-position: 0 calc((1 - var(--tp-p)) * -24%);
+}
+
+/* Reloj: cono que crece desde arriba en sentido horario. */
+.app-shell .tp[data-tp='clock-wipe'] .tp-b {
+  opacity: 1;
+  -webkit-mask-image: conic-gradient(from -90deg at 50% 50%, #000 0 calc(var(--tp-p) * 360deg), transparent calc(var(--tp-p) * 360deg));
+  mask-image: conic-gradient(from -90deg at 50% 50%, #000 0 calc(var(--tp-p) * 360deg), transparent calc(var(--tp-p) * 360deg));
+}
+
+/* Tinta: mancha radial con borde suave que se expande. */
+.app-shell .tp[data-tp='ink'] .tp-b {
+  opacity: 1;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--tp-p) * 85%), transparent calc(var(--tp-p) * 85% + 10%));
+  mask-image: radial-gradient(circle at 50% 50%, #000 calc(var(--tp-p) * 85%), transparent calc(var(--tp-p) * 85% + 10%));
+}
+
+/* Bolhas: nueve círculos que crecen desde el centro de cada celda con
+   retardos escalonados (aproxima la grilla 7×7 del render geq). */
+.app-shell .tp[data-tp='bolhas'] .tp-b {
+  opacity: 1;
+  -webkit-mask-image:
+    radial-gradient(circle at 16.7% 16.7%, #000 0 calc(min(max((var(--tp-p) - 0.00) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.00) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 50% 16.7%, #000 0 calc(min(max((var(--tp-p) - 0.10) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.10) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 83.3% 16.7%, #000 0 calc(min(max((var(--tp-p) - 0.20) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.20) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 16.7% 50%, #000 0 calc(min(max((var(--tp-p) - 0.06) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.06) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 50% 50%, #000 0 calc(min(max((var(--tp-p) - 0.16) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.16) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 83.3% 50%, #000 0 calc(min(max((var(--tp-p) - 0.26) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.26) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 16.7% 83.3%, #000 0 calc(min(max((var(--tp-p) - 0.03) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.03) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 50% 83.3%, #000 0 calc(min(max((var(--tp-p) - 0.13) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.13) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 83.3% 83.3%, #000 0 calc(min(max((var(--tp-p) - 0.23) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.23) / 0.5, 0), 1) * 55% + 6%));
+  mask-image:
+    radial-gradient(circle at 16.7% 16.7%, #000 0 calc(min(max((var(--tp-p) - 0.00) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.00) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 50% 16.7%, #000 0 calc(min(max((var(--tp-p) - 0.10) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.10) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 83.3% 16.7%, #000 0 calc(min(max((var(--tp-p) - 0.20) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.20) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 16.7% 50%, #000 0 calc(min(max((var(--tp-p) - 0.06) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.06) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 50% 50%, #000 0 calc(min(max((var(--tp-p) - 0.16) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.16) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 83.3% 50%, #000 0 calc(min(max((var(--tp-p) - 0.26) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.26) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 16.7% 83.3%, #000 0 calc(min(max((var(--tp-p) - 0.03) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.03) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 50% 83.3%, #000 0 calc(min(max((var(--tp-p) - 0.13) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.13) / 0.5, 0), 1) * 55% + 6%)),
+    radial-gradient(circle at 83.3% 83.3%, #000 0 calc(min(max((var(--tp-p) - 0.23) / 0.5, 0), 1) * 55%), transparent calc(min(max((var(--tp-p) - 0.23) / 0.5, 0), 1) * 55% + 6%));
+}
+
+/* Colmena: tres familias de estrías a 0°/60°/120° que engrosan con el
+   progreso — approximación de la grilla hexagonal del render geq. */
+.app-shell .tp[data-tp='colmeia'] .tp-b {
+  opacity: 1;
+  -webkit-mask-image:
+    repeating-linear-gradient(0deg, #000 0 calc(var(--tp-p) * 33.333%), transparent calc(var(--tp-p) * 33.333%) 33.333%),
+    repeating-linear-gradient(60deg, #000 0 calc(var(--tp-p) * 33.333%), transparent calc(var(--tp-p) * 33.333%) 33.333%),
+    repeating-linear-gradient(120deg, #000 0 calc(var(--tp-p) * 33.333%), transparent calc(var(--tp-p) * 33.333%) 33.333%);
+  mask-image:
+    repeating-linear-gradient(0deg, #000 0 calc(var(--tp-p) * 33.333%), transparent calc(var(--tp-p) * 33.333%) 33.333%),
+    repeating-linear-gradient(60deg, #000 0 calc(var(--tp-p) * 33.333%), transparent calc(var(--tp-p) * 33.333%) 33.333%),
+    repeating-linear-gradient(120deg, #000 0 calc(var(--tp-p) * 33.333%), transparent calc(var(--tp-p) * 33.333%) 33.333%);
+}
+
+/* Lluvia digital: columnas que se revelan (estrías verticales que engrosan)
+   más el barrido de abajo hacia arriba del clip entrante. */
+.app-shell .tp[data-tp='chuva'] .tp-b {
+  opacity: 1;
+  clip-path: inset(calc((1 - var(--tp-p)) * 100%) 0 0 0);
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 calc(var(--tp-p) * 8.333%), transparent calc(var(--tp-p) * 8.333%) 8.333%);
+  mask-image: repeating-linear-gradient(90deg, #000 0 calc(var(--tp-p) * 8.333%), transparent calc(var(--tp-p) * 8.333%) 8.333%);
+}
+
+/* Viento: barrido de izquierda a derecha más estrías verticales que
+   engrosan — approximación del reveal por granos del render geq. */
+.app-shell .tp[data-tp='vento'] .tp-b {
+  opacity: 1;
+  clip-path: inset(0 calc((1 - var(--tp-p)) * 100%) 0 0);
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 calc(var(--tp-p) * 11%), transparent calc(var(--tp-p) * 11%) 11%);
+  mask-image: repeating-linear-gradient(90deg, #000 0 calc(var(--tp-p) * 11%), transparent calc(var(--tp-p) * 11%) 11%);
+}
+
+/* Triángulos: dos familias de estrías diagonales que engrosan con el
+   progreso — approximación de la grilla de triángulos del render geq. */
+.app-shell .tp[data-tp='triangulos'] .tp-b {
+  opacity: 1;
+  -webkit-mask-image:
+    repeating-linear-gradient(45deg, #000 0 calc(var(--tp-p) * 28%), transparent calc(var(--tp-p) * 28%) 28%),
+    repeating-linear-gradient(-45deg, #000 0 calc(var(--tp-p) * 28%), transparent calc(var(--tp-p) * 28%) 28%);
+  mask-image:
+    repeating-linear-gradient(45deg, #000 0 calc(var(--tp-p) * 28%), transparent calc(var(--tp-p) * 28%) 28%),
+    repeating-linear-gradient(-45deg, #000 0 calc(var(--tp-p) * 28%), transparent calc(var(--tp-p) * 28%) 28%);
+}
+
+/* Cortina de listones: diez franjas horizontas que se abren en cascada —
+   approximación del reveal por listones del render geq (el CSS no puede
+   escalonar el retardo por fila, así que las franjas crecen juntas). */
+.app-shell .tp[data-tp='persiana'] .tp-b {
+  opacity: 1;
+  clip-path: inset(calc((1 - var(--tp-p)) * 100%) 0 0 0);
+  -webkit-mask-image: repeating-linear-gradient(to bottom, #000 0 8%, transparent 8% 16%);
+  mask-image: repeating-linear-gradient(to bottom, #000 0 8%, transparent 8% 16%);
+  -webkit-mask-position: 0 calc((1 - var(--tp-p)) * -16%);
+  mask-position: 0 calc((1 - var(--tp-p)) * -16%);
+}
+
+/* Barrido diagonal: borde recto a 45° que cruza el cuadro — aproximación
+   del wipe diagonal del geq (proyección (X+Y)/(W+H)). */
+.app-shell .tp[data-tp='barrido-diagonal'] .tp-b {
+  opacity: 1;
+  -webkit-mask-image: linear-gradient(135deg, #000 0 calc(var(--tp-p) * 150% - 25%), transparent calc(var(--tp-p) * 150% - 25%));
+  mask-image: linear-gradient(135deg, #000 0 calc(var(--tp-p) * 150% - 25%), transparent calc(var(--tp-p) * 150% - 25%));
+}
+
+/* Reflejo: frente diagonal que cruza el cuadro — approximación del wipe
+   anti-diagonal del render geq (la estela de luz no es portable a CSS). */
+.app-shell .tp[data-tp='reflexo'] .tp-b {
+  opacity: 1;
+  -webkit-mask-image: linear-gradient(115deg, #000 0 calc(var(--tp-p) * 135% - 17%), transparent calc(var(--tp-p) * 135% - 17%));
+  mask-image: linear-gradient(115deg, #000 0 calc(var(--tp-p) * 135% - 17%), transparent calc(var(--tp-p) * 135% - 17%));
+}
+
+/* Pixelado: el entrante aparece en bloques grandes y se resuelve. `zoom`
+   (Chromium/WebView2) reduce el layout → raster pixelado al agrandar;
+   aproximación del muestreo por bloques del geq del render. */
+.app-shell .tp[data-tp='pixelar'] .tp-b {
+  opacity: var(--tp-p);
+  zoom: calc(0.12 + 0.88 * var(--tp-p));
+  image-rendering: pixelated;
+}
+
+/* Interferencia: aproximación del aberración cromática + ruido — el
+   tinte deriva y se estabiliza mientras el entrante aparece; el split
+   real por canal lo hace el geq del render. */
+.app-shell .tp[data-tp='interferencia'] .tp-b {
+  opacity: var(--tp-p);
+  filter: hue-rotate(calc((1 - var(--tp-p)) * 55deg)) saturate(calc(1 + (1 - var(--tp-p)) * 0.8));
+}
+
+/* Líquido: aproximación del desplazamiento por ruido — el entrante
+   «ondula» al aparecer (pequeño desplazamiento CSS decreciente); el
+   campo de ruido real lo hace el geq del render. */
+.app-shell .tp[data-tp='liquido'] .tp-b {
+  opacity: var(--tp-p);
+  transform: translate(calc(sin(var(--tp-p) * 12.566) * (1 - var(--tp-p)) * 6px), calc(cos(var(--tp-p) * 9.42) * (1 - var(--tp-p)) * 4px)) scale(calc(1.04 - 0.04 * var(--tp-p)));
+}
+
+/* Caleidoscopio: aproximación del fold polar — el entrante aparece
+   «plegado» (múltiples copias rotadas decrecientes) y se abre; el
+   fold real por sectores lo hace el geq del render. */
+.app-shell .tp[data-tp='caleidoscopio'] .tp-b {
+  opacity: var(--tp-p);
+  transform: rotate(calc((1 - var(--tp-p)) * 18deg)) scale(calc(1.15 - 0.15 * var(--tp-p)));
+}
+.app-shell .tp[data-tp='caleidoscopio']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(from 0deg at 50% 50%, transparent 0deg, rgba(167, 139, 250, calc((1 - var(--tp-p)) * 0.35)) 40deg, transparent 80deg, rgba(34, 211, 238, calc((1 - var(--tp-p)) * 0.3)) 160deg, transparent 220deg, rgba(244, 114, 182, calc((1 - var(--tp-p)) * 0.3)) 300deg, transparent 360deg);
+  opacity: calc((1 - var(--tp-p)) * 0.9);
+  pointer-events: none;
+}
+
+/* Fundidos a color: velo sólido que cubre al pico de la transición
+   (opacity = 4·p·(1−p) → 1 en p=0.5) mientras el entrante ya está abajo. */
+.app-shell .tp[data-tp='fade-black'] .tp-veil,
+.app-shell .tp[data-tp='fade-white'] .tp-veil,
+.app-shell .tp[data-tp='dip-color'] .tp-veil {
+  opacity: calc(4 * var(--tp-p) * (1 - var(--tp-p)));
+  animation: tpCycle 2.8s ease-in-out infinite;
+}
+.app-shell .tp[data-tp='fade-black'] .tp-veil { background: #000; }
+.app-shell .tp[data-tp='fade-white'] .tp-veil { background: #e8ecf2; }
+.app-shell .tp[data-tp='dip-color'] .tp-veil { background: #7c3aed; }
+.app-shell .tp[data-tp='fade-black'] .tp-b,
+.app-shell .tp[data-tp='fade-white'] .tp-b,
+.app-shell .tp[data-tp='dip-color'] .tp-b {
+  opacity: clamp(0, calc((var(--tp-p) - 0.35) / 0.65), 1);
+}
+.app-shell .tp[data-tp='luma-wipe'] .tp-b {
+  -webkit-mask-image: linear-gradient(100deg, #000 calc(var(--tp-p) * 140% - 40%), transparent calc(var(--tp-p) * 140% - 20%));
+  mask-image: linear-gradient(100deg, #000 calc(var(--tp-p) * 140% - 40%), transparent calc(var(--tp-p) * 140% - 20%));
+}
+
+/* Textura de luz: el entrante disuelve mientras un destello cálido
+   radia desde el centro — aproximación del overlay `gradients` lavfi
+   (envolvente 4·p·(1−p), pico al medio del lead). */
+.app-shell .tp[data-tp='textura-luz'] .tp-b { opacity: var(--tp-p); }
+.app-shell .tp[data-tp='textura-luz'] .tp-veil {
+  opacity: calc(4 * var(--tp-p) * (1 - var(--tp-p)));
+  background: radial-gradient(circle at 50% 42%, rgba(255, 214, 140, 0.95) 0%, rgba(255, 110, 40, 0.55) 52%, transparent 78%);
+  animation: tpCycle 2.8s ease-in-out infinite;
+}
+
+/* Textura celular: lluvia digital — velo azul noche con estrías que
+   aproxima el autómata celular teñido del render. */
+.app-shell .tp[data-tp='textura-celular'] .tp-b { opacity: var(--tp-p); }
+.app-shell .tp[data-tp='textura-celular'] .tp-veil {
+  opacity: calc(4 * var(--tp-p) * (1 - var(--tp-p)));
+  background:
+    repeating-linear-gradient(0deg, rgba(56, 120, 255, 0.5) 0 2px, transparent 2px 6px),
+    linear-gradient(rgba(8, 16, 48, 0.85), rgba(8, 16, 48, 0.85));
+  animation: tpCycle 2.8s ease-in-out infinite;
+}
+
+/* Textura fractal: túnel hacia el centro — el entrante disuelve y un
+   velo con gradiente radial + anillos concéntricos aproxima el zoom
+   del mandelbrot. */
+.app-shell .tp[data-tp='textura-fractal'] .tp-b { opacity: var(--tp-p); }
+.app-shell .tp[data-tp='textura-fractal'] .tp-veil {
+  opacity: calc(4 * var(--tp-p) * (1 - var(--tp-p)));
+  background:
+    repeating-radial-gradient(circle at 62% 46%, transparent 0 7px, rgba(138, 180, 255, 0.35) 7px 8px, transparent 8px 15px),
+    radial-gradient(circle at 62% 46%, #0a1030 0%, #1b2a6e 55%, #7a2fb0 82%, #e0703a 100%);
+  animation: tpCycle 2.8s ease-in-out infinite;
+}
+
+/* Textura viva: puntos dorados sobre azul noche — aproximación del
+   Game of Life con la misma paleta de la fuente lavfi. */
+.app-shell .tp[data-tp='textura-vida'] .tp-b { opacity: var(--tp-p); }
+.app-shell .tp[data-tp='textura-vida'] .tp-veil {
+  opacity: calc(4 * var(--tp-p) * (1 - var(--tp-p)));
+  background:
+    radial-gradient(circle at 18% 26%, rgba(255, 209, 102, 0.85) 0 6%, transparent 7%),
+    radial-gradient(circle at 62% 62%, rgba(255, 209, 102, 0.7) 0 5%, transparent 6%),
+    radial-gradient(circle at 84% 30%, rgba(255, 209, 102, 0.6) 0 5%, transparent 6%),
+    radial-gradient(circle at 40% 78%, rgba(58, 74, 122, 0.8) 0 7%, transparent 8%),
+    linear-gradient(rgba(5, 7, 15, 0.9), rgba(5, 7, 15, 0.9));
+  animation: tpCycle 2.8s ease-in-out infinite;
+}
+
+/* Editor de vértices del polígono de máscara (Inspector → Máscara). */
+.app-shell .polygon-point-editor {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  aspect-ratio: 1;
+  margin: 6px auto;
+  background: #0b0e13;
+  border: 1px solid var(--fm2-line, #2a3140);
+  border-radius: 6px;
+  touch-action: none;
+}
+
+/* Selector de fuente buscable (lista_fontes.js de AlaukCut). */
+.app-shell .font-picker { position: relative; }
+.app-shell .font-picker-list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 60;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--color-panel-raised, #232a31);
+  border: 1px solid var(--color-border-strong, #454e58);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 2px;
+}
+.app-shell .font-picker-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text, #e9edf1);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-shell .font-picker-option:hover,
+.app-shell .font-picker-option.active { background: var(--color-panel-3, #2b333b); }
+
+/* Desenfoque lineal: aproximación del box-blur direccional — el entrante
+   aparece «arrastrado» en diagonal (translate+skew decrecientes + blur
+   isotrópico); las 9 muestras a 30° las hace el geq del render. */
+.app-shell .tp[data-tp='desenfoque-lineal'] .tp-b {
+  opacity: var(--tp-p);
+  filter: blur(calc((1 - var(--tp-p)) * 9px));
+  transform: translate(calc((1 - var(--tp-p)) * 16px), calc((1 - var(--tp-p)) * 7px)) skewX(calc((1 - var(--tp-p)) * -10deg));
+}
+
+/* Warp direccional: aproximación del abombamiento — el entrante se
+   «comba» en diagonal (skew decreciente hacia la derecha) mientras el
+   geq lo desplaza por `sen(π·u)`. */
+.app-shell .tp[data-tp='warp-direccional'] .tp-b {
+  opacity: var(--tp-p);
+  transform: translate(calc((1 - var(--tp-p)) * -10px), calc((1 - var(--tp-p)) * 5px)) skewX(calc((1 - var(--tp-p)) * 7deg)) scaleY(calc(1 + (1 - var(--tp-p)) * 0.08));
+}
+
+/* Glitch digital: aproximación del desplazamiento por bloques + split —
+   el entrante «salta» en pasos CSS decrecientes con aberración
+   cromática; los bloques de 16 px los hace el geq del render. */
+.app-shell .tp[data-tp='glitch-digital'] .tp-b {
+  opacity: var(--tp-p);
+  filter: hue-rotate(calc((1 - var(--tp-p)) * 90deg)) saturate(calc(1 + (1 - var(--tp-p)) * 1.2));
+}
+.app-shell .tp[data-tp='glitch-digital']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: calc((1 - var(--tp-p)) * 0.55);
+  background:
+    repeating-linear-gradient(0deg, transparent 0 14px, rgba(34, 211, 238, 0.28) 14px 17px, transparent 17px 31px),
+    repeating-linear-gradient(90deg, transparent 0 22px, rgba(244, 114, 182, 0.22) 22px 25px, transparent 25px 47px);
+  transform: translate(calc((1 - var(--tp-p)) * 9px), calc((1 - var(--tp-p)) * -4px));
+  pointer-events: none;
+}
+
+/* Zoom suave: aproximación del acercamiento que asienta — el entrante
+   entra ~18 % agrandado y baja a tamaño natural; el remap polar real
+   lo hace el geq del render. */
+.app-shell .tp[data-tp='zoom-suave'] .tp-b {
+  opacity: var(--tp-p);
+  transform: scale(calc(1.18 - 0.18 * var(--tp-p)));
+}
+
+/* Zoom rápido: el entrante viene ~15 % alejado y acerca a tamaño
+   natural; el remap polar real lo hace el geq del render. */
+.app-shell .tp[data-tp='zoom-rapido'] .tp-b {
+  opacity: var(--tp-p);
+  transform: scale(calc(0.85 + 0.15 * var(--tp-p)));
 }

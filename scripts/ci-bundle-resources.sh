@@ -28,7 +28,12 @@ download() {
 }
 
 ensure_ffmpeg() {
-  if [ -f "$ffmpeg_dir/ffmpeg.exe" ] && [ -f "$ffmpeg_dir/ffprobe.exe" ]; then
+  # El zip de gyan.dev (build GPL) trae LICENSE.txt (GPL-3.0) y README.txt en
+  # la raiz del paquete, al lado de bin/. Se copian con prefijo FFMPEG-GPL- para
+  # no pisar el LICENSE.txt LGPL-3.0 que ya acompana a las DLLs compartidas.
+  if [ -f "$ffmpeg_dir/ffmpeg.exe" ] && [ -f "$ffmpeg_dir/ffprobe.exe" ] \
+    && [ -f "$ffmpeg_dir/FFMPEG-GPL-LICENSE.txt" ] \
+    && [ -f "$ffmpeg_dir/FFMPEG-GPL-README.txt" ]; then
     return
   fi
   local dir="$work/ffmpeg-static"
@@ -36,7 +41,7 @@ ensure_ffmpeg() {
   echo "Descargando FFmpeg estático"
   download "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" "$work/ffmpeg-static.zip"
   extract "$work/ffmpeg-static.zip" "$dir"
-  local ffmpeg ffprobe
+  local ffmpeg ffprobe build_root license_file
   ffmpeg="$(find "$dir" -type f -path '*/bin/ffmpeg.exe' | head -1)"
   ffprobe="$(find "$dir" -type f -path '*/bin/ffprobe.exe' | head -1)"
   if [ -z "$ffmpeg" ] || [ -z "$ffprobe" ]; then
@@ -45,6 +50,17 @@ ensure_ffmpeg() {
   fi
   cp "$ffmpeg" "$ffmpeg_dir/ffmpeg.exe"
   cp "$ffprobe" "$ffmpeg_dir/ffprobe.exe"
+  # bin/ffmpeg.exe -> <build>/bin/ffmpeg.exe; las licencias viven en <build>/.
+  # gyan.dev las publica como LICENSE (sin extension) y README.txt.
+  build_root="$(dirname "$(dirname "$ffmpeg")")"
+  license_file="$build_root/LICENSE.txt"
+  [ -f "$license_file" ] || license_file="$build_root/LICENSE"
+  if [ ! -f "$license_file" ] || [ ! -f "$build_root/README.txt" ]; then
+    echo "El paquete de FFmpeg no trae LICENSE/README.txt en $build_root" >&2
+    exit 2
+  fi
+  cp "$license_file" "$ffmpeg_dir/FFMPEG-GPL-LICENSE.txt"
+  cp "$build_root/README.txt" "$ffmpeg_dir/FFMPEG-GPL-README.txt"
 }
 
 ensure_ytdlp() {
@@ -153,6 +169,12 @@ ensure_ytdlp
 ensure_onnxruntime
 ensure_piper
 
+# Efectos de sonido: síntesis procedural determinista propia (sin samples de
+# terceros), generada en el runner para que `bundle.resources` encuentre
+# resources/sfx/ — el directorio no se versiona.
+node "$root/scripts/generate-sfx.mjs"
+
 ls -lh "$ffmpeg_dir/ffmpeg.exe" "$ffmpeg_dir/ffprobe.exe" \
+  "$ffmpeg_dir/FFMPEG-GPL-LICENSE.txt" "$ffmpeg_dir/FFMPEG-GPL-README.txt" \
   "$tools_dir/yt-dlp.exe" "$ort_dir/onnxruntime.dll" \
   "$piper_dir/piper.exe" "$piper_dir/es_voice.onnx" "$piper_dir/es_voice.onnx.json"

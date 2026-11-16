@@ -1,3 +1,8 @@
+use crate::application::download_plan::normalize_download_request;
+
+// clippy::too_many_arguments: orquesta una descarga completa; las rutas de
+// herramientas y opciones son ejes ortogonales del pipeline.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn download_blocking(
     progress: ProgressSink<'_>,
     engine: &Path,
@@ -23,280 +28,27 @@ pub(crate) fn download_blocking(
         return Err(provider_error("Descarga cancelada."));
     }
     let validated = validate_url(&request.url)?;
-    let kind = request.kind.as_deref().unwrap_or("video");
-    if !matches!(kind, "video" | "image" | "audio" | "gallery") {
-        return Err(invalid_error("El tipo de descarga no es válido."));
-    }
-    let compression = request.compression.as_deref().unwrap_or("none");
-    let requested_crf = match compression {
-        "none" => None,
-        "high" => Some(20),
-        "balanced" => Some(24),
-        "compact" => Some(27),
-        _ => return Err(invalid_error("El nivel de compresión no es válido.")),
-    };
-    let codec = match request.codec.as_deref().unwrap_or("h265") {
-        "h265" | "h264" | "av1" => request.codec.as_deref().unwrap_or("h265"),
-        _ => return Err(invalid_error("El códec de compresión no es válido.")),
-    };
-    let hdr_mode = match request.hdr_mode.as_deref().unwrap_or("tonemap") {
-        "tonemap" => "tonemap",
-        "preserve" => "preserve",
-        _ => return Err(invalid_error("El modo HDR no es válido.")),
-    };
-    let quality = match request.quality.as_deref().unwrap_or("best") {
-        "best" | "worst" | "height" => request.quality.as_deref().unwrap_or("best"),
-        _ => return Err(invalid_error("La preferencia de calidad no es válida.")),
-    };
-    let requested_format = request
-        .format
-        .as_deref()
-        .unwrap_or("mp4")
-        .to_ascii_lowercase();
-    let format = match requested_format.as_str() {
-        "mp4" | "mkv" | "webm" | "mp3" | "m4a" => requested_format.as_str(),
-        _ => return Err(invalid_error("El formato de salida no es válido.")),
-    };
-    let audio_only = matches!(format, "mp3" | "m4a");
-    let proxy = request
-        .proxy
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(proxy) = proxy {
-        let lower = proxy.to_ascii_lowercase();
-        if !(lower.starts_with("http://")
-            || lower.starts_with("https://")
-            || lower.starts_with("socks4://")
-            || lower.starts_with("socks5://"))
-            || proxy.len() > 500
-        {
-            return Err(invalid_error(
-                "El proxy debe ser http://, https://, socks4:// o socks5://.",
-            ));
-        }
-    }
-    let limit_rate = request
-        .limit_rate
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(rate) = limit_rate {
-        let valid = rate.len() <= 12
-            && rate.chars().next().is_some_and(|ch| ch.is_ascii_digit())
-            && rate
-                .chars()
-                .all(|ch| ch.is_ascii_digit() || matches!(ch, 'K' | 'M' | 'G' | 'k' | 'm' | 'g'));
-        if !valid {
-            return Err(invalid_error(
-                "El límite de bajada debe ser un tamaño como 500K u 8M.",
-            ));
-        }
-    }
-    let download_subtitles = request.download_subtitles.unwrap_or(false);
-    let subtitle_langs = subtitle_languages(request.subtitle_langs.as_deref())
-        .map_err(|message| invalid_error(&message))?;
-    let download_thumbnail = request.download_thumbnail.unwrap_or(false);
-    let download_chapters = request.download_chapters.unwrap_or(false);
-    let sponsorblock = request.sponsorblock.unwrap_or(false);
-    let keep_original = request.keep_original.unwrap_or(false);
-    let sponsorblock_categories =
-        sponsorblock_categories(request.sponsorblock_categories.as_deref())
-            .map_err(|message| invalid_error(&message))?;
-    let mut sponsorblock_mark = match request
-        .sponsorblock_mark
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        Some(value) => {
-            sponsorblock_category_list(Some(value)).map_err(|message| invalid_error(&message))?
-        }
-        None => Vec::new(),
-    };
-    sponsorblock_mark.retain(|category| {
-        !sponsorblock_categories
-            .split(',')
-            .any(|item| item == category.as_str())
-    });
-    let sponsorblock_mute = match request
-        .sponsorblock_mute
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        Some(value) => {
-            sponsorblock_category_list(Some(value)).map_err(|message| invalid_error(&message))?
-        }
-        None => Vec::new(),
-    };
-    let cookies_from_browser = cookies_browser(request.cookies_from_browser.as_deref())?;
-    let trim_start = request.trim_start.unwrap_or(0.0).max(0.0);
-    let trim_end = request
-        .trim_end
-        .filter(|end| end.is_finite() && *end > trim_start);
-    if request.trim_end.is_some() && trim_end.is_none() {
-        return Err(invalid_error(
-            "El recorte previo necesita un final mayor que el inicio.",
-        ));
-    }
-    if trim_end.is_some() && matches!(kind, "image" | "gallery") {
-        return Err(invalid_error(
-            "El recorte previo sólo se aplica a videos o audio.",
-        ));
-    }
-    let auto_route = request.auto_route.unwrap_or(false);
-    if auto_route && matches!(kind, "image" | "audio") {
-        return Err(invalid_error(
-            "El enrutamiento automático sólo se aplica a videos.",
-        ));
-    }
-    let delogo_enabled = request.delogo.unwrap_or(false);
-    let manual_delogo = delogo_enabled.then_some(request.delogo_rect).flatten();
-    if let Some(rect) = manual_delogo {
-        if !rect.x.is_finite()
-            || !rect.y.is_finite()
-            || !rect.w.is_finite()
-            || !rect.h.is_finite()
-            || rect.x < 0.0
-            || rect.y < 0.0
-            || rect.w <= 0.0
-            || rect.h <= 0.0
-            || rect.x + rect.w > 1.0001
-            || rect.y + rect.h > 1.0001
-        {
-            return Err(invalid_error(
-                "El rectángulo del logo debe estar dentro del cuadro (fracciones 0–1).",
-            ));
-        }
-    }
-    let delogo_corner_value = if delogo_enabled {
-        Some(
-            delogo_corner(request.delogo_corner.as_deref())
-                .map_err(|message| invalid_error(&message))?,
-        )
-    } else {
-        None
-    };
-    let upscale_enabled = request.upscale.unwrap_or(false);
-    let upscale_mode_value = if upscale_enabled {
-        let mode = request
-            .upscale_target
-            .as_deref()
-            .unwrap_or("auto")
-            .trim()
-            .to_ascii_lowercase();
-        if !matches!(
-            mode.as_str(),
-            "auto" | "1080" | "2160" | "full-hd" | "fhd" | "4k" | "uhd"
-        ) {
-            return Err(invalid_error(
-                "El objetivo de escalado debe ser auto, 1080 o 2160.",
-            ));
-        }
-        Some(mode)
-    } else {
-        None
-    };
-    if (delogo_enabled || upscale_enabled) && matches!(kind, "image" | "audio") {
-        return Err(invalid_error(
-            "El delogo y el escalado sólo se aplican a videos.",
-        ));
-    }
-    let source_title = request.source_title.clone().unwrap_or_default();
-    let source_duration = request.source_duration.unwrap_or(0.0);
-    let route_decision =
-        auto_route.then(|| AutoRouteDecision::pick(source_duration, &source_title));
-    let long_video = route_decision
-        .map(|route| route.long_video)
-        .unwrap_or(source_duration > 60.0);
-    let explicit_voice = request.voice_pipeline.unwrap_or(false);
-    let mut voice_script = request.voice_script.clone().unwrap_or_default();
-    if auto_route && voice_script.trim().is_empty() {
-        voice_script = "Narración automática de Olyvia.".to_owned();
-    }
-    if explicit_voice && !auto_route && voice_script.trim().is_empty() {
-        return Err(invalid_error(
-            "Escribí el guion para la voz IA local antes de descargar.",
-        ));
-    }
-    // La voz ya no es automática: el enrutador conserva y masteriza el audio
-    // original del video corto. Piper sólo se usa si se pidió explícitamente.
-    let voice_enabled = explicit_voice && !voice_script.trim().is_empty();
-    let auto_pipeline = request.auto_pipeline.unwrap_or(false) || voice_enabled || auto_route;
-    let has_replacement_audio = request
-        .replacement_audio
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(|value| !value.is_empty());
-    let mut audio_speed_noise = if let Some(route) = route_decision {
-        route.speed_and_noise() && !has_replacement_audio && !voice_enabled
-    } else {
-        request.audio_speed_noise.unwrap_or(false)
-    };
-    let cinematic =
-        request.cinematic.unwrap_or(false) || auto_pipeline || delogo_enabled || upscale_enabled;
-    let watermark_enabled = request.watermark.unwrap_or(auto_route || voice_enabled);
-    let cinematic_focus_value = if cinematic {
-        Some(
-            cinematic_focus(request.cinematic_focus.as_deref())
-                .map_err(|message| invalid_error(&message))?,
-        )
-    } else {
-        None
-    };
-    let replacement_audio = request
-        .replacement_audio
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from);
-    if cinematic && matches!(kind, "image" | "audio") {
-        return Err(invalid_error(
-            "El look cinematográfico sólo se aplica a videos. Elegí un video o desactivalo.",
-        ));
-    }
-    if cinematic && format != "mp4" {
-        return Err(invalid_error(
-            "El look cinematográfico exporta MP4. Elegí MP4 o desactivalo.",
-        ));
-    }
-    if cinematic && ffmpeg.is_none() {
+    // Validación y normalización pura del request (application::download_plan).
+    let plan = normalize_download_request(&request)?;
+    // Chequeos que dependen del runtime: binarios y archivo en disco.
+    if plan.cinematic && ffmpeg.is_none() {
         return Err(provider_error(
             "FFmpeg no está disponible; sin él no se puede aplicar el look cinematográfico.",
         ));
     }
-    if voice_enabled && piper.is_none() {
+    if plan.voice_enabled && piper.is_none() {
         return Err(provider_error(
             "La voz IA local no está instalada: falta el recurso piper/es_voice.onnx.",
         ));
     }
-    if let Some(audio) = &replacement_audio {
+    if let Some(audio) = &plan.replacement_audio {
         if !audio.is_file() {
             return Err(invalid_error(
                 "La banda sonora elegida no está en disco. Volvé a seleccionarla.",
             ));
         }
     }
-    let compression_allowed = !audio_only && matches!(format, "mp4");
-    if (requested_crf.is_some() || request.target_size_mb.is_some()) && !compression_allowed {
-        return Err(invalid_error(
-            "La compresión sólo se aplica al formato MP4. Elegí MP4 o desactivá la compresión.",
-        ));
-    }
-    let target_size_mb = request
-        .target_size_mb
-        .filter(|mb| *mb >= 5)
-        .map(|mb| mb.min(100_000));
-    if request.target_size_mb.is_some() && target_size_mb.is_none() {
-        return Err(invalid_error(
-            "El tamaño objetivo debe ser de al menos 5 MB.",
-        ));
-    }
-    let should_compress =
-        compression_allowed && !cinematic && (requested_crf.is_some() || target_size_mb.is_some());
-    let crf = if should_compress { requested_crf } else { None };
-    if should_compress && ffmpeg.is_none() {
+    if plan.should_compress && ffmpeg.is_none() {
         return Err(provider_error(
             "FFmpeg no está disponible; sin él no se puede comprimir. Elegí «Original» o configurá FFmpeg en Ajustes.",
         ));
@@ -304,31 +56,9 @@ pub(crate) fn download_blocking(
     let directory = cache_dir.join("downloads").join(&run_id);
     std::fs::create_dir_all(&directory)
         .map_err(|_| io_error("No se pudo crear la carpeta temporal de descarga."))?;
-    let filename_template = request.filename_template.as_deref();
-    let audio_language = audio_language(request.audio_language.as_deref())
-        .map_err(|message| invalid_error(&message))?;
-    let audio_format_id = request
-        .audio_format_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| {
-            if valid_format_id(value) {
-                Ok(value.to_owned())
-            } else {
-                Err(invalid_error("El format_id de audio no es válido."))
-            }
-        })
-        .transpose()?;
-    let playlist_items = playlist_items(request.playlist_items.as_deref())
-        .map_err(|message| invalid_error(&message))?;
-    let output_template = download_output_template(&directory, filename_template)
-        .map_err(|message| invalid_error(&message))?;
-    let max_height = request
-        .max_height
-        .unwrap_or(MAX_HEIGHT)
-        .clamp(144, MAX_HEIGHT);
-    let playlist = request.playlist.unwrap_or(false);
+    let output_template =
+        download_output_template(&directory, plan.filename_template.as_deref())
+            .map_err(|message| invalid_error(&message))?;
 
     let mut command = Command::new(engine);
     command.args([
@@ -350,85 +80,94 @@ pub(crate) fn download_blocking(
         "10M",
         "--no-overwrites",
     ]);
-    if let Some(proxy) = proxy {
+    if let Some(proxy) = plan.proxy.as_deref() {
         command.args(["--proxy", proxy]);
     }
-    if let Some(limit_rate) = limit_rate {
+    if let Some(limit_rate) = plan.limit_rate.as_deref() {
         command.args(["--limit-rate", limit_rate]);
     }
-    if download_subtitles {
+    if plan.download_subtitles {
         command.args([
             "--write-subs",
             "--write-auto-subs",
             "--sub-langs",
-            &subtitle_langs,
+            &plan.subtitle_langs,
             "--convert-subs",
             "srt",
         ]);
     }
-    if download_thumbnail {
+    if plan.download_thumbnail {
         command.args(["--write-thumbnail", "--convert-thumbnails", "jpg"]);
     }
-    if download_chapters {
+    if plan.download_chapters {
         command.args(["--embed-chapters"]);
     }
-    if sponsorblock && !sponsorblock_categories.trim().is_empty() {
-        command.args(["--sponsorblock-remove", &sponsorblock_categories]);
+    if plan.sponsorblock && !plan.sponsorblock_categories.trim().is_empty() {
+        command.args(["--sponsorblock-remove", &plan.sponsorblock_categories]);
     }
-    if !sponsorblock_mark.is_empty() {
-        let marked = sponsorblock_mark.join(",");
+    if !plan.sponsorblock_mark.is_empty() {
+        let marked = plan.sponsorblock_mark.join(",");
         command.args(["--sponsorblock-mark", &marked]);
     }
-    if let Some(end) = trim_end {
-        let section = format!("*{trim_start:.3}-{end:.3}");
+    if let Some(end) = plan.trim_end {
+        let section = format!("*{:.3}-{end:.3}", plan.trim_start);
         command.args(["--download-sections", &section, "--force-keyframes-at-cuts"]);
     }
-    if playlist {
+    if plan.playlist {
         command.args([
             "--playlist-items",
-            playlist_items.as_deref().unwrap_or("1-12"),
+            plan.playlist_items.as_deref().unwrap_or("1-12"),
         ]);
-    } else if let Some(items) = playlist_items.as_deref() {
+    } else if let Some(items) = plan.playlist_items.as_deref() {
         command.args(["--yes-playlist", "--playlist-items", items]);
     } else {
         command.arg("--no-playlist");
     }
-    if audio_only {
+    if plan.audio_only {
         command.args([
             "-f",
             "bestaudio/best",
             "-x",
             "--audio-format",
-            format,
+            &plan.format,
             "--audio-quality",
             "0",
         ]);
-    } else if kind == "video" {
-        let selector = audio_format_id
+    } else if plan.kind == "video" {
+        let selector = plan
+            .audio_format_id
             .as_deref()
             .map(|id| format!("bv*+{id}"))
-            .unwrap_or_else(|| video_format_selector(quality, max_height));
+            .unwrap_or_else(|| video_format_selector(&plan.quality, plan.max_height));
         command.arg("-f").arg(selector);
-        if quality != "worst" {
+        if plan.quality != "worst" {
             // A igual resolución elige el códec más eficiente (AV1/VP9 antes
             // que AVC): mismo detalle, menos peso, sin re-codificar. En
             // «worst» no aplica: el orden invertiría qué es "peor". El idioma
             // del audio, si se pidió, ya va dentro del mismo -S.
-            command.args(["-S", &video_format_sort(audio_language.as_deref())]);
+            command.args(["-S", &video_format_sort(plan.audio_language.as_deref())]);
         }
-        command.args(["--merge-output-format", format, "--remux-video", format]);
-    } else if kind == "audio" {
-        command.args(["-f", audio_format_id.as_deref().unwrap_or("bestaudio/best")]);
+        command.args([
+            "--merge-output-format",
+            &plan.format,
+            "--remux-video",
+            &plan.format,
+        ]);
+    } else if plan.kind == "audio" {
+        command.args([
+            "-f",
+            plan.audio_format_id.as_deref().unwrap_or("bestaudio/best"),
+        ]);
     }
     if let Some(cookies) = cookies {
         command.arg("--cookies").arg(cookies);
-    } else if let Some(browser) = cookies_from_browser.as_deref() {
+    } else if let Some(browser) = plan.cookies_from_browser.as_deref() {
         command.args(["--cookies-from-browser", browser]);
     }
-    if let Some(language) = audio_language.as_deref() {
+    if let Some(language) = plan.audio_language.as_deref() {
         if language == "all" {
             command.args(["--audio-multistreams"]);
-        } else if !(kind == "video" && quality != "worst") {
+        } else if !(plan.kind == "video" && plan.quality != "worst") {
             // En video ya va dentro del -S combinado (lang tras vcodec).
             command.args(["-S", &format!("lang:{language}")]);
         }
@@ -443,7 +182,7 @@ pub(crate) fn download_blocking(
     progress(
         "downloading",
         Some(0.0),
-        if playlist {
+        if plan.playlist {
             "Descargando el carrusel…"
         } else {
             "Iniciando la descarga…"
@@ -485,36 +224,40 @@ pub(crate) fn download_blocking(
     }
     entries.sort();
 
-    let effective_long_video = if auto_route && source_duration <= 0.0 {
+    let effective_long_video = if plan.auto_route && plan.source_duration <= 0.0 {
         entries
             .iter()
             .find(|path| downloaded_kind(path) == "video")
             .and_then(|path| probe_duration(ffprobe.as_deref(), path))
             .map(|duration| duration > 60.0)
-            .unwrap_or(long_video)
+            .unwrap_or(plan.long_video)
     } else {
-        long_video
+        plan.long_video
     };
     // Si la duración llegó vacía, el enrutador se resuelve recién ahora con
     // la duración real del archivo descargado.
-    let final_route = if auto_route && source_duration <= 0.0 {
+    let final_route = if plan.auto_route && plan.source_duration <= 0.0 {
         Some(AutoRouteDecision::pick(
             if effective_long_video { 61.0 } else { 30.0 },
-            &source_title,
+            &plan.source_title,
         ))
     } else {
-        route_decision
+        plan.route_decision
     };
+    let mut audio_speed_noise = plan.audio_speed_noise;
     if let Some(route) = final_route {
-        audio_speed_noise = route.speed_and_noise() && !has_replacement_audio && !voice_enabled;
+        audio_speed_noise =
+            route.speed_and_noise() && !plan.has_replacement_audio && !plan.voice_enabled;
     }
-    let preserve_original_audio = auto_route
+    let preserve_original_audio = plan.auto_route
         && final_route.is_some_and(|route| route.music)
-        && !voice_enabled
+        && !plan.voice_enabled
         && !audio_speed_noise
-        && !has_replacement_audio;
-    let audio_master =
-        !voice_enabled && !has_replacement_audio && !audio_speed_noise && !preserve_original_audio;
+        && !plan.has_replacement_audio;
+    let audio_master = !plan.voice_enabled
+        && !plan.has_replacement_audio
+        && !audio_speed_noise
+        && !preserve_original_audio;
     let mut warnings: Vec<String> = Vec::new();
     if let Some(route) = final_route {
         warnings.push(format!("Enrutamiento automático: {}.", route.summary()));
@@ -527,11 +270,11 @@ pub(crate) fn download_blocking(
         }
     }
     let mut voice_path: Option<PathBuf> = None;
-    if voice_enabled {
+    if plan.voice_enabled {
         progress("compressing", None, "Generando voz IA local con Piper…");
         if let Some(assets) = piper.as_ref() {
             let voice_file = directory.join("voice_ia.wav");
-            match crate::commands::piper::synthesize(assets, &voice_script, &voice_file) {
+            match crate::commands::piper::synthesize(assets, &plan.voice_script, &voice_file) {
                 Ok(()) => voice_path = Some(voice_file),
                 Err(error) => warnings.push(format!(
                     "No se pudo generar la voz IA: {}. Se usará el audio disponible.",
@@ -540,18 +283,18 @@ pub(crate) fn download_blocking(
             }
         }
     }
-    let effective_audio = voice_path.as_deref().or(replacement_audio.as_deref());
-    let watermark_path = if watermark_enabled {
+    let effective_audio = voice_path.as_deref().or(plan.replacement_audio.as_deref());
+    let watermark_path = if plan.watermark_enabled {
         watermark.as_deref()
     } else {
         None
     };
-    if watermark_enabled && watermark.is_none() {
+    if plan.watermark_enabled && watermark.is_none() {
         warnings.push(
             "No se encontró watermark.png; el video se procesó sin marca de agua.".to_owned(),
         );
     }
-    let pipeline_profile = if cinematic {
+    let pipeline_profile = if plan.cinematic {
         ffmpeg
             .as_deref()
             .map(crate::commands::pipeline_profile::detect)
@@ -559,14 +302,14 @@ pub(crate) fn download_blocking(
     } else {
         crate::commands::pipeline_profile::PipelineProfile::software()
     };
-    if cinematic {
+    if plan.cinematic {
         warnings.push(format!("Perfil de encode: {}.", pipeline_profile.label));
     }
     let mut md5s: HashMap<PathBuf, String> = HashMap::new();
     let mut sha256s: HashMap<PathBuf, String> = HashMap::new();
     let mut compressed = false;
-    if cinematic {
-        if requested_crf.is_some() {
+    if plan.cinematic {
+        if plan.requested_crf.is_some() {
             warnings.push(
                 "El look cinematográfico reencodea el video: se omitió la compresión elegida."
                     .to_owned(),
@@ -575,7 +318,7 @@ pub(crate) fn download_blocking(
         let ffmpeg = ffmpeg.as_deref().ok_or_else(|| {
             provider_error("FFmpeg no está disponible para el look cinematográfico.")
         })?;
-        let focus = cinematic_focus_value.unwrap_or("center");
+        let focus = plan.cinematic_focus.unwrap_or("center");
         let mut applied = false;
         for path in entries.clone() {
             if downloaded_kind(&path) != "video" {
@@ -588,14 +331,14 @@ pub(crate) fn download_blocking(
                 &path,
                 focus,
                 effective_audio,
-                auto_pipeline,
+                plan.auto_pipeline,
                 effective_long_video,
                 audio_speed_noise,
                 preserve_original_audio,
                 audio_master,
-                delogo_corner_value,
-                manual_delogo,
-                upscale_mode_value.as_deref(),
+                plan.delogo_corner,
+                plan.manual_delogo,
+                plan.upscale_mode.as_deref(),
                 watermark_path,
                 &pipeline_profile,
             ) {
@@ -603,7 +346,7 @@ pub(crate) fn download_blocking(
                     applied = true;
                     // Si se pidió conservar el original, queda en la lista y
                     // se mueve junto al procesado. Si no, se elimina.
-                    if !keep_original {
+                    if !plan.keep_original {
                         let _ = std::fs::remove_file(&path);
                         entries.retain(|entry| entry != &path);
                     }
@@ -629,7 +372,7 @@ pub(crate) fn download_blocking(
             );
         }
         entries.sort();
-    } else if should_compress {
+    } else if plan.should_compress {
         let ffmpeg = ffmpeg
             .as_deref()
             .ok_or_else(|| provider_error("FFmpeg no está disponible para comprimir el video."))?;
@@ -642,15 +385,15 @@ pub(crate) fn download_blocking(
                 ffmpeg,
                 ffprobe.as_deref(),
                 &path,
-                crf,
-                target_size_mb,
-                codec,
-                hdr_mode,
-                keep_original,
+                plan.crf,
+                plan.target_size_mb,
+                &plan.codec,
+                &plan.hdr_mode,
+                plan.keep_original,
             ) {
                 Ok(Some(new_path)) => {
                     compressed = true;
-                    if !keep_original {
+                    if !plan.keep_original {
                         entries.retain(|entry| entry != &path);
                     }
                     entries.push(new_path);
@@ -663,17 +406,17 @@ pub(crate) fn download_blocking(
             }
         }
         entries.sort();
-    } else if kind == "image" && crf.is_some() {
+    } else if plan.kind == "image" && plan.crf.is_some() {
         warnings.push(
             "Las imágenes no se recomprimen; se descargan en su formato original.".to_owned(),
         );
     }
 
-    if !sponsorblock_mute.is_empty() {
+    if !plan.sponsorblock_mute.is_empty() {
         if let (Some(ffmpeg), Some(video_id)) = (ffmpeg.as_deref(), youtube_video_id(&request.url))
         {
             progress("compressing", None, "Silenciando tramos de SponsorBlock…");
-            match fetch_sponsor_segments(&video_id, &sponsorblock_mute) {
+            match fetch_sponsor_segments(&video_id, &plan.sponsorblock_mute) {
                 Ok(segments) if !segments.is_empty() => {
                     for entry in entries.iter_mut() {
                         if downloaded_kind(entry) != "video"

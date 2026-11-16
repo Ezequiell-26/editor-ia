@@ -73,17 +73,31 @@ pub(crate) fn probe_output(
             "json",
         ])
         .arg(output)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    let payload = command.output().map_err(|_| {
+        .stdin(Stdio::null());
+    crate::infrastructure::process::hide_console(&mut command);
+    // ffprobe sobre el archivo recién exportado puede tardar en archivos
+    // grandes; 120 s es margen amplio. Sin deadline un sondeo colgado
+    // congelaba la verificación del render para siempre.
+    let timed = crate::infrastructure::process::output_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(120),
+    )
+    .map_err(|_| {
         ProjectError::message(
             ProjectErrorCode::RenderFailed,
             "no se pudo verificar el archivo exportado con ffprobe",
+        )
+    })?;
+    if timed.timed_out {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "ffprobe tardó demasiado verificando el archivo exportado",
+        ));
+    }
+    let payload = timed.into_output().ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "ffprobe no devolvió la verificación del archivo exportado",
         )
     })?;
     if !payload.status.success() {

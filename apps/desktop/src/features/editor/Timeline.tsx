@@ -10,18 +10,30 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import type { Asset, CaptionCue, Clip, ClipColorTag, ClipEffects, ProjectDocument, Track } from '@editor-ia/project-schema';
-import { useThumbnail } from '../../hooks/useThumbnail';
+import { useThumbnail, withThumbnailSlot } from '../../hooks/useThumbnail';
 import { peaksForWindow, useWaveform } from '../../hooks/useWaveform';
 import { Icon } from '../../components/Icon';
 import { friendlyAssetLabel } from '../../state/asset-labels';
 import { clipColorHex, CLIP_COLORS, clipMatchesColorFilter } from '../../state/clip-colors';
 import { matchesClipSearch } from '../../state/clip-search';
+import { ZOOM_SLIDER_MAX, sliderFromZoom, zoomFromSlider } from './timeline-zoom';
+import {
+  clipKeyframeFrames,
+  keyframePosition,
+  nextKeyframe,
+  previousKeyframe,
+} from './keyframe-nav';
 import {
   applyClipAttributes,
+  ATTRIBUTE_GROUPS,
+  attributeGroupsOf,
+  type ClipAttributeGroup,
+  type ClipAttributes,
   copyClipAttributes,
   getClipAttributesClipboard,
   hasClipAttributesClipboard,
   pasteAttributesToColor,
+  pickClipAttributes,
   setClipAttributesClipboard,
 } from '../../state/clip-attributes';
 import { fadeFramesForDrag } from '../../state/fade-handles';
@@ -29,24 +41,50 @@ import {
   ProjectActionError,
   addAdjustmentLayer,
   addTrack,
+  captureTransformKeyframe,
   deleteCaptionCue,
   closeGaps,
+  createCompound,
+  cutSideAtPlayhead,
   deleteClip,
+  expandCompound,
   magneticMoveClip,
   duplicateClip,
   formatTimecode,
   fpsOf,
   moveClip,
   pasteClip,
+  pasteTransformKeyframesAtPlayhead,
+  removeTransformKeyframe,
+  setTransformKeyframe,
+  snapshotTransformKeyframes,
   splitClip,
+  slipClip,
+  slideClip,
+  rollClip,
   trimClip,
   totalFrames,
   updateCaptionCue,
   updateClip,
   updateTrack,
 } from '../../state/project-actions';
-import { addMarker, deleteMarker, markerAtFrame } from '../../state/markers';
+import {
+  copyTransformKeyframesAt,
+  getTransformKeyframeClipboard,
+  lastCopyWasKeyframes,
+  markClipCopied,
+} from '../../state/keyframe-clipboard';
+import {
+  addMarker,
+  deleteMarker,
+  markerAtFrame,
+  nextMarker,
+  previousMarker,
+  updateMarker,
+} from '../../state/markers';
 import { useProjectPlayback, useProjectStore } from '../../state/project-store';
+import type { SfxItem } from '../../services/contracts';
+import { addSfxToTimeline } from './sfx-actions';
 import {
   SHORTCUTS_CHANGED_EVENT,
   bindingMatches,
@@ -64,7 +102,12 @@ import {
   ToolbarCustomizerDialog,
   readToolbarTools,
   type ToolSelectorId,
+  type ToolbarToolRun,
 } from './FilmoraStates';
+import {
+  openClipInspectorTab,
+  type ClipInspectorTab,
+} from '../../state/inspector-tab-command';
 import {
   deleteClips,
   moveClipsBy,
@@ -85,6 +128,10 @@ import {
   visibleTrackWindow,
   type FrameWindow,
 } from './timeline-viewport';
+import {
+  setSelectedTransition,
+  useSelectedTransition,
+} from '../../state/transition-selection';
 
 /**
  * Ancho del header de pistas. La fuente de verdad es `--tl-track-head-w`
@@ -111,7 +158,31 @@ const TRANSITION_LABELS: Record<string, string> = {
   'wipe-up': 'Barrido',
   'wipe-down': 'Barrido',
   iris: 'Iris',
+  blinds: 'Persianas',
+  'clock-wipe': 'Reloj',
+  ink: 'Tinta',
+  bolhas: 'Burbujas',
+  colmeia: 'Colmena',
+  chuva: 'Lluvia digital',
+  vento: 'Viento',
+  triangulos: 'Triángulos',
+  persiana: 'Cortina de listones',
+  reflexo: 'Reflejo',
+  'barrido-diagonal': 'Barrido diagonal',
+  pixelar: 'Pixelado',
+  interferencia: 'Interferencia',
+  liquido: 'Líquido',
+  caleidoscopio: 'Caleidoscopio',
+  'desenfoque-lineal': 'Desenfoque lineal',
+  'warp-direccional': 'Warp direccional',
+  'glitch-digital': 'Glitch digital',
+  'zoom-suave': 'Zoom suave',
+  'zoom-rapido': 'Zoom rápido',
   'luma-wipe': 'Barrido por luminancia',
+  'textura-luz': 'Textura de luz',
+  'textura-celular': 'Textura celular',
+  'textura-fractal': 'Textura fractal',
+  'textura-vida': 'Textura viva',
 };
 
 /**
@@ -157,7 +228,15 @@ type Drag =
   | {
       kind: 'clip';
       clipId: string;
-      mode: 'move' | 'trim-start' | 'trim-end';
+      mode: 'move' | 'trim-start' | 'trim-end' | 'slip' | 'slide' | 'roll';
+      /** Borde del corte en modo 'roll': 'in' = entrada, 'out' = salida. */
+      rollEdge?: 'in' | 'out';
+      /**
+       * Desplazamiento en frames de la operación slip/slide/roll en curso.
+       * La geometría del clip en preview ya lo refleja (salvo slip, que no
+       * mueve el clip: sólo corre la ventana de origen al confirmar).
+       */
+      editDelta?: number;
       originX: number;
       originalStart: number;
       originalDuration: number;
@@ -181,6 +260,91 @@ type Drag =
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+type ClipDrag = Extract<Drag, { kind: 'clip' }>;
+
+/**
+ * Acota el delta de una operación slip/slide/roll al rango que el documento
+ * permite, para que el preview nunca muestre una geometría imposible.
+ * Replica los límites que validan `slipClip`/`slideClip`/`rollClip` en
+ * `state/project-actions.ts` (ventanas de origen medidas contra el asset y
+ * duraciones >= 1 frame de los vecinos contiguos). Si un límite no se puede
+ * resolver acá (p. ej. duración del material no medida) queda abierto y la
+ * acción lo rechaza al confirmar con un error visible.
+ */
+function boundEditDrag(
+  doc: ProjectDocument,
+  drag: ClipDrag,
+  delta: number,
+): { previewStart: number; previewDuration: number; editDelta: number } {
+  const still = {
+    previewStart: drag.originalStart,
+    previewDuration: drag.originalDuration,
+    editDelta: 0,
+  };
+  const clip = doc.timeline.clips.find((item) => item.id === drag.clipId);
+  if (!clip) return still;
+  if (drag.mode === 'slip') {
+    let lo = -Infinity;
+    let hi = Infinity;
+    const source = clip.source;
+    if (source.type === 'asset' && 'inFrame' in source) {
+      const asset = doc.assets.find((item) => item.id === source.assetId);
+      const media = asset && 'media' in asset ? asset.media : undefined;
+      const max =
+        media && 'durationFrames' in media ? media.durationFrames : undefined;
+      lo = -source.inFrame;
+      if (typeof max === 'number' && max > 0) hi = max - source.outFrame;
+    }
+    const d = clamp(delta, lo, hi);
+    // El clip no se mueve en la timeline: sólo cambia la ventana de origen.
+    return { ...still, editDelta: d };
+  }
+  const siblings = doc.timeline.clips
+    .filter((item) => item.trackId === clip.trackId)
+    .sort((a, b) => a.startFrame - b.startFrame);
+  const index = siblings.findIndex((item) => item.id === clip.id);
+  const previous = siblings[index - 1];
+  const following = siblings[index + 1];
+  const contiguousIn =
+    previous !== undefined &&
+    previous.startFrame + previous.durationFrames === clip.startFrame;
+  const contiguousOut =
+    following !== undefined &&
+    clip.startFrame + clip.durationFrames === following.startFrame;
+  if (drag.mode === 'slide') {
+    // slideClip exige vecino anterior y posterior contiguos.
+    if (!contiguousIn || !contiguousOut || !previous || !following) return still;
+    const d = clamp(
+      delta,
+      1 - previous.durationFrames,
+      following.durationFrames - 1,
+    );
+    return {
+      previewStart: drag.originalStart + d,
+      previewDuration: drag.originalDuration,
+      editDelta: d,
+    };
+  }
+  if (drag.mode !== 'roll') return still;
+  // roll: el corte elegido se mueve; el clip pasa a ocupar el otro lado.
+  if (drag.rollEdge === 'in') {
+    if (!contiguousIn || !previous) return still;
+    const d = clamp(delta, 1 - previous.durationFrames, drag.originalDuration - 1);
+    return {
+      previewStart: drag.originalStart + d,
+      previewDuration: drag.originalDuration - d,
+      editDelta: d,
+    };
+  }
+  if (!contiguousOut || !following) return still;
+  const d = clamp(delta, 1 - drag.originalDuration, following.durationFrames - 1);
+  return {
+    previewStart: drag.originalStart,
+    previewDuration: drag.originalDuration + d,
+    editDelta: d,
+  };
 }
 
 function trackById(project: ProjectDocument, id: string): Track | undefined {
@@ -248,10 +412,122 @@ export function waveformPath(peaks: readonly number[], columns: number): string 
   return `M${upper.join('L')}L${lower.join('L')}Z`;
 }
 
+export type WaveMarkerKind = 'hot' | 'clip';
+
+const WAVE_HOT_MIN = 1.1;
+const WAVE_CLIP_MIN = 1.4;
+
+/**
+ * Columnas marcadas como calientes (`#f08a34`) o clipeadas (`#ff5a5c`),
+ * paridad de las puntas de `tracarOnda`/`tracarCapCut` de AlaukCut. Los
+ * picos >1 codifican el marcador (ver `encodeWavePeak`); acá se dibuja la
+ * misma forma de onda pero sólo en las columnas marcadas, como overlay.
+ */
+export function waveformMarkersPath(
+  peaks: readonly number[],
+  columns: number,
+  kind: WaveMarkerKind,
+  style: WaveformStyle,
+): string {
+  if (peaks.length === 0 || columns < 2) return '';
+  const min = kind === 'clip' ? WAVE_CLIP_MIN : WAVE_HOT_MIN;
+  const max = kind === 'clip' ? Number.POSITIVE_INFINITY : WAVE_CLIP_MIN;
+  const cols = Math.max(2, Math.round(columns));
+  const step = peaks.length / cols;
+  const parts: string[] = [];
+  for (let index = 0; index < cols; index += 1) {
+    const from = Math.floor(index * step);
+    const to = Math.max(from + 1, Math.min(peaks.length, Math.floor((index + 1) * step)));
+    let peak = 0;
+    for (let cursor = from; cursor < to; cursor += 1) {
+      const value = peaks[cursor] ?? 0;
+      if (value > peak) peak = value;
+    }
+    if (peak < min || peak >= max) continue;
+    const x0 = index.toFixed(2);
+    if (style === 'capcut') {
+      const barWidth = 0.9;
+      const x = (index + (1 - barWidth) / 2).toFixed(2);
+      const height = Math.max(0.8, Math.min(1, peak) * 36);
+      const top = (39 - height).toFixed(2);
+      parts.push(`M${x},39V${top}h${barWidth.toFixed(2)}V39Z`);
+    } else {
+      // Puntas superior e inferior de la envolvente, no la columna entera.
+      const half = Math.max(0.8, Math.min(1, peak) * 18);
+      const tip = Math.min(6, Math.max(1.5, half * 0.35));
+      parts.push(`M${x0},${(20 - half).toFixed(2)}h1v${tip.toFixed(2)}h-1Z`);
+      parts.push(`M${x0},${(20 + half - tip).toFixed(2)}h1v${tip.toFixed(2)}h-1Z`);
+    }
+  }
+  return parts.join('');
+}
+
 /** Columnas de la onda: una cada ~1,5 px del clip, con techo de 480. */
 export function waveformColumns(widthPx: number): number {
   if (!Number.isFinite(widthPx) || widthPx <= 0) return 2;
   return Math.max(2, Math.min(480, Math.round(widthPx / 1.5)));
+}
+
+export type WaveformStyle = 'capcut' | 'davinci';
+
+/**
+ * Barras desde la base, estilo CapCut (`tracarCapCut` de AlaukCut): cada
+ * columna es una barra anclada abajo cuya altura sigue el pico, con una guía
+ * horizontal cerca de la base. Las puntas calientes/clipeadas se dibujan
+ * aparte con `waveformMarkersPath` — `encodeWavePeak` codifica raw>0,98
+ * como 1.25 y clipping como 1.5 en el mismo número de pico.
+ */
+export function waveformBarsPath(peaks: readonly number[], columns: number): string {
+  if (peaks.length === 0 || columns < 2) return '';
+  const cols = Math.max(2, Math.round(columns));
+  const step = peaks.length / cols;
+  const parts: string[] = [];
+  const baseline = 39;
+  const barWidth = Math.max(0.6, (cols / Math.max(1, cols)) * 0.9);
+  for (let index = 0; index < cols; index += 1) {
+    const from = Math.floor(index * step);
+    const to = Math.max(from + 1, Math.min(peaks.length, Math.floor((index + 1) * step)));
+    let peak = 0;
+    for (let cursor = from; cursor < to; cursor += 1) {
+      const value = peaks[cursor] ?? 0;
+      if (value > peak) peak = value;
+    }
+    const height = Math.max(0.8, Math.min(1, peak) * 36);
+    const x = (index + (1 - barWidth) / 2).toFixed(2);
+    const top = (baseline - height).toFixed(2);
+    parts.push(`M${x},${baseline}V${top}h${barWidth.toFixed(2)}V${baseline}Z`);
+  }
+  return parts.join('');
+}
+
+/* ── Spy de la timeline (paridad `espiada_midia.js` de AlaukCut) ─────────
+   Al pasar el cursor sobre un clip de video aparece una ventanita con el
+   frame del asset bajo esa posición. Cada miniatura es un `ffmpeg -ss`
+   (barato), se pide con debounce y se cachea por cubo de 0,25 s — el mismo
+   redondeo que usa la caché de `media_thumbnail` en Rust. */
+const SPY_THUMB_CACHE_MAX = 120;
+const spyThumbCache = new Map<string, string>();
+
+function spyThumbBucket(seconds: number): number {
+  return Math.round(seconds * 4) / 4;
+}
+
+function spyThumbCacheGet(key: string): string | null {
+  const hit = spyThumbCache.get(key);
+  if (hit !== undefined) {
+    // LRU: reinsertar al final.
+    spyThumbCache.delete(key);
+    spyThumbCache.set(key, hit);
+  }
+  return hit ?? null;
+}
+
+function spyThumbCacheSet(key: string, value: string): void {
+  if (spyThumbCache.size >= SPY_THUMB_CACHE_MAX) {
+    const oldest = spyThumbCache.keys().next().value;
+    if (oldest !== undefined) spyThumbCache.delete(oldest);
+  }
+  spyThumbCache.set(key, value);
 }
 
 function ClipBlockView({
@@ -263,6 +539,7 @@ function ClipBlockView({
   preview,
   showThumbnail,
   showWaveform,
+  waveformStyle,
   onSelect,
   onSeek,
   onDrag,
@@ -276,6 +553,7 @@ function ClipBlockView({
   readonly preview: Drag | null;
   readonly showThumbnail: boolean;
   readonly showWaveform: boolean;
+  readonly waveformStyle: WaveformStyle;
   readonly onSelect: (event?: ReactPointerEvent | ReactMouseEvent) => void;
   readonly onSeek: (event: ReactPointerEvent) => void;
   readonly onDrag: (event: ReactPointerEvent, mode: 'move' | 'trim-start' | 'trim-end') => void;
@@ -284,6 +562,10 @@ function ClipBlockView({
   const store = useProjectStore();
   const project = store.state.project;
   const root = store.state.opened?.root ?? '';
+  // Selección de la transición de entrada (nivel «transición» del delete
+  // contextual): sólo el chip la marca; clic en el cuerpo del clip la suelta.
+  const selectedTransition = useSelectedTransition();
+  const transitionSelected = selectedTransition?.clipId === clip.id;
   const asset = clip.source.type === 'asset' && project ? assetById(project, clip.source.assetId) : undefined;
   // Con la capa apagada no se pide miniatura ni forma de onda: el hook recibe
   // null y no dispara trabajo de disco.
@@ -292,6 +574,8 @@ function ClipBlockView({
     store.service,
     root || null,
     showWaveform ? asset ?? null : null,
+    undefined,
+    project ? fpsOf(project) : undefined,
   );
   const activePreview =
     preview && preview.kind === 'clip' && preview.clipId === clip.id ? preview : null;
@@ -321,6 +605,121 @@ function ClipBlockView({
       ? peaksForWindow(waveform, sourceWindow.inFrame, sourceWindow.outFrame, assetFrames)
       : null;
   const waveColumns = waveformColumns(width);
+  // Paridad `estiloOndaDe` de AlaukCut: el clip puede pisar el estilo global.
+  const waveStyle: WaveformStyle = clip.waveformStyle ?? waveformStyle;
+
+  // Keyframes visibles SOBRE el clip seleccionado (patrón CapCut): un diamante
+  // por clave, en su frame real. Sólo el clip activo para no llenar la
+  // timeline de marcas; tope de 80 para no inflar el DOM con animación densa.
+  const markFps = project ? fpsOf(project) : 30;
+  const keyframeMarks = useMemo(
+    () => (selected ? clipKeyframeFrames(clip).slice(0, 80) : []),
+    [clip, selected],
+  );
+
+  // ── Spy (espiada_midia): frame del asset bajo el cursor ──────────────
+  const spyBoxRef = useRef<HTMLDivElement | null>(null);
+  const [spyFrame, setSpyFrame] = useState<{ src: string; label: string } | null>(null);
+  const spySeq = useRef(0);
+  const spyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (spyTimer.current) clearTimeout(spyTimer.current);
+    },
+    [],
+  );
+  const spyAsset =
+    clip.kind === 'video' && clip.source.type === 'asset' ? asset : undefined;
+  const spyPath =
+    spyAsset &&
+    (spyAsset.source.type === 'local' ||
+      spyAsset.source.type === 'downloaded' ||
+      spyAsset.source.type === 'generated' ||
+      spyAsset.source.type === 'template')
+      ? spyAsset.source.path
+      : null;
+  const spySpeed =
+    'speed' in clip && clip.speed ? clip.speed.num / Math.max(1, clip.speed.den) : 1;
+  // Sin spy durante arrastres (las coords del clip ya no coinciden con el
+  // cursor) ni a velocidad ≠1× (el tiempo del asset no mapea lineal).
+  const spyEligible =
+    !activePreview &&
+    preview === null &&
+    spyAsset?.kind === 'video' &&
+    spyPath !== null &&
+    root !== '' &&
+    store.service.available &&
+    Math.abs(spySpeed - 1) < 0.001;
+  const spyFps =
+    spyAsset?.kind === 'video' && spyAsset.media && 'frameRate' in spyAsset.media
+      ? spyAsset.media.frameRate.num / spyAsset.media.frameRate.den
+      : 0;
+
+  function hideSpy(): void {
+    spySeq.current += 1;
+    if (spyTimer.current) {
+      clearTimeout(spyTimer.current);
+      spyTimer.current = null;
+    }
+    const box = spyBoxRef.current;
+    if (box) box.style.display = 'none';
+    setSpyFrame(null);
+  }
+
+  function scheduleSpy(seconds: number): void {
+    const seq = ++spySeq.current;
+    if (spyTimer.current) clearTimeout(spyTimer.current);
+    spyTimer.current = setTimeout(() => {
+      spyTimer.current = null;
+      if (!spyEligible || spySeq.current !== seq) return;
+      const bucket = spyThumbBucket(seconds);
+      const cacheKey = `${root}|${spyPath}|${bucket}`;
+      const hit = spyThumbCacheGet(cacheKey);
+      if (hit) {
+        setSpyFrame({ src: hit, label: formatSpyTime(seconds) });
+        return;
+      }
+      void withThumbnailSlot(() =>
+        store.service.mediaThumbnail(spyPath as string, false, seconds),
+      )
+        .then((dataUrl) => {
+          if (spySeq.current !== seq) return;
+          spyThumbCacheSet(cacheKey, dataUrl);
+          setSpyFrame({ src: dataUrl, label: formatSpyTime(seconds) });
+        })
+        .catch(() => {
+          if (spySeq.current === seq) setSpyFrame(null);
+        });
+    }, 140);
+  }
+
+  function formatSpyTime(seconds: number): string {
+    const fps = spyFps > 0 ? spyFps : 30;
+    return formatTimecode(Math.round(seconds * fps), fps);
+  }
+
+  function onSpyMove(event: ReactMouseEvent<HTMLDivElement>): void {
+    if (!spyEligible) {
+      hideSpy();
+      return;
+    }
+    const box = spyBoxRef.current;
+    if (!box) return;
+    const w = 176;
+    const h = 118;
+    const left = Math.max(4, Math.min(event.clientX + 14, window.innerWidth - w - 8));
+    const top = event.clientY < h + 36 ? event.clientY + 18 : event.clientY - h - 10;
+    box.style.left = `${left}px`;
+    box.style.top = `${top}px`;
+    box.style.display = 'block';
+    // Frame local del clip bajo el cursor → frame del asset (speed 1×).
+    const frac = Math.min(1, Math.max(0, event.nativeEvent.offsetX / Math.max(1, width)));
+    const inFrame = sourceWindow && 'inFrame' in sourceWindow ? sourceWindow.inFrame : 0;
+    const assetFrame = inFrame + frac * clip.durationFrames;
+    const seconds = spyFps > 0 ? assetFrame / spyFps : 0;
+    scheduleSpy(Math.max(0, seconds));
+  }
+
   const clipLabel = clip.label ? friendlyAssetLabel(clip.label) : track.label;
   const colorHex = clipColorHex(clip.colorTag);
   const fade =
@@ -399,6 +798,7 @@ function ClipBlockView({
   }
 
   return (
+    <>
     <div
       className={`timeline-clip kind-${clip.kind}${selected ? ' selected' : ''}${dimmed ? ' dimmed' : ''}${clip.enabled === false ? ' disabled' : ''}${track.locked ? ' locked' : ''}${activePreview ? ' dragging' : ''}`}
       style={{ left, width }}
@@ -408,6 +808,9 @@ function ClipBlockView({
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.stopPropagation();
+        // Clic en el cuerpo del clip: selecciona el clip y suelta cualquier
+        // transición marcada (la transición se elige desde su propio chip).
+        setSelectedTransition(null);
         // Clic sobre el clip: además de seleccionarlo, el cabezal va al punto
         // clickeado (patrón CapCut/Premiere). Antes sólo seleccionaba y el
         // cabezal quedaba donde estaba, así que el timeline se sentía
@@ -417,6 +820,8 @@ function ClipBlockView({
         if (!track.locked) onDrag(event, 'move');
       }}
       onContextMenu={onContextMenu}
+      onMouseMove={onSpyMove}
+      onMouseLeave={hideSpy}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -424,6 +829,15 @@ function ClipBlockView({
         }
       }}
     >
+      {keyframeMarks.map((frame) => (
+        <span
+          key={`kf-${frame}`}
+          className="timeline-keyframe-mark"
+          style={{ left: Math.max(0, (frame - clip.startFrame) * pxPerFrame) }}
+          title={`Keyframe · ${formatTimecode(frame, markFps)}`}
+          aria-hidden="true"
+        />
+      ))}
       {showThumbnail && thumbnail && (clip.kind === 'video' || clip.kind === 'image' || clip.kind === 'freeze') ? (
         <img className="clip-thumb" src={thumbnail} alt="" draggable={false} />
       ) : null}
@@ -435,7 +849,20 @@ function ClipBlockView({
           aria-hidden="true"
           focusable="false"
         >
-          <path d={waveformPath(peaks, waveColumns)} />
+          <path
+            d={
+              waveStyle === 'capcut'
+                ? waveformBarsPath(peaks, waveColumns)
+                : waveformPath(peaks, waveColumns)
+            }
+          />
+          <path className="wave-hot" d={waveformMarkersPath(peaks, waveColumns, 'hot', waveStyle)} />
+          <path className="wave-clip" d={waveformMarkersPath(peaks, waveColumns, 'clip', waveStyle)} />
+          {waveStyle === 'capcut' ? (
+            <line className="clip-waveform-guide" x1="0" y1="36" x2={waveColumns} y2="36" />
+          ) : (
+            <line className="clip-waveform-guide" x1="0" y1="20" x2={waveColumns} y2="20" />
+          )}
         </svg>
       ) : null}
       <span className="clip-label">
@@ -453,18 +880,38 @@ function ClipBlockView({
           in {clip.source.inFrame} · out {clip.source.outFrame}
         </span>
       ) : null}
+      {activePreview &&
+      (activePreview.mode === 'slip' ||
+        activePreview.mode === 'slide' ||
+        activePreview.mode === 'roll') &&
+      activePreview.editDelta ? (
+        <span className="clip-edit-delta" aria-hidden="true">
+          {activePreview.editDelta > 0 ? '+' : ''}
+          {activePreview.editDelta}f
+        </span>
+      ) : null}
       {transition ? (
         <span
-          className={`clip-transition transition-${transition.type}`}
+          className={`clip-transition transition-${transition.type}${transitionSelected ? ' selected' : ''}`}
           style={{
             width: Math.max(4, Math.min(width - 8, transition.frames * pxPerFrame)),
             ...(transition.type === 'dip-color' && transition.color
               ? { backgroundColor: transition.color }
               : {}),
           }}
-          role="img"
+          role="button"
+          tabIndex={-1}
           aria-label={`Transición de entrada: ${TRANSITION_LABELS[transition.type] ?? transition.type}, ${transition.frames} frames`}
-          title={`Transición de entrada: ${TRANSITION_LABELS[transition.type] ?? transition.type} · ${transition.frames} frames`}
+          title={`${TRANSITION_LABELS[transition.type] ?? transition.type} · ${transition.frames} frames — clic para seleccionar, Supr para eliminar`}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.stopPropagation();
+            event.preventDefault();
+            // Selecciona el clip dueño y marca su transición (nivel
+            // «transición» del delete contextual de AlaukCut).
+            setSelectedTransition({ clipId: clip.id });
+            onSelect(event);
+          }}
         />
       ) : null}
       {selected && !track.locked ? (
@@ -532,6 +979,18 @@ function ClipBlockView({
         </>
       ) : null}
     </div>
+    {/* Spy: ventanita fija junto al cursor con el frame del asset bajo esa
+        posición (paridad `espiada_midia.js`). `position: fixed` escapa del
+        overflow de la fila; pointer-events none para no robar el hover. */}
+    <div ref={spyBoxRef} className="clip-spy" style={{ display: 'none' }} aria-hidden="true">
+      {spyFrame ? (
+        <>
+          <img src={spyFrame.src} alt="" draggable={false} />
+          <span className="clip-spy-time">{spyFrame.label}</span>
+        </>
+      ) : null}
+    </div>
+    </>
   );
 }
 
@@ -556,7 +1015,8 @@ function clipBlockPropsEqual(
     previous.dimmed === next.dimmed &&
     previous.preview === next.preview &&
     previous.showThumbnail === next.showThumbnail &&
-    previous.showWaveform === next.showWaveform
+    previous.showWaveform === next.showWaveform &&
+    previous.waveformStyle === next.waveformStyle
   );
 }
 
@@ -669,7 +1129,11 @@ const PENDING_CONTEXT_ACTIONS: readonly string[] = [
 
 interface OverflowTool {
   readonly label: string;
-  readonly aria: string;
+  /** `aria-label` del botón real de la toolbar que se dispara por DOM. */
+  readonly aria?: string;
+  /** Comando directo que no tiene botón de toolbar (p. ej. abrir una
+   *  pestaña del inspector). */
+  readonly run?: 'open-palette';
   readonly shortcut?: string;
   readonly needsClip?: boolean;
   readonly needsClipboard?: boolean;
@@ -687,6 +1151,7 @@ const OVERFLOW_TOOLS: readonly OverflowTool[] = [
   { label: 'Agregar pista', aria: 'Agregar pista' },
   { label: 'Agregar capa de ajuste', aria: 'Agregar capa de ajuste en el playhead' },
   { label: 'Ajustar zoom a la duración', aria: 'Ajustar zoom a la duración' },
+  { label: 'Paleta de colores', run: 'open-palette', needsClip: true },
 ];
 const OVERFLOW_PENDING: readonly string[] = [
   'Duración', 'Fotogramas Clave', 'Editar >', 'Detección de Silencio',
@@ -694,11 +1159,21 @@ const OVERFLOW_PENDING: readonly string[] = [
   'Extensión con IA', 'Extensión de audio', 'Generación de música ambiental inteligente',
   'Herramientas de recorte de IA >', 'Eliminador de objetos con IA',
   'Herramientas de seguimiento con IA >', 'Edición basada en texto',
-  'Paleta de colores con IA', 'Traducción con IA', 'Sincronización automática',
+  'Traducción con IA', 'Sincronización automática',
   'Imagen a video', 'Texto a video',
 ];
 
-export const Timeline = memo(function Timeline() {
+export const Timeline = memo(function Timeline({
+  onRequestInspectorTab,
+}: {
+  /** Pide al inspector del editor que abra una pestaña (y opcionalmente una
+   *  subpestaña) del clip seleccionado: «Paleta de colores» → color/palette,
+   *  «Recortar» → trim, «Duración» → speed, «Editar» → all. Sin la prop los
+   *  comandos avisan que el panel Detalles ya está visible en el editor. */
+  readonly onRequestInspectorTab?:
+    | ((tab: ClipInspectorTab, subTab?: string) => void)
+    | undefined;
+} = {}) {
   const store = useProjectStore();
   // La línea del playhead, el overview y el seguimiento sí necesitan el frame
   // en cada tick; el resto del cromo ya no se re-renderiza por ellos.
@@ -711,6 +1186,21 @@ export const Timeline = memo(function Timeline() {
     store.state.selection.kind === 'cue' ? store.state.selection.id : null;
   // Puntos in/out de la secuencia (port Kdenlive): rango de exportación.
   const ioRange = store.state.ioRange;
+  // «Paleta de colores» / «Recortar» / «Duración» / «Editar»: piden la
+  // pestaña real del inspector vía inspector-tab-command; sin callback del
+  // host avisan que el panel Detalles ya está visible en el editor.
+  const openInspectorTab = (tab: ClipInspectorTab, subTab?: string) => {
+    openClipInspectorTab(store, tab, (requested, requestedSub) => {
+      if (onRequestInspectorTab) onRequestInspectorTab(requested, requestedSub);
+      else store.setNotice('Las propiedades del clip se abren en el panel Detalles del editor.');
+    }, subTab);
+  };
+  const runToolbarTool = (run: ToolbarToolRun) => {
+    if (run === 'open-trim') openInspectorTab('trim');
+    else if (run === 'open-duration') openInspectorTab('speed');
+    else if (run === 'open-edit') openInspectorTab('all');
+    else openInspectorTab('color', 'palette');
+  };
   // El zoom y el imán arrancan con lo elegido en Ajustes → Editor; después el
   // usuario manda con los controles de la barra de la timeline.
   const [pxPerFrame, setPxPerFrame] = useState(preferences.defaultZoom);
@@ -782,6 +1272,16 @@ export const Timeline = memo(function Timeline() {
     null,
   );
   const [panMode, setPanMode] = useState(false);
+  // Skim (paridad `Skim`/`skimPodeAgir` de AlaukCut): con el modo activo y sin
+  // reproducir ni arrastrar, pasar el mouse por la timeline mueve el playhead;
+  // al salir del área o apagar el modo se restaura el frame real.
+  const [skimEnabled, setSkimEnabled] = useState(false);
+  const skimEnabledRef = useRef(false);
+  skimEnabledRef.current = skimEnabled;
+  const skimActiveRef = useRef(false);
+  const skimRealFrameRef = useRef(0);
+  const skimRafRef = useRef(0);
+  const skimXRef = useRef<number | null>(null);
   const [panning, setPanning] = useState(false);
   const dragRef = useRef<Drag | null>(null);
   const panRef = useRef<{
@@ -832,7 +1332,8 @@ export const Timeline = memo(function Timeline() {
     drag: (
       event: ReactPointerEvent,
       clip: Clip,
-      mode: 'move' | 'trim-start' | 'trim-end',
+      mode: 'move' | 'trim-start' | 'trim-end' | 'slip' | 'slide' | 'roll',
+      rollEdge?: 'in' | 'out',
     ) => void;
     menu: (event: ReactMouseEvent, clip: Clip) => void;
   }>({
@@ -925,7 +1426,13 @@ export const Timeline = memo(function Timeline() {
     const asset = project.assets.find((item) => item.id === source.assetId);
     return asset ? { clip: preferred, asset } : null;
   }, [project, selectedClipId]);
-  const beatWaveform = useWaveform(store.service, root || null, beatSource?.asset ?? null);
+  const beatWaveform = useWaveform(
+    store.service,
+    root || null,
+    beatSource?.asset ?? null,
+    undefined,
+    project ? fpsOf(project) : undefined,
+  );
 
   /** Coalescing del scrub (legacy): un setPlayhead por frame. */
   // Coalescing del scrub: pointermove puede dispararse >100 veces por segundo
@@ -949,6 +1456,27 @@ export const Timeline = memo(function Timeline() {
     y: number;
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  // Diálogo «Pegar atributos por grupos» (colarAtributos de AlaukCut):
+  // checkboxes por grupo cuando el portapapeles tiene más de uno.
+  const [attrPaste, setAttrPaste] = useState<{
+    clipId: string;
+    x: number;
+    y: number;
+    groups: ClipAttributeGroup[];
+    selected: ReadonlySet<ClipAttributeGroup>;
+  } | null>(null);
+  // Submenú «Efecto de sonido…» del menú contextual (paridad del «uso» de
+  // `sons.js` de AlaukCut): monta el SFX elegido al inicio del clip.
+  const [sfxMenu, setSfxMenu] = useState<{
+    clipId: string;
+    x: number;
+    y: number;
+    items: readonly SfxItem[] | null;
+  } | null>(null);
+  const [sfxBusy, setSfxBusy] = useState<string | null>(null);
+  const [sfxPreviewing, setSfxPreviewing] = useState<string | null>(null);
+  const sfxMenuRef = useRef<HTMLDivElement>(null);
+  const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const fps = project ? fpsOf(project) : 30;
   const duration = project ? Math.max(store.durationFrames, Math.round(fps * 4)) : 0;
@@ -1014,8 +1542,41 @@ export const Timeline = memo(function Timeline() {
     const clip = project?.timeline.clips.find((item) => item.id === selectedClipId);
     if (!clip) return;
     clipboardRef.current = JSON.parse(JSON.stringify(clip)) as Clip;
+    markClipCopied();
     setClipboardReady(true);
     store.setNotice(`${clip.label ?? 'Clip'} copiado; usá Pegar para insertarlo.`);
+  }
+
+  /**
+   * Ctrl+C con paridad AlaukCut (`copiarDaTecla`): si el playhead cae sobre
+   * keyframes del clip seleccionado, copia las claves en vez del clip — el
+   * portapapeles de clips queda intacto y Ctrl+V pegará las claves.
+   */
+  function copyKeyframesAtPlayheadOrNull(): boolean {
+    const clip = project?.timeline.clips.find((item) => item.id === selectedClipId);
+    if (!clip) return false;
+    const frame = store.getPlayhead() - clip.startFrame;
+    if (frame < 0 || frame >= clip.durationFrames) return false;
+    if (!snapshotTransformKeyframes(clip, frame)) return false;
+    copyTransformKeyframesAt(clip, frame);
+    store.setNotice('Clave(s) de transformación copiadas; Ctrl+V las pega en el playhead.');
+    return true;
+  }
+
+  /** Ctrl+V con paridad AlaukCut (`colarDaTecla`): pega claves si la última copia fue de claves. */
+  function pasteKeyframesAtPlayheadOrNull(): boolean {
+    if (!lastCopyWasKeyframes()) return false;
+    const patch = getTransformKeyframeClipboard();
+    if (!patch) return false;
+    const result = store.mutate((current) =>
+      pasteTransformKeyframesAtPlayhead(current, store.getPlayhead(), patch),
+    );
+    if (result && result.applied > 0) {
+      store.setNotice(`Clave(s) pegadas en ${result.applied} clip(s) bajo el playhead.`);
+    } else {
+      store.setNotice('No hay clip bajo el playhead donde pegar la clave.');
+    }
+    return true;
   }
 
   function pasteCopiedClip(): void {
@@ -1043,10 +1604,9 @@ export const Timeline = memo(function Timeline() {
     );
   }
 
-  function pasteAttributesFor(clip: Clip): void {
-    const attributes = getClipAttributesClipboard();
+  function doPasteAttributes(clip: Clip, attributes: ClipAttributes): void {
     const current = store.state.project;
-    if (!attributes || !current) return;
+    if (!current) return;
     try {
       const next = applyClipAttributes(current, clip.id, attributes);
       if (next === current) {
@@ -1060,6 +1620,47 @@ export const Timeline = memo(function Timeline() {
         error instanceof Error ? error.message : 'no se pudieron pegar los atributos',
       );
     }
+  }
+
+  /**
+   * Pegado de atributos con selección por grupos (colarAtributos de
+   * AlaukCut): si el portapapeles tiene más de un grupo se abre el
+   * diálogo con checkboxes; con uno solo pega directo.
+   */
+  function pasteAttributesFor(clip: Clip, x?: number, y?: number): void {
+    const attributes = getClipAttributesClipboard();
+    if (!attributes) return;
+    const groups = attributeGroupsOf(attributes);
+    if (groups.length > 1) {
+      setAttrPaste({
+        clipId: clip.id,
+        x: x ?? 0,
+        y: y ?? 0,
+        groups,
+        selected: new Set(groups),
+      });
+      return;
+    }
+    doPasteAttributes(clip, attributes);
+  }
+
+  function confirmAttrPaste(): void {
+    if (!attrPaste) return;
+    const attributes = getClipAttributesClipboard();
+    const clip = project?.timeline.clips.find((item) => item.id === attrPaste.clipId);
+    setAttrPaste(null);
+    if (!attributes || !clip || attrPaste.selected.size === 0) return;
+    doPasteAttributes(clip, pickClipAttributes(attributes, attrPaste.selected));
+  }
+
+  function toggleAttrPasteGroup(group: ClipAttributeGroup): void {
+    setAttrPaste((current) => {
+      if (!current) return current;
+      const selected = new Set(current.selected);
+      if (selected.has(group)) selected.delete(group);
+      else selected.add(group);
+      return { ...current, selected };
+    });
   }
 
   function jumpToSearchMatch(): void {
@@ -1193,23 +1794,37 @@ export const Timeline = memo(function Timeline() {
       store.setNotice('Modo de división ágil: hacé clic dentro de un clip para dividirlo en ese punto.');
     } else if (id === 'zoom') {
       store.setNotice('Herramienta de zoom: hacé clic sobre una pista para acercar la vista.');
+    } else if (id === 'slip') {
+      store.setNotice(
+        'Slip: arrastrá un clip de video o audio para mover su ventana de origen sin moverlo en la timeline.',
+      );
+    } else if (id === 'slide') {
+      store.setNotice(
+        'Slide: arrastrá un clip con vecinos contiguos a ambos lados para deslizarlo absorbiendo la diferencia.',
+      );
+    } else if (id === 'roll') {
+      store.setNotice(
+        'Roll: arrastrá cerca de un borde del clip para rodar el corte con su vecino.',
+      );
     }
   }
 
   /** Intercepta en captura para que el clic con herramienta activa NO dispare
    *  la selección/arrastre habitual del clip. */
   function handleToolPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
-    if (toolSelector !== 'agile-split' && toolSelector !== 'zoom') return;
+    const editTool =
+      toolSelector === 'slip' || toolSelector === 'slide' || toolSelector === 'roll';
+    if (toolSelector !== 'agile-split' && toolSelector !== 'zoom' && !editTool) return;
     if (!project) return;
     if (event.button !== 0) return;
     const target = event.target as HTMLElement | null;
     const lane = target?.closest<HTMLElement>('.track-lane');
     if (!lane) return;
-    event.preventDefault();
-    event.stopPropagation();
     const rect = lane.getBoundingClientRect();
     const frame = Math.max(0, Math.round((event.clientX - rect.left) / pxPerFrame));
     if (toolSelector === 'zoom') {
+      event.preventDefault();
+      event.stopPropagation();
       const next = Math.min(14, pxPerFrame * 1.4);
       setPxPerFrame(next);
       store.setPlayhead(frame);
@@ -1219,33 +1834,121 @@ export const Timeline = memo(function Timeline() {
       return;
     }
     const trackId = lane.dataset.laneTrackId;
-    const clip = project.timeline.clips.find(
-      (item) =>
-        item.trackId === trackId &&
-        frame > item.startFrame &&
-        frame < item.startFrame + item.durationFrames,
-    );
-    if (!clip) {
-      store.setNotice('Modo de división ágil: hacé clic dentro de un clip para dividirlo.');
+    if (editTool) {
+      if (!trackId) return;
+      // Slip/slide/roll: el gesto es un arrastre sobre el clip, no un clic.
+      // Sin clip debajo el evento sigue su curso (seek/selección normal).
+      const clip = project.timeline.clips.find(
+        (item) =>
+          item.trackId === trackId &&
+          frame >= item.startFrame &&
+          frame < item.startFrame + item.durationFrames,
+      );
+      if (!clip) return;
+      // A partir de acá el clip es el objetivo: se traga el evento para que
+      // no dispare el move/trim habitual aunque la operación no arranque.
+      event.preventDefault();
+      event.stopPropagation();
+      store.setSelection({ kind: 'clip', id: clip.id });
+      const track = trackById(project, trackId);
+      const windowed = clip.kind === 'video' || clip.kind === 'audio';
+      if (!track || track.locked || !windowed) {
+        store.setNotice(
+          'Slip, slide y roll necesitan un clip de video o audio en una pista desbloqueada.',
+        );
+        return;
+      }
+      if (toolSelector === 'slip') {
+        beginClipDrag(event, clip, 'slip');
+        return;
+      }
+      // Vecinos contiguos de la misma pista (slide y roll los exigen).
+      const siblings = project.timeline.clips
+        .filter((item) => item.trackId === clip.trackId)
+        .sort((a, b) => a.startFrame - b.startFrame);
+      const index = siblings.findIndex((item) => item.id === clip.id);
+      const previous = siblings[index - 1];
+      const following = siblings[index + 1];
+      const windowedClip = (item: Clip | undefined): item is Clip =>
+        item !== undefined && (item.kind === 'video' || item.kind === 'audio');
+      if (toolSelector === 'slide') {
+        const contiguous =
+          windowedClip(previous) &&
+          windowedClip(following) &&
+          previous.startFrame + previous.durationFrames === clip.startFrame &&
+          clip.startFrame + clip.durationFrames === following.startFrame;
+        if (!contiguous) {
+          store.setNotice(
+            'Slide necesita un clip de video o audio contiguo a cada lado del seleccionado.',
+          );
+          return;
+        }
+        beginClipDrag(event, clip, 'slide');
+        return;
+      }
+      // Roll: el corte es el borde más cercano al clic (borde izquierdo =
+      // entrada del clip, derecho = salida). La zona de agarre crece con el
+      // clip pero queda acotada para no confundir el centro con un corte.
+      const clipLeftX = rect.left + clip.startFrame * pxPerFrame;
+      const clipRightX = rect.left + (clip.startFrame + clip.durationFrames) * pxPerFrame;
+      const zone = Math.min(24, Math.max(8, (clipRightX - clipLeftX) * 0.3));
+      const toIn = Math.abs(event.clientX - clipLeftX);
+      const toOut = Math.abs(event.clientX - clipRightX);
+      const edge = toIn <= toOut ? 'in' : 'out';
+      if (Math.min(toIn, toOut) > zone) {
+        store.setNotice(
+          'Roll: arrastrá cerca del borde del clip que marca el corte a rodar.',
+        );
+        return;
+      }
+      const neighbor = edge === 'in' ? previous : following;
+      const contiguous =
+        windowedClip(neighbor) &&
+        (edge === 'in'
+          ? neighbor.startFrame + neighbor.durationFrames === clip.startFrame
+          : clip.startFrame + clip.durationFrames === neighbor.startFrame);
+      if (!contiguous) {
+        store.setNotice(
+          edge === 'in'
+            ? 'Roll de entrada: no hay un clip de video o audio contiguo antes del seleccionado.'
+            : 'Roll de salida: no hay un clip de video o audio contiguo después del seleccionado.',
+        );
+        return;
+      }
+      beginClipDrag(event, clip, 'roll', edge);
       return;
     }
-    let rightClipId: string | null = null;
-    store.update((current) => {
-      const result = splitClip(current, clip.id, frame);
-      if (!result) return current;
-      rightClipId = result.rightClipId;
-      return result.project;
-    });
-    if (rightClipId) {
-      store.setSelection({ kind: 'clip', id: rightClipId });
-      setSelectedClipIds(new Set([rightClipId, clip.id]));
-      store.setNotice(`Clip dividido en ${formatTimecode(frame, fps)} (división ágil).`);
-    } else {
-      store.setNotice('No se pudo dividir: el punto está en el borde del clip.');
+    event.preventDefault();
+    event.stopPropagation();
+    if (toolSelector === 'agile-split') {
+      const clip = project.timeline.clips.find(
+        (item) =>
+          item.trackId === trackId &&
+          frame > item.startFrame &&
+          frame < item.startFrame + item.durationFrames,
+      );
+      if (!clip) {
+        store.setNotice('Modo de división ágil: hacé clic dentro de un clip para dividirlo.');
+        return;
+      }
+      let rightClipId: string | null = null;
+      store.update((current) => {
+        const result = splitClip(current, clip.id, frame);
+        if (!result) return current;
+        rightClipId = result.rightClipId;
+        return result.project;
+      });
+      if (rightClipId) {
+        store.setSelection({ kind: 'clip', id: rightClipId });
+        setSelectedClipIds(new Set([rightClipId, clip.id]));
+        store.setNotice(`Clip dividido en ${formatTimecode(frame, fps)} (división ágil).`);
+      } else {
+        store.setNotice('No se pudo dividir: el punto está en el borde del clip.');
+      }
     }
   }
 
-  // Atajos del selector de herramienta (V/C/A/Shift+A/Z por defecto,
+  // Atajos del selector de herramienta (V/C/A/Shift+A/Z/Y/T/N por defecto,
   // reasignables desde Ajustes → Atajos, grupo «Herramientas»). El listener
   // se registra una sola vez y lee el handler vigente de una ref:
   // playback.frame cambia decenas de veces por segundo y no queremos
@@ -1259,6 +1962,9 @@ export const Timeline = memo(function Timeline() {
     else if (match('tools.selectBackward')) changeToolSelector('select-backward');
     else if (match('tools.selectForward')) changeToolSelector('select-forward');
     else if (match('tools.zoom')) changeToolSelector('zoom');
+    else if (match('tools.slip')) changeToolSelector('slip');
+    else if (match('tools.slide')) changeToolSelector('slide');
+    else if (match('tools.roll')) changeToolSelector('roll');
     else return;
     event.preventDefault();
   };
@@ -1371,6 +2077,77 @@ export const Timeline = memo(function Timeline() {
     !contextLocked &&
     playback.frame > contextClip.startFrame &&
     playback.frame < contextClip.startFrame + contextClip.durationFrames;
+  const sfxClip =
+    sfxMenu && project
+      ? project.timeline.clips.find((clip) => clip.id === sfxMenu.clipId)
+      : undefined;
+
+  function openSfxMenu(clip: Clip, x: number, y: number): void {
+    setContextMenu(null);
+    setSfxMenu({ clipId: clip.id, x, y, items: null });
+    void store.service
+      .sfxLibrary()
+      .then((library) => {
+        setSfxMenu((current) =>
+          current && current.clipId === clip.id ? { ...current, items: library } : current,
+        );
+      })
+      .catch(() => {
+        setSfxMenu((current) =>
+          current && current.clipId === clip.id ? { ...current, items: [] } : current,
+        );
+      });
+  }
+
+  function stopSfxPreview(): void {
+    sfxAudioRef.current?.pause();
+    sfxAudioRef.current = null;
+    setSfxPreviewing(null);
+  }
+
+  function previewSfx(item: SfxItem): void {
+    if (sfxPreviewing === item.id) {
+      stopSfxPreview();
+      return;
+    }
+    stopSfxPreview();
+    const url = store.service.absoluteFileUrl(item.path);
+    if (!url) {
+      store.setNotice(`No se pudo resolver la ruta de ${item.label}.`);
+      return;
+    }
+    const audio = new Audio(url);
+    audio.volume = 0.9;
+    audio.addEventListener('ended', () => {
+      if (sfxAudioRef.current === audio) {
+        sfxAudioRef.current = null;
+        setSfxPreviewing(null);
+      }
+    });
+    sfxAudioRef.current = audio;
+    setSfxPreviewing(item.id);
+    void audio.play().catch(() => {
+      sfxAudioRef.current = null;
+      setSfxPreviewing(null);
+    });
+  }
+
+  async function addSfxAtClipStart(item: SfxItem): Promise<void> {
+    const clip = sfxClip;
+    if (!clip || sfxBusy) return;
+    setSfxBusy(item.id);
+    try {
+      await addSfxToTimeline(store, item, clip.startFrame);
+      setSfxMenu(null);
+      stopSfxPreview();
+    } catch (failure) {
+      store.setNotice(
+        failure instanceof Error ? failure.message : `no se pudo agregar ${item.label}`,
+      );
+    } finally {
+      setSfxBusy(null);
+    }
+  }
 
   function openClipMenu(event: ReactMouseEvent, clip: Clip): void {
     event.preventDefault();
@@ -1470,6 +2247,36 @@ export const Timeline = memo(function Timeline() {
   }, [contextMenu]);
 
   useEffect(() => {
+    if (!sfxMenu) return;
+    const close = (): void => {
+      setSfxMenu(null);
+      stopSfxPreview();
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && sfxMenuRef.current?.contains(event.target)) return;
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      close();
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+      sfxAudioRef.current?.pause();
+      sfxAudioRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sfxMenu]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
@@ -1477,16 +2284,141 @@ export const Timeline = memo(function Timeline() {
       const match = (id: ShortcutId): boolean => bindingMatches(event, map[id]);
       if (match('timeline.copyClip') && selectedClipId) {
         event.preventDefault();
-        copySelectedClip();
-      } else if (match('timeline.pasteClip') && clipboardRef.current) {
+        // Paridad AlaukCut: el atajo copia keyframes si el playhead cae sobre
+        // ellos; si no, copia el clip.
+        if (!copyKeyframesAtPlayheadOrNull()) copySelectedClip();
+      } else if (
+        match('timeline.pasteClip') &&
+        (lastCopyWasKeyframes() || clipboardRef.current)
+      ) {
         event.preventDefault();
-        pasteCopiedClip();
+        // Paridad AlaukCut: pega keyframes sólo si la última copia fue de claves.
+        if (!pasteKeyframesAtPlayheadOrNull() && clipboardRef.current) {
+          pasteCopiedClip();
+        }
+      } else if (match('timeline.cutLeft') || match('timeline.cutRight')) {
+        // Q/W como en AlaukCut (`cortarLadoDaAgulha`): divide en la aguja y
+        // borra la mitad anterior (Q) o posterior (W). Con clip seleccionado
+        // opera sólo sobre él; sin selección, sobre todos los clips que
+        // contienen la aguja.
+        const side = match('timeline.cutLeft') ? 'left' : 'right';
+        let keptIds: string[] = [];
+        store.update((current) => {
+          const result = cutSideAtPlayhead(
+            current,
+            playback.frame,
+            side,
+            selectedClipId ?? undefined,
+          );
+          if (!result) return current;
+          keptIds = result.keptClipIds;
+          return result.project;
+        });
+        if (keptIds.length) {
+          store.setSelection({ kind: 'clip', id: keptIds[0]! });
+          store.setNotice(
+            keptIds.length === 1
+              ? `Corte en la aguja: quedó ${side === 'left' ? 'la parte derecha' : 'la parte izquierda'}.`
+              : `Corte en la aguja sobre ${keptIds.length} clips.`,
+          );
+        } else {
+          store.setNotice('La aguja tiene que caer dentro del clip para cortar.');
+        }
+      } else if (match('timeline.compoundClip') || match('timeline.uncompoundClip')) {
+        // Alt+G / Alt+Shift+G como en AlaukCut (`compor`/`descompor`).
+        const clip = project?.timeline.clips.find(
+          (item) => item.id === selectedClipId,
+        );
+        if (clip) {
+          event.preventDefault();
+          if (match('timeline.compoundClip')) {
+            const result = store.mutate((current) => {
+              const grouped = createCompound(current, clip.id);
+              return {
+                project: grouped.project,
+                compoundClipId: grouped.compoundClipId,
+                grouped: grouped.grouped,
+              };
+            });
+            if (result) {
+              store.setSelection({ kind: 'clip', id: result.compoundClipId });
+              store.setNotice(
+                `Compuesto creado con ${result.grouped} clip(s).`,
+              );
+            } else {
+              store.setNotice('No se pudo agrupar: revisá la selección.');
+            }
+          } else if (clip.kind === 'compound') {
+            const done = store.update((current) => expandCompound(current, clip.id));
+            store.setNotice(done ? 'Compuesto deshecho.' : 'No se pudo deshacer el compuesto.');
+          } else {
+            store.setNotice('El clip seleccionado no es un compuesto.');
+          }
+        }
       } else if (match('timeline.deleteWithRipple') && selectedClipId) {
         event.preventDefault();
         rippleDeleteSelected();
       } else if (match('timeline.toggleMarker')) {
         event.preventDefault();
         toggleMarkerAtPlayhead();
+      } else if (match('timeline.markerNext') || match('timeline.markerPrev')) {
+        // Shift+M / Ctrl+Shift+M como en AlaukCut: salta al marcador
+        // siguiente/anterior respecto del playhead.
+        event.preventDefault();
+        if (project) {
+          const frame = store.getPlayhead();
+          const marker = match('timeline.markerNext')
+            ? nextMarker(project, frame)
+            : previousMarker(project, frame);
+          if (marker) {
+            store.setPlayhead(marker.frame);
+            store.setNotice(`Marcador en ${formatTimecode(marker.frame, fps)}.`);
+          } else {
+            store.setNotice('No hay otro marcador en esa dirección.');
+          }
+        }
+      } else if (match('timeline.markerAdd')) {
+        // Alt+M como en AlaukCut (`Marcadores.incluir`): agrega sin
+        // alternar; si ya hay marcador en el frame avisa en vez de borrarlo.
+        event.preventDefault();
+        if (project) {
+          const frame = store.getPlayhead();
+          if (markerAtFrame(project, frame)) {
+            store.setNotice('Ya hay un marcador en el playhead.');
+          } else {
+            const added = store.mutate((current) => {
+              const result = addMarker(current, frame);
+              return { project: result.project, markerId: result.markerId };
+            });
+            store.setNotice(
+              added ? 'Marcador agregado.' : 'No se pudo agregar el marcador.',
+            );
+          }
+        }
+      } else if (match('timeline.markerRemoveLast')) {
+        // Alt+Shift+M (`Marcadores.removerUltimo`): quita el marcador
+        // agregado más recientemente — project.markers conserva el orden
+        // de inserción.
+        event.preventDefault();
+        if (project) {
+          const last = project.markers[project.markers.length - 1];
+          if (!last) {
+            store.setNotice('No hay marcadores para quitar.');
+          } else {
+            store.update((current) => deleteMarker(current, last.id));
+            store.setNotice(`Marcador "${last.label}" quitado.`);
+          }
+        }
+      } else if (match('edit.copyAttributes') || match('edit.pasteAttributes')) {
+        // Alt+C / Alt+V como en AlaukCut: atributos del clip seleccionado.
+        const clip = project?.timeline.clips.find(
+          (item) => item.id === selectedClipId,
+        );
+        if (clip) {
+          event.preventDefault();
+          if (match('edit.copyAttributes')) copyAttributesFor(clip);
+          else pasteAttributesFor(clip);
+        }
       } else if (match('timeline.setInPoint') || match('timeline.setOutPoint')) {
         // I/O de la secuencia en el playhead (como Kdenlive).
         event.preventDefault();
@@ -1503,6 +2435,10 @@ export const Timeline = memo(function Timeline() {
       } else if (match('timeline.panMode')) {
         event.preventDefault();
         setPanMode((value) => !value);
+      } else if (match('timeline.skim')) {
+        event.preventDefault();
+        setSkimEnabled((value) => !value);
+        if (skimEnabledRef.current) endSkim();
       } else if (match('timeline.zoomIn') || match('timeline.zoomOut') || match('timeline.zoomFit')) {
         // Mismas fórmulas que los botones Acercar/Alejar/Ajustar de la barra.
         event.preventDefault();
@@ -1555,6 +2491,14 @@ export const Timeline = memo(function Timeline() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [selectedClipId, selectedClipIds, project, preferences.timelineRipple]);
+
+  // Skim: cancelar el raf pendiente al desmontar la timeline.
+  useEffect(
+    () => () => {
+      if (skimRafRef.current) window.cancelAnimationFrame(skimRafRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -1682,6 +2626,25 @@ export const Timeline = memo(function Timeline() {
         return;
       }
       const delta = Math.round((event.clientX - current.originX) / scale);
+      // Herramientas de edición dedicadas (selector Y/T/N): slip mueve la
+      // ventana de origen sin tocar la geometría; slide/roll previewan la
+      // geometría del clip arrastrado — los vecinos se acomodan al confirmar.
+      if (
+        current.mode === 'slip' ||
+        current.mode === 'slide' ||
+        current.mode === 'roll'
+      ) {
+        const bounded = boundEditDrag(doc, current, delta);
+        const next: Drag = {
+          ...current,
+          previewStart: bounded.previewStart,
+          previewDuration: bounded.previewDuration,
+          editDelta: bounded.editDelta,
+        };
+        dragRef.current = next;
+        setPreview(next);
+        return;
+      }
       if (current.mode === 'move') {
         let nextStart = Math.max(0, current.originalStart + delta);
         let guide: { frame: number; label: string } | null = null;
@@ -1913,6 +2876,46 @@ export const Timeline = memo(function Timeline() {
         state.setSelection({ kind: 'clip', id: current.clipId });
         return;
       }
+      // Confirmación de slip/slide/roll: las acciones puras de
+      // project-actions rehacen todas las cuentas (vecinos, ventanas de
+      // origen, guardas de pista bloqueada/velocidad/keyframes) sobre el
+      // documento vivo; un rechazo cae en `state.error` como el resto de
+      // las ediciones.
+      if (
+        current.mode === 'slip' ||
+        current.mode === 'slide' ||
+        current.mode === 'roll'
+      ) {
+        const editDelta = current.editDelta ?? 0;
+        if (editDelta === 0) return;
+        const applied = state.update((projectDoc) => {
+          if (current.mode === 'slip') {
+            return slipClip(projectDoc, current.clipId, editDelta);
+          }
+          if (current.mode === 'slide') {
+            return slideClip(projectDoc, current.clipId, editDelta);
+          }
+          return rollClip(
+            projectDoc,
+            current.clipId,
+            current.rollEdge ?? 'out',
+            editDelta,
+          );
+        });
+        if (applied) {
+          const toolName =
+            current.mode === 'slip'
+              ? 'Slip'
+              : current.mode === 'slide'
+                ? 'Slide'
+                : 'Roll';
+          state.setNotice(
+            `${toolName}: ${editDelta > 0 ? '+' : ''}${editDelta} frames.`,
+          );
+        }
+        state.setSelection({ kind: 'clip', id: current.clipId });
+        return;
+      }
       const trimEdge = current.mode === 'trim-start' ? 'start' : 'end';
       const trimTarget =
         current.mode === 'trim-start'
@@ -1991,6 +2994,56 @@ export const Timeline = memo(function Timeline() {
   }
 
   /**
+   * Restaura el frame real si el skim movió el playhead (paridad
+   * `encerrarSkim`). `restore=false` cuando un gesto nuevo (scrub/drag) ya se
+   * hizo dueño del playhead: restaurar ahí pelearía con el arrastre.
+   */
+  function endSkim(restore = true): void {
+    if (skimRafRef.current) {
+      window.cancelAnimationFrame(skimRafRef.current);
+      skimRafRef.current = 0;
+    }
+    skimXRef.current = null;
+    if (!skimActiveRef.current) return;
+    skimActiveRef.current = false;
+    if (restore) store.setPlayhead(skimRealFrameRef.current);
+  }
+
+  /**
+   * Hover con skim activo: un solo setPlayhead por frame (mismo coalescing
+   * que el scrub). No actúa reproduciendo, arrastrando o con el modo apagado
+   * — igual que `skimPodeAgir` de AlaukCut.
+   */
+  function onSkimMouseMove(event: ReactMouseEvent<HTMLDivElement>): void {
+    if (!skimEnabledRef.current || playback.playing || dragRef.current) {
+      // Reproduciendo o arrastrando: el skim se apaga; sólo restaura si el
+      // playhead quedó "huérfano" (play), no si un drag ya lo conduce.
+      endSkim(!dragRef.current);
+      return;
+    }
+    skimXRef.current = event.clientX;
+    if (skimRafRef.current !== 0) return;
+    skimRafRef.current = window.requestAnimationFrame(() => {
+      skimRafRef.current = 0;
+      const x = skimXRef.current;
+      skimXRef.current = null;
+      if (x === null) return;
+      const surface = surfaceRef.current;
+      if (!surface) return;
+      const rect = surface.getBoundingClientRect();
+      const frame = Math.max(
+        0,
+        Math.round((x - rect.left - headerWidth()) / latest.current.pxPerFrame),
+      );
+      if (!skimActiveRef.current) {
+        skimActiveRef.current = true;
+        skimRealFrameRef.current = store.getPlayhead();
+      }
+      store.setPlayhead(frame);
+    });
+  }
+
+  /**
    * Clic sobre un clip: además de seleccionarlo, lleva el cabezal al frame
    * clickeado (patrón CapCut/Premiere). Se mide contra el propio clip —su borde
    * izquierdo es `startFrame`— así el resultado no depende del scroll ni del
@@ -2009,7 +3062,8 @@ export const Timeline = memo(function Timeline() {
   function beginClipDrag(
     event: ReactPointerEvent,
     clip: Clip,
-    mode: 'move' | 'trim-start' | 'trim-end',
+    mode: 'move' | 'trim-start' | 'trim-end' | 'slip' | 'slide' | 'roll',
+    rollEdge?: 'in' | 'out',
   ): void {
     event.preventDefault();
     const multi = multiSelectionRef.current;
@@ -2019,6 +3073,7 @@ export const Timeline = memo(function Timeline() {
       kind: 'clip',
       clipId: clip.id,
       mode,
+      ...(rollEdge ? { rollEdge } : {}),
       originX: event.clientX,
       originalStart: clip.startFrame,
       originalDuration: clip.durationFrames,
@@ -2131,6 +3186,64 @@ export const Timeline = memo(function Timeline() {
     ? project.timeline.clips.find((clip) => clip.id === selectedClipId)
     : undefined;
 
+  // Flechas ‹ › tipo CapCut: saltan al keyframe anterior/siguiente del clip
+  // seleccionado. La lista unifica transform, ganancia, máscara y ambos stacks
+  // de efectos; el toolbar no repite ese recorrido.
+  const keyframeFrames = useMemo(
+    () => (selectedClip ? clipKeyframeFrames(selectedClip) : []),
+    [selectedClip],
+  );
+  const previousKeyframeFrame = previousKeyframe(keyframeFrames, playback.frame);
+  const nextKeyframeFrame = nextKeyframe(keyframeFrames, playback.frame);
+
+  function goToKeyframe(frame: number | null): void {
+    if (frame === null) return;
+    store.setPlayhead(frame);
+    store.setNotice(
+      `Keyframe ${keyframePosition(keyframeFrames, frame)}/${keyframeFrames.length} · ${formatTimecode(frame, fps)}.`,
+    );
+  }
+
+  // ◇ del toolbar: crea o quita el keyframe de transformación en el playhead,
+  // como el diamante de CapCut. Sólo aplica a clips visuales con transform.
+  const playheadLocal = selectedClip
+    ? Math.round(playback.frame - selectedClip.startFrame)
+    : null;
+  const playheadInsideClip =
+    selectedClip !== undefined &&
+    playheadLocal !== null &&
+    playheadLocal >= 0 &&
+    playheadLocal < selectedClip.durationFrames;
+  const keyframeAtPlayhead =
+    selectedClip !== undefined && playheadInsideClip && playheadLocal !== null
+      ? snapshotTransformKeyframes(selectedClip, playheadLocal) !== null
+      : false;
+
+  // Marcadores: navegación anterior/siguiente con el mismo patrón que ‹ ›.
+  const markerBefore = previousMarker(project, playback.frame);
+  const markerAfter = nextMarker(project, playback.frame);
+
+  function toggleTransformKeyframeAtPlayhead(): void {
+    if (!selectedClip || playheadLocal === null || !playheadInsideClip) return;
+    const local = playheadLocal;
+    const removing = snapshotTransformKeyframes(selectedClip, local) !== null;
+    store.mutate((current) => ({
+      project: removing
+        ? removeTransformKeyframe(current, selectedClip.id, local)
+        : setTransformKeyframe(
+            current,
+            selectedClip.id,
+            local,
+            captureTransformKeyframe(selectedClip, local),
+          ),
+    }));
+    store.setNotice(
+      removing
+        ? `Keyframe quitado en ${formatTimecode(playback.frame, fps)}.`
+        : `Keyframe agregado en ${formatTimecode(playback.frame, fps)}.`,
+    );
+  }
+
   // Paso de la rejilla del lane: una línea por marca mayor de la regla. Se pasa
   // como variable para que el CSS no adivine píxeles fijos (antes eran 120 px).
   const gridStepPx = Math.max(8, Math.round(majorFrames * pxPerFrame));
@@ -2224,6 +3337,20 @@ export const Timeline = memo(function Timeline() {
           >
             <Icon name="plus" size={14} />
           </button>
+          {/* Deslizador continuo tipo CapCut: misma escala logarítmica que
+              los botones −/+ y que «Ajustar». No reemplaza el readout, que
+              los tests y el usuario usan como valor medido. */}
+          <input
+            type="range"
+            className="timeline-zoom-slider"
+            min={0}
+            max={ZOOM_SLIDER_MAX}
+            step={1}
+            value={sliderFromZoom(pxPerFrame)}
+            aria-label="Zoom de la línea de tiempo"
+            title={`Zoom ${pxPerFrame.toFixed(2)} px/frame`}
+            onChange={(event) => setPxPerFrame(zoomFromSlider(Number(event.target.value)))}
+          />
           <button
             type="button"
             className="small ghost zoom-fit"
@@ -2247,6 +3374,21 @@ export const Timeline = memo(function Timeline() {
           >
             <Icon name="hand" size={13} />
             <span className="tool-label">Mover</span>
+          </button>
+          <button
+            type="button"
+            className={skimEnabled ? 'small ghost skim-toggle active' : 'small ghost skim-toggle'}
+            aria-label="Activar o desactivar skim de la timeline"
+            aria-pressed={skimEnabled}
+            aria-keyshortcuts="U"
+            title="Skim (U): pasá el mouse por la timeline para mover el playhead y previsualizar; al salir se restaura la posición"
+            onClick={() => {
+              setSkimEnabled((value) => !value);
+              if (skimEnabledRef.current) endSkim();
+            }}
+          >
+            <Icon name="scan" size={13} />
+            <span className="tool-label">Skim</span>
           </button>
           {panMode ? (
             <span className="zoom-readout pan-hint">Arrastrá para mover</span>
@@ -2407,6 +3549,75 @@ export const Timeline = memo(function Timeline() {
           </button>
           <button
             type="button"
+            className="small ghost kf-step"
+            aria-label="Keyframe anterior"
+            title={
+              keyframeFrames.length === 0
+                ? 'El clip seleccionado no tiene keyframes'
+                : `Keyframe anterior · ${keyframeFrames.length} en el clip`
+            }
+            disabled={previousKeyframeFrame === null}
+            onClick={() => goToKeyframe(previousKeyframeFrame)}
+          >
+            <span className="kf-step-arrow" aria-hidden="true">‹</span>
+          </button>
+          <button
+            type="button"
+            className={`small ghost kf-toggle${keyframeAtPlayhead ? ' active' : ''}`}
+            aria-label={
+              keyframeAtPlayhead
+                ? 'Quitar keyframe de transformación en el playhead'
+                : 'Agregar keyframe de transformación en el playhead'
+            }
+            aria-pressed={keyframeAtPlayhead}
+            title={
+              playheadInsideClip
+                ? `${keyframeAtPlayhead ? 'Quitar' : 'Agregar'} keyframe de transformación · ${formatTimecode(playback.frame, fps)}`
+                : 'El playhead debe estar dentro del clip seleccionado'
+            }
+            disabled={!playheadInsideClip}
+            onClick={toggleTransformKeyframeAtPlayhead}
+          >
+            <span className="kf-toggle-diamond" aria-hidden="true">
+              {keyframeAtPlayhead ? '◆' : '◇'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="small ghost kf-step"
+            aria-label="Keyframe siguiente"
+            title={
+              keyframeFrames.length === 0
+                ? 'El clip seleccionado no tiene keyframes'
+                : `Keyframe siguiente · ${keyframeFrames.length} en el clip`
+            }
+            disabled={nextKeyframeFrame === null}
+            onClick={() => goToKeyframe(nextKeyframeFrame)}
+          >
+            <span className="kf-step-arrow" aria-hidden="true">›</span>
+          </button>
+          <button
+            type="button"
+            className="small ghost marker-step"
+            aria-label="Marcador anterior"
+            title={
+              markerBefore
+                ? `Marcador anterior: ${markerBefore.label} · ${formatTimecode(markerBefore.frame, fps)}`
+                : 'No hay marcadores antes del playhead'
+            }
+            disabled={!markerBefore}
+            onClick={() => {
+              if (!markerBefore) return;
+              store.setPlayhead(markerBefore.frame);
+              store.setNotice(
+                `Marcador anterior: ${markerBefore.label} · ${formatTimecode(markerBefore.frame, fps)}.`,
+              );
+            }}
+          >
+            <span className="marker-step-arrow" aria-hidden="true">‹</span>
+          </button>
+          <button
+            type="button"
             className="small icon-text"
             aria-label="Agregar o quitar marcador"
             aria-keyshortcuts="M"
@@ -2415,6 +3626,26 @@ export const Timeline = memo(function Timeline() {
           >
             <Icon name="marker" size={13} />
             <span className="tool-label">Marcador</span>
+          </button>
+          <button
+            type="button"
+            className="small ghost marker-step"
+            aria-label="Marcador siguiente"
+            title={
+              markerAfter
+                ? `Marcador siguiente: ${markerAfter.label} · ${formatTimecode(markerAfter.frame, fps)}`
+                : 'No hay marcadores después del playhead'
+            }
+            disabled={!markerAfter}
+            onClick={() => {
+              if (!markerAfter) return;
+              store.setPlayhead(markerAfter.frame);
+              store.setNotice(
+                `Marcador siguiente: ${markerAfter.label} · ${formatTimecode(markerAfter.frame, fps)}.`,
+              );
+            }}
+          >
+            <span className="marker-step-arrow" aria-hidden="true">›</span>
           </button>
           <button
             type="button"
@@ -2552,10 +3783,14 @@ export const Timeline = memo(function Timeline() {
                     role="menuitem"
                     disabled={disabled}
                     onClick={() => {
-                      const target = document.querySelector<HTMLButtonElement>(
-                        `.timeline-toolbar button[aria-label="${item.aria}"]`,
-                      );
-                      target?.click();
+                      if (item.run === 'open-palette') {
+                        openInspectorTab('color', 'palette');
+                      } else if (item.aria) {
+                        const target = document.querySelector<HTMLButtonElement>(
+                          `.timeline-toolbar button[aria-label="${item.aria}"]`,
+                        );
+                        target?.click();
+                      }
                       setToolsMenuOpen(false);
                     }}
                   >
@@ -2602,7 +3837,7 @@ export const Timeline = memo(function Timeline() {
       </div>
 
       {/* Captura 128: fila de herramientas rápidas, personalizable desde 126. */}
-      <QuickToolsBar tools={quickTools} />
+      <QuickToolsBar tools={quickTools} onRun={runToolbarTool} />
 
       {overviewVisible ? (
         <TimelineOverview
@@ -2631,6 +3866,14 @@ export const Timeline = memo(function Timeline() {
         onPointerMove={movePan}
         onPointerUp={finishPan}
         onPointerCancel={finishPan}
+        onMouseMove={onSkimMouseMove}
+        onMouseLeave={() => endSkim()}
+        // Si el pointerdown arrancó un scrub/drag (dragRef ya está puesto por
+        // el handler del hijo), el gesto nuevo es dueño del playhead: no
+        // restaurar. Si no, el skim había dejado el head movido y se repone.
+        onPointerDown={() => {
+          endSkim(!dragRef.current);
+        }}
         onAuxClick={(event) => {
           if (event.button === 1) event.preventDefault();
         }}
@@ -2681,6 +3924,81 @@ export const Timeline = memo(function Timeline() {
                   />
                 ) : null,
               )}
+              {/* Handle del fin de un marcador de rango: se arrastra para
+                  estirar/encoger el tramo. El inicio no puede cruzarlo. */}
+              {project.markers.map((marker) => {
+                const endFrame = marker.endFrame;
+                if (endFrame === undefined) return null;
+                return (
+                  <button
+                    key={`range-end-${marker.id}`}
+                    type="button"
+                    className={`timeline-marker-range-handle marker-${marker.color ?? 'mint'}`}
+                    style={{ left: endFrame * pxPerFrame }}
+                    aria-label={`Fin del marcador ${marker.label} en ${formatTimecode(endFrame, fps)}`}
+                    title="Arrastrar el fin del rango"
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      store.setPlaying(false);
+                      const target = event.currentTarget;
+                      const startX = event.clientX;
+                      const originalEnd = endFrame;
+                      let moved = false;
+                      let lastEnd = originalEnd;
+
+                      const onMove = (moveEvent: PointerEvent): void => {
+                        const deltaFrames =
+                          (moveEvent.clientX - startX) / Math.max(0.0001, pxPerFrame);
+                        if (!moved && Math.abs(deltaFrames) < 3) return;
+                        moved = true;
+                        const nextEnd = Math.max(
+                          marker.frame + 1,
+                          Math.min(
+                            store.durationFrames,
+                            Math.round(originalEnd + deltaFrames),
+                          ),
+                        );
+                        if (nextEnd === lastEnd) return;
+                        try {
+                          store.update(
+                            (current) =>
+                              updateMarker(current, marker.id, { endFrame: nextEnd }),
+                            { history: false },
+                          );
+                          lastEnd = nextEnd;
+                        } catch {
+                          // Rango inválido: se ignora el paso.
+                        }
+                      };
+                      const finish = (): void => {
+                        target.removeEventListener('pointermove', onMove);
+                        target.removeEventListener('pointerup', finish);
+                        target.removeEventListener('pointercancel', finish);
+                        if (target.hasPointerCapture?.(event.pointerId)) {
+                          target.releasePointerCapture(event.pointerId);
+                        }
+                        if (!moved) return;
+                        // Un solo paso de historial para todo el arrastre.
+                        try {
+                          store.update((current) =>
+                            updateMarker(current, marker.id, { endFrame: lastEnd }),
+                          );
+                        } catch {
+                          // Si el fin final quedó inválido, se conserva el último válido.
+                        }
+                        store.setNotice(
+                          `Fin del rango «${marker.label}» movido a ${formatTimecode(lastEnd, fps)}.`,
+                        );
+                      };
+                      target.setPointerCapture?.(event.pointerId);
+                      target.addEventListener('pointermove', onMove);
+                      target.addEventListener('pointerup', finish);
+                      target.addEventListener('pointercancel', finish);
+                    }}
+                  />
+                );
+              })}
               {project.markers.map((marker) => (
                 <button
                   key={marker.id}
@@ -2690,10 +4008,72 @@ export const Timeline = memo(function Timeline() {
                   title={`${marker.label} · ${formatTimecode(marker.frame, fps)}`}
                   aria-label={`Marcador ${marker.label} en ${formatTimecode(marker.frame, fps)}`}
                   onPointerDown={(event) => {
+                    if (event.button !== 0) return;
                     event.stopPropagation();
                     store.setPlaying(false);
                     store.setPlayhead(marker.frame);
                     store.setSelection({ kind: 'none' });
+
+                    // Arrastre del marcador sobre la regla (paridad con
+                    // `marcador-regua` de AlaukCut). Umbral de 3 px: por debajo
+                    // sigue siendo un clic que salta al marcador.
+                    const target = event.currentTarget;
+                    const startX = event.clientX;
+                    const originalFrame = marker.frame;
+                    let moved = false;
+                    let lastFrame = originalFrame;
+
+                    const onMove = (moveEvent: PointerEvent): void => {
+                      const deltaFrames =
+                        (moveEvent.clientX - startX) / Math.max(0.0001, pxPerFrame);
+                      if (!moved && Math.abs(deltaFrames) < 3) return;
+                      moved = true;
+                      // En un marcador de rango el inicio no puede cruzar el
+                      // fin: se clampa un frame antes.
+                      const maxFrame =
+                        marker.endFrame !== undefined
+                          ? marker.endFrame - 1
+                          : store.durationFrames;
+                      const nextFrame = Math.max(
+                        0,
+                        Math.min(maxFrame, Math.round(originalFrame + deltaFrames)),
+                      );
+                      if (nextFrame === lastFrame) return;
+                      try {
+                        store.update(
+                          (current) => updateMarker(current, marker.id, { frame: nextFrame }),
+                          { history: false },
+                        );
+                        lastFrame = nextFrame;
+                      } catch {
+                        // Otro marcador ocupa ese frame: se ignora el paso.
+                      }
+                    };
+                    const finish = (): void => {
+                      target.removeEventListener('pointermove', onMove);
+                      target.removeEventListener('pointerup', finish);
+                      target.removeEventListener('pointercancel', finish);
+                      if (target.hasPointerCapture?.(event.pointerId)) {
+                        target.releasePointerCapture(event.pointerId);
+                      }
+                      if (!moved) return;
+                      // Un solo paso de historial para todo el arrastre.
+                      try {
+                        store.update((current) =>
+                          updateMarker(current, marker.id, { frame: lastFrame }),
+                        );
+                      } catch {
+                        // Si el frame final quedó ocupado, se conserva el último válido.
+                      }
+                      store.setPlayhead(lastFrame);
+                      store.setNotice(
+                        `Marcador «${marker.label}» movido a ${formatTimecode(lastFrame, fps)}.`,
+                      );
+                    };
+                    target.setPointerCapture?.(event.pointerId);
+                    target.addEventListener('pointermove', onMove);
+                    target.addEventListener('pointerup', finish);
+                    target.addEventListener('pointercancel', finish);
                   }}
                 >
                   <span className="timeline-marker-flag" aria-hidden="true" />
@@ -2919,6 +4299,7 @@ export const Timeline = memo(function Timeline() {
                       preview={preview}
                       showThumbnail={preferences.showThumbnails}
                       showWaveform={preferences.showWaveforms}
+                      waveformStyle={preferences.waveformStyle}
                       onSelect={(event) => clipHandlersRef.current.select(clip.id, event)}
                       onSeek={(event) => clipHandlersRef.current.seek(event, clip)}
                       onDrag={(event, mode) =>
@@ -3000,6 +4381,56 @@ export const Timeline = memo(function Timeline() {
             />
           </div>
 
+          {attrPaste ? (
+            <div
+              className="timeline-menu"
+              role="dialog"
+              aria-label="Pegar atributos por grupos"
+              style={{
+                left: Math.max(8, Math.min(attrPaste.x || 120, document.documentElement.clientWidth - 268)),
+                top: Math.max(8, Math.min(attrPaste.y || 120, document.documentElement.clientHeight - 220)),
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setAttrPaste(null);
+                }
+              }}
+            >
+              <div className="timeline-menu-group-title">Pegar atributos</div>
+              {ATTRIBUTE_GROUPS.filter((group) => attrPaste.groups.includes(group.id)).map(
+                (group) => (
+                  <label
+                    key={group.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '4px 8px' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={attrPaste.selected.has(group.id)}
+                      onChange={() => toggleAttrPasteGroup(group.id)}
+                    />
+                    <span>{group.label}</span>
+                  </label>
+                ),
+              )}
+              <div className="timeline-menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                disabled={attrPaste.selected.size === 0}
+                onClick={confirmAttrPaste}
+              >
+                <span>Pegar ({attrPaste.selected.size})</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => setAttrPaste(null)}
+              >
+                <span>Cancelar</span>
+              </button>
+            </div>
+          ) : null}
           {contextMenu && contextClip ? (
             <div
               ref={contextMenuRef}
@@ -3092,12 +4523,20 @@ export const Timeline = memo(function Timeline() {
                 type="button"
                 role="menuitem"
                 disabled={!attributesReady}
-                onClick={() => {
-                  pasteAttributesFor(contextClip);
+                onClick={(event) => {
+                  pasteAttributesFor(contextClip, event.clientX, event.clientY);
                   setContextMenu(null);
                 }}
               >
                 <span>Pegar atributos</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => openSfxMenu(contextClip, contextMenu.x, contextMenu.y)}
+              >
+                <span>Efecto de sonido…</span>
+                <span className="timeline-menu-hint">SFX</span>
               </button>
               <div className="timeline-menu-separator" role="separator" />
               <div className="timeline-menu-colors" role="group" aria-label="Color del clip">
@@ -3230,6 +4669,64 @@ export const Timeline = memo(function Timeline() {
                 <span>Eliminar y cerrar hueco</span>
                 <span className="timeline-menu-hint">Shift+Supr</span>
               </button>
+            </div>
+          ) : null}
+          {sfxMenu && sfxClip ? (
+            <div
+              ref={sfxMenuRef}
+              className="timeline-menu timeline-menu-sfx"
+              role="menu"
+              aria-label={`Efectos de sonido para ${sfxClip.label ?? 'el clip'}`}
+              style={{
+                left: Math.max(8, Math.min(sfxMenu.x, document.documentElement.clientWidth - 268)),
+                top: Math.max(8, Math.min(sfxMenu.y, document.documentElement.clientHeight - 536)),
+              }}
+              onContextMenu={(event) => event.preventDefault()}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setSfxMenu(null);
+                  stopSfxPreview();
+                }
+              }}
+            >
+              <p className="timeline-menu-group-title">
+                Efecto de sonido · se monta al inicio del clip
+              </p>
+              {sfxMenu.items === null ? (
+                <p className="timeline-menu-empty">Cargando efectos…</p>
+              ) : sfxMenu.items.length === 0 ? (
+                <p className="timeline-menu-empty">
+                  La biblioteca de efectos no está disponible.
+                </p>
+              ) : (
+                sfxMenu.items.map((item) => (
+                  <div key={item.id} className="timeline-menu-sfx-row">
+                    <button
+                      type="button"
+                      className="timeline-menu-sfx-preview"
+                      aria-label={`Escuchar ${item.label}`}
+                      title="Escuchar una vez"
+                      onClick={() => previewSfx(item)}
+                    >
+                      {sfxPreviewing === item.id ? '■' : '▶'}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="timeline-menu-sfx-add"
+                      disabled={sfxBusy === item.id}
+                      title={`${item.description} — click para montar al inicio del clip`}
+                      onClick={() => void addSfxAtClipStart(item)}
+                    >
+                      <span>{item.label}</span>
+                      <span className="timeline-menu-hint">
+                        {item.durationSeconds.toFixed(1)}s
+                      </span>
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           ) : null}
         </div>

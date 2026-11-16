@@ -322,3 +322,186 @@ fn client_entries_match_each_client_shape() {
     assert_eq!(antigravity["serverUrl"], info.url);
     assert!(client_entry("otro", &info).is_none());
 }
+
+#[test]
+fn autoconnect_entries_request_scopes_but_never_admin() {
+    let info = McpServerInfo {
+        url: "http://127.0.0.1:31417/mcp".to_owned(),
+        token: "tok".to_owned(),
+    };
+    for client in ["claude-desktop", "antigravity"] {
+        let entry = client_entry(client, &info).expect("entry");
+        let scopes = entry["headers"]["X-Olyvia-Scopes"]
+            .as_str()
+            .expect("scopes header");
+        assert_eq!(scopes, AUTOCONNECT_SCOPES);
+        assert!(!scopes.split(',').any(|scope| scope == "admin"));
+    }
+}
+
+#[test]
+fn tool_scopes_classify_reads_writes_destructive_and_admin() {
+    // Lectura pura.
+    for name in [
+        "diagnostics",
+        "project_snapshot",
+        "timeline_clips",
+        "factory_job_status",
+        "production_status",
+        "quality_gate_review",
+        "markers_list",
+        "fs_read",
+    ] {
+        assert_eq!(tool_required_scope(name), "read", "{name}");
+    }
+    // Escritura acotada.
+    for name in [
+        "clip_update",
+        "clip_move",
+        "clip_split",
+        "clip_add",
+        "caption_add",
+        "track_add",
+        "project_save",
+        "navigate",
+        "batch_effects_apply",
+        "timeline_align_clips",
+    ] {
+        assert_eq!(tool_required_scope(name), "write", "{name}");
+    }
+    // Destructivas / con costo.
+    for name in [
+        "clip_delete",
+        "caption_delete",
+        "track_delete",
+        "project_close",
+        "export_render",
+        "factory_run",
+        "factory_job_cancel",
+        "production_cancel",
+        "production_start",
+        "run_automation",
+        "diarize",
+        "screen_record",
+        "fs_delete_x", // nombre parecido pero no listado → desconocida
+    ] {
+        assert_eq!(tool_required_scope(name), "destructive", "{name}");
+    }
+    // Admin.
+    for name in [
+        "run_command",
+        "flow_embed_eval",
+        "fs_write",
+        "fs_delete",
+        "fs_mkdir",
+        "fs_move",
+        "settings_set",
+        "settings_set_tools",
+    ] {
+        assert_eq!(tool_required_scope(name), "admin", "{name}");
+    }
+    // Desconocida → destructive (deny-by-default).
+    assert_eq!(tool_required_scope("future_unknown_tool"), "destructive");
+}
+
+#[test]
+fn scopes_header_parses_csv_and_defaults_to_read_write() {
+    let granted = request_scopes(Some("read, write ,DESTRUCTIVE, bogus"));
+    assert!(granted.contains("read"));
+    assert!(granted.contains("write"));
+    assert!(granted.contains("destructive"));
+    assert!(!granted.contains("bogus"));
+    assert!(!granted.contains("admin"));
+
+    let defaulted = request_scopes(None);
+    assert!(defaulted.contains("read"));
+    assert!(defaulted.contains("write"));
+    assert!(!defaulted.contains("destructive"));
+    assert!(!defaulted.contains("admin"));
+
+    // Header presente pero sin scopes válidos → default.
+    let empty = request_scopes(Some("bogus,,"));
+    assert!(empty.contains("read"));
+    assert!(!empty.contains("admin"));
+}
+
+#[test]
+fn scope_satisfaction_uses_rank_not_exact_membership() {
+    let admin = scopes_from_header("admin");
+    assert!(scopes_satisfy(&admin, "read"));
+    assert!(scopes_satisfy(&admin, "write"));
+    assert!(scopes_satisfy(&admin, "destructive"));
+    assert!(scopes_satisfy(&admin, "admin"));
+
+    let destructive = scopes_from_header("destructive");
+    assert!(scopes_satisfy(&destructive, "read"));
+    assert!(scopes_satisfy(&destructive, "write"));
+    assert!(scopes_satisfy(&destructive, "destructive"));
+    assert!(!scopes_satisfy(&destructive, "admin"));
+
+    let write = scopes_from_header("write");
+    assert!(scopes_satisfy(&write, "read"));
+    assert!(scopes_satisfy(&write, "write"));
+    assert!(!scopes_satisfy(&write, "destructive"));
+    assert!(!scopes_satisfy(&write, "admin"));
+
+    let none = HashSet::new();
+    assert!(!scopes_satisfy(&none, "read"));
+}
+
+#[test]
+fn audit_args_redact_sensitive_keys_and_truncate_strings() {
+    let args = json!({
+        "command": "export_render",
+        "apiKey": "sk-supersecreta-123",
+        "nested": { "password": "hunter2", "note": "ok" },
+        "long": "x".repeat(1000),
+        "count": 3
+    });
+    let clean = sanitize_audit_args(&args);
+    assert_eq!(clean["apiKey"], json!("[redacted]"));
+    assert_eq!(clean["nested"]["password"], json!("[redacted]"));
+    assert_eq!(clean["nested"]["note"], json!("ok"));
+    assert_eq!(clean["count"], json!(3));
+    let long = clean["long"].as_str().expect("long string");
+    assert!(long.chars().count() <= 240);
+    assert!(long.ends_with('…'));
+    // El secreto no aparece en ninguna parte del JSON serializado.
+    let serialized = serde_json::to_string(&clean).unwrap();
+    assert!(!serialized.contains("sk-supersecreta-123"));
+    assert!(!serialized.contains("hunter2"));
+}
+
+#[test]
+fn audit_args_drop_oversized_payloads() {
+    // Un solo string se trunca por campo; para superar el tope hacen
+    // falta muchos campos (cada uno queda en ~240 chars).
+    let mut map = serde_json::Map::new();
+    for index in 0..80 {
+        map.insert(format!("field{index}"), json!("y".repeat(300)));
+    }
+    let clean = sanitize_audit_args(&Value::Object(map));
+    assert!(clean.is_string());
+}
+
+#[test]
+fn audit_text_redacts_bearer_and_labeled_secrets() {
+    let dirty = "falló: Authorization: Bearer abc.def.ghi y api_key=sk-live-999 en el log";
+    let clean = sanitize_audit_text(dirty);
+    assert!(!clean.contains("abc.def.ghi"));
+    assert!(!clean.contains("sk-live-999"));
+    // El nombre de la clave se conserva para diagnóstico.
+    assert!(clean.contains("api_key"));
+    assert!(clean.contains("Authorization"));
+}
+
+#[test]
+fn redact_sensitive_text_masks_known_literal_secrets() {
+    let secrets = vec!["MIIVALORSECRETO999".to_owned()];
+    let text = "stderr: token=MIIVALORSECRETO999 retrying";
+    let clean = redact_sensitive_text(text, &secrets);
+    assert!(!clean.contains("MIIVALORSECRETO999"));
+    // Secretos cortos no se tapan (evita falsos positivos masivos).
+    let short = vec!["abc".to_owned()];
+    assert_eq!(redact_sensitive_text("abc abc", &short), "abc abc");
+}

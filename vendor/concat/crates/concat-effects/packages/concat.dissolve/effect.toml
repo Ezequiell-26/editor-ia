@@ -1,0 +1,15 @@
+format = 2
+
+[effect]
+id = "concat.dissolve"
+name = "Dissolve"
+kind = "transition"
+category = "Basic"
+order = 0
+aliases = ["cross-fade"]
+description = "One shot melts evenly into the next."
+
+[transition]
+fallback = "cross-fade"
+xfade = "fade"
+entry = "effect.wgsl"

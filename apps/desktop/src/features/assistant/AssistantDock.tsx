@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { NAV_VIEWS, type ViewId } from '../../app/navigation';
+import { useAiColumnElement } from '../../state/ai-column';
 import { Icon } from '../../components/Icon';
+import { SafeText } from '../../components/SafeText';
 import { AiBrandMark } from '../../components/AiBrandMark';
 import {
   detectAiBrand,
@@ -179,6 +182,10 @@ export function AssistantDock({
 }) {
   const store = useProjectStore();
   const [open, setOpen] = useState(false);
+  // Layout «Edición»: si el editor montó su columna de IA, el panel se
+  // hospeda ahí por portal (paridad `.ia-coluna` de AlaukCut) y vuelve a
+  // flotar como popover al salir del layout — la conversación no se remonta.
+  const aiColumn = useAiColumnElement();
   const [messages, setMessages] = useState<readonly ChatEntry[]>([GREETING]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -206,6 +213,9 @@ export function AssistantDock({
   const logRef = useRef<HTMLDivElement | null>(null);
   const replyTimerRef = useRef<number | null>(null);
   const streamHandleRef = useRef<AssistantStreamHandle | null>(null);
+  // AUD-090: los comandos del puente (plugins/skills) se serializan — cada
+  // evento espera a que termine el anterior antes de tocar la timeline.
+  const commandQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(
     () => () => {
@@ -419,6 +429,14 @@ export function AssistantDock({
       setOpen(true);
     }
   }
+
+  // La columna de IA del editor puede pedir abrir el asistente sin tocar el
+  // launcher (paridad del botón «Conectar una IA» de la `.ia-coluna`).
+  useEffect(() => {
+    const openAssistant = (): void => setOpen(true);
+    window.addEventListener('olyvia:assistant-open', openAssistant);
+    return () => window.removeEventListener('olyvia:assistant-open', openAssistant);
+  }, []);
 
   function append(entry: ChatEntry): void {
     setMessages((current) => [...current, entry].slice(-24));
@@ -1268,25 +1286,28 @@ export function AssistantDock({
       // muestra inline); el chat la recibe siempre como antes.
       const report =
         typeof detail?.onResult === 'function'
-          ? (detail.onResult as (reply: string) => void)
+          ? (detail.onResult as (reply: string, ok?: boolean) => void)
           : null;
-      void (async () => {
+      const run = async (): Promise<void> => {
         append({ role: 'user', text });
         try {
           const reply = await runLocalCommand(text);
-          report?.(reply);
+          report?.(reply, true);
           append({ role: 'assistant', text: reply });
           flashReply();
         } catch (error) {
           const message =
             error instanceof Error ? error.message : 'no pude ejecutar el comando';
-          report?.(message);
+          report?.(message, false);
           append({
             role: 'assistant',
             text: message,
           });
         }
-      })();
+      };
+      commandQueueRef.current = commandQueueRef.current.then(run).catch(() => {
+        // La cola continúa aunque un comando reviente fuera del try interno.
+      });
     };
     window.addEventListener('olyvia:run-command', handler);
     return () => window.removeEventListener('olyvia:run-command', handler);
@@ -1834,9 +1855,10 @@ export function AssistantDock({
   return (
     <>
       {open ? (
+        <AssistantPanelPortal target={aiColumn}>
         <section
           id="olyvia-assistant-panel"
-          className="assistant-panel"
+          className={`assistant-panel${aiColumn ? ' assistant-panel-docked' : ''}`}
           role="dialog"
           aria-label="Asistente Olyvia"
         >
@@ -1930,7 +1952,7 @@ export function AssistantDock({
           {error ? (
             <div className="assistant-error-recovery">
               <p className="assistant-error" role="alert">
-                {error}
+                <SafeText value={error} />
               </p>
               <div className="actions compact" role="group" aria-label="Recuperar proveedor">
                 <button
@@ -2119,6 +2141,7 @@ export function AssistantDock({
             </button>
           </footer>
         </section>
+        </AssistantPanelPortal>
       ) : null}
 
       <button
@@ -2135,4 +2158,20 @@ export function AssistantDock({
       </button>
     </>
   );
+}
+
+/**
+ * Portal del panel del asistente: cuando el editor monta su columna de IA
+ * (layout «Edición»), el panel se renderiza dentro de ella; si no, queda en
+ * su lugar del árbol (popover fijo). El componente nunca se remonta, así la
+ * conversación sobrevive al cambio de layout.
+ */
+function AssistantPanelPortal({
+  target,
+  children,
+}: {
+  readonly target: HTMLElement | null;
+  readonly children: ReactNode;
+}) {
+  return target ? createPortal(children, target) : <>{children}</>;
 }

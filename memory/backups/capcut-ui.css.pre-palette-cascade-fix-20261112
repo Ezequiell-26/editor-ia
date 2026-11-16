@@ -1,0 +1,697 @@
+/* ==========================================================================
+   Olyvia · capa visual «CapCut» (additiva, global)
+   --------------------------------------------------------------------------
+   Objetivo: que toda la aplicación —lanzador, inicio, editor, medios,
+   ajustes— comparta el lenguaje visual medido en las cuatro capturas de
+   referencia de `D:\Users\ofici\Pictures\Screenshots` (CapCut Desktop,
+   1360×768) y en la captura del editor de AlaukCut:
+
+     · grafito acromático:  #1C1C1C cromo · #262626 superficie ·
+                            #303030 pestañas/timeline · #3B3B3B tarjetas;
+     · un único acento turquesa #00C1CD (Exportar, importar, pestaña activa,
+       playhead, selección) con degradado cian → azul en el CTA principal;
+     · densidad compacta (11–13 px), esquinas de 5–6 px, líneas de 1 px,
+       sin glassmorphism ni sombras difusas;
+     · jerarquía explícita: cabeceras de panel rotuladas, pestaña activa con
+       subrayado de acento, estados hover/active/disabled diferenciados.
+
+   REGLAS DE INTEGRACIÓN
+   1. Es ADDITIVA: no modifica ninguna hoja existente. Se importa la última
+      en `main.tsx`, después de `layouts.css`.
+   2. Todos los selectores llevan `:root[data-theme='dark']` delante, lo que
+      les da más especificidad que las 2.574 reglas `!important` de Filmora;
+      las declaraciones propias también usan `!important` cuando compiten.
+   3. El tema CLARO (`data-theme='light'`) queda intacto: todos los
+      selectores exigen `data-theme='dark'`. La capa SÍ se aplica también
+      cuando el usuario elige el preset opcional «CapCut»: al ir última en
+      la cascada unifica el acento medido (#00C1CD) en todo el tema oscuro,
+      de modo que la aplicación entera comparte un único lenguaje visual.
+      `capcut.css` conserva sus reglas de geometría de clips/transporte allí
+      donde esta hoja no declara la misma propiedad.
+   4. Sólo presentación. No toca contratos, estado, Rust ni build scripts.
+   5. Los tokens `--color-*` se escriben inline en <html> por `applyAppearance`;
+      por eso las sobreescrituras de token llevan `!important` (ganan a un
+      inline sin !important). Las capas derivadas (`--fm-*`, `--premium-*`)
+      referencian esos tokens y se recalculan solas.
+   ========================================================================== */
+
+:root[data-theme='dark'] {
+  /* ── Paleta base medida ─────────────────────────────────────────────── */
+  --color-bg: #1c1c1c !important;
+  --color-surface: #262626 !important;
+  --color-surface-raised: #2e2e2e !important;
+  --color-panel: #262626 !important;
+  --color-panel-2: #303030 !important;
+  --color-panel-3: #3b3b3b !important;
+  --color-panel-raised: #303030 !important;
+  --color-border: #383838 !important;
+  --color-border-strong: #4a4a4a !important;
+  --color-empty: #6f6f6f !important;
+
+  --color-text: #f2f2f2 !important;
+  --color-text-muted: #b9b9b9 !important;
+  --color-text-secondary: #969696 !important;
+  --color-text-faint: #777777 !important;
+
+  /* ── Acento turquesa CapCut ─────────────────────────────────────────── */
+  --color-accent: #00c1cd !important;
+  --color-accent-light: #4fe3ec !important;
+  --color-accent-strong: #00a7b3 !important;
+  --color-accent-ink: #04252a !important;
+  --color-cta: #00c1cd !important;
+  --color-info: #4aa8ff !important;
+  --color-success: #35c98d !important;
+  --color-warning: #f2c921 !important;
+  --color-danger: #f2637b !important;
+  --color-danger-strong: #e04a64 !important;
+  --color-ok: #35c98d !important;
+  --color-ok-strong: #24a874 !important;
+  --color-warn: #f2c921 !important;
+  --color-warn-strong: #d4ad10 !important;
+
+  /* ── Alias de marca / comerciales (derivados, por coherencia) ───────── */
+  --commercial-canvas: #1c1c1c !important;
+  --commercial-surface: #262626 !important;
+  --commercial-border: #383838 !important;
+  --commercial-border-strong: #4a4a4a !important;
+  --commercial-accent: #00c1cd !important;
+  --commercial-cta: #00c1cd !important;
+  --commercial-success: #35c98d !important;
+  --commercial-text: #f2f2f2 !important;
+  --commercial-muted: #b9b9b9 !important;
+  --commercial-input: #1f1f1f !important;
+  --olyvia-ink: #1c1c1c !important;
+  --olyvia-panel: #262626 !important;
+  --olyvia-cyan: #4fe3ec !important;
+  --olyvia-blue: #2b8fd6 !important;
+  --olyvia-violet: #8b5cf6 !important;
+  --olyvia-magenta: #d35cff !important;
+  --olyvia-border: #383838 !important;
+
+  /* ── Tipografía / geometría ────────────────────────────────────────────
+     NO se sobreescriben `--font-*`, `--text-*` ni `--radius-*` con
+     `!important`: son ajustes del usuario en Ajustes → Apariencia. La
+     densidad y las esquinas CapCut se aplican selectivamente por componente
+     más abajo, sin quitarle al usuario el control de su tema. */
+
+  /* ── Superficies de la capa Filmora que son literales ───────────────── */
+  --fm-preview: #0d0d0d !important;
+  --fm-ink-bright: #ffffff !important;
+}
+
+/* ═══════════════════════════ 1 · Cromo global ══════════════════════════ */
+
+:root[data-theme='dark'] body,
+:root[data-theme='dark'] .app-shell,
+:root[data-theme='dark'] .start-window {
+  background: var(--color-bg) !important;
+  color: var(--color-text) !important;
+  font-family: var(--font-ui) !important;
+}
+
+:root[data-theme='dark'] .app-shell .topbar,
+:root[data-theme='dark'] .app-shell .app-statusbar {
+  background: #1c1c1c !important;
+  border-color: #333333 !important;
+  color: #cfcfcf !important;
+}
+
+:root[data-theme='dark'] .app-shell .topbar {
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 8px !important;
+  gap: 6px !important;
+}
+
+:root[data-theme='dark'] .app-shell .topbar-brand {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em !important;
+  color: #f2f2f2 !important;
+}
+
+:root[data-theme='dark'] .app-shell .topbar-brand img {
+  width: 17px !important;
+  height: 17px !important;
+  border-radius: 4px !important;
+}
+
+:root[data-theme='dark'] .app-shell .menubar-title {
+  font-size: 11.5px !important;
+  color: #c4c4c4 !important;
+  border-radius: 4px !important;
+}
+:root[data-theme='dark'] .app-shell .menubar-title:hover {
+  background: #333333 !important;
+  color: #ffffff !important;
+}
+
+:root[data-theme='dark'] .app-shell .topbar-actions { gap: 4px !important; }
+
+/* Botón EXPORTAR: el único CTA de color en todo el cromo (CapCut). */
+:root[data-theme='dark'] .app-shell .topbar-export-btn {
+  height: 24px !important;
+  min-width: 74px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 5px !important;
+  background: #00c1cd !important;
+  color: #04252a !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em !important;
+  gap: 5px !important;
+  box-shadow: 0 0 0 1px rgba(0, 193, 205, 0.25) !important;
+}
+:root[data-theme='dark'] .app-shell .topbar-export-btn:hover:not(:disabled) {
+  background: #35d8e2 !important;
+  box-shadow: 0 2px 10px rgba(0, 193, 205, 0.28) !important;
+}
+:root[data-theme='dark'] .app-shell .topbar-export-btn:disabled {
+  opacity: 0.4 !important;
+  filter: grayscale(0.7) !important;
+}
+
+:root[data-theme='dark'] .app-shell .icon-button,
+:root[data-theme='dark'] .app-shell .topbar-search {
+  border-radius: 4px !important;
+  color: #bdbdbd !important;
+}
+:root[data-theme='dark'] .app-shell .icon-button:hover,
+:root[data-theme='dark'] .app-shell .topbar-search:hover {
+  background: #333333 !important;
+  color: #ffffff !important;
+}
+
+/* ── Rail lateral: compacto, con estado activo inequívoco ─────────────── */
+:root[data-theme='dark'] .app-shell .sidebar {
+  background: #1f1f1f !important;
+  border-right: 1px solid #333333 !important;
+  padding: 4px 3px !important;
+}
+:root[data-theme='dark'] .app-shell .sidebar button {
+  border-radius: 5px !important;
+  color: #a6a6a6 !important;
+  font-size: 11.5px !important;
+}
+:root[data-theme='dark'] .app-shell .sidebar button:hover {
+  background: #303030 !important;
+  color: #f2f2f2 !important;
+}
+:root[data-theme='dark'] .app-shell .sidebar button[aria-current='page'] {
+  background: rgba(0, 193, 205, 0.14) !important;
+  color: #4fe3ec !important;
+  box-shadow: inset 2px 0 0 #00c1cd !important;
+  border-left-color: transparent !important;
+}
+:root[data-theme='dark'] .app-shell .nav-separator-label {
+  color: #6d6d6d !important;
+  font-size: 9px !important;
+  letter-spacing: 0.09em !important;
+}
+
+:root[data-theme='dark'] .app-shell .content {
+  background: #262626 !important;
+}
+
+:root[data-theme='dark'] .app-shell .app-statusbar {
+  font-size: 10.5px !important;
+  height: 22px !important;
+  min-height: 22px !important;
+}
+
+/* ═══════════════════════ 2 · Componentes comunes ══════════════════════ */
+
+:root[data-theme='dark'] .app-shell .primary,
+:root[data-theme='dark'] .app-shell button.primary {
+  background: #00c1cd !important;
+  border: 1px solid #00c1cd !important;
+  border-radius: 5px !important;
+  color: #04252a !important;
+  font-weight: 650 !important;
+  font-size: 11.5px !important;
+  box-shadow: none !important;
+}
+:root[data-theme='dark'] .app-shell .primary:hover:not(:disabled),
+:root[data-theme='dark'] .app-shell button.primary:hover:not(:disabled) {
+  background: #35d8e2 !important;
+  border-color: #35d8e2 !important;
+}
+:root[data-theme='dark'] .app-shell .ghost,
+:root[data-theme='dark'] .app-shell button.ghost,
+:root[data-theme='dark'] .app-shell .icon-button {
+  border: 1px solid #424242 !important;
+  border-radius: 5px !important;
+  background: #303030 !important;
+  color: #d8d8d8 !important;
+}
+:root[data-theme='dark'] .app-shell .ghost:hover:not(:disabled),
+:root[data-theme='dark'] .app-shell button.ghost:hover:not(:disabled) {
+  background: #3b3b3b !important;
+  border-color: #585858 !important;
+  color: #ffffff !important;
+}
+:root[data-theme='dark'] .app-shell .icon-button {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+:root[data-theme='dark'] .app-shell .icon-button:hover:not(:disabled) {
+  background: #333333 !important;
+  border-color: #3d3d3d !important;
+}
+
+:root[data-theme='dark'] .app-shell .card,
+:root[data-theme='dark'] .app-shell .panel,
+:root[data-theme='dark'] .app-shell .home-pillar-card,
+:root[data-theme='dark'] .app-shell .home-setup,
+:root[data-theme='dark'] .app-shell .home-extension,
+:root[data-theme='dark'] .app-shell .home-recents,
+:root[data-theme='dark'] .app-shell .pipeline-guide {
+  background: #262626 !important;
+  border: 1px solid #3a3a3a !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  color: #e6e6e6 !important;
+}
+
+:root[data-theme='dark'] .app-shell h1,
+:root[data-theme='dark'] .app-shell h2,
+:root[data-theme='dark'] .app-shell h3 {
+  color: #f5f5f5 !important;
+  letter-spacing: -0.01em !important;
+}
+:root[data-theme='dark'] .app-shell .muted,
+:root[data-theme='dark'] .app-shell .fine-print,
+:root[data-theme='dark'] .app-shell p {
+  color: #a8a8a8 !important;
+}
+
+:root[data-theme='dark'] .app-shell input,
+:root[data-theme='dark'] .app-shell select,
+:root[data-theme='dark'] .app-shell textarea {
+  background: #1f1f1f !important;
+  border: 1px solid #454545 !important;
+  border-radius: 5px !important;
+  color: #f0f0f0 !important;
+}
+:root[data-theme='dark'] .app-shell input:focus,
+:root[data-theme='dark'] .app-shell select:focus,
+:root[data-theme='dark'] .app-shell textarea:focus {
+  border-color: #00c1cd !important;
+  outline: 2px solid rgba(0, 193, 205, 0.2) !important;
+  outline-offset: 0 !important;
+}
+:root[data-theme='dark'] .app-shell input::placeholder,
+:root[data-theme='dark'] .app-shell textarea::placeholder { color: #737373 !important; }
+
+:root[data-theme='dark'] .app-shell :focus-visible {
+  outline: 2px solid #00c1cd !important;
+  outline-offset: 1px !important;
+}
+
+/* Scrollbars discretas, acromáticas. */
+:root[data-theme='dark'] * { scrollbar-color: #4b4b4b #262626 !important; scrollbar-width: thin !important; }
+
+/* ═══════════════════════════ 3 · Inicio ═══════════════════════════════ */
+
+:root[data-theme='dark'] .app-shell .home-view { background: #262626 !important; }
+:root[data-theme='dark'] .app-shell .view-toolbar {
+  background: #262626 !important;
+  border-bottom: 1px solid #343434 !important;
+}
+
+/* Hero: degradado cian → azul con tinta oscura, como «Crear proyecto». */
+:root[data-theme='dark'] .app-shell .home-hero {
+  position: relative !important;
+  overflow: hidden !important;
+  background: linear-gradient(105deg, #0b3c48 0%, #0e7f92 42%, #1fb6d0 72%, #3f8fe0 100%) !important;
+  border: 1px solid rgba(79, 227, 236, 0.35) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.34) !important;
+}
+:root[data-theme='dark'] .app-shell .home-hero::after {
+  content: '' !important;
+  position: absolute !important;
+  inset: 0 !important;
+  pointer-events: none !important;
+  background: radial-gradient(ellipse 70% 130% at 14% 0%, rgba(255,255,255,0.16), transparent 62%) !important;
+}
+:root[data-theme='dark'] .app-shell .home-hero > * { position: relative !important; z-index: 1 !important; }
+:root[data-theme='dark'] .app-shell .home-hero h1,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-lead,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-meta,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-chip {
+  color: #04272e !important;
+}
+:root[data-theme='dark'] .app-shell .home-hero h1 { font-weight: 750 !important; letter-spacing: -0.025em !important; }
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-lead { font-weight: 520 !important; }
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-chip {
+  background: rgba(4, 39, 46, 0.14) !important;
+  border: 1px solid rgba(4, 39, 46, 0.24) !important;
+  color: #04272e !important;
+}
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-actions .primary {
+  background: #052a32 !important;
+  border-color: #052a32 !important;
+  color: #d9fbff !important;
+  font-weight: 700 !important;
+}
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-actions .primary:hover { background: #0a4250 !important; }
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-actions .ghost {
+  background: rgba(255,255,255,0.14) !important;
+  border-color: rgba(255,255,255,0.4) !important;
+  color: #ffffff !important;
+}
+:root[data-theme='dark'] .app-shell .home-hero-status {
+  background: rgba(6, 30, 36, 0.42) !important;
+  border: 1px solid rgba(255,255,255,0.26) !important;
+  color: #eaffff !important;
+  border-radius: 9px !important;
+}
+:root[data-theme='dark'] .app-shell .home-hero-status strong,
+:root[data-theme='dark'] .app-shell .home-hero-status li,
+:root[data-theme='dark'] .app-shell .home-hero-status span { color: #eaffff !important; }
+
+:root[data-theme='dark'] .app-shell .home-pillar-card { transition: border-color 140ms ease, transform 140ms ease !important; }
+:root[data-theme='dark'] .app-shell .home-pillar-card:hover {
+  border-color: rgba(0, 193, 205, 0.65) !important;
+  transform: translateY(-1px) !important;
+}
+:root[data-theme='dark'] .app-shell .home-pillar-cta { color: #4fe3ec !important; font-weight: 650 !important; }
+:root[data-theme='dark'] .app-shell .pipeline-guide-step.current { border-color: #00c1cd !important; }
+:root[data-theme='dark'] .app-shell .pipeline-guide-step.current strong { color: #4fe3ec !important; }
+
+/* ════════════════════ 4 · Editor · estructura CapCut ═════════════════ */
+
+:root[data-theme='dark'] .app-shell .editor-workspace {
+  background: #1f1f1f !important;
+  color: #e8e8e8 !important;
+}
+
+/* 4.1 Barra de modos: pestaña activa con subrayado turquesa. */
+:root[data-theme='dark'] .app-shell .editor-mode-tabs {
+  background: #1c1c1c !important;
+  border-bottom: 1px solid #343434 !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  gap: 2px !important;
+}
+:root[data-theme='dark'] .app-shell .editor-mode-tab {
+  height: 34px !important;
+  border-radius: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  background: transparent !important;
+  color: #a5a5a5 !important;
+  font-size: 11.5px !important;
+  font-weight: 550 !important;
+}
+:root[data-theme='dark'] .app-shell .editor-mode-tab:hover { color: #ffffff !important; background: #2b2b2b !important; }
+:root[data-theme='dark'] .app-shell .editor-mode-tab.active {
+  color: #ffffff !important;
+  border-bottom-color: #00c1cd !important;
+  background: #262626 !important;
+}
+
+/* 4.2 Rejilla de cuatro paneles: separadores de 1 px, sin huecos. */
+:root[data-theme='dark'] .app-shell .editor-grid {
+  background: #1a1a1a !important;
+  gap: 0 !important;
+}
+:root[data-theme='dark'] .app-shell .editor-grid > * {
+  border-right: 1px solid #333333 !important;
+}
+
+/* 4.3 Rail de herramientas: franja de iconos con etiqueta (CapCut). */
+:root[data-theme='dark'] .app-shell .asset-rail,
+:root[data-theme='dark'] .app-shell .rail-main,
+:root[data-theme='dark'] .app-shell .rail-stage {
+  background: #262626 !important;
+  color: #e0e0e0 !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs,
+:root[data-theme='dark'] .app-shell .rail-module-bar {
+  background: #303030 !important;
+  border-bottom: 1px solid #3b3b3b !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs button,
+:root[data-theme='dark'] .app-shell .rail-module-bar button {
+  color: #a8a8a8 !important;
+  border-radius: 5px !important;
+  font-size: 10.5px !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs button:hover,
+:root[data-theme='dark'] .app-shell .rail-module-bar button:hover {
+  background: #3d3d3d !important;
+  color: #ffffff !important;
+}
+:root[data-theme='dark'] .app-shell .rail-tabs button.active,
+:root[data-theme='dark'] .app-shell .rail-tabs button[aria-selected='true'],
+:root[data-theme='dark'] .app-shell .rail-module-bar button.active {
+  color: #4fe3ec !important;
+  background: rgba(0, 193, 205, 0.12) !important;
+  box-shadow: inset 0 -2px 0 #00c1cd !important;
+}
+:root[data-theme='dark'] .app-shell .rail-head,
+:root[data-theme='dark'] .app-shell .rail-section-head {
+  background: #262626 !important;
+  border-bottom: 1px solid #363636 !important;
+  color: #cfcfcf !important;
+  font-size: 11px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+:root[data-theme='dark'] .app-shell .rail-dropzone,
+:root[data-theme='dark'] .app-shell .rail-empty-import,
+:root[data-theme='dark'] .app-shell .ai-facet-dropzone {
+  background: #3b3b3b !important;
+  border: 1px dashed #5a5a5a !important;
+  border-radius: 8px !important;
+  color: #bdbdbd !important;
+}
+:root[data-theme='dark'] .app-shell .rail-dropzone:hover { border-color: #00c1cd !important; }
+:root[data-theme='dark'] .app-shell .rail-search,
+:root[data-theme='dark'] .app-shell .clip-search-field {
+  background: #1f1f1f !important;
+  border: 1px solid #454545 !important;
+  border-radius: 5px !important;
+}
+
+/* 4.4 Monitor: negro puro, herramientas compactas. */
+:root[data-theme='dark'] .app-shell .preview-panel,
+:root[data-theme='dark'] .app-shell .preview-stage {
+  background: #1a1a1a !important;
+}
+:root[data-theme='dark'] .app-shell .preview-canvas {
+  background: #000000 !important;
+  border-radius: 2px !important;
+  box-shadow: 0 8px 26px rgba(0,0,0,0.6) !important;
+}
+:root[data-theme='dark'] .app-shell .preview-topbar,
+:root[data-theme='dark'] .app-shell .preview-tools {
+  background: #262626 !important;
+  border-color: #363636 !important;
+}
+:root[data-theme='dark'] .app-shell .preview-tool {
+  border-radius: 4px !important;
+  color: #bdbdbd !important;
+  font-size: 11px !important;
+}
+:root[data-theme='dark'] .app-shell .preview-tool:hover { background: #363636 !important; color: #ffffff !important; }
+:root[data-theme='dark'] .app-shell .preview-hud-chip {
+  background: rgba(20,20,20,0.82) !important;
+  border: 1px solid #4a4a4a !important;
+  border-radius: 4px !important;
+  color: #e8e8e8 !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+/* 4.5 Inspector: cabecera rotulada + pestañas con subrayado. */
+:root[data-theme='dark'] .app-shell .inspector,
+:root[data-theme='dark'] .app-shell .inspector-head,
+:root[data-theme='dark'] .app-shell .inspector-tabs-wrap {
+  background: #262626 !important;
+  border-color: #363636 !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-head {
+  border-bottom: 1px solid #363636 !important;
+  color: #4fe3ec !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  text-transform: uppercase !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabs button {
+  color: #9b9b9b !important;
+  border-radius: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  background: transparent !important;
+  font-size: 11px !important;
+}
+:root[data-theme='dark'] .app-shell .inspector-tabs button:hover { color: #ffffff !important; }
+:root[data-theme='dark'] .app-shell .inspector-tabs button.active,
+:root[data-theme='dark'] .app-shell .inspector-tabs button[aria-selected='true'] {
+  color: #ffffff !important;
+  border-bottom-color: #00c1cd !important;
+  background: transparent !important;
+}
+
+/* 4.6 Timeline: grafito, regla fina, playhead blanco. */
+:root[data-theme='dark'] .app-shell .timeline-panel,
+:root[data-theme='dark'] .app-shell .timeline-surface,
+:root[data-theme='dark'] .app-shell .timeline-scroll {
+  background: #303030 !important;
+  border-color: #3b3b3b !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-toolbar,
+:root[data-theme='dark'] .app-shell .timeline-tabs {
+  background: #262626 !important;
+  border-bottom: 1px solid #3b3b3b !important;
+  height: 36px !important;
+  min-height: 36px !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-tools button,
+:root[data-theme='dark'] .app-shell .timeline-toolbar button {
+  border-radius: 4px !important;
+  color: #bdbdbd !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-tools button:hover,
+:root[data-theme='dark'] .app-shell .timeline-toolbar button:hover {
+  background: #3d3d3d !important;
+  color: #ffffff !important;
+}
+:root[data-theme='dark'] .app-shell .ruler-row,
+:root[data-theme='dark'] .app-shell .ruler-lane,
+:root[data-theme='dark'] .app-shell .ruler-corner,
+:root[data-theme='dark'] .app-shell .track-head {
+  background: #2b2b2b !important;
+  border-color: #3b3b3b !important;
+}
+:root[data-theme='dark'] .app-shell .track-lane { background: #262626 !important; }
+:root[data-theme='dark'] .app-shell .ruler-tick {
+  color: #a8a8a8 !important;
+  font-size: 10px !important;
+  font-variant-numeric: tabular-nums !important;
+}
+:root[data-theme='dark'] .app-shell .ruler-minor { background: rgba(255,255,255,0.1) !important; }
+:root[data-theme='dark'] .app-shell .timeline-clip {
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  border-radius: 4px !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.45) !important;
+}
+:root[data-theme='dark'] .app-shell .timeline-clip.selected,
+:root[data-theme='dark'] .app-shell .timeline-clip[aria-selected='true'] {
+  outline: 2px solid #00c1cd !important;
+  outline-offset: -2px !important;
+}
+:root[data-theme='dark'] .app-shell .playhead-line { width: 2px !important; background: #ffffff !important; }
+:root[data-theme='dark'] .app-shell .playhead-grip {
+  background: #ffffff !important;
+  border-radius: 1px !important;
+  clip-path: polygon(0 0, 100% 0, 100% 58%, 50% 100%, 0 58%) !important;
+}
+:root[data-theme='dark'] .app-shell .trim-handle { background: #00c1cd !important; width: 3px !important; }
+:root[data-theme='dark'] .app-shell .timeline-empty {
+  border: 1px dashed #4d4d4d !important;
+  border-radius: 6px !important;
+  color: #9a9a9a !important;
+}
+
+/* 4.7 Transporte */
+:root[data-theme='dark'] .app-shell .transport-scrub { height: 3px !important; background: #4a4a4a !important; border-radius: 2px !important; }
+:root[data-theme='dark'] .app-shell .transport-scrub-knob { background: #ffffff !important; border-color: #ffffff !important; }
+:root[data-theme='dark'] .app-shell .transport-button { color: #d0d0d0 !important; border-radius: 4px !important; }
+:root[data-theme='dark'] .app-shell .transport-button:hover { background: #363636 !important; color: #ffffff !important; }
+:root[data-theme='dark'] .app-shell .transport-button.primary-transport { color: #4fe3ec !important; }
+
+/* 4.8 Estado vacío del editor: orientación clara y accionable. */
+:root[data-theme='dark'] .app-shell .editor-empty-card {
+  background: #262626 !important;
+  border: 1px solid #3d3d3d !important;
+  border-radius: 12px !important;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.4) !important;
+}
+:root[data-theme='dark'] .app-shell .editor-empty-eyebrow {
+  color: #4fe3ec !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase !important;
+}
+:root[data-theme='dark'] .app-shell .editor-empty-title { color: #ffffff !important; font-size: 20px !important; font-weight: 700 !important; }
+:root[data-theme='dark'] .app-shell .editor-empty-desc { color: #a8a8a8 !important; }
+:root[data-theme='dark'] .app-shell .workspace-guide,
+:root[data-theme='dark'] .app-shell .editor-empty-guide {
+  background: #2b2b2b !important;
+  border: 1px solid #3d3d3d !important;
+  border-radius: 8px !important;
+}
+:root[data-theme='dark'] .app-shell .learn-steps li {
+  background: #333333 !important;
+  border: 1px solid #414141 !important;
+  border-radius: 6px !important;
+  color: #cfcfcf !important;
+}
+:root[data-theme='dark'] .app-shell .learn-steps li.is-current {
+  border-color: #00c1cd !important;
+  background: rgba(0, 193, 205, 0.1) !important;
+  color: #ffffff !important;
+}
+
+/* ════════════ 5 · Rotulado explícito de paneles (comprensión) ═══════════
+   Los rótulos se apoyan en cabeceras REALES ya presentes en el DOM
+   (`.rail-head`, `.inspector-head h3`, `.preview-hud`, `.timeline-tabs`),
+   que `capcut-editor.css` refuerza con mayúsculas y una barra de acento.
+   No se inyectan textos decorativos: cada panel conserva su título real. */
+
+:root[data-theme='dark'] .app-shell .editor-grid .preview-panel,
+:root[data-theme='dark'] .app-shell .editor-grid .inspector,
+:root[data-theme='dark'] .app-shell .editor-grid .timeline-panel { position: relative !important; }
+
+/* ══════════════════ 6 · Mensajes, banners y overlays ══════════════════ */
+
+:root[data-theme='dark'] .app-shell .banner,
+:root[data-theme='dark'] .app-shell .recovery-banner {
+  background: #2a2a2a !important;
+  border-bottom: 1px solid #3d3d3d !important;
+  color: #d8d8d8 !important;
+  font-size: 11.5px !important;
+}
+:root[data-theme='dark'] .app-shell .banner-error { border-left: 3px solid var(--color-danger) !important; }
+:root[data-theme='dark'] .app-shell .browser-mode-banner {
+  background: #213036 !important;
+  border-bottom: 1px solid #2c4750 !important;
+  color: #cfe9ee !important;
+}
+:root[data-theme='dark'] .app-shell .settings-window,
+:root[data-theme='dark'] .app-shell .cmdp-panel,
+:root[data-theme='dark'] .app-shell .start-window {
+  background: #262626 !important;
+  border: 1px solid #3d3d3d !important;
+  border-radius: 10px !important;
+  color: #ececec !important;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.62) !important;
+}
+
+/* ═══════════════ 7 · Densidad y viewport mínimo (1280) ════════════════ */
+
+@media (max-width: 1320px) {
+  :root[data-theme='dark'] .app-shell .home-hero { padding: 16px !important; }
+  :root[data-theme='dark'] .app-shell .editor-mode-tab { padding: 0 8px !important; font-size: 11px !important; }
+  :root[data-theme='dark'] .app-shell .sidebar { width: 42px !important; min-width: 42px !important; }
+}
+@media (max-width: 1280px) {
+  :root[data-theme='dark'] .app-shell .topbar { height: 32px !important; min-height: 32px !important; }
+  :root[data-theme='dark'] .app-shell .timeline-toolbar,
+  :root[data-theme='dark'] .app-shell .timeline-tabs { height: 32px !important; min-height: 32px !important; }
+  :root[data-theme='dark'] .app-shell .rail-tabs button { font-size: 10px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme='dark'] *,
+  :root[data-theme='dark'] *::before,
+  :root[data-theme='dark'] *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

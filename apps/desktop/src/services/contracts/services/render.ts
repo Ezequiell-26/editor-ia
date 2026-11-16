@@ -1,4 +1,4 @@
-﻿import type { ExportVerification, LosslessResult, RenderFinishedEvent, RenderProgressEvent, RenderRange, RenderStarted } from '../render';
+﻿import type { ExportVerification, LosslessResult, RenderDiaryEntry, RenderFinishedEvent, RenderProgressEvent, RenderRange, RenderStarted } from '../render';
 import type { ExportCapabilities, HardwareEncoders } from '../providers';
 import type { VariantRendered } from '../projects';
 import type { RenderQueueEntry } from '../../../state/render-queue';
@@ -54,6 +54,9 @@ cancelRender(jobId: string): Promise<void>;
 activeRender(): Promise<string | null>;
 
 pruneRenderCache(): Promise<number>;
+
+/** Bitácora de exports (`export_diario.js`): últimas entradas, más nuevas primero. */
+  renderDiary(limit?: number): Promise<RenderDiaryEntry[]>;
 
 /**
    * Cola de entregas persistida en el backend (JSON en app-data). `null`

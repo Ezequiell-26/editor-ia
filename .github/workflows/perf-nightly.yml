@@ -1,0 +1,77 @@
+name: perf-baseline
+
+# Job nocturno de performance (auditoría F9, docs/performance/README.md §4).
+# NO es gate de PR: un render E2E tarda minutos y una sola muestra es ruidosa.
+#
+# Estrategia honesta para CI: el baseline commiteado (docs/performance/
+# baseline.json) se generó en la máquina de desarrollo y NO es comparable
+# con un runner de GitHub. En su lugar el job mide DOS veces consecutivas
+# en el MISMO runner y exige que la segunda no supere +20 % de tiempo ni
+# +25 % de RSS a la primera (--update escribe el baseline local del run,
+# --check compara la corrida siguiente contra él).
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # 06:00 UTC nightly
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  render-baseline:
+    name: baseline de render E2E (auto-comparado)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Toma el commit exacto
+        uses: actions/checkout@v4
+
+      - name: Node fijado por package.json
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Restaura el registro de crates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: crates-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: crates-${{ runner.os }}-
+
+      - name: Instala las dependencias del lockfile
+        run: npm ci
+
+      - name: Aplica el toolchain que fija rust-toolchain.toml
+        run: rustup show
+
+      - name: Prepara FFmpeg dev y libclang para video-rs
+        run: bash scripts/ci-ffmpeg-dev.sh
+
+      - name: Prepara recursos empaquetados
+        run: bash scripts/ci-bundle-resources.sh
+
+      - name: Instala FFmpeg runtime para el render
+        run: choco install ffmpeg -y --no-progress
+
+      # Primera medición: compila el test (--no-run) y escribe el baseline
+      # local del runner (pisa docs/performance/baseline.json en el
+      # workspace efímero; NO se commitea).
+      - name: Baseline de referencia (corrida 1)
+        env:
+          EDITOR_IA_RUN_RENDER_TESTS: '1'
+        run: node scripts/perf-baseline.mjs --update --runs 3
+
+      # Segunda medición: compara contra la baseline recién escrita en el
+      # mismo runner. Falla (exit 1) si la regresión supera los umbrales.
+      - name: Check de regresión (corrida 2 vs corrida 1)
+        env:
+          EDITOR_IA_RUN_RENDER_TESTS: '1'
+        run: node scripts/perf-baseline.mjs --check --runs 3

@@ -77,6 +77,7 @@ pub async fn media_thumbnail(
     state: State<'_, AppState>,
     path: String,
     is_image: bool,
+    time_seconds: Option<f64>,
 ) -> Result<String, ProjectError> {
     let session = state.require_session()?;
     let source = resolve_inside_root(&session.root, &path)?;
@@ -95,8 +96,14 @@ pub async fn media_thumbnail(
             "el material ya no está en el proyecto",
         )
     })?;
+    // La «spy» de la timeline pide tiempos arbitrarios: se cuantiza a
+    // cubos de 0,25 s para que el cache acotado no explote con cada frame
+    // bajo el cursor (el seek de ffmpeg ya es aproximado por keyframe).
+    let time_bucket = time_seconds
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .map(|value| format!(":{:.2}", (value * 4.0).round() / 4.0));
     let cache_key = format!(
-        "{}:{}:{}",
+        "{}:{}:{}{}",
         source.to_string_lossy(),
         metadata.len(),
         metadata
@@ -104,7 +111,8 @@ pub async fn media_thumbnail(
             .ok()
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|duration| duration.as_millis())
-            .unwrap_or(0)
+            .unwrap_or(0),
+        time_bucket.as_deref().unwrap_or("")
     );
     if let Ok(cache) = state.thumbnails.lock() {
         if let Some(hit) = cache.get(&cache_key) {
@@ -112,7 +120,7 @@ pub async fn media_thumbnail(
         }
     }
 
-    let data_url = thumbnail_data_url(&ffmpeg, &source, is_image)?;
+    let data_url = thumbnail_data_url(&ffmpeg, &source, is_image, time_seconds)?;
     if let Ok(mut cache) = state.thumbnails.lock() {
         cache.insert(cache_key, data_url.clone());
     }

@@ -1,0 +1,1283 @@
+### agente._arquivos_de
+  <listcomp>(p)  -- claude_desktop_config.json
+  <listcomp>(p)  -- claude_desktop_config.json
+  <listcomp>(p)  -- claude_desktop_config.json
+### agente._programa_aberto
+  <genexpr>(c)
+### agente._tem
+  <genexpr>(n)  -- claude
+  <listcomp>(n)  -- .gemini
+  <genexpr>(p)
+### agente._gravar_json
+  <listcomp>(k)  -- alaukcut
+### agente._gravar_toml
+  esc()
+### agente.processos_do_claude
+  <genexpr>(n)
+  <genexpr>(s)
+### agente.fechar_claude
+  <listcomp>(_p)
+### agente.conferir
+  <dictcomp>(q)
+### agente._aplicar_bloqueio_opencode
+  <dictcomp>(x)
+### agente._gravar_opencode
+  <listcomp>(k)  -- alaukcut
+### agente._mexer_deny
+  <listcomp>(r)
+  <listcomp>(r)
+### agente._regras_antigravity
+  <listcomp>(t)  -- (
+### agente.conectar
+  <listcomp>(a)  -- instalado
+### agente._aberto_desde
+  <listcomp>(c)
+### agente.precisa_reabrir
+  <listcomp>(a)
+### agente.desconectar
+  <listcomp>(a)  -- conectado
+### agente.testar_conexao
+  falar(params, pid)
+### agente._levar_o_editor_para
+  <listcomp>(p)  -- nome
+  <listcomp>(n)
+### agente._tem_hyperframes
+  <genexpr>(ext)  -- hyperframes
+### agente._ver_animacoes
+  <listcomp>(it)  -- nome
+  <dictcomp>(k)  -- rotulo
+### agente._gerar_animacao
+  <genexpr>(it)  -- nome
+  <listcomp>(it)  -- nome
+  <genexpr>(x)
+  acompanhar()
+### agente._midia_do_projeto
+  <genexpr>(x)  -- id
+### agente._transcrever
+  rodar()
+### agente._ler_transcricao
+  <listcomp>(s)  -- fim
+  <genexpr>(s)  -- texto
+### agente._exportar
+  _ocupado()
+### agente._medir_export
+  <genexpr>(s)  -- codec_type
+  <genexpr>(s)  -- codec_type
+### agente._ver_elementos
+  <lambda>()
+  <lambda>()
+  <genexpr>(g)  -- itens
+  <listcomp>(s)  -- nome
+  <listcomp>(f)
+  <listcomp>(f)
+  <listcomp>(f)
+  <listcomp>(s)  -- nome
+  <listcomp>(it)  -- nome
+  <genexpr>(g)  -- itens
+### agente._foto
+  <dictcomp>(k)  -- em_arquivo
+### agente._trocar_apelidos
+  <dictcomp>(k)  -- midia
+  <listcomp>(v)
+### agente._montar_timeline
+  <genexpr>(x)  -- @
+  <dictcomp>(k)
+  <listcomp>(p)  -- nome
+  rodar()
+### agente._natural
+  <listcomp>(p)
+### agente._rodar_fila
+  andou(nome, k)
+  <lambda>(_i, k)
+  <listcomp>(p)  -- ok
+  <listcomp>(i)  -- projeto
+### agente._plano_da_lista
+  <dictcomp>(k)
+### agente._plano_do_lote
+  <setcomp>(p)  -- nome
+  <genexpr>(n)  -- .
+  <listcomp>(n)
+  <listcomp>(c)  -- video
+  <listcomp>(c)
+  <setcomp>(p)  -- nome
+### agente._criar_projetos_da_pasta
+  <listcomp>(it)  -- projeto
+  um(trocas, andou, projetos)
+### agente._exportar_em_fila
+  <listcomp>(p)  -- nome
+  <listcomp>(x)
+  <genexpr>(origem)
+  <lambda>()
+  <listcomp>(_)
+  <genexpr>(n)
+  <listcomp>(n)
+  <genexpr>(n)
+  <dictcomp>(k)
+  um(trocas, andou, nome)
+  <listcomp>(n)  -- projeto
+### agente.executar
+  <listcomp>(p)  -- nome
+### agente.catalogo
+  <dictcomp>(nome)  -- o_que
+### atualizacao._numero
+  <genexpr>(c)
+### atualizacao._conferir
+  <lambda>()
+### audio_limpeza.limpar_audio
+  <genexpr>(x)  -- id
+  <genexpr>(x)
+### biblioteca.listar_sons
+  <listcomp>(c)
+### biblioteca.baixar_som
+  <genexpr>(c)  -- id
+### cache_render.uso_bytes
+  <genexpr>(p)
+### cache_render._podar
+  <genexpr>(p)
+### cache_render.estado
+  <genexpr>(p)
+  <genexpr>(s)  -- bytes
+### config._downloads_do_windows
+  GUID()  -- _downloads_do_windows.<locals>.GUID
+### conversa_ia.escolha
+  <listcomp>(x)  -- id
+### conversa_ia.gravar_escolha
+  <listcomp>(x)  -- id
+### conversa_ia._limpar
+  <dictcomp>(k)
+### conversa_ia._sem_imagens
+  <genexpr>(b)  -- type
+  <listcomp>(b)  -- type
+### conversa_ia._conversar
+  <listcomp>(m)  -- role
+  <listcomp>(b)
+  <genexpr>(b)  -- text
+### conversa_ia.ErroOpenAI
+  __init__(motivo, texto)
+### conversa_ia.buscar_modelos_openai
+  <genexpr>(p)
+  <lambda>()
+  <listcomp>(m)  -- id
+### conversa_ia.modelos_openai
+  <listcomp>(m)  -- id
+### conversa_ia._ferramentas_openai
+  <listcomp>(f)  -- function
+### conversa_ia._conversar_openai
+  guardar()
+  <listcomp>(o)  -- type
+### conversa_terminal._homonimo
+  <genexpr>(d)
+### conversa_terminal._pasta_parece
+  <genexpr>(p)
+### conversa_terminal._candidatos_claude
+  <listcomp>(c)
+### conversa_terminal._do_aplicativo_claude
+  <listcomp>(p)
+  versao_de(n)
+  <listcomp>(p)  -- claude.exe
+### conversa_terminal._dos_editores
+  versao_de(m)
+  <listcomp>(p)  -- resources
+### conversa_terminal._candidatos_codex
+  <listcomp>(n)
+  <lambda>()
+  <listcomp>(p)  -- codex.exe
+  <listcomp>(c)
+### conversa_terminal._candidatos_antigravity
+  <listcomp>(c)
+### conversa_terminal._candidatos_grok
+  <listcomp>(c)
+### conversa_terminal._varrer_tudo
+  <dictcomp>(q)
+  <dictcomp>(k)
+  <listcomp>()
+### conversa_terminal._varrer
+  <dictcomp>(k)
+### conversa_terminal._numeros_da_versao
+  <listcomp>(x)
+### conversa_terminal._medir
+  <genexpr>(a)
+### conversa_terminal._versao_do_caminho
+  <listcomp>(x)
+### conversa_terminal._melhor
+  <lambda>()
+  <listcomp>(p)
+### conversa_terminal.onde
+  <listcomp>(c)
+### conversa_terminal._quem_no_codex
+  <lambda>()
+### conversa_terminal._conta_grok
+  <genexpr>(p)
+### conversa_terminal._esforcos_do_claude
+  <listcomp>(p)
+  <listcomp>(p)
+### conversa_terminal._esforco_valido
+  <listcomp>(n)
+### conversa_terminal._catalogo_claude
+  <listcomp>(m)  -- id
+  <listcomp>(a)
+### conversa_terminal._catalogo_codex
+  <listcomp>(m)  -- visibility
+  <lambda>()
+  <listcomp>(e)  -- effort
+### conversa_terminal._catalogo_antigravity
+  <listcomp>(p)
+### conversa_terminal.escolha
+  <listcomp>(m)  -- id
+  <genexpr>(m)  -- id
+### conversa_terminal.gravar_escolha
+  por(valor, r)
+### conversa_terminal.desvios_no_ambiente
+  <listcomp>(v)
+### conversa_terminal._ler_evento_claude
+  <genexpr>(s)  -- name
+  <genexpr>(x)
+### conversa_terminal._ler_evento_antigravity
+  <listcomp>(d)  -- action
+### conversa_terminal._falhou_de_passagem
+  <genexpr>(e)  -- tipo
+  <listcomp>(e)  -- tipo
+### conversa_terminal._sem_ruido
+  <genexpr>()
+### conversa_terminal._fechar
+  <genexpr>(e)  -- tipo
+  <listcomp>(e)  -- tipo
+  <genexpr>(e)  -- tipo
+  <listcomp>(e)  -- tipo
+  <listcomp>(e)  -- tipo
+  <genexpr>(e)  -- tipo
+### conversa_terminal.entrar_comecar
+  ler()
+### conversa_terminal._erro_conhecido
+  <genexpr>(pedaco)
+### conversa_terminal._erro_passageiro
+  <genexpr>(p)
+### conversa_terminal.trabalho_do_projeto
+  <listcomp>(tid)  -- projeto
+  <lambda>()
+### conversa_terminal.cancelar_de_outro_projeto
+  <listcomp>(tid)  -- pronto
+### conversa_terminal.cancelar_todos
+  <listcomp>(tid)  -- pronto
+### conversa_terminal.limpar_antigos
+  <listcomp>(k)  -- pronto
+### conversa_terminal.estado
+  <genexpr>(p)  -- instalado
+### copia_leve.caminho_da_copia
+  <genexpr>(ch)  -- <>:"/\|?*
+### copia_leve.regua_confere
+  <genexpr>(a)
+### copia_leve._Processo
+  __init__()
+  _nt(nome, k32)
+  pausar(sim)
+  parar()
+### copia_leve.produzir
+  <lambda>()
+  <dictcomp>(k)
+### copia_leve.pedir
+  <dictcomp>(i)
+  <lambda>()
+### copia_leve._um
+  aviso()
+### copia_leve._faxina
+  <listcomp>(k)  -- veredito
+  <genexpr>(_)  -- bytes
+  <lambda>()
+### copia_leve.uso
+  <listcomp>(r)  -- veredito
+  <genexpr>(r)  -- copia
+### cronometro_gravacao.contorno_da_forma
+  <listcomp>(v)
+### cronometro_gravacao.desenhar_forma
+  rgb(v)
+  <listcomp>(x)
+  <listcomp>(p)
+  <listcomp>(p)
+  <listcomp>(x)
+### cronometro_gravacao.modelo_atual
+  <genexpr>(m)  -- tipo
+### cronometro_gravacao.criar_painel
+  proc(msg, wp, lp, ps)
+  <genexpr>(v)
+### cronometro_gravacao.mostrar_painel
+  <genexpr>(v)
+### cronometro_gravacao.receber_nivel
+  <listcomp>(v)
+  <listcomp>(v)
+  <listcomp>(a)
+### cronometro_gravacao._metodo
+  <lambda>()
+### cronometro_gravacao.criar_janela_onda
+  <listcomp>(v)
+  proc(msg, wp, lp)
+  preparar()
+### cronometro_gravacao.main
+  <listcomp>(a)  -- --
+  <listcomp>(m)  -- tipo
+  proc(msg, wp, lp, ps)
+### diagnostico._o_computador
+  <genexpr>(c)
+### diagnostico._o_cache
+  <genexpr>(kv)  -- %s=%d
+### diagnostico.montar_texto
+  <lambda>()
+### diagnostico_envio._o_windows
+  ler()
+### diagnostico_envio._a_maquina
+  _M()  -- _a_maquina.<locals>._M
+### diagnostico_envio._fim_do_log
+  <listcomp>(ln)
+### diagnostico_envio._as_tentativas
+  <dictcomp>(k)
+### diagnostico_envio._a_copia_leve
+  <listcomp>(m)  -- tipo
+  <listcomp>(m)  -- arquivo
+  <dictcomp>(k)
+### diagnostico_envio._so_numeros
+  <dictcomp>(k)
+### diagnostico_envio._conferir_o_video
+  <listcomp>(ln)  -- [h264
+  <listcomp>()
+### diagnostico_envio.iniciar
+  _tudo()
+### exportar.resumo_do_ffmpeg
+  <listcomp>(ln)
+### exportar.saida_livre
+  chave()
+  <setcomp>(m)
+### exportar._ffmpeg_tem_asetrate
+  <setcomp>(ln)
+### exportar._trechos_envelope
+  <genexpr>(p)
+  <genexpr>(_)
+  ganho(s)
+  <setcomp>(s)
+### exportar._wav_com_envelope
+  <listcomp>(t)
+  <listcomp>(t)
+  <listcomp>(t)
+  <listcomp>(t)
+### exportar._grafo_envelope
+  <listcomp>(i)  -- [
+### exportar._fontes_de_audio
+  <dictcomp>(m)  -- id
+  do_tipo()
+### exportar._mixar_em_lotes
+  rodar(dur, r)
+  fim_de()
+  <genexpr>(i)  -- [%d:a]
+### exportar._grafo_audio
+  <genexpr>(x)
+### exportar._medidas_do_video
+  <genexpr>(x)
+### exportar._assinatura_do_som
+  <genexpr>(x)
+### exportar._som_pronto
+  <listcomp>(n)
+  <genexpr>(x)
+### exportar_audio.formatos
+  <listcomp>(k)  -- ext
+### exportar_av1._acompanhar
+  <lambda>()
+### exportar_gif._normalizar
+  <lambda>()
+  <lambda>()
+### exportar_gif._passada
+  <lambda>()
+### exportar_gif._rodar
+  falhou()
+### fala.Evidencias
+  __init__(db, harm, achat, fgrave, taxa, salto)
+  segundos(i)
+### fala.Perfil
+  __init__(ev, quieto)
+  nivel(k, abaixo_da_fala)
+  periodico(k)
+### fala.Folgas
+  __init__(rigor, min_dur, margem, refino)
+### fala.trechos_com_fala
+  <listcomp>(i)
+### fala._peneira_conservadora
+  <lambda>()
+### formato_saida.caixas
+  <listcomp>(k)  -- ext
+### fundo.remover_fundo
+  <genexpr>(x)  -- id
+### gravar_tela.dispositivos_audio
+  <listcomp>(e)
+### gravar_tela.webcams
+  <listcomp>(c)
+### gravar_tela.webcam_disponivel
+  <listcomp>(c)
+### gravar_tela._dentro_de_um_monitor
+  <genexpr>(o)  -- x
+### gravar_tela.webcam_espelho
+  <genexpr>(o)  -- id
+### gravar_tela._modelo
+  <genexpr>(x)  -- tipo
+### gravar_tela._aplicar_moldura
+  <listcomp>(v)
+  <listcomp>(v)
+  <listcomp>(v)
+### gravar_tela.webcam_molduras
+  <listcomp>(v)
+  <listcomp>(v)
+  <listcomp>(v)
+  <dictcomp>(k)
+### gravar_tela.trilha_da_janelinha
+  <genexpr>(_)
+  reduzir(tol, fica)
+  <listcomp>(q)
+### gravar_tela._chroma_limpo
+  <listcomp>(v)
+### gravar_tela._pacote_da_seta
+  <listcomp>(v)
+### gravar_tela.iniciar
+  <genexpr>(x)  -- id
+  _desfazer()
+### gravar_tela._ouvir_a_moldura
+  <genexpr>(v)
+### gravar_tela.moldura_mostrar
+  <genexpr>(m)  -- id
+  <listcomp>(v)
+### gravar_tela._cronometro_alimentar
+  <listcomp>(v)
+  <listcomp>(v)
+  <genexpr>(v)  -- .1f
+### gravar_tela._gravar_png_rgba
+  bloco(dados)
+  <genexpr>(y)
+### gravar_tela._ganho_sem_estouro
+  <genexpr>(w)
+### gravar_tela.encerrar
+  <genexpr>(t)  -- moldura
+  _prestou()
+### gravar_tela._pasta_do_id
+  <genexpr>(ch)  -- _
+### gravar_tela._ler_espera
+  <genexpr>(a)  -- arquivo
+### hyperframes._procurar
+  <genexpr>(e)
+### hyperframes._tela_cheia
+  <genexpr>(lado)  -- (^|;)%s:0(px)?(;|$)
+### hyperframes.fundo_opaco
+  <listcomp>(s)
+  <genexpr>(s)
+### hyperframes.medir_transparencia
+  <genexpr>(a)
+### hyperframes._variaveis_declaradas
+  <listcomp>(k)  -- string
+### hyperframes.conferir_html
+  <listcomp>(a)  -- \b
+### hyperframes_complemento.navegador_do_windows
+  <genexpr>(c)
+### hyperframes_complemento._trabalho
+  <genexpr>(l)
+  <lambda>()
+### idiomas._preferidos
+  <listcomp>(s)
+### legendas._recortar_na_janela
+  <listcomp>(w)  -- ini
+  <listcomp>(w)  -- w
+  <genexpr>(w)  -- w
+### legendas._dividir_em_blocos
+  <genexpr>(p)  -- w
+  <genexpr>(p)  -- w
+  <genexpr>(w)  -- w
+  <listcomp>(w)  -- w
+### legendas._segmentos
+  <listcomp>(w)
+### legendas._ouvir_tudo
+  <listcomp>(b)  -- a
+  <listcomp>(s)  -- palavras
+  <listcomp>(p)  -- a
+  <genexpr>(p)  -- w
+  <lambda>()
+### legendas._transcrever
+  ao_andar()
+  ao_repescar(n)
+  <lambda>()
+  <listcomp>(w)  -- w
+### legendas._rodar
+  <lambda>()
+### legendas.transcrever_arquivo
+  <lambda>()
+  <listcomp>(w)  -- w
+### legendas._nomes_da_fonte
+  uma(n_tab)
+### legendas.fontes_do_sistema
+  <lambda>()
+### legendas_srt._palavras_da_frase
+  <listcomp>(w)
+### legendas_srt.ler
+  <listcomp>(l)
+  <genexpr>(l)
+  <lambda>()
+### legendas_srt.importar
+  <lambda>()
+### legendas_srt.texto_srt
+  <lambda>()
+### leitura_rapida.assinatura_da_maquina
+  <genexpr>(f)  -- :
+### leitura_rapida.SemEspaco
+  __init__(precisa)
+### leitura_rapida.preparar_arquivo
+  <lambda>()
+### leitura_rapida.garantir
+  <lambda>()
+  <genexpr>(item)
+  <listcomp>(m)  -- id
+### leitura_rapida.aguardando
+  <genexpr>(n)
+### leitura_rapida.preparar_no_fundo
+  trabalho()
+### leitura_rapida.Lote
+  __init__(total)
+  preparar(caminho, nome_projeto, info, aviso)
+  fim(faltou)
+### licenca._pastas_relogio
+  <listcomp>(p)  -- relogio.json
+### licenca._norm_chave
+  <genexpr>(ch)
+### luts.listar
+  <lambda>()
+### luts.guardar
+  <lambda>()
+### main._dpi_antes_de_tudo
+  <lambda>()
+  <lambda>()
+### main.Api
+  __init__()
+  projeto_inicial()
+  url_midia_base()
+  info_sistema(ffmpeg)
+  listar_projetos()
+  criar_projeto(proporcao, nome)
+  renomear_projeto(nome, novo_nome)
+  duplicar_projeto(nome, novo_nome)
+  carregar_projeto(nome, agente)
+  salvar_projeto(nome, dados)
+  midias_organizacao_ler(nome)
+  midias_organizacao_gravar(nome, dados)
+  marcadores_ler(nome)
+  marcadores_gravar(nome, dados)
+  capa_export_salvar(nome, dados_base64, _b64)
+  capa_export_escolher(_T)
+  batidas_analisar(nome, midia_id, arquivo, arq)
+  sincronizar_audio(video, v_ini, v_fim, audio)
+  excluir_projeto(nome)
+  gravar_disponivel()
+  gravar_monitores()
+  gravar_dispositivos_audio()
+  gravar_moldura(monitor_id)
+  gravar_moldura_esconder()
+  gravar_som_pc()
+  gravar_iniciar(monitor_id, dispositivo, modo, camera_id, cursor, chroma, som_pc)
+  gravar_webcam_disponivel()
+  gravar_webcam_espelho(camera_id, largura, altura, monitor_id)
+  gravar_webcam_desligar()
+  gravar_webcam_chroma(cfg)
+  gravar_webcam_chroma_sugerir()
+  gravar_webcam_molduras(catalogo)
+  gravar_webcam_moldura(tipo)
+  gravar_miniatura_recortada(arquivo, thumb, cfg)
+  gravar_pausar()
+  gravar_retomar()
+  gravar_estado()
+  gravar_cancelar()
+  gravar_escolher_pasta(r)
+  gravar_encerrar(pasta)
+  gravar_encerrar_espera()
+  gravar_espera_pendente()
+  gravar_quadro_espera(arquivo)
+  gravar_salvar_espera(ident, pasta)
+  gravar_descartar_espera(ident)
+  dialogo_importar(_T)
+  importar_midias(nome, caminhos)
+  cor_amostras(arquivo, ini, fim)
+  timeline_xml_ler(caminho)
+  dialogo_srt(_T)
+  lut_dialogo(_T)
+  luts_listar(luts)
+  lut_guardar(caminho, nome_projeto, luts)
+  lut_caminho(ident, nome_projeto, luts)
+  lut_no_projeto(nome_projeto, ident, luts)
+  lut_excluir(ident, luts)
+  importar_srt(caminho, legendas_srt)
+  exportar_av1_disponivel(exportar_av1)
+  exportar_av1_iniciar(arquivo, exportar_av1)
+  exportar_av1_estado(exportar_av1)
+  exportar_av1_cancelar(exportar_av1)
+  exportar_gif_disponivel(exportar_gif)
+  exportar_gif_iniciar(video, destino, lado, taxa, qualidade, exportar_gif)
+  exportar_gif_estado(exportar_gif)
+  exportar_gif_cancelar(exportar_gif)
+  exportar_gif_guardar_video(passagem, destino, exportar_gif)
+  exportar_gif_apagar_passagem(passagem, exportar_gif)
+  previa_dupla_abrir(url, idiomas)
+  previa_dupla_fechar(previa_dupla)
+  previa_dupla_aberta(previa_dupla)
+  salvar_srt(nome_sugerido, falas, legendas_srt)
+  expandir_caminhos(caminhos)
+  caminhos_soltos(_dnd_state)
+  picos_avulso(nome, midia_id, arquivo)
+  tira_quadros(nome, midia_id, arquivo, duracao)
+  midia_miniatura_grande(nome, midia_id, arquivo)
+  midias_sumidas(caminhos)
+  midias_sumidas_em_uso(nome)
+  midias_procurar(nome, ids)
+  midia_religar(nome, midia_id, caminho, forcar)
+  midia_canais_audio(caminho)
+  dialogo_religar(caminho_antigo, antigo)
+  abrir_local_arquivo(caminho, alvo)
+  extrair_audio(nome, clipe_id)
+  progresso_extrair_audio()
+  faixas_de_audio(caminho)
+  separar_faixas_audio(nome, clipe_id)
+  hyperframes_listar(pasta, hyperframes)
+  hyperframes_renderizar(dir_projeto, formato, qualidade, resolucao, variaveis, fps, hyperframes)
+  hyperframes_anexo_guardar(dados_b64, tipo, hyperframes)
+  hyperframes_anexo_limpar(hyperframes)
+  hyperframes_complemento_estado(hyperframes_complemento)
+  hyperframes_complemento_instalar(hyperframes_complemento)
+  hyperframes_complemento_cancelar(hyperframes_complemento)
+  progresso_hyperframes(hyperframes)
+  cancelar_hyperframes(hyperframes)
+  listar_sons(biblioteca)
+  baixar_som(arquivo, biblioteca)
+  realce_disponivel()
+  limpar_audio(nome, clipe_id, ruido, aprimorar, audio_limpeza)
+  remover_fundo(nome, clipe_id, fundo)
+  pessoa_preparar(nome, midia_id, pessoa)
+  pessoa_caminho(nome, midia_id, pessoa)
+  pessoa_progresso(pessoa)
+  rastreio_candidatas(nome, midia_id, tempo_fonte, tipo, rastreio)
+  rastreio_rodar(nome, midia_id, tipo, regiao, ref, inicio, fim, rastreio)
+  rastreio_progresso(rastreio)
+  rastreio_cancelar(rastreio)
+  fundo_preparar(nome, midia_id, sem_fundo)
+  fundo_caminho(nome, midia_id, sem_fundo)
+  fundo_progresso(sem_fundo)
+  mascara_pincel_rapido(imagem, pontos, raio, apagar, mascara_pincel)
+  tracado_imagem(nome, clipe_id, quadros, diag_figura, diag_tela, tracado)
+  garantir_espectro(nome, espectro)
+  detectar_respiracoes(arquivo, corte_ini, corte_fim, limiar_db, min_dur, modo, atraso, passe)
+  trechos_de_fala(arquivo)
+  gerar_legendas(nome, faixas, traduzir)
+  progresso_legendas()
+  cancelar_legendas()
+  fontes_do_sistema(recarregar)
+  suavizar_clipe(nome, clipe_id)
+  progresso_suavizar()
+  cancelar_suavizar()
+  reverter_clipe(nome, clipe_id, junto)
+  listar_stickers()
+  adicionar_sticker(nome, pasta)
+  emoji_animado_estado(codigo)
+  emoji_animado_gravar(codigo, inicio, imagens, fim)
+  prerender_estado(nome, cache_render)
+  prerender_validos(nome, impressoes, receita)
+  montagem_iniciar(nome, opcoes, total_pedacos, exportar_cache)
+  montagem_usar_cache(nome, indice, impressao, receita, exportar_cache)
+  montagem_fim(exportar_cache)
+  montagem_cancelar(exportar_cache)
+  prerender_anotar(evento, cache_render)
+  export_marcar(dados, cache_render)
+  prerender_assinaturas(nome, indice, impressao, receita, cache_render)
+  prerender_limpar(nome, cache_render)
+  nativo_disponivel(motor_nativo)
+  codificador_estado(motor_nativo)
+  codificador_tentar_placa(motor_nativo)
+  codificador_usar_windows(time)
+  copia_leve_pedir(caminhos, copia_leve)
+  copia_leve_estado(caminhos, copia_leve)
+  copia_leve_ligar(sim, copia_leve)
+  copia_leve_pausar(sim, copia_leve)
+  copia_leve_conferida(caminho, ok, motivo, copia_leve)
+  copia_leve_uso(copia_leve)
+  copia_leve_apagar(copia_leve)
+  nativo_ligado(motor_nativo)
+  nativo_definir_ligado(valor, motor_nativo)
+  nativo_iniciar(saida, largura, altura, fps, bitrate, manter_texturas, em_partes, motor_nativo)
+  nativo_soltar_texturas(motor_nativo)
+  nativo_tenho(identidades, motor_nativo)
+  nativo_esquecer_textura(identidade, motor_nativo)
+  nativo_geracao_texturas(motor_nativo)
+  nativo_quadro(camadas, motor_nativo)
+  nativo_medida_video(caminho, motor_nativo)
+  leitura_rapida_aguardando(nome, leitura_rapida)
+  nativo_carimbo_inicial(caminho, motor_nativo)
+  nativo_quadros(lote, motor_nativo)
+  nativo_finalizar(motor_nativo)
+  passo_final_andamento(vigia_ffmpeg)
+  nativo_nova_parte(motor_nativo)
+  nativo_medir(ordem_aleatoria, semente, sincronizar, motor_nativo)
+  nativo_cancelar(motor_nativo)
+  nativo_descartar_som(exportar)
+  nativo_pedaco_guardar(nome, indice, impressao, receita, assinaturas, quadros, direto, motor_nativo)
+  nativo_adiantar_som(nome_projeto, exportar)
+  nativo_juntar_audio(nome_projeto, video_mudo, saida, resolucao, exportar)
+  nativo_previa_iniciar(largura, altura, motor_nativo)
+  nativo_previa_parar(motor_nativo)
+  nativo_previa_estado(motor_nativo)
+  nativo_previa_janela_esconder(motorcpp)
+  nativo_prova_legenda(indice, descricao, png_base64, base64)
+  versao_render(versao_render)
+  modo_bench()
+  registrar_ambiente(dados, raiz)
+  janela_no_processador()
+  dialogo_pasta(r)
+  exportar_stream_iniciar(nome, opcoes)
+  exportar_stream_fim()
+  exportar_prores_disponivel()
+  cancelar_exportacao(tirado)
+  abrir_pasta(caminho)
+  pasta_padrao_export(preferida, config)
+  conferir_pasta_export(pasta, config)
+  lembrar_pasta_export(pasta, config)
+  export_saida_livre(nome_projeto, saida, exportar)
+  captura_escolher_arquivo(sugestao, tipos)
+  captura_salvar(caminho, dados_base64, _b64)
+  exportar_formatos(formato_saida)
+  exportar_trocar_caixa(arquivo, caixa, formato_saida)
+  exportar_audio_iniciar(nome, saida, formato, exportar_audio)
+  exportar_audio_estado(exportar_audio)
+  exportar_audio_cancelar(exportar_audio)
+  previa_janela_teste(x, y, largura, altura, r, g, b, motorcpp)
+  previa_janela_esconder(motorcpp)
+  alternar_fullscreen()
+  licenca_ativar(chave, licenca)
+  licenca_chave_mascarada(licenca)
+  licenca_recado_inicial(licenca)
+  licenca_desativar(licenca)
+  atualizacao_verificar()
+  atualizacao_baixar(instalar)
+  progresso_atualizacao()
+  atualizacao_cancelar()
+  fechar_app()
+  config_ler(config)
+  config_gravar(chave, valor, config)
+  idioma_ler(idiomas)
+  oferta_estado(licenca)
+  oferta_abrir(webbrowser)
+  oferta_dispensar(licenca)
+  oferta_fechar()
+  agente_estado(agente)
+  agente_ligar(agente)
+  agente_desligar(agente)
+  agente_sempre(ligar, agente)
+  agente_assistentes(recarregar, agente)
+  agente_conectar_claude(quais, agente)
+  agente_claude_aberto(agente)
+  agente_fechar_claude(agente)
+  agente_conferir(quais, agente)
+  agente_desconectar(quais, agente)
+  agente_testar(agente)
+  conversa_estado(conversa_ia)
+  conversa_preferencia(modelo, esforco, conversa_ia)
+  conversa_chave_gravar(chave, provedor, config)
+  conversa_enviar(historico, mensagem, com_anexo, conversa_ia)
+  terminal_estado(recarregar, conversa_terminal)
+  terminal_apontar(programa, conversa_terminal)
+  terminal_esquecer_apontado(programa, conversa_terminal)
+  terminal_entrar(programa, conversa_terminal)
+  terminal_entrar_codigo(codigo, conversa_terminal)
+  terminal_entrar_cancelar(conversa_terminal)
+  terminal_instalar(programa, conversa_terminal)
+  terminal_instalar_estado(conversa_terminal)
+  terminal_preferencia(programa, modelo, esforco, teto, conversa_terminal)
+  terminal_aferir(programa, conversa_terminal)
+  terminal_enviar(mensagem, sessao, com_anexo, conversa_terminal)
+  terminal_andamento(trabalho, desde, conversa_terminal)
+  terminal_cancelar(trabalho, conversa_terminal)
+  terminal_trabalho_do_projeto(projeto, conversa_terminal)
+  abrir_no_navegador(url, webbrowser)
+  copiar_texto(texto, ctypes)
+  idioma_gravar(cod, config)
+  diagnostico_gravar(pasta, diagnostico)
+  diagnostico_envio_estado(diagnostico_envio)
+  suporte_pedir(tipo, suporte)
+  suporte_estado(suporte)
+  licencas_terceiros(caminho)
+### main._placas_do_windows
+  GUID()  -- _placas_do_windows.<locals>.GUID
+  DESC1()  -- _placas_do_windows.<locals>.DESC1
+  metodo(indice, tipos)
+### main._nivel_directx_das_placas
+  <listcomp>(p)  -- software
+### main.main
+  _apos_carregar()
+  _ao_fechar()
+### mascara_pincel.pincel_rapido
+  <listcomp>(x)
+  <listcomp>(px)
+### midia.filtro_do_dialogo
+  <genexpr>(e)  -- *
+### midia._som_do_mpeg
+  <lambda>()
+### midia._copia_do_mpeg_video
+  confere(novo)
+### midia._copia_do_mpeg
+  aviso()
+### midia._medida_da_tela
+  <genexpr>(x)
+### midia.garantir_exibicao
+  <lambda>()
+### midia.gerar_picos
+  <genexpr>(x)  -- 1
+  <listcomp>(p)
+### midia._esticar_clipes_do_padrao
+  <lambda>()
+### midia.extrair_audio
+  <genexpr>(x)  -- id
+  <genexpr>(x)  -- arquivo
+  <genexpr>(x)  -- id
+### midia.separar_faixas_audio
+  <genexpr>(t)  -- clipes
+  <genexpr>(x)  -- id
+  <listcomp>(f)  -- titulo
+  <genexpr>(x)  -- arquivo
+  <genexpr>(it)  -- _dest
+  <genexpr>(x)  -- id
+### midia.expandir_caminhos
+  natural()
+  de_sistema()
+  <listcomp>(c)
+  <lambda>()
+### midia.importar_midias
+  <setcomp>(m)  -- arquivo
+  <setcomp>(m)  -- origem
+  <genexpr>(laudo)  -- tipo
+  <listcomp>(item)
+  <lambda>()
+  <listcomp>(item)
+  <lambda>()
+  preparar(indice)
+  <listcomp>(m)
+### midia.midias_sumidas
+  <listcomp>(c)
+### midia._raizes_de_busca
+  por()
+### midia._procurar_arquivo
+  <listcomp>(s)  -- .
+### midia.procurar_sumidas
+  <listcomp>(c)
+  <listcomp>(a)  -- serve
+  <lambda>()
+### midia._quantos_clipes
+  <genexpr>(t)  -- clipes
+### midia.sumidas_em_uso
+  <listcomp>(t)  -- clipes
+  <genexpr>(c)  -- inicio_timeline
+  <lambda>()
+### midia.religar
+  <genexpr>(x)  -- id
+### midia.batidas_rarear
+  <listcomp>(k)
+### midia.batidas_analisar_som
+  <listcomp>(q)
+  <listcomp>(t)
+  <listcomp>(v)
+### midia._sinc_faixas_do_arquivo
+  <listcomp>(a)
+  <listcomp>(m)
+### midia.amostras_de_cor
+  <listcomp>(i)
+  um(cmd)
+  <listcomp>(x)
+  <listcomp>(dados)  -- ascii
+### midia._AchadorDeArquivo
+  __init__(pasta_do_xml)
+  _por_nome(nome, fundo)
+  achar(url, nome, unquote)
+### midia._ler_xmeml
+  <setcomp>(ci)  -- sequence
+  <listcomp>(s)  -- media
+  itens_da_faixa(tipo, indice, saida)
+  sincronia()
+  <listcomp>(v)
+### midia._ler_fcpxml
+  instante(relogio)
+  ativo_de(comeco, filho)
+  andar(na_timeline, pista, tag)
+  sincronia()
+  <listcomp>(v)  -- tipo_faixa
+  <genexpr>(v)
+  <genexpr>(p)
+### midia.ler_timeline_xml
+  <lambda>()
+  <listcomp>(tipo)
+  <genexpr>(f)  -- clipes
+### midia._reserva_medidas
+  taxa(a)
+### midia._Cano
+  __init__(_winapi)
+  esperar(_winapi)
+  ler(n, ctypes)
+  soltar(_winapi)
+### midia._LeitorReserva
+  __init__(arquivo, w, h, fps, alvo, matriz_709, comeco, saida)
+  _carimbos(linha)
+  _carimbo(n, fim)
+  _ler(dados)
+  serve(t)
+  quadro(t, prazo, fim)
+  fechar()
+### midia.quadro_reserva
+  <lambda>()
+### moldura_monitor.alcas
+  dentro(meio, total)
+### moldura_monitor.Pintura
+  __init__(w, h, frase, ficha)
+  pincel(argb, p)
+  fonte(tam, f)
+  retangulo(argb, x0, y0, x1, y1)
+  bolinha(argb, cx, cy, raio)
+  arredondado(argb, x0, y0, x1, y1, raio, d)
+  medir(texto, tam, fora)
+  escrever(texto, tam, argb, x0, y0, x1, y1)
+  desenhar(reg, w)
+  mostrar(hwnd, tam)
+### moldura_monitor.trecho_inicial
+  <genexpr>(v)
+### moldura_monitor.main
+  <genexpr>(v)
+  redesenhar()
+  ponto()
+  proc(msg, wp, lp, pt)
+### motor_nativo._colher_presos
+  <listcomp>(x)
+### motor_nativo._TravaDaPlaca
+  __init__()
+  acquire(blocking, timeout)
+  release()
+  locked()
+### motor_nativo._responde_se_preso
+  porta()
+### motor_nativo._hlsl_que_o_motor_le
+  <genexpr>(f)  -- .hlsl
+### motor_nativo._nivel_da_falha
+  <genexpr>(s)
+  <genexpr>(s)
+### motor_nativo._soltar_texturas_se_frio
+  <genexpr>(t)  -- pixels
+### motor_nativo.tenho
+  <listcomp>(i)
+### motor_nativo._uniformes
+  v(padrao, x)
+  n(padrao, x)
+### motor_nativo._montar
+  _com_mascara(c, ident)
+  _com_cor(c, ident)
+  _com_lut3(c, ident)
+  _com_pessoa(c, p)
+  _com_desfoque(c, d)
+  <listcomp>(x)
+  <listcomp>(x)
+### motor_nativo._codificador_morreu
+  <genexpr>(s)
+### motor_nativo._placa_caiu_no_texto
+  <genexpr>(s)
+### motor_nativo._nova_parte_sob_trava
+  <genexpr>(p)  -- quadros
+### motor_nativo._Bits
+  __init__(dados)
+  u(n, v)
+  ue(teto, zeros)
+  se(k)
+### motor_nativo._decodificar
+  <listcomp>()  -- [h264
+### motor_nativo.finalizar
+  <genexpr>(p)  -- quadros
+### motor_nativo._juntar_partes
+  <genexpr>(p)  -- quadros
+  limpar(x)
+### motor_nativo._juntar_partes_vigiado
+  <listcomp>(b)
+  <genexpr>(c)
+### motor_nativo.estado
+  <dictcomp>(k)  -- planos
+### pessoa.modelos_presentes
+  <genexpr>(m)
+### pessoa.packbits
+  soltar_literal()
+### pessoa._midia_do_projeto
+  <genexpr>(x)  -- id
+### pessoa.preparar
+  <lambda>()
+### previa_dupla._ApiDaJanela
+  tela_cheia()
+### previa_dupla.abrir
+  _fechou()
+### projetos.capa_do_projeto
+  <dictcomp>(m)  -- id
+  _thumb(arq)
+### projetos.listar_projetos
+  <lambda>()
+### projetos._trocar_prefixo
+  <dictcomp>(k)
+  <listcomp>(v)
+### projetos.carregar_projeto
+  <setcomp>(t)  -- tipo
+### rastreio._fonte
+  <genexpr>(x)  -- id
+### rastreio._rostos
+  <listcomp>(f)
+### rastreio._pessoas
+  <lambda>()
+  <listcomp>(_)
+### rastreio._detectar
+  <lambda>()
+  <listcomp>(x)
+### rastreio.candidatas
+  <listcomp>(c)
+### rastreio._Rastreador
+  __init__(img, caixa, tipo, cv2)
+  _rosto_janela(fw)
+  _recorte_rosto(cinza, fx)
+  pelo_rosto(img, cv2)
+  _janela(fator, H)
+  _recorte(cinza, x0)
+  _pontos(cinza, cv2)
+  _por_correlacao(cinza, cv2)
+  passo(img, cv2)
+  acompanhar(img, cv2)
+  _seguir(cinza, ok, confirmado, cv2)
+  corrigir(caixas, melhor)
+### rastreio.rastrear
+  <listcomp>(l)
+  <listcomp>(l)
+  <listcomp>(l)
+  <listcomp>(l)
+  <listcomp>(l)
+  <listcomp>(v)
+### sem_fundo._guiado_cor
+  <listcomp>(k)
+  <listcomp>(k)
+  var(j, v)
+  <listcomp>(c)
+### sem_fundo._probabilidade_modelo
+  <listcomp>(o)
+  <listcomp>(x)
+### sem_fundo.Cena
+  __init__(inicio)
+  quer()
+  amostrar(rgb, p)
+  _media(fundo, m)
+  fechar(fim, f1)
+  _pesos(sig)
+  bate(rgb, r)
+  corrigir(rgb, p, cv2)
+  para_disco(k)
+  do_disco(dados, k, inicio, fim, c)
+### sem_fundo._packbits
+  literal(ate, k)
+### sem_fundo._pinceladas
+  <listcomp>(v)
+  <listcomp>(x)
+### sem_fundo._area
+  <listcomp>(x)
+  <genexpr>(v)
+  <genexpr>(v)
+### sem_fundo._midia_do_projeto
+  <genexpr>(x)  -- id
+### sem_fundo._ler_quadros
+  <listcomp>(i)
+### sem_fundo.calcular_video
+  <lambda>()
+  um(cena)
+  colher()
+  <listcomp>(x)
+### sem_fundo.aplicar_pinceladas
+  <lambda>()
+  <dictcomp>(k)
+  <setcomp>(p)  -- q
+  <genexpr>(k)
+  <genexpr>(k)
+### sem_fundo.preparar
+  <lambda>()
+  <lambda>()
+### sem_pyav._Ausente
+### servidor._limpar_uploads_esquecidos
+  <listcomp>(s)  -- quando
+### servidor.Handler
+  setup(socket)
+  log_message(args)
+  end_headers()
+  _ws_apertar_mao(chave)
+  _ws_ler(cab)
+  _ws_mandar(dados, op, cab)
+  servir_ws_previa(q)
+  do_GET()
+  servir_tempos_nativos(q)
+  servir_previa_nativa(q)
+  servir_quadro_nativo(q)
+  servir_asset(pedido)
+  responder_json(obj, codigo, b)
+  servir_agente(agente)
+  do_POST(q)
+  _corpo(tam)
+  receber_quadro_bancada(params, pasta)
+  receber_pedaco(params, cache_render)
+  receber_upload(params, projetos)
+  _escrever_corpo(arq, tam)
+  _upload_pedaco(sessao, final, aberto)
+  _responder_json(dados, corpo)
+  servir_reserva_video(q)
+  servir_midia(q)
+### stickers.emoji_animado_estado
+  <genexpr>(i)  -- %04d.png
+### stickers._por_codigo
+  <setcomp>(n)
+### stickers._ficha
+  <genexpr>(f)  -- .png
+### stickers.listar_stickers
+  <dictcomp>(i)
+  <lambda>()
+  <lambda>()
+  <dictcomp>(i)
+  <genexpr>(f)
+  <lambda>()
+  <listcomp>(f)
+  <lambda>()
+### stickers.adicionar_sticker_midia
+  <genexpr>(f)  -- .png
+### suavizar._fator_de
+  <lambda>()
+### suavizar._trabalho
+  <genexpr>(x)  -- id
+  _acompanhar()
+  <genexpr>(x)  -- arquivo
+### suavizar._pedacos
+  <listcomp>(s)
+### suavizar._gravar_reverso
+  <genexpr>(x)  -- id
+### suavizar._trabalho_reverso
+  <listcomp>(f)  -- destino
+  <genexpr>(x)  -- arquivo
+### suavizar.reverter
+  <listcomp>(x)
+### suporte.concluir
+  <listcomp>(rot)
+### suporte_export_lento._PMC
+  <listcomp>(n)
+### suporte_export_lento.Contadores
+  __init__(nome)
+  ler(saida)
+  fechar()
+### suporte_export_lento.placas_fisicas
+  q()
+### suporte_export_lento.preferencias_de_placa
+  <genexpr>(s)
+### suporte_export_lento.medir
+  <listcomp>(f)  -- sem_driver
+  <listcomp>(i)  -- basic render
+  <listcomp>(n)
+  <genexpr>(i)  -- %s (%.1f GB)
+  <listcomp>(a)  -- cpu_desempenho
+  <listcomp>(a)  -- disco_ocupado
+  <listcomp>(a)  -- disco_le
+  <listcomp>(a)  -- disco_grava
+  <setcomp>(pid)  -- e
+  <lambda>()
+  <genexpr>(c)
+  <setcomp>(pid)  -- prio
+  mostra(recuo, por_placa)
+  <genexpr>(lu)  -- 3D
+  <listcomp>(lu)
+  <lambda>()
+### suporte_export_lento.o_app_e_o_projeto
+  <listcomp>(x)
+### suporte_export_lento.veredito
+  <genexpr>(p)
+### suporte_export_lento.enviar
+  <lambda>()
+  sem_conferir()
+### suporte_ultimo_export.png
+  pedaco(dados)
+### suporte_ultimo_export.historico
+  <listcomp>(x)
+### suporte_ultimo_export.amostras
+  <listcomp>(i)
+### suporte_ultimo_export.parte_arquivo
+  <listcomp>(s)  -- codec_type
+  <listcomp>(s)  -- codec_type
+  <listcomp>(a)
+  <listcomp>(v)
+  <genexpr>(j)
+  <genexpr>(a)  -- a
+  <listcomp>(p)
+  <listcomp>(p)
+  <genexpr>(a)  -- a
+  <genexpr>(a)  -- a
+  <genexpr>(a)
+### suporte_ultimo_export.faixas_na_hora
+  <dictcomp>(f)  -- id
+### suporte_ultimo_export._estado_txt
+  <listcomp>(x)
+### suporte_ultimo_export.parte_projeto
+  <dictcomp>(x)  -- id
+  <genexpr>(cl)  -- chroma
+  <setcomp>(t)  -- id
+### suporte_ultimo_export.parte_chroma
+  <genexpr>(t)  -- tipo
+  <genexpr>(r)  -- chroma_
+### suporte_verificador_chroma.projetos_com_chroma
+  <genexpr>(t)  -- tipo
+  <lambda>()
+### suporte_verificador_chroma.uniformes
+  <lambda>(p)
+### suporte_verificador_chroma.png_pequeno
+  pedaco(dados)
+### suporte_verificador_chroma.ficha_do_arquivo
+  <listcomp>(x)  -- rotation
+### suporte_verificador_chroma.desenhar_em_outro_processo
+  <genexpr>(l)  -- RESULTADO
+### suporte_verificador_chroma.main
+  <genexpr>(a)
+  <dictcomp>(m)  -- id
+  <listcomp>(t)  -- tipo
+  <lambda>()
+  <genexpr>(t)  -- principal
+  <dictcomp>(k)  -- ativo
+  <dictcomp>(k)
+  <listcomp>(i)
+  <lambda>()
+### suporte_verificador_chroma.enviar
+  <lambda>()
+  <lambda>()
+### tracado._trace_strokes
+  neighbors(y)
+  <dictcomp>(x)
+  <listcomp>(p)
+  trace_from(sy, stroke)
+  <lambda>()
+  <lambda>()
+  <lambda>()
+  <genexpr>(p)
+### tracado._order_strokes_artist
+  <lambda>()
+  <lambda>()
+### tracado._desfazer_voltas
+  <listcomp>(s)
+  <listcomp>(s)
+  d2(b)
+  <listcomp>(s)
+  <listcomp>(s)
+  <listcomp>(s)
+### tracado.do_clipe
+  <genexpr>(x)  -- id
+### uma_janela._trazer_para_frente
+  _visitar(_lparam, n)
+### vigia_ffmpeg.Parado
+  __init__(cmd, rodadas, motivo)
+### vigia_ffmpeg._ContadoresIO
+  <listcomp>(n)
+### vigia_ffmpeg._disco
+  <genexpr>(c)
+### vigia_ffmpeg._Andamento
+  __init__(caminho)
+  ler(f)
+### vigia_ffmpeg.esperar
+  <genexpr>(c)

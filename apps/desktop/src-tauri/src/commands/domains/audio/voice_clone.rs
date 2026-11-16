@@ -10,52 +10,19 @@
 use std::path::Path;
 use std::time::Duration;
 
-use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::commands::system::resolve_tools;
-use crate::media::{probe_file, resolve_inside_root, sha256_file, MediaKind};
+use crate::media::voice_clone::{
+    is_wav, local_engine_url, normalize_language, validate_reference, validate_text,
+    CloneEngine, MAX_AUDIO_BYTES, MAX_OUTPUT_SECONDS, MIN_REFERENCE_SECONDS,
+};
+use crate::media::{probe_file, resolve_inside_root, MediaKind};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
-
-const MAX_TEXT_CHARS: usize = 2_000;
-const MAX_REFERENCE_BYTES: u64 = 20 * 1024 * 1024;
-const MAX_AUDIO_BYTES: usize = 20 * 1024 * 1024;
-const MIN_REFERENCE_SECONDS: f64 = 3.0;
-const MAX_REFERENCE_SECONDS: f64 = 30.0;
-const MAX_OUTPUT_SECONDS: f64 = 300.0;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CloneEngine {
-    Xtts,
-    GptSovits,
-}
-
-impl CloneEngine {
-    pub(crate) fn parse(value: Option<&str>) -> Self {
-        match value.unwrap_or("xtts").trim().to_ascii_lowercase().as_str() {
-            "gpt-sovits" | "gptsovits" | "gpt_sovits" => Self::GptSovits,
-            _ => Self::Xtts,
-        }
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Xtts => "xtts",
-            Self::GptSovits => "gpt-sovits",
-        }
-    }
-
-    fn path(self) -> &'static str {
-        match self {
-            Self::Xtts => "/tts_to_audio/",
-            Self::GptSovits => "/tts",
-        }
-    }
-}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -94,122 +61,6 @@ pub struct CloneVoiceResult {
     pub language: String,
     pub engine: String,
     pub reference_sha256: String,
-}
-
-fn validate_text(text: &str) -> Result<String, ProjectError> {
-    let clean = text.replace('\n', " ").trim().to_owned();
-    if clean.is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el texto para clonar la voz está vacío",
-        ));
-    }
-    if clean.chars().count() > MAX_TEXT_CHARS {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            &format!("el texto supera los {MAX_TEXT_CHARS} caracteres"),
-        ));
-    }
-    Ok(clean)
-}
-
-const CLONE_LANGUAGES: &[&str] = &[
-    "es", "en", "pt", "fr", "de", "it", "zh", "ja", "ko", "ru", "ar", "hi", "tr", "pl", "nl", "cs",
-];
-
-pub(crate) fn normalize_language(value: &str) -> Result<String, ProjectError> {
-    let lower = value.trim().to_ascii_lowercase();
-    let base = lower.split(['-', '_']).next().unwrap_or("");
-    if CLONE_LANGUAGES.contains(&base) {
-        Ok(base.to_owned())
-    } else {
-        Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el idioma no está entre los soportados por el motor local",
-        ))
-    }
-}
-
-/// Sólo loopback: la clonación no puede mandar la muestra a un host remoto.
-pub(crate) fn local_engine_url(base: &str, engine: CloneEngine) -> Result<String, ProjectError> {
-    let trimmed = base.trim().trim_end_matches('/');
-    let path = engine.path().trim_end_matches('/');
-    let full = if trimmed.ends_with(path) {
-        trimmed.to_owned()
-    } else {
-        format!("{trimmed}{}", engine.path())
-    };
-    let url = Url::parse(&full).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del motor de voz no es válida",
-        )
-    })?;
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del motor no puede incluir usuario ni contraseña",
-        ));
-    }
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del motor debe usar http o https",
-        ));
-    }
-    if !matches!(
-        url.host_str(),
-        Some("localhost") | Some("127.0.0.1") | Some("::1") | Some("[::1]")
-    ) {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el motor de clonación debe estar en loopback (localhost/127.0.0.1); no se envía la muestra a internet",
-        ));
-    }
-    if url.query().is_some() || url.fragment().is_some() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL del motor no debe incluir query ni fragmento",
-        ));
-    }
-    Ok(url.to_string())
-}
-
-fn validate_reference(ffprobe: &Path, reference: &Path) -> Result<(f64, String), ProjectError> {
-    let metadata = std::fs::metadata(reference).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::NotFound,
-            "la muestra de voz ya no está en el proyecto",
-        )
-    })?;
-    if !metadata.is_file() || metadata.len() == 0 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la muestra de voz está vacía",
-        ));
-    }
-    if metadata.len() > MAX_REFERENCE_BYTES {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la muestra de voz supera los 20 MB",
-        ));
-    }
-    let measure = probe_file(ffprobe, reference, MediaKind::Audio)?;
-    let duration = measure.duration_seconds.unwrap_or(0.0);
-    if !(MIN_REFERENCE_SECONDS..=MAX_REFERENCE_SECONDS).contains(&duration) {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            &format!(
-                "la muestra debe durar entre {MIN_REFERENCE_SECONDS:.0} y {MAX_REFERENCE_SECONDS:.0} segundos"
-            ),
-        ));
-    }
-    let (sha256, _) = sha256_file(reference)?;
-    Ok((duration, sha256))
-}
-
-fn is_wav(bytes: &[u8]) -> bool {
-    bytes.len() > 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WAVE"
 }
 
 async fn request_clone(
@@ -266,7 +117,18 @@ async fn request_clone(
     })?;
     let status = response.status();
     if !status.is_success() {
-        let detail = response.text().await.unwrap_or_default();
+        // El cuerpo de error también se lee con tope: un motor que responda
+        // un error enorme no debe reservar toda esa memoria.
+        let detail = crate::commands::read_body_capped(
+            response,
+            64 * 1024,
+            ProjectErrorCode::InvalidProviderResponse,
+            "el motor devolvió un error demasiado grande",
+            "la respuesta del motor de voz se cortó",
+        )
+        .await
+        .unwrap_or_default();
+        let detail = String::from_utf8_lossy(&detail);
         let safe = detail.lines().next().unwrap_or("sin detalle");
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderRejected,
@@ -283,18 +145,16 @@ async fn request_clone(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let bytes = response.bytes().await.map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el motor local no devolvió un audio legible",
-        )
-    })?;
-    if bytes.len() > MAX_AUDIO_BYTES {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el audio clonado supera los 20 MB",
-        ));
-    }
+    // El tope de 20 MB frena la lectura en curso, no después de cargar
+    // todo el cuerpo; el Vec devuelto se usa tal cual (sin copia).
+    let bytes = crate::commands::read_body_capped(
+        response,
+        MAX_AUDIO_BYTES,
+        ProjectErrorCode::InvalidProviderResponse,
+        "el audio clonado supera los 20 MB",
+        "el motor local no devolvió un audio legible",
+    )
+    .await?;
     if !is_wav(&bytes) {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProviderResponse,
@@ -309,7 +169,7 @@ async fn request_clone(
             ),
         ));
     }
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 /// Clona la voz de una muestra del proyecto con un motor local y guarda el WAV.
@@ -421,22 +281,6 @@ pub async fn clone_voice(
 mod tests {
     use super::*;
 
-    #[test]
-    fn engine_urls_are_loopback_and_get_the_right_path() {
-        assert_eq!(
-            local_engine_url("http://127.0.0.1:8020", CloneEngine::Xtts).expect("xtts"),
-            "http://127.0.0.1:8020/tts_to_audio/"
-        );
-        assert_eq!(
-            local_engine_url("http://localhost:9880/tts", CloneEngine::GptSovits).expect("sovits"),
-            "http://localhost:9880/tts"
-        );
-        assert!(local_engine_url("https://api.example.com", CloneEngine::Xtts).is_err());
-        assert!(local_engine_url("http://user:pass@127.0.0.1:8020", CloneEngine::Xtts).is_err());
-        assert!(local_engine_url("ftp://127.0.0.1", CloneEngine::Xtts).is_err());
-        assert!(local_engine_url("http://127.0.0.1:8020?x=1", CloneEngine::Xtts).is_err());
-    }
-
     // multi_thread: el mock acepta con `listener.accept()` bloqueante dentro de
     // la tarea; con el runtime de un solo hilo el accept congelaría al único
     // worker antes de que el cliente conecte y el test se colgaría.
@@ -476,39 +320,6 @@ mod tests {
         let bytes = res.bytes().await.expect("bytes");
         assert!(bytes.len() > 1000, "audio devuelto: {}", bytes.len());
         let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn languages_and_text_are_bounded() {
-        assert_eq!(normalize_language("es-AR").expect("es"), "es");
-        assert_eq!(normalize_language("ZH-cn").expect("zh"), "zh");
-        assert!(normalize_language("xx").is_err());
-        assert!(validate_text("  ").is_err());
-        assert!(validate_text(&"a".repeat(MAX_TEXT_CHARS + 1)).is_err());
-        assert_eq!(
-            validate_text("  Hola\nmundo  ").expect("texto"),
-            "Hola mundo"
-        );
-    }
-
-    #[test]
-    fn recognizes_a_riff_wav_without_trusting_the_header_alone() {
-        let wav = b"RIFF\x24\x00\x00\x00WAVEfmt ";
-        assert!(is_wav(wav));
-        assert!(!is_wav(b"RIFF\x24\x00\x00\x00AVI "));
-        assert!(!is_wav(b"<html></html>"));
-    }
-
-    #[test]
-    fn engine_parser_defaults_to_xtts() {
-        assert_eq!(CloneEngine::parse(None), CloneEngine::Xtts);
-        assert_eq!(
-            CloneEngine::parse(Some("gpt-sovits")),
-            CloneEngine::GptSovits
-        );
-        assert_eq!(CloneEngine::parse(Some("otro")), CloneEngine::Xtts);
-        assert_eq!(CloneEngine::Xtts.name(), "xtts");
-        assert_eq!(CloneEngine::GptSovits.name(), "gpt-sovits");
     }
 
     fn tiny_wav() -> Vec<u8> {
@@ -592,5 +403,52 @@ mod tests {
         .expect("audio");
         assert!(is_wav(&audio));
         server.await.expect("server");
+    }
+
+    /// AUD-082: un motor que declare un audio mayor al tope debe ser
+    /// rechazado por Content-Length sin leer el cuerpo.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rejects_an_oversized_audio_before_reading_the_body() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener");
+        let address = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 2048];
+            loop {
+                let read = socket.read(&mut chunk).await.expect("read");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+                if request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let wav = tiny_wav();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                MAX_AUDIO_BYTES + 1
+            );
+            socket.write_all(response.as_bytes()).await.expect("write");
+            socket.write_all(&wav).await.expect("wav");
+        });
+        let endpoint =
+            local_engine_url(&format!("http://{address}"), CloneEngine::Xtts).expect("endpoint");
+        let error = request_clone(
+            CloneEngine::Xtts,
+            &endpoint,
+            Path::new("C:\\muestra.wav"),
+            "Hola mundo",
+            "es",
+            "",
+            None,
+        )
+        .await
+        .expect_err("un audio que supera el tope debe rechazarse");
+        assert!(error.message.contains("20 MB"), "{error:?}");
     }
 }

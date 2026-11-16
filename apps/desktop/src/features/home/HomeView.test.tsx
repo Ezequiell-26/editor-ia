@@ -80,8 +80,9 @@ afterEach(() => {
 
 describe('Inicio · sin demos muertas y con errores visibles', () => {
   it('no ofrece los CTAs "Probar demo" que apuntaban a proyectos inexistentes', async () => {
-    render(<App service={createFakeService()} />);
-    // La portada de Inicio se monta en el shell: se espera su título.
+    // UN SOLO EDITOR: Inicio ya no es la pantalla de arranque, es un panel
+    // del modo «Todo». Se audita el componente en sí, no el boot de la app.
+    renderHome();
     expect(await screen.findByText(/Creá videos virales|Continuar con/i)).toBeTruthy();
     expect(screen.queryByText(/Probar demo/i)).toBeNull();
     expect(screen.queryByText(/demo Reels|demo YouTube/i)).toBeNull();

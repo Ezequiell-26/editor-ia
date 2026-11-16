@@ -66,7 +66,6 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'download', label: 'Descargar', hint: 'Descargador web · Bajar videos, fotos y audio hasta 8K', group: 'herramientas' },
   { id: 'record', label: 'Grabar', hint: 'Grabación y escenas OBS · Pantalla, ventana, región, webcam, audio y streaming RTMP', group: 'herramientas' },
   { id: 'director', label: 'Director', hint: 'Director local · Análisis medido, cortes y shorts con heurísticas y rostros (sin LLM)', group: 'herramientas' },
-  { id: 'auto-edit', label: 'Automático', hint: 'Editor automático · Analiza el video y crea variantes editables sin LLM', group: 'herramientas' },
   { id: 'youtube', label: 'YouTube', hint: 'Analizador de canales · Mejor video, miniaturas, títulos y comentarios', group: 'herramientas' },
   { id: 'factory', label: 'Fábrica', hint: 'Fábrica de videos · Generación en lote de variantes desde un brief', group: 'herramientas' },
   { id: 'creator', label: 'Creador', hint: 'Creador · Hooks de 3 s, exportación 9:16/16:9/1:1, CTA con QR y B-roll', group: 'herramientas' },
@@ -150,8 +149,8 @@ const HUB_COVERED = new Set<ViewId>([
  * del editor (Texto, Multicámara, Mezcla, VFX, Motion, Efectos) NO repiten
  * puerta acá — ya son tabs del editor y su nombre colisionaba con ellos.
  * Siguen alcanzables por la paleta de comandos, deep links y los propios tabs.
- * Director, Automático y AI Hub se conservan porque además tienen pantalla
- * standalone cuando no hay proyecto abierto (F2).
+ * Director y AI Hub siguen como herramientas independientes. «Automático»
+ * queda integrado en el editor completo, sin una puerta standalone.
  */
 export const SECONDARY_NAV_VIEWS: readonly NavView[] = NAV_VIEWS.filter(
   (view) =>

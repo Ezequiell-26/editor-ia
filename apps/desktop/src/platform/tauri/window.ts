@@ -139,3 +139,15 @@ export function closeMainWindow(): void {
   if (!detectNativeRuntime()) return;
   void getCurrentWindow().close().catch(() => {});
 }
+
+/** Label de la ventana actual (`dual-monitor`, `main`, …); `null` fuera de Tauri. */
+export function currentWindowLabel(): string | null {
+  if (!detectNativeRuntime()) return null;
+  return getCurrentWindow().label;
+}
+
+/** Cierra la ventana que ejecuta este código (no necesariamente la principal). */
+export async function closeCurrentWindow(): Promise<void> {
+  if (!detectNativeRuntime()) return;
+  await getCurrentWindow().close().catch(() => {});
+}

@@ -12,6 +12,38 @@ export type ProductionRunStatus =
   | 'done'
   | 'failed';
 
+/**
+ * Brief estructurado para `production_plan_from_brief`: espejo de
+ * `PlanRequest` en `application/studio_planner.rs` (camelCase por serde).
+ * El backend normaliza plataforma desconocida a `youtube` y aspect ratio
+ * inválido es error; acá se tipa `string` para no duplicar esa política.
+ */
+export interface ProductionPlanBrief {
+  /** Objetivo del video (requerido, máx. 2000 chars en backend). */
+  readonly objective: string;
+  readonly audience?: string;
+  readonly tone?: string;
+  /** Puntos narrativos; cada uno vira una escena (máx. 8 en backend). */
+  readonly keyPoints?: readonly string[];
+  /** Escenas deseadas como pista; `undefined` = una por key point. */
+  readonly sceneCount?: number;
+  /** Duración objetivo total en segundos (default 30, clamp 3–3600). */
+  readonly durationSeconds?: number;
+  /** `youtube` (default), `shorts`, `reels`, `tiktok`. */
+  readonly platform?: string;
+  /** `16:9` (default youtube) u `9:16`/`1:1`/`4:5`. */
+  readonly aspectRatio?: string;
+  /** Voz del generador local para narrar (p.ej. nombre SAPI). */
+  readonly voice?: string;
+  /** Cama musical ambiental generada localmente. */
+  readonly music?: boolean;
+  /** Tarjeta de título inicial generada localmente. */
+  readonly titleCard?: boolean;
+  /** Query explícita para el B-roll; default = objective recortado. */
+  readonly brollQuery?: string;
+  readonly maxCostCents?: number;
+}
+
 export type StageRecordStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
 
 export interface StageRecord {

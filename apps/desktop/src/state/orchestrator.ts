@@ -11,7 +11,7 @@ import {
 import { prepareAutoEdit, type NarrationCandidate } from './auto-edit';
 import { artifactPaths, buildFlowArgs, flowFailure, flowProviderId, sceneVisualPrompt, toolPayload } from './flow';
 import { generateWithRotation, parseFlowAccounts, type FlowAccount } from './flow-accounts';
-import { buildProjectMotionPlans } from '../features/motion/plan';
+import { buildProjectMotionPlans } from './motion-plan';
 
 /**
  * End-to-end orchestrator: brief -> script -> voice -> (optional) Flow media ->

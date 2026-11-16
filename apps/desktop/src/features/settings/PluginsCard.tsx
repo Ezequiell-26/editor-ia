@@ -28,6 +28,10 @@ const KIND_LABEL: Record<PluginInfo['kind'], string> = {
   plugin: 'Plugins',
 };
 
+/// Tope por paso de una skill: si el puente no responde, la ejecución no
+/// queda colgada (los comandos del operador son locales y acotados).
+const COMMAND_STEP_TIMEOUT_MS = 10 * 60 * 1000;
+
 export function PluginsCard() {
   const store = useProjectStore();
   const [items, setItems] = useState<readonly PluginInfo[]>([]);
@@ -107,25 +111,40 @@ export function PluginsCard() {
   }
 
   /**
-   * Dispara los pasos del comando por el puente del asistente y muestra la
-   * respuesta inline: sin `onResult` el usuario no vería que pasó nada.
+   * Dispara los pasos del comando por el puente del asistente, en orden y
+   * esperando la respuesta de cada uno antes del siguiente (AUD-090): antes
+   * se programaban con `setTimeout` y corrían en paralelo. Si un paso
+   * falla se cancelan los restantes. Muestra la respuesta inline: sin
+   * `onResult` el usuario no vería que pasó nada.
    */
   function runCommand(plugin: PluginInfo, command: PluginCommandInfo): void {
     const key = `${plugin.id}:${command.id}`;
     setCommandFeedback((current) => ({ ...current, [key]: 'Ejecutando…' }));
-    command.steps.forEach((text, index) => {
-      window.setTimeout(() => {
-        window.dispatchEvent(
-          new CustomEvent('olyvia:run-command', {
-            detail: {
-              text,
-              onResult: (reply: string) =>
-                setCommandFeedback((current) => ({ ...current, [key]: reply })),
-            },
-          }),
-        );
-      }, index * 600);
-    });
+    void (async () => {
+      for (const text of command.steps) {
+        const outcome = await new Promise<{ ok: boolean; reply: string }>((resolve) => {
+          // Red de seguridad: si el puente no responde (dock desmontado,
+          // comando colgado) el paso no deja la skill esperando para siempre.
+          const timer = window.setTimeout(
+            () => resolve({ ok: false, reply: 'el comando no respondió a tiempo' }),
+            COMMAND_STEP_TIMEOUT_MS,
+          );
+          window.dispatchEvent(
+            new CustomEvent('olyvia:run-command', {
+              detail: {
+                text,
+                onResult: (reply: string, ok = true) => {
+                  window.clearTimeout(timer);
+                  resolve({ ok, reply });
+                },
+              },
+            }),
+          );
+        });
+        setCommandFeedback((current) => ({ ...current, [key]: outcome.reply }));
+        if (!outcome.ok) return;
+      }
+    })();
   }
 
   /**

@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
 import { ProjectProvider, useProjectStore } from '../../state/project-store';
-import { addAsset, addClipFromAsset, ensureDelivery } from '../../state/project-actions';
+import { addAsset, addClipFromAsset, addTrack, ensureDelivery } from '../../state/project-actions';
 import { createFakeService, readyAsset } from '../../test/fake-service';
 import type { AudioPeaks } from '../../services/project-service';
 import { Inspector } from './Inspector';
@@ -240,6 +240,61 @@ describe('Sección cortar silencios', () => {
     // defecto): 600 − 204 = 396.
     expect(totalDuration(latestState?.project ?? null)).toBe(396);
     expect(latestState?.notice).toContain('Silencios recortados en 2 clip(s)');
+  });
+
+  it('permite excluir pistas del corte por lote', async () => {
+    const asset = audioAsset();
+    let project = addAsset(ensureDelivery(createEmptyProject('Silencios', NOW)), asset);
+    const trackA = addTrack(project, 'audio', 'Voz A');
+    project = trackA.project;
+    const trackB = addTrack(project, 'audio', 'Voz B');
+    project = trackB.project;
+    const clipA = addClipFromAsset(project, asset, {
+      trackId: trackA.trackId,
+      atFrame: 0,
+      durationFrames: 300,
+    });
+    project = clipA.project;
+    const clipB = addClipFromAsset(project, asset, {
+      trackId: trackB.trackId,
+      atFrame: 400,
+      durationFrames: 300,
+    });
+    project = clipB.project;
+
+    const service = createFakeService();
+    vi.spyOn(service, 'audioPeaks').mockResolvedValue(peaksFromPattern(NARRACION));
+    latestState = null;
+    render(
+      <ProjectProvider
+        service={service}
+        initial={{
+          project,
+          opened: {
+            project,
+            label: 'silencios.editoria.json',
+            path: 'C:\\tester\\silencios.editoria.json',
+            root: 'C:\\tester',
+          },
+        }}
+      >
+        <ProjectProbe />
+        <SilenceCutsSection clips={project.timeline.clips} />
+      </ProjectProvider>,
+    );
+
+    // Dos pistas → filtro por lote visible con ambas tildadas.
+    const checkA = screen.getByLabelText(/Voz A \(1 clip\)/) as HTMLInputElement;
+    const checkB = screen.getByLabelText(/Voz B \(1 clip\)/) as HTMLInputElement;
+    expect(checkA.checked).toBe(true);
+    expect(checkB.checked).toBe(true);
+
+    // Excluir la pista B: el análisis sólo considera el clip de A.
+    fireEvent.click(checkB);
+    fireEvent.click(screen.getByRole('button', { name: 'Analizar silencios' }));
+    const preview = await screen.findByTestId('silence-plan');
+    expect(preview.textContent).toContain('2 silencio(s) en 1 clip(s)');
+    expect(preview.textContent).not.toContain('≈ 6.80 s');
   });
 
   it('aparece en el Inspector al seleccionar un clip de audio', async () => {

@@ -92,8 +92,11 @@ fn require_output_dir(
     deps: &ConversionDeps<'_>,
     output_dir: &str,
 ) -> Result<PathBuf, ProjectError> {
-    let output_root = PathBuf::from(output_dir.trim());
-    if output_root.as_os_str().is_empty() || !deps.files.is_dir(&output_root) {
+    // La carpeta de salida la elige la persona (diálogo de exportación o
+    // MCP): política de escritura de `fs_*` — absoluta y fuera de
+    // credenciales, carpetas de sistema y carpetas de la app.
+    let output_root = crate::application::fs::validate_user_write_path(output_dir)?;
+    if !deps.files.is_dir(&output_root) {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
             "elegí una carpeta de destino válida",
@@ -127,7 +130,13 @@ fn probe_media_info(
         "json".to_owned(),
         path.to_string_lossy().into_owned(),
     ];
-    let Ok(output) = media_runner.run_ffprobe(ffprobe, &args) else {
+    // Sondeo no fatal con deadline: un ffprobe colgado no puede frenar la
+    // conversión para siempre; el timeout se reporta igual que cualquier fallo.
+    let Ok(output) = media_runner.run_ffprobe_with_timeout(
+        ffprobe,
+        &args,
+        crate::ports::media::MEDIA_PROBE_TIMEOUT,
+    ) else {
         return (bytes, None, String::new());
     };
     if !output.status.success() {
@@ -150,6 +159,10 @@ fn conversion_options(
 }
 
 /// `convert_media`: un asset del proyecto a un formato de la allowlist.
+// clippy::too_many_arguments: API de aplicación que replica el payload del
+// comando IPC; agruparla en un struct de opciones cambiaría la firma que
+// consumen comandos y tests.
+#[allow(clippy::too_many_arguments)]
 pub fn convert_media(
     deps: &ConversionDeps<'_>,
     asset_id: &str,
@@ -218,8 +231,140 @@ pub fn convert_media(
     })
 }
 
+/// `convert_file`: convierte un archivo arbitrario del disco (no asset del
+/// proyecto) a uno de los formatos de entrega derivados — GIF y audio
+/// (MP3/WAV/M4A/AAC/OGG/Opus/FLAC). Uso principal: los entregables del
+/// render (p. ej. el MP4 exportado → GIF o MP3). No requiere sesión.
+pub fn convert_file(
+    deps: &ConversionDeps<'_>,
+    input_path: &str,
+    target: &str,
+    output_dir: &str,
+    quality: Option<u8>,
+    max_width: Option<u32>,
+    fps: Option<f64>,
+) -> Result<ConversionResult, ProjectError> {
+    let (ffmpeg, ffprobe) =
+        resolve_tools(deps, "ffmpeg no está disponible para convertir el archivo")?;
+    let target = ConversionTarget::parse(target).ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el formato de salida no está permitido",
+        )
+    })?;
+    // Sólo formatos de entrega: contenedores de edición e imágenes siguen
+    // siendo cosa de `convert_media`/`compress_*`.
+    if !matches!(
+        target,
+        ConversionTarget::Gif
+            | ConversionTarget::Mp3
+            | ConversionTarget::Wav
+            | ConversionTarget::M4a
+            | ConversionTarget::Aac
+            | ConversionTarget::Ogg
+            | ConversionTarget::Opus
+            | ConversionTarget::Flac
+    ) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "este formato no está disponible para archivos sueltos",
+        ));
+    }
+    let output_root = require_output_dir(deps, output_dir)?;
+    // Archivo suelto del usuario (salida de un render, material de la cola
+    // de carpeta): política de lectura de `fs_*` — absoluta y fuera de
+    // credenciales; no hace falta que viva dentro del proyecto.
+    let input_path = crate::application::fs::resolve_user_file_path(input_path)?;
+    if !deps.files.is_file(&input_path) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::NotFound,
+            "el archivo a convertir no está en disco",
+        ));
+    }
+    // El "kind" lo decide el contenido vía ffprobe: video si hay pista de
+    // video, audio si sólo audio, imagen en otro caso.
+    let probe = probe_file_json(
+        deps.media_runner,
+        ffprobe.as_deref(),
+        &input_path,
+    )?;
+    let streams = probe["streams"].as_array();
+    let has_video = streams.is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["codec_type"].as_str() == Some("video"))
+    });
+    let has_audio = streams.is_some_and(|items| {
+        items
+            .iter()
+            .any(|item| item["codec_type"].as_str() == Some("audio"))
+    });
+    let kind = if has_video {
+        "video"
+    } else if has_audio {
+        "audio"
+    } else {
+        "image"
+    };
+    if !target.accepts(kind) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el formato elegido no acepta este tipo de material",
+        ));
+    }
+    let source_bytes = deps.files.file_len(&input_path);
+    let label = input_path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "medio".to_owned());
+    let final_path = output_root.join(format!(
+        "{}-convertido.{}",
+        safe_stem(&label),
+        target.extension()
+    ));
+    if deps.files.path_exists(&final_path) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::AlreadyExists,
+            "ya existe un archivo con ese nombre en la carpeta de destino",
+        ));
+    }
+    let temp_path = temp_output_path(&output_root, ".editoria-convert-file", target.extension());
+    let options = ConvertOptions {
+        fps,
+        ..ConvertOptions::simple(quality_clamp(quality), max_width)
+    };
+    let hardware = deps.hardware.detect(&ffmpeg);
+    let (args, encoder_used) = build_args(
+        &input_path,
+        &temp_path,
+        target,
+        kind,
+        options,
+        &hardware,
+    )?;
+    let (bytes, duration_seconds, format_name) = deps.runner.run(
+        &ffmpeg,
+        ffprobe.as_deref(),
+        &args,
+        &temp_path,
+        &final_path,
+        &output_root,
+        None,
+    )?;
+    Ok(ConversionResult {
+        path: final_path.to_string_lossy().into_owned(),
+        bytes,
+        duration_seconds,
+        format_name,
+        source_bytes,
+        encoder: encoder_used,
+    })
+}
+
 /// `convert_media_batch`: muchos assets en una corrida; cada ítem reporta su
 /// resultado y nunca aborta la cola. Emite `convert-progress` por fase.
+// clippy::too_many_arguments: idem convert_media (payload del comando IPC).
+#[allow(clippy::too_many_arguments)]
 pub fn convert_media_batch(
     deps: &ConversionDeps<'_>,
     asset_ids: &[String],
@@ -520,8 +665,10 @@ pub fn compress_any_file(
 ) -> Result<ConversionResult, ProjectError> {
     let (target, mode) = validate_compress_target_mode(&request.target, &request.mode)?;
     let output_root = require_output_dir(deps, &request.output_dir)?;
-    let input_path = PathBuf::from(request.input_path.trim());
-    if input_path.as_os_str().is_empty() || !deps.files.is_file(&input_path) {
+    // Misma política que `convert_file`: ruta absoluta del usuario fuera
+    // de credenciales.
+    let input_path = crate::application::fs::resolve_user_file_path(&request.input_path)?;
+    if !deps.files.is_file(&input_path) {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "el archivo a comprimir no está en disco",

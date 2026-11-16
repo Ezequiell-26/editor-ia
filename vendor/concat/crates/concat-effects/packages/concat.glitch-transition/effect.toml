@@ -1,0 +1,22 @@
+format = 2
+
+[effect]
+id = "concat.glitch-transition"
+name = "Glitch"
+kind = "transition"
+category = "Glitch"
+order = 8
+description = "The picture breaks into torn bands that jump sideways and flicker between the two shots until the next one holds."
+
+[[param]]
+key = "amount"
+label = "Amount"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 70
+
+[transition]
+fallback = "cross-fade"
+entry = "effect.wgsl"

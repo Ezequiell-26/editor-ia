@@ -20,13 +20,28 @@ use uuid::Uuid;
 use crate::projects::service::{now_rfc3339, ProjectError, ProjectErrorCode};
 
 pub mod analysis;
+pub mod audio_scope;
 pub mod conversion;
+pub mod cursor_overlay;
+pub mod denoise;
+pub mod dialogue;
+pub mod download_filters;
+pub mod face;
 pub mod folder;
+pub mod image_sense;
 pub mod localized_subtitle;
+pub mod lottie;
+pub mod object_track;
+pub mod peaks;
 pub mod proxy;
+pub mod stickman;
 pub mod subtitle_file;
 pub mod timeline_export;
 pub mod timeline_import;
+pub mod toolbox;
+pub mod visuals_catalog;
+pub mod voice_clone;
+pub mod webcam_chroma;
 
 pub const MAX_IMPORT_FILES: usize = 50;
 
@@ -76,7 +91,10 @@ pub fn is_forbidden_relative(path: &str) -> Option<&'static str> {
     if path.is_empty() {
         return Some("la ruta está vacía");
     }
-    if path.len() > 512 {
+    // AUD-083: el límite es de 512 caracteres como en `projects/service.rs`
+    // y el schema TS — `len()` medía bytes UTF-8 y rechazaba rutas Unicode
+    // largas que sí validaban al guardar/abrir el proyecto.
+    if path.chars().count() > 512 {
         return Some("la ruta excede los 512 caracteres");
     }
     if path.starts_with('/') || path.starts_with('~') {
@@ -97,8 +115,11 @@ pub fn is_forbidden_relative(path: &str) -> Option<&'static str> {
         return Some("la ruta termina en separador");
     }
     for segment in path.split('/') {
-        if segment.is_empty() || segment == "." || segment == ".." {
-            return Some("la ruta tiene un segmento vacío, . o ..");
+        // AUD-082: `.` resuelve al mismo directorio y tanto el schema TS
+        // como `projects/service.rs` lo admiten — el espejo también, o un
+        // proyecto válido fallaría al resolver sus medios.
+        if segment.is_empty() || segment == ".." {
+            return Some("la ruta tiene un segmento vacío o ..");
         }
     }
     None
@@ -457,17 +478,30 @@ pub fn probe_file(
             "-show_streams",
         ])
         .arg(path)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    let output = command.output().map_err(|_| {
+        .stdin(Stdio::null());
+    // ffprobe sobre archivos del usuario puede colgarse en formatos raros o
+    // discos lentos; 60 s es margen amplio para leer cabeceras.
+    crate::infrastructure::process::hide_console(&mut command);
+    let timed = crate::infrastructure::process::output_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(60),
+    )
+    .map_err(|_| {
         ProjectError::message(
             ProjectErrorCode::Io,
             "ffprobe no está disponible; revisá las capacidades del sistema en Ajustes",
+        )
+    })?;
+    if timed.timed_out {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "ffprobe tardó demasiado leyendo el archivo",
+        ));
+    }
+    let output = timed.into_output().ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "ffprobe no devolvió la medición del archivo",
         )
     })?;
     if !output.status.success() {
@@ -703,12 +737,18 @@ pub fn thumbnail_data_url(
     ffmpeg: &Path,
     source: &Path,
     is_image: bool,
+    time_seconds: Option<f64>,
 ) -> Result<String, ProjectError> {
     let mut command = Command::new(ffmpeg);
     if is_image {
         command.arg("-i").arg(source);
     } else {
-        command.args(["-ss", "1"]).arg("-i").arg(source);
+        // `-ss` antes de `-i` hace seek por keyframe + decodifica lo justo:
+        // es lo que permite la «spy» de la timeline sin renderizar el proyecto.
+        let seek = time_seconds
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .unwrap_or(1.0);
+        command.args(["-ss", &format!("{seek:.3}")]).arg("-i").arg(source);
     }
     command
         .args([
@@ -724,17 +764,30 @@ pub fn thumbnail_data_url(
             "5",
             "-",
         ])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    let output = command.output().map_err(|_| {
+        .stdin(Stdio::null());
+    // Una miniatura es un solo frame; 60 s cubre seeks largos en archivos
+    // grandes. Sin deadline un FFmpeg colgado congelaba el comando.
+    crate::infrastructure::process::hide_console(&mut command);
+    let timed = crate::infrastructure::process::output_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(60),
+    )
+    .map_err(|_| {
         ProjectError::message(
             ProjectErrorCode::Io,
             "ffmpeg no está disponible para generar la miniatura",
+        )
+    })?;
+    if timed.timed_out {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "FFmpeg tardó demasiado generando la miniatura",
+        ));
+    }
+    let output = timed.into_output().ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "FFmpeg no devolvió la miniatura",
         )
     })?;
     if !output.status.success() || output.stdout.is_empty() {
@@ -797,12 +850,31 @@ mod tests {
                 "{path} debería rechazarse"
             );
         }
-        for path in ["media/demo.mp4", "media/narracion-1.wav", "assets/a/b.png"] {
+        for path in [
+            "media/demo.mp4",
+            "media/narracion-1.wav",
+            "assets/a/b.png",
+            // AUD-082: "." resuelve al mismo directorio; schema y service
+            // lo admiten, así que la resolución de medios también.
+            "media/./clip.mp4",
+        ] {
             assert!(
                 is_forbidden_relative(path).is_none(),
                 "{path} debería aceptarse"
             );
         }
+    }
+
+    #[test]
+    fn path_length_limit_counts_characters_not_bytes() {
+        // AUD-083: 300 'ñ' = 300 chars pero 600 bytes UTF-8 — antes se
+        // rechazaba aunque el proyecto la validaba (chars en service.rs).
+        let unicode = format!("media/{}.mp4", "ñ".repeat(290));
+        assert!(unicode.chars().count() <= 512);
+        assert!(unicode.len() > 512, "el fixture debe superar 512 bytes");
+        assert!(is_forbidden_relative(&unicode).is_none());
+        let too_long = format!("media/{}.mp4", "a".repeat(600));
+        assert!(is_forbidden_relative(&too_long).is_some());
     }
 
     #[test]
@@ -900,6 +972,6 @@ mod tests {
         // The real invocation is covered by the system capability probe; here we
         // pin that an empty stdout is never turned into a data URL.
         let missing = std::env::temp_dir().join("editor-ia-no-ffmpeg.exe");
-        assert!(thumbnail_data_url(&missing, Path::new("C:/x.png"), true).is_err());
+        assert!(thumbnail_data_url(&missing, Path::new("C:/x.png"), true, None).is_err());
     }
 }

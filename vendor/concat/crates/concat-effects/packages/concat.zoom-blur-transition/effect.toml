@@ -1,0 +1,23 @@
+format = 2
+
+[effect]
+id = "concat.zoom-blur-transition"
+name = "Zoom Blur"
+kind = "transition"
+category = "Zoom"
+order = 15
+description = "The camera lunges into the last shot in a rush of streaks, and the next one rushes back out to meet it."
+
+[[param]]
+key = "strength"
+label = "Strength"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 70
+
+[transition]
+fallback = "cross-fade"
+xfade = "zoomin"
+entry = "effect.wgsl"

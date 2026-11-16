@@ -159,10 +159,11 @@ describe('presets completos', () => {
     expectCompletePalette(THEME_PALETTES.olyvia);
   });
 
-  it('los 9 presets están completos, con hex válido y sin custom', () => {
+  it('los 11 presets están completos, con hex válido y sin custom', () => {
     expect(Object.keys(THEME_PALETTES)).toEqual([
       'olyvia',
       'filmora',
+      'capcut',
       'resolve',
       'mint',
       'ember',
@@ -215,7 +216,15 @@ describe('presets completos', () => {
   });
 
   it('el resto de los presets se deriva de sus 5 colores base', () => {
-    for (const preset of ['resolve', 'mint', 'ember', 'violet', 'ocean', 'graphite'] as const) {
+    for (const preset of [
+      'capcut',
+      'resolve',
+      'mint',
+      'ember',
+      'violet',
+      'ocean',
+      'graphite',
+    ] as const) {
       expect(THEME_PALETTES[preset]).toEqual(paletteFromBase(THEME_PRESETS[preset]));
     }
   });

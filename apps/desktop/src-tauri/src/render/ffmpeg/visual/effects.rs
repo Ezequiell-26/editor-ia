@@ -127,6 +127,35 @@ pub(crate) fn fill_audio_template(
     out
 }
 
+/// Fragmento de audio de un efecto `concat-effects` (plantillas `{expr}`).
+///
+/// La tabla generada (`effect_recipes.rs`) no traduce estas cadenas: las
+/// resuelve el propio crate vendorado con `Catalogue::ffmpeg_fragment`, que
+/// es la fuente de verdad del DSP (los `fixtures.toml` del vendor pinean la
+/// salida). Devuelve `None` si el id no es un paquete de audio conocido o la
+/// expresión no evalúa con estos parámetros — el llamador lo saltea, igual
+/// que una receta sin cadena. `index` es la posición emitida en la cadena,
+/// como en `compose` del crate; las cadenas de audio no usan etiquetas.
+fn concat_audio_fragment(recipe: &Recipe, params: &Value, index: usize) -> Option<String> {
+    let package = concat_effects::catalogue::Catalogue::builtin()
+        .get(recipe.id)?;
+    if package.kind() != concat_effects::Kind::Audio {
+        return None;
+    }
+    let empty = serde_json::Map::new();
+    let object = params.as_object().unwrap_or(&empty);
+    let set: std::collections::BTreeMap<String, f64> = object
+        .iter()
+        .filter_map(|(key, value)| {
+            value
+                .as_f64()
+                .or_else(|| value.as_bool().map(|flag| if flag { 1.0 } else { 0.0 }))
+                .map(|number| (key.clone(), number))
+        })
+        .collect();
+    package.ffmpeg_fragment(&set, index).ok().flatten()
+}
+
 /// Agrega la cadena de audio del clip a la lista de filtros.
 ///
 /// El stack de audio vive en `clip.effects.audioStack`, separado del stack de
@@ -155,10 +184,16 @@ pub(crate) fn apply_audio_effect_stack(
         let Some(recipe) = find_recipe(effect_id) else {
             continue;
         };
+        let params = instance.get("params").unwrap_or(&empty);
+        if recipe.concat_audio {
+            if let Some(fragment) = concat_audio_fragment(recipe, params, filters.len()) {
+                filters.push(fragment);
+            }
+            continue;
+        }
         if recipe.audio_chain.is_empty() {
             continue;
         }
-        let params = instance.get("params").unwrap_or(&empty);
         for template in recipe.audio_chain {
             let filled = fill_audio_template(template, recipe, params, audio_rate);
             if !filled.is_empty() {
@@ -278,6 +313,13 @@ pub(crate) fn build_audio_stack_graphs(
             let Some(recipe) = find_recipe(effect_id) else {
                 continue;
             };
+            if recipe.concat_audio {
+                if let Some(fragment) = concat_audio_fragment(recipe, &params, k) {
+                    body.push(',');
+                    body.push_str(&fragment);
+                }
+                continue;
+            }
             for template in recipe.audio_chain {
                 let filled = fill_audio_template(template, recipe, &params, audio_rate);
                 if !filled.is_empty() {
@@ -317,7 +359,8 @@ pub(crate) fn effect_instance_body(recipe: &Recipe, params: &Value, token: &str)
         }
         body.push_str(&filled);
     }
-    body
+    // FFmpeg 9 eliminó `eq`: las recetas que lo usan se traducen a `lutyuv`.
+    crate::render::ffmpeg::rewrite_eq_filters(&body)
 }
 
 /// Aplica el stack declarativo del clip sobre la cola de su cadena.
@@ -395,7 +438,9 @@ pub(crate) fn instance_keyframe_tracks(
         .get("effectId")
         .and_then(Value::as_str)
         .and_then(find_recipe)
-        .map(|recipe| !require_audio_chain || !recipe.audio_chain.is_empty())
+        .map(|recipe| {
+            !require_audio_chain || !recipe.audio_chain.is_empty() || recipe.concat_audio
+        })
         .unwrap_or(false);
     if !renderable {
         return Vec::new();

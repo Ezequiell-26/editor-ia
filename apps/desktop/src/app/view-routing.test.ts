@@ -51,6 +51,7 @@ describe('rutas canónicas', () => {
       'multicam',
       'mixer',
       'vfx',
+      'nodes',
       'motion',
       'visuals',
     ] as const) {
@@ -75,7 +76,10 @@ describe('rutas canónicas', () => {
   });
 
   it('T1: los hosts y los 12 alias a hubs resuelven a un panel del editor', () => {
-    expect(EDITOR_TOOL_HOSTS.size).toBe(7);
+    // Enmienda 2026-11-14: `settings` dejó de ser ventana flotante y es un
+    // host más del modo «Todo» → 8 hosts, ninguna superficie aparte.
+    expect(EDITOR_TOOL_HOSTS.size).toBe(8);
+    expect(EDITOR_TOOL_HOSTS.has('settings')).toBe(true);
     for (const host of EDITOR_TOOL_HOSTS) {
       expect(editorToolForView(host)).toEqual({ view: host });
     }
@@ -96,11 +100,14 @@ describe('rutas canónicas', () => {
     for (const [id, expected] of Object.entries(aliases)) {
       expect(editorToolForView(id as ViewId)).toEqual(expected);
     }
-    // Las otras ramas NO son paneles de herramientas.
-    for (const id of ['editor', 'settings', 'mixer', 'script', 'home'] as ViewId[]) {
+    // Las otras ramas NO son paneles de herramientas. `settings` salió de
+    // esta lista: la enmienda 2026-11-14 la unificó como host del modo
+    // «Todo» (antes era ventana flotante).
+    for (const id of ['editor', 'mixer', 'script', 'home'] as ViewId[]) {
       if (id === 'home') continue;
       expect(editorToolForView(id)).toBeUndefined();
     }
+    expect(editorToolForView('settings')).toEqual({ view: 'settings' });
   });
 
   it('deja intactas las superficies canónicas', () => {

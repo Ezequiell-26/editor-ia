@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 
 test('la ventana de actualizaciones informa el estado real, sin releases ficticias', async ({ page }) => {
   await page.goto('/');
+  // UN SOLO EDITOR: la app arranca en el editor; el gestor de proyectos (y su
+  // actualizador) se abre desde el botón «Inicio» del topbar.
+  await expect(page.locator('.app-shell')).toBeVisible();
+  await page.locator('.topbar-home-btn').click();
   await expect(page.locator('.start-window')).toBeVisible();
 
   // El lanzador no anuncia una actualización inexistente.

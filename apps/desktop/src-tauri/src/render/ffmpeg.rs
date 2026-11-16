@@ -16,18 +16,21 @@ use std::process::{Child, Command, Stdio};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::commands::voice_isolation::isolation_stem_path;
+use crate::application::voice_isolation::isolation_stem_path;
 use crate::media::resolve_inside_root;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::render::effect_recipes::{find as find_recipe, ParamKind, Recipe};
 use crate::render::subtitles::{build_ass, CaptionInput};
 
 mod audio;
+mod eq_compat;
 mod execution;
 mod plan;
 mod probe;
 mod profile;
 mod visual;
+
+pub(crate) use eq_compat::rewrite_eq_filters;
 
 pub(super) use audio::audio_filter;
 pub use audio::BuildPlanInput;
@@ -43,7 +46,8 @@ pub(super) use profile::{
 pub(crate) use profile::{encoder_names, software_encoder};
 pub use profile::{parse_profile, Profile, RenderPlan, RenderProgress, RenderVerification};
 pub(super) use visual::{
-    adjustment_filters, animation_overlay_terms, apply_lut_to_chain_gated,
+    adjustment_filters, animation_overlay_terms, animation_transform_graph,
+    apply_lut_to_chain_gated,
     audio_stack_keyframe_instances, audio_stack_segment_plan, blend_mode_name,
     build_audio_stack_graphs, curve_mean, has_audio_stream, hex_color, keyframe_expression,
     offset_expression, overlay_x_expression, overlay_y_expression, parse_speed_curve,
@@ -52,8 +56,9 @@ pub(super) use visual::{
 };
 pub(crate) use visual::{
     alpha_video_decoder, apply_audio_effect_stack, apply_effect_stack, apply_effect_stack_animated,
-    apply_glow_to_chain, apply_lut_to_chain, eased_fraction, effects_lut, transition_lead_seconds,
-    visual_filter, visual_filter_with_format,
+    apply_glow_to_chain, apply_lut_to_chain, camera_lut_path, eased_fraction, effects_lut,
+    prepare_frame_input, prepare_texture_input, resolve_transition_out, transition_lead_seconds,
+    transition_trail_seconds, visual_filter_with_format,
 };
 
 // La superficie que consumen los tests vía `use super::*` (`tests.rs`,
@@ -65,6 +70,8 @@ pub(super) use audio::track_audio_filters;
 pub(super) use execution::{effective_min_output_bytes, verify_probe_payload};
 #[cfg(test)]
 pub(crate) use plan::expand_compounds_con_pistas;
+#[cfg(test)]
+pub(crate) use visual::visual_filter;
 #[cfg(test)]
 pub(super) use profile::choose_encoder;
 #[cfg(test)]

@@ -1,0 +1,13 @@
+format = 2
+
+[effect]
+id = "concat.cube"
+name = "Cube"
+kind = "transition"
+category = "Spin"
+order = 14
+description = "The two shots are neighbouring faces of a box that turns a quarter of the way round, with the turning-away face falling into shade."
+
+[transition]
+fallback = "cross-fade"
+entry = "effect.wgsl"

@@ -15,6 +15,14 @@ use uuid::Uuid;
 
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 
+/// AUD-127: topes antes de tocar el payload — un data URL hostil no puede
+/// inflar la RAM ni declarar dimensiones gigantes sin que el decoder las
+/// rechace antes de reservar el raster.
+const MAX_THUMBNAIL_BYTES: usize = 64 * 1024 * 1024;
+const MAX_DATA_URL_PAYLOAD_CHARS: usize = 4 * (MAX_THUMBNAIL_BYTES / 3 + 1);
+const MAX_THUMBNAIL_DIMENSION: u32 = 16_384;
+const MAX_THUMBNAIL_ALLOC: u64 = 2 * 1024 * 1024 * 1024;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThumbnailExportRequest {
@@ -43,6 +51,14 @@ fn decode_data_url(value: &str) -> Result<Vec<u8>, ProjectError> {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
             "la miniatura llegó vacía",
+        ));
+    }
+    // AUD-127: el tope se aplica sobre el payload ANTES de decodificar —
+    // base64 infla ~4/3, así que un string gigante ya es motivo de rechazo.
+    if payload.len() > MAX_DATA_URL_PAYLOAD_CHARS {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la miniatura excede el tamaño máximo admitido",
         ));
     }
     STANDARD.decode(payload).map_err(|_| {
@@ -98,27 +114,51 @@ fn unique_path(dir: &Path, stem: &str) -> PathBuf {
 pub fn save_thumbnail(
     request: ThumbnailExportRequest,
 ) -> Result<ThumbnailExportResult, ProjectError> {
-    let output_dir = PathBuf::from(request.output_dir.trim());
-    if output_dir.as_os_str().is_empty() || !output_dir.is_dir() {
+    // Carpeta de destino elegida por el usuario: política de escritura de
+    // `fs_*` — absoluta y fuera de sistema/credenciales/carpeta de la app.
+    let output_dir = crate::application::fs::validate_user_write_path(&request.output_dir)?;
+    if !output_dir.is_dir() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
             "la carpeta de destino de la miniatura no existe",
         ));
     }
     let bytes = decode_data_url(&request.data_url)?;
-    let image = image::load_from_memory(&bytes).map_err(|_| {
+    let invalid_image = || {
         ProjectError::message(
             ProjectErrorCode::InvalidProject,
             "la miniatura no es una imagen válida",
         )
-    })?;
-    let (width, height) = (image.width(), image.height());
-    if width == 0 || height == 0 || width > 16_384 || height > 16_384 {
+    };
+    // AUD-127: las dimensiones se leen del header ANTES de decodificar —
+    // un PNG de pocos KB puede declarar 100.000×100.000 y el decoder
+    // reservaría gigas de raster antes del chequeo de rango.
+    let (width, height) = image::ImageReader::new(Cursor::new(&bytes))
+        .with_guessed_format()
+        .map_err(|_| invalid_image())?
+        .into_dimensions()
+        .map_err(|_| invalid_image())?;
+    if width == 0
+        || height == 0
+        || width > MAX_THUMBNAIL_DIMENSION
+        || height > MAX_THUMBNAIL_DIMENSION
+    {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
             "la miniatura tiene dimensiones fuera de rango",
         ));
     }
+    // Y la decodificación en sí corre con límites del decoder: aunque el
+    // header mienta sobre el contenido, el raster queda acotado.
+    let mut reader = image::ImageReader::new(Cursor::new(&bytes))
+        .with_guessed_format()
+        .map_err(|_| invalid_image())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_THUMBNAIL_DIMENSION);
+    limits.max_image_height = Some(MAX_THUMBNAIL_DIMENSION);
+    limits.max_alloc = Some(MAX_THUMBNAIL_ALLOC);
+    reader.limits(limits);
+    let image = reader.decode().map_err(|_| invalid_image())?;
     // Re-encodea a PNG: no se guarda lo que el cliente dijo que era, sino lo
     // que `image` efectivamente decodificó.
     let mut png = Vec::new();
@@ -212,6 +252,67 @@ mod tests {
     fn rejects_garbage_and_empty_payloads() {
         assert!(decode_data_url("").is_err());
         assert!(decode_data_url("data:image/png;base64,@@@").is_err());
+    }
+
+    #[test]
+    fn rechaza_payloads_mayores_al_tope_antes_de_decodificar() {
+        // AUD-127: el tope se evalúa sobre la longitud del payload, sin
+        // materializar los bytes decodificados.
+        let oversized = format!(
+            "data:image/png;base64,{}",
+            "A".repeat(MAX_DATA_URL_PAYLOAD_CHARS + 1)
+        );
+        let error = decode_data_url(&oversized).expect_err("debió rechazar");
+        assert!(error.message.contains("tamaño máximo"));
+    }
+
+    fn crc32_ieee(bytes: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &byte in bytes {
+            crc ^= byte as u32;
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    /// PNG real de 1×1 con el IHDR patcheado a `width`×`height` (CRC
+    /// recalculado): el escenario del decompression bomb — un archivo
+    /// diminuto que declara un raster gigante.
+    fn png_with_hostile_dimensions(width: u32, height: u32) -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png)
+            .expect("png");
+        // Estructura: sig(8) + len(4) + "IHDR"(4) + data(13) + crc(4).
+        // Ancho en bytes 16..20, alto en 20..24, CRC en 29..33.
+        png[16..20].copy_from_slice(&width.to_be_bytes());
+        png[20..24].copy_from_slice(&height.to_be_bytes());
+        let crc = crc32_ieee(&png[12..29]);
+        png[29..33].copy_from_slice(&crc.to_be_bytes());
+        png
+    }
+
+    #[test]
+    fn rechaza_imagenes_con_dimensiones_hostiles_leidas_del_header() {
+        // AUD-127: 20.000×20.000 excede el tope aunque el PNG sea diminuto.
+        let hostile = STANDARD.encode(png_with_hostile_dimensions(20_000, 20_000));
+        let dir = std::env::temp_dir().join(format!("editoria-thumb-bomb-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("carpeta");
+        let request = ThumbnailExportRequest {
+            data_url: format!("data:image/png;base64,{hostile}"),
+            output_dir: dir.to_string_lossy().into_owned(),
+            file_name: None,
+        };
+        let error = save_thumbnail(request).expect_err("debió rechazar");
+        assert!(error.message.contains("dimensiones"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

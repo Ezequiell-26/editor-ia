@@ -247,6 +247,108 @@
   color: #ef4444;
 }
 
+/* Verificación de catálogo: una declaración NO es una medición.
+   Los estados no verificados se muestran, nunca se esconden. */
+.visuals-verification-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgba(24, 18, 8, 0.86);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  backdrop-filter: blur(8px);
+  color: #fbbf24;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.visuals-transition-card[data-verification='unsupported'] .visuals-verification-badge,
+.visuals-transition-card[data-verification='drift'] .visuals-verification-badge {
+  background: rgba(30, 12, 12, 0.86);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #f87171;
+}
+
+.visuals-transition-card[data-verification='unverified']::before,
+.visuals-transition-card[data-verification='drift']::before {
+  filter: saturate(0.45);
+}
+
+.visuals-effects li {
+  flex-wrap: wrap;
+}
+
+.visuals-effect-reason {
+  flex-basis: 100%;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.visuals-effects li.verification-unverified strong {
+  color: #fbbf24;
+}
+
+.visuals-effects li.verification-drift strong,
+.visuals-effects li.verification-unsupported strong {
+  color: #f87171;
+}
+
+.visuals-verification-problems {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+}
+
+.visuals-verification-problems li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.06);
+  font-size: 12px;
+}
+
+.visuals-verification-problems li.verification-unsupported,
+.visuals-verification-problems li.verification-drift {
+  border-color: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.visuals-verification-problems li strong {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #fbbf24;
+}
+
+.visuals-verification-problems li.verification-unsupported strong,
+.visuals-verification-problems li.verification-drift strong {
+  color: #f87171;
+}
+
+.visuals-verification-problems li span {
+  color: #ffffff;
+}
+
+.visuals-verification-problems li small {
+  flex-basis: 100%;
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.65);
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .visuals-presets {

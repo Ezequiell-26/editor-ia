@@ -114,6 +114,8 @@ pub fn matrix_from_encoders(encoders: &[String]) -> ExportCapabilities {
         &["libsvtav1", "libaom-av1"],
         &["av1_nvenc", "av1_qsv", "av1_amf"],
     );
+    // ProRes: sólo `prores_ks` por software; sin encoder de hardware.
+    let prores = codec_availability(encoders, &["prores_ks"], &[]);
     let aac_available = ["aac", "aac_mf"]
         .iter()
         .any(|encoder| has(encoders, encoder));
@@ -127,15 +129,29 @@ pub fn matrix_from_encoders(encoders: &[String]) -> ExportCapabilities {
     if has_444 {
         pixel_formats.push("yuv444p".to_owned());
     }
+    // 4:2:2 y 4:4:4 10-bit son los pixel formats nativos de ProRes en MOV
+    // (4444 con alfa, paridad `exp-alfa` de `exportar_prores.js`).
+    if !prores.software.is_empty() {
+        pixel_formats.push("yuv422p10le".to_owned());
+        pixel_formats.push("yuva444p10le".to_owned());
+    }
     let mut video = HashMap::new();
     let mut mp4_video = Vec::new();
+    let mut mov_video = Vec::new();
     if !h264.software.is_empty() || !h264.hardware.is_empty() {
         video.insert("h264".to_owned(), h264);
         mp4_video.push("h264".to_owned());
+        mov_video.push("h264".to_owned());
     }
     if !h265.software.is_empty() || !h265.hardware.is_empty() {
         video.insert("h265".to_owned(), h265);
         mp4_video.push("h265".to_owned());
+        mov_video.push("h265".to_owned());
+    }
+    // ProRes sólo existe en MOV (matriz del schema: mp4 no lo admite).
+    if !prores.software.is_empty() {
+        video.insert("prores".to_owned(), prores);
+        mov_video.push("prores".to_owned());
     }
     let mut webm_video = Vec::new();
     if !vp9.software.is_empty() || !vp9.hardware.is_empty() {
@@ -160,12 +176,15 @@ pub fn matrix_from_encoders(encoders: &[String]) -> ExportCapabilities {
     if !mp4_video.is_empty() && !audio.is_empty() {
         containers.push(ContainerCapability {
             container: "mp4".to_owned(),
-            video_codecs: mp4_video.clone(),
+            video_codecs: mp4_video,
             audio_codecs: audio.clone(),
         });
+    }
+    // MOV admite todo lo de MP4 más ProRes, así que se evalúa aparte.
+    if !mov_video.is_empty() && !audio.is_empty() {
         containers.push(ContainerCapability {
             container: "mov".to_owned(),
-            video_codecs: mp4_video,
+            video_codecs: mov_video,
             audio_codecs: audio.clone(),
         });
     }
@@ -388,6 +407,33 @@ mod tests {
             .find(|container| container.container == "webm")
             .unwrap();
         assert_eq!(webm.video_codecs, vec!["vp9", "av1"]);
+    }
+
+    #[test]
+    fn prores_solo_en_mov_cuando_existe_prores_ks() {
+        let mut list = encoders();
+        list.push("prores_ks".to_owned());
+        let matrix = matrix_from_encoders(&list);
+        assert_eq!(matrix.video_codecs["prores"].software, vec!["prores_ks"]);
+        assert!(matrix.video_codecs["prores"].hardware.is_empty());
+        let mov = matrix
+            .containers
+            .iter()
+            .find(|container| container.container == "mov")
+            .unwrap();
+        assert!(mov.video_codecs.iter().any(|codec| codec == "prores"));
+        // MP4 nunca ofrece ProRes (matriz del schema).
+        let mp4 = matrix
+            .containers
+            .iter()
+            .find(|container| container.container == "mp4")
+            .unwrap();
+        assert!(!mp4.video_codecs.iter().any(|codec| codec == "prores"));
+        assert!(matrix.pixel_formats.iter().any(|f| f == "yuv422p10le"));
+        // Sin prores_ks no se ofrece ni el codec ni el pixel format.
+        let matrix = matrix_from_encoders(&encoders());
+        assert!(!matrix.video_codecs.contains_key("prores"));
+        assert!(!matrix.pixel_formats.iter().any(|f| f == "yuv422p10le"));
     }
 
     #[test]

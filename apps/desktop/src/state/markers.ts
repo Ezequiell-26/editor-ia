@@ -124,6 +124,7 @@ export function updateMarker(
     label?: string;
     color?: MarkerColor | undefined;
     note?: string | undefined;
+    role?: 'cover' | undefined;
   },
 ): ProjectDocument {
   const next = cloneProject(project);
@@ -173,6 +174,17 @@ export function updateMarker(
   if ('color' in patch) {
     if (patch.color) marker.color = patch.color;
     else delete marker.color;
+  }
+  if ('role' in patch) {
+    if (patch.role === 'cover') {
+      // Un solo marcador de portada por proyecto (como `extra("capa")`).
+      for (const other of next.markers) {
+        if (other.id !== marker.id) delete other.role;
+      }
+      marker.role = 'cover';
+    } else {
+      delete marker.role;
+    }
   }
   touch(next);
   return next;
@@ -225,6 +237,37 @@ export function markersFromScenes(
     }
     const label = (scene.title.trim() || `Escena ${index + 1}`).slice(0, 120);
     next = addMarker(next, frame, { label }).project;
+    added += 1;
+  }
+  return { project: added > 0 ? next : project, added, skipped };
+}
+
+/**
+ * Turns detected scene-cut frames (already expressed in timeline frames) into
+ * markers labeled `Corte N`. Frames are rounded, deduplicated and sorted;
+ * frames that already carry a marker are skipped, and the run stops quietly at
+ * MAX_MARKERS instead of throwing mid-way.
+ */
+export function markersFromCuts(
+  project: ProjectDocument,
+  frames: readonly number[],
+): { project: ProjectDocument; added: number; skipped: number } {
+  let next = project;
+  let added = 0;
+  let skipped = 0;
+  const ordered = [...new Set(frames.map((frame) => Math.max(0, Math.round(frame))))].sort(
+    (a, b) => a - b,
+  );
+  for (const [index, frame] of ordered.entries()) {
+    if (next.markers.some((marker) => marker.frame === frame)) {
+      skipped += 1;
+      continue;
+    }
+    if (next.markers.length >= MAX_MARKERS) {
+      skipped += ordered.length - index;
+      break;
+    }
+    next = addMarker(next, frame, { label: `Corte ${index + 1}` }).project;
     added += 1;
   }
   return { project: added > 0 ? next : project, added, skipped };

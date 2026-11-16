@@ -9,10 +9,11 @@ use serde::{Deserialize, Serialize};
 
 pub const STUDIO_PLAN_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum StudioStage {
     Brief,
+    #[default]
     Plan,
     Acquire,
     Analyze,
@@ -21,12 +22,6 @@ pub enum StudioStage {
     Render,
     Review,
     Deliver,
-}
-
-impl Default for StudioStage {
-    fn default() -> Self {
-        Self::Plan
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,19 +37,14 @@ pub enum StudioResourceKind {
     Graphic,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CommercialUseRequirement {
+    #[default]
     Allowed,
     RequiresAttribution,
     NotForRedistribution,
     Unknown,
-}
-
-impl Default for CommercialUseRequirement {
-    fn default() -> Self {
-        Self::Allowed
-    }
 }
 
 /// Orden de "mejor a peor" para comparar contra el resultado de una fuente.
@@ -131,20 +121,15 @@ pub struct PlanScene {
     pub notes: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TargetPlatform {
+    #[default]
     Youtube,
     Shorts,
     Reels,
     Tiktok,
     Other,
-}
-
-impl Default for TargetPlatform {
-    fn default() -> Self {
-        Self::Youtube
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -196,7 +181,7 @@ pub struct QualityCriteria {
     pub loudness_target_lufs: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubtitleSpec {
     #[serde(default)]
@@ -205,31 +190,13 @@ pub struct SubtitleSpec {
     pub language: Option<String>,
 }
 
-impl Default for SubtitleSpec {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            language: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicSpec {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
-}
-
-impl Default for MusicSpec {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            query: None,
-        }
-    }
 }
 
 /// Transición de entrada que `edit` aplica a los clips visuales de

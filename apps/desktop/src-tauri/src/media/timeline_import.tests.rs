@@ -955,3 +955,48 @@ fn imports_a_real_edl_and_copies_media() {
         .starts_with("media/"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn edl_timecode_hours_beyond_u64_range_is_rejected_not_wrapped() {
+    // AUD-076: `18446744073709551615` horas entra como u64 pero `* 60`
+    // desborda. Antes: panic en debug / wrap silencioso en release.
+    // Ahora: timecode inválido → warning y el evento se salta.
+    let text = "TITLE: Overflow\nFCM: NON-DROP FRAME\n\n001  AX       V     C        18446744073709551615:00:00:00 18446744073709551615:00:00:30 18446744073709551615:00:00:00 18446744073709551615:00:00:30\n* FROM CLIP NAME: Toma\n";
+    let parsed = parse_edl(text, 30.0);
+    assert!(parsed.clips.is_empty(), "{:?}", parsed.clips);
+    assert!(
+        parsed
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("timecode")),
+        "{:?}",
+        parsed.warnings
+    );
+}
+
+#[test]
+fn edl_large_but_valid_timecode_still_parses() {
+    // Horas grandes que sí entran en u64 deben seguir funcionando:
+    // 100000 h * 3600 s/h * 30 fps = 1.08e10 frames, muy por debajo del tope.
+    let text = "TITLE: Big\nFCM: NON-DROP FRAME\n\n001  AX       V     C        100000:00:00:00 100000:00:01:00 100000:00:00:00 100000:00:01:00\n* FROM CLIP NAME: Toma\n";
+    let parsed = parse_edl(text, 30.0);
+    assert_eq!(parsed.clips.len(), 1, "{:?}", parsed.warnings);
+    assert!((parsed.clips[0].duration_seconds - 1.0).abs() < 0.001);
+}
+
+#[test]
+fn fcpxml_timecode_beyond_u64_range_degrades_instead_of_panicking() {
+    // Mismo helper compartido: el offset desbordado cae a 0.0 y el clip
+    // se importa en el inicio en vez de abortar el parseo.
+    let text = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <fcpxml version="1.11"><resources>
+          <format id="r1" frameDuration="1/30s" width="1920" height="1080"/>
+          <asset id="r2" name="Toma" hasVideo="1"><media-rep src="file:///media/toma.mp4"/></asset>
+        </resources><library><event name="E"><project name="P">
+          <sequence format="r1" duration="2s"><spine>
+            <asset-clip ref="r2" offset="18446744073709551615:00:00:00" duration="2s" name="Toma"/>
+          </spine></sequence>
+        </project></event></library></fcpxml>"#;
+    let parsed = parse_fcpxml(text, 30.0).expect("FCPXML");
+    assert_eq!(parsed.clips.len(), 1, "{:?}", parsed.warnings);
+}

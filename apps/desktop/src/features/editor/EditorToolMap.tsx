@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
+import type { EditorModeId } from '../../app/view-routing';
 import { WORKSPACE_GROUPS, WORKSPACE_TOOLS } from '../../app/workspace-map';
 import { Icon } from '../../components/Icon';
 
@@ -7,6 +8,9 @@ export interface EditorToolMapProps {
   readonly onNavigate: (id: ViewId) => void;
   /** Herramienta activa, para marcarla en el mapa. */
   readonly currentView?: ViewId;
+  /** Modos internos del editor que no tienen una ruta propia en la navegación global. */
+  readonly currentMode?: EditorModeId;
+  readonly onSwitchMode?: (mode: EditorModeId) => void;
 }
 
 /**
@@ -16,7 +20,7 @@ export interface EditorToolMapProps {
  * `app/workspace-map.ts` (que a su vez lee `NAV_VIEWS` y `resolveViewRoute`).
  * Un buscador, cuatro grupos, un clic. Sin emojis, sin submenús escondidos.
  */
-export function EditorToolMap({ onNavigate, currentView }: EditorToolMapProps) {
+export function EditorToolMap({ onNavigate, currentView, currentMode, onSwitchMode }: EditorToolMapProps) {
   const [query, setQuery] = useState('');
   const inputId = useId();
   const needle = query.trim().toLocaleLowerCase('es');
@@ -37,6 +41,14 @@ export function EditorToolMap({ onNavigate, currentView }: EditorToolMapProps) {
     [needle],
   );
   const shown = groups.reduce((total, group) => total + group.tools.length, 0);
+  const availableInternalModes: readonly { id: EditorModeId; label: string; hint: string }[] = [
+    { id: 'auto-edit', label: 'Edición automática', hint: 'Analizar material y preparar variantes editables' },
+    { id: 'brain', label: 'Cerebro', hint: 'Analizar la timeline y proponer cortes con motivo' },
+    { id: 'guide', label: 'Guía', hint: 'Recorrer el flujo de trabajo y aprender los controles' },
+  ];
+  const internalModes = availableInternalModes.filter((mode) =>
+    !needle || `${mode.label} ${mode.hint}`.toLocaleLowerCase('es').includes(needle),
+  );
 
   return (
     <section className="editor-tool-map" aria-label="Mapa de herramientas">
@@ -99,7 +111,32 @@ export function EditorToolMap({ onNavigate, currentView }: EditorToolMapProps) {
         )}
       </div>
 
-      {shown === 0 ? (
+      {onSwitchMode && internalModes.length > 0 ? (
+        <section className="editor-tool-map-group editor-tool-map-internal" aria-label="Modos internos del editor">
+          <h4>Modos del editor <span className="fine-print">{internalModes.length}</span></h4>
+          <ul className="editor-tool-map-list">
+            {internalModes.map((item) => {
+              const here = currentMode === item.id;
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={`editor-tool-chip${here ? ' is-here' : ''}`}
+                    aria-current={here ? 'true' : undefined}
+                    onClick={() => onSwitchMode(item.id)}
+                  >
+                    <strong>{item.label}</strong>
+                    <span>{item.hint}</span>
+                    {here ? <em>Aquí</em> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {shown === 0 && internalModes.length === 0 ? (
         <p className="editor-tool-map-empty">
           Ninguna herramienta coincide con «{query.trim()}». Probá con otra palabra.
         </p>

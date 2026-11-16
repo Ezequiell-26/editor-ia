@@ -13,7 +13,7 @@ pub struct PreviewFrameRequest {
     pub composite: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewFrameResult {
     pub path: String,

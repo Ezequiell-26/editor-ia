@@ -46,9 +46,10 @@ function nav(label: string): void {
 
 async function createProject(): Promise<void> {
   nav('Proyectos');
-  const input = within(screen.getByRole('main')).getByRole('textbox', { name: /nombre/i });
+  // «Proyectos» es un panel lazy dentro del editor: hay que esperarlo.
+  const input = await within(screen.getByRole('main')).findByRole('textbox', { name: /nombre/i });
   fireEvent.change(input, { target: { value: 'Lottie QA' } });
-  fireEvent.click(screen.getByRole('button', { name: /Crear y elegir ubicación/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /Crear y elegir ubicación/i }));
   await waitFor(
     () => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Timeline 01/),
     { timeout: 10_000 },

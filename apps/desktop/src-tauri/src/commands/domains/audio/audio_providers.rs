@@ -14,7 +14,11 @@ use serde_json::{json, Value};
 use tauri::State;
 use uuid::Uuid;
 
-use crate::commands::narration::{NarrationResult, VoiceInfo};
+use crate::application::audio_providers::{
+    extract_api_error, validate_external_url, validate_kind, validate_model_id, validate_text,
+    validate_voice_id,
+};
+use crate::application::narration::{parse_elevenlabs_voices, NarrationResult, VoiceInfo};
 use crate::commands::system::resolve_tools;
 use crate::media::{probe_file, sha256_file, MediaKind};
 use crate::projects::service::{now_rfc3339, ProjectError, ProjectErrorCode};
@@ -22,12 +26,10 @@ use crate::state::AppState;
 
 const KEYRING_SERVICE: &str = "editor-ia.audio";
 const KEYRING_USER: &str = "elevenlabs";
-const MAX_TEXT_CHARS: usize = 4_000;
 const MAX_AUDIO_BYTES: usize = 25 * 1024 * 1024;
 const MAX_VOICES_BYTES: usize = 2 * 1024 * 1024;
 const ELEVENLABS_VOICES_URL: &str = "https://api.elevenlabs.io/v1/voices";
 const ELEVENLABS_TTS_BASE: &str = "https://api.elevenlabs.io/v1/text-to-speech";
-const DEFAULT_MODEL: &str = "eleven_multilingual_v2";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,107 +74,6 @@ fn provider_info(settings: &crate::state::AudioProviderSettings) -> AudioProvide
         has_key: read_key().is_some(),
         keyring_available: keyring_available(),
     }
-}
-
-fn validate_kind(kind: &str) -> Result<&'static str, ProjectError> {
-    match kind {
-        "windows-sapi" => Ok("windows-sapi"),
-        "elevenlabs" => Ok("elevenlabs"),
-        "external-web" => Ok("external-web"),
-        _ => Err(ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "proveedor de audio desconocido",
-        )),
-    }
-}
-
-fn validate_voice_id(value: &str) -> Result<String, ProjectError> {
-    let value = value.trim();
-    if value.is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "elegí una voz antes de sintetizar",
-        ));
-    }
-    if value.chars().count() > 128
-        || !value
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
-    {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "el identificador de la voz no es válido",
-        ));
-    }
-    Ok(value.to_owned())
-}
-
-fn validate_model_id(value: &str) -> Result<String, ProjectError> {
-    let value = if value.trim().is_empty() {
-        DEFAULT_MODEL
-    } else {
-        value.trim()
-    };
-    if value.chars().count() > 80
-        || !value.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
-        })
-    {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "el identificador del modelo de voz no es válido",
-        ));
-    }
-    Ok(value.to_owned())
-}
-
-fn validate_external_url(value: &str) -> Result<String, ProjectError> {
-    let value = value.trim();
-    if value.is_empty() {
-        return Ok(String::new());
-    }
-    if value.chars().count() > 500 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "la URL de la web externa es demasiado larga",
-        ));
-    }
-    let url = reqwest::Url::parse(value).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "la URL de la web externa no es válida",
-        )
-    })?;
-    if url.scheme() != "https" {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "la web externa debe usar HTTPS",
-        ));
-    }
-    if !url.username().is_empty() || url.password().is_some() || url.host_str().is_none() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "la URL de la web externa no puede incluir credenciales",
-        ));
-    }
-    Ok(url.to_string())
-}
-
-fn validate_text(text: &str) -> Result<String, ProjectError> {
-    let text = text.trim();
-    if text.is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la narración está vacía",
-        ));
-    }
-    if text.chars().count() > MAX_TEXT_CHARS {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la narración supera los 4000 caracteres",
-        ));
-    }
-    Ok(text.to_owned())
 }
 
 #[tauri::command]
@@ -261,67 +162,18 @@ pub async fn clear_audio_provider_key(
     Ok(provider_info(&settings.audio_provider))
 }
 
-fn parse_elevenlabs_voices(value: &Value) -> Vec<VoiceInfo> {
-    value["voices"]
-        .as_array()
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| {
-                    let id = entry["voice_id"].as_str()?.trim();
-                    let name = entry["name"].as_str()?.trim();
-                    if id.is_empty() || name.is_empty() {
-                        return None;
-                    }
-                    let labels = &entry["labels"];
-                    let culture = labels["language"]
-                        .as_str()
-                        .or_else(|| labels["accent"].as_str())
-                        .unwrap_or("")
-                        .to_owned();
-                    let gender = labels["gender"].as_str().unwrap_or("").to_owned();
-                    Some(VoiceInfo {
-                        id: id.to_owned(),
-                        name: name.to_owned(),
-                        culture,
-                        gender,
-                    })
-                })
-                .take(200)
-                .collect()
-        })
-        .unwrap_or_default()
-}
+/// Lector capeado compartido con la redacción de ElevenLabs.
+const ELEVENLABS_INTERRUPTED: &str = "la respuesta de ElevenLabs se interrumpió";
 
-fn extract_api_error(raw: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(raw).ok()?;
-    let message = value["detail"]["message"]
-        .as_str()
-        .or_else(|| value["detail"].as_str())
-        .or_else(|| value["message"].as_str())?;
-    Some(message.chars().take(300).collect())
-}
-
-async fn read_limited(
-    mut response: reqwest::Response,
-    limit: usize,
-) -> Result<Vec<u8>, ProjectError> {
-    let mut data = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            "la respuesta de ElevenLabs se interrumpió",
-        )
-    })? {
-        if data.len() + chunk.len() > limit {
-            return Err(ProjectError::message(
-                ProjectErrorCode::ProviderUnavailable,
-                "la respuesta de ElevenLabs supera el límite permitido",
-            ));
-        }
-        data.extend_from_slice(&chunk);
-    }
-    Ok(data)
+async fn read_limited(response: reqwest::Response, limit: usize) -> Result<Vec<u8>, ProjectError> {
+    crate::commands::read_body_capped(
+        response,
+        limit,
+        ProjectErrorCode::ProviderUnavailable,
+        "la respuesta de ElevenLabs supera el límite permitido",
+        ELEVENLABS_INTERRUPTED,
+    )
+    .await
 }
 
 pub(crate) async fn list_elevenlabs_voices(
@@ -536,48 +388,4 @@ pub(crate) async fn synthesize_elevenlabs(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn validates_provider_inputs() {
-        assert!(validate_kind("elevenlabs").is_ok());
-        assert!(validate_kind("whatever").is_err());
-        assert!(validate_voice_id("21m00Tcm4TlvDq8ikWAM").is_ok());
-        assert!(validate_voice_id("voice id with spaces").is_err());
-        assert!(validate_model_id("eleven_multilingual_v2").is_ok());
-        assert!(validate_model_id("bad model!").is_err());
-        assert!(validate_external_url("http://example.com").is_err());
-        assert!(validate_external_url("https://example.com/tts").is_ok());
-        assert!(validate_external_url("https://user:pass@example.com").is_err());
-        assert!(validate_text("  hola  ").is_ok());
-        assert!(validate_text("   ").is_err());
-    }
-
-    #[test]
-    fn parses_elevenlabs_voices() {
-        let value = json!({
-            "voices": [
-                { "voice_id": "abc_123", "name": "Voz Uno", "labels": { "language": "es", "gender": "female" } },
-                { "voice_id": "", "name": "sin id" },
-                { "voice_id": "def-456", "name": "Voz Dos", "labels": { "accent": "neutral" } }
-            ]
-        });
-        let voices = parse_elevenlabs_voices(&value);
-        assert_eq!(voices.len(), 2);
-        assert_eq!(voices[0].id, "abc_123");
-        assert_eq!(voices[0].culture, "es");
-        assert_eq!(voices[1].culture, "neutral");
-    }
-
-    #[test]
-    fn extracts_bounded_api_errors() {
-        let raw = r#"{"detail":{"message":"invalid api key"}}"#;
-        assert_eq!(extract_api_error(raw).as_deref(), Some("invalid api key"));
-        assert_eq!(extract_api_error("not json"), None);
-        let long =
-            extract_api_error(&format!(r#"{{"message":"{}"}}"#, "x".repeat(500))).expect("mensaje");
-        assert!(long.chars().count() <= 300);
-    }
-}

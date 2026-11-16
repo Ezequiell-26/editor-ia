@@ -85,7 +85,4 @@ onChannelAnalysisProgress(
   ): Promise<UnlistenFn>;
 
 fetchPlatformRules(): Promise<unknown>;
-
-/** Selector nativo de carpeta, sin proyecto abierto. */
-  chooseDownloadDirectory(): Promise<string | null>;
 }

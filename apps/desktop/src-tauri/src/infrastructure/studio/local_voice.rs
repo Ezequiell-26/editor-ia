@@ -31,6 +31,12 @@ pub struct LocalVoiceGenerator {
     powershell: Option<PathBuf>,
 }
 
+impl Default for LocalVoiceGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LocalVoiceGenerator {
     /// `powershell` explícito o resolución por PATH; `None` si no hay.
     pub fn new() -> Self {

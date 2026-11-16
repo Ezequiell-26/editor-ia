@@ -1,18 +1,18 @@
 import { expect, type Page } from '@playwright/test';
 
 /**
- * En el navegador la app arranca en el lanzador. Los tests del shell entran con
- * Tutorial, que es una acción real de la pantalla y no requiere backend ni
- * crear un proyecto. Ajustes ya no entra al shell: abre su ventana flotante
- * sobre el lanzador.
+ * UN SOLO EDITOR: la app ya no pasa por el launcher — arranca directo en el
+ * shell (editor vacío con herramientas). El gestor de proyectos sigue
+ * accesible desde el botón «Inicio» del topbar. Ajustes abre su ventana
+ * flotante sobre el shell.
  */
 export async function enterApp(page: Page): Promise<void> {
   await page.goto('/');
-  await expect(page.locator('.start-window')).toBeVisible();
-  // `exact` evita que un proyecto reciente con «Tutorial» en el nombre compita
-  // con el botón del footer del lanzador.
-  await page.getByRole('button', { name: 'Tutorial', exact: true }).click();
   await expect(page.locator('.app-shell')).toBeVisible();
+  // El workspace monta después de resolver los estilos de la vista y sus
+  // efectos (atajos de teclado incluidos) ya corrieron: esperar a él evita
+  // la carrera en la que un Ctrl+K inmediato se pierde antes del listener.
+  await expect(page.locator('.editor-workspace')).toBeVisible();
 }
 
 /** Entra al shell y abre la ventana de Configuración. */

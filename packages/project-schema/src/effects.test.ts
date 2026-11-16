@@ -151,6 +151,31 @@ describe('efectos de clip', () => {
     expect(unknown.success).toBe(false);
   });
 
+  it('acepta una transición de salida acotada al clip', () => {
+    const ok = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      transitionOut: { type: 'fade-black', frames: 12 },
+    });
+    expect(ok.success).toBe(true);
+
+    const tooLong = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      transitionOut: { type: 'dissolve', frames: 200 },
+    });
+    expect(tooLong.success).toBe(false);
+
+    const onAudio = ClipSchema.safeParse({
+      id: ID,
+      trackId: TRACK,
+      kind: 'audio',
+      source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 90 },
+      startFrame: 0,
+      durationFrames: 90,
+      transitionOut: { type: 'dissolve', frames: 12 },
+    });
+    expect(onAudio.success).toBe(false);
+  });
+
   it('exige clip mate para luma-wipe', () => {
     const mate = '44444444-4444-4444-8444-444444444444';
     const ok = ClipSchema.safeParse({
@@ -302,7 +327,7 @@ describe('efectos de clip', () => {
         },
       }).success,
     ).toBe(false);
-    for (const shape of ['diamond', 'triangle', 'rounded'] as const) {
+    for (const shape of ['diamond', 'triangle', 'rounded', 'star', 'heart'] as const) {
       expect(
         ClipSchema.safeParse({
           ...imageClip(undefined),
@@ -310,12 +335,6 @@ describe('efectos de clip', () => {
         }).success,
       ).toBe(true);
     }
-    expect(
-      ClipSchema.safeParse({
-        ...imageClip(undefined),
-        mask: { shape: 'heart', x: 0, y: 0, width: 1, height: 1 },
-      }).success,
-    ).toBe(false);
     expect(
       ClipSchema.safeParse({
         ...imageClip(undefined),
@@ -385,6 +404,57 @@ describe('efectos de clip', () => {
     expect(
       ClipSchema.safeParse({ ...imageClip(undefined), mask: { ...polygon, points: undefined } })
         .success,
+    ).toBe(false);
+  });
+
+  it('acepta una máscara freehand densa y rechaza polygon con más de 16 puntos', () => {
+    const densePoints = Array.from({ length: 48 }, (_, index) => {
+      const angle = (index / 48) * Math.PI * 2;
+      return { x: 0.5 + Math.cos(angle) * 0.4, y: 0.5 + Math.sin(angle) * 0.4 };
+    });
+    const freehand = {
+      shape: 'freehand',
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      points: densePoints,
+    };
+    expect(ClipSchema.safeParse({ ...imageClip(undefined), mask: freehand }).success).toBe(true);
+    // Sin puntos no hay contorno que dibujar.
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        mask: { ...freehand, points: undefined },
+      }).success,
+    ).toBe(false);
+    // El polígono editable sigue acotado a 16 vértices.
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        mask: {
+          shape: 'polygon',
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+          points: densePoints,
+        },
+      }).success,
+    ).toBe(false);
+    // Y las formas SDF no aceptan points.
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        mask: {
+          shape: 'ellipse',
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+          points: densePoints.slice(0, 3),
+        },
+      }).success,
     ).toBe(false);
   });
 });

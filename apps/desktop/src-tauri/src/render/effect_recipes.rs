@@ -25,6 +25,10 @@ pub struct Recipe {
     pub graph: Option<&'static str>,
     /// Cadena de audio (efectos `kind: audio`). Vacía en los de video.
     pub audio_chain: &'static [&'static str],
+    /// La cadena de audio usa plantillas `{expresión}` de concat-effects.
+    /// Vacía en la tabla (el crate `concat-effects` las resuelve en Rust);
+    /// sólo marca que `find` debe delegar en `Catalogue`.
+    pub concat_audio: bool,
     pub params: &'static [RecipeParam],
 }
 
@@ -34,6 +38,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["eq=brightness={exposure}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "exposure", kind: ParamKind::Float }],
     },
     Recipe {
@@ -41,6 +46,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["eq=contrast={contrast}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "contrast", kind: ParamKind::Float }],
     },
     Recipe {
@@ -48,6 +54,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["eq=saturation={saturation}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "saturation", kind: ParamKind::Float }],
     },
     Recipe {
@@ -55,6 +62,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["colortemperature=temperature={kelvin}", "colorbalance=gm={tint}:rm=-0.02:bm=0.02"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "kelvin", kind: ParamKind::Float }, RecipeParam { id: "tint", kind: ParamKind::Float }],
     },
     Recipe {
@@ -62,6 +70,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["eq=gamma={gamma}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "gamma", kind: ParamKind::Float }],
     },
     Recipe {
@@ -69,6 +78,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["hue=h={degrees}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "degrees", kind: ParamKind::Float }],
     },
     Recipe {
@@ -76,6 +86,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["eq=saturation=1+0.5*{amount}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }],
     },
     Recipe {
@@ -83,6 +94,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("hue=s=0,split=2[%A%s][%A%h];[%A%s]colorchannelmixer=rr={shadow.r}:gg={shadow.g}:bb={shadow.b}[%A%sh];[%A%h]negate,colorchannelmixer=rr={highlight.r}:gg={highlight.g}:bb={highlight.b}[%A%hl];[%A%sh][%A%hl]blend=all_mode=screen"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "shadow", kind: ParamKind::Color }, RecipeParam { id: "highlight", kind: ParamKind::Color }, RecipeParam { id: "amount", kind: ParamKind::Float }],
     },
     Recipe {
@@ -90,6 +102,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["eq=brightness={exposure}:contrast={contrast}:saturation={saturation}", "colorbalance=rs={lift.x}:gs={lift.y}:bs={lift.x}:rm={gammaWheel.x}:gm={gammaWheel.y}:bm={gammaWheel.x}:rh={gain.x}:gh={gain.y}:bh={gain.x}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "exposure", kind: ParamKind::Float }, RecipeParam { id: "contrast", kind: ParamKind::Float }, RecipeParam { id: "saturation", kind: ParamKind::Float }, RecipeParam { id: "lift", kind: ParamKind::Vec2 }, RecipeParam { id: "liftLuma", kind: ParamKind::Float }, RecipeParam { id: "gammaWheel", kind: ParamKind::Vec2 }, RecipeParam { id: "gammaLuma", kind: ParamKind::Float }, RecipeParam { id: "gain", kind: ParamKind::Vec2 }, RecipeParam { id: "gainLuma", kind: ParamKind::Float }],
     },
     Recipe {
@@ -97,6 +110,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("split=2[%A%b][%A%g];[%A%g]colorlevels=rimin={threshold}:gimin={threshold}:bimin={threshold},gblur=sigma={radius}[%A%gb];[%A%b][%A%gb]blend=all_mode=screen:all_opacity={intensity}"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "threshold", kind: ParamKind::Float }, RecipeParam { id: "radius", kind: ParamKind::Float }, RecipeParam { id: "intensity", kind: ParamKind::Float }],
     },
     Recipe {
@@ -104,6 +118,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("split=2[%A%b][%A%g];[%A%g]colorlevels=rimin={threshold}:gimin={threshold}:bimin={threshold},colorchannelmixer=rr={tint.r}:gg={tint.g}:bb={tint.b},gblur=sigma={radius}[%A%gb];[%A%b][%A%gb]blend=all_mode=screen:all_opacity={intensity}"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "threshold", kind: ParamKind::Float }, RecipeParam { id: "radius", kind: ParamKind::Float }, RecipeParam { id: "intensity", kind: ParamKind::Float }, RecipeParam { id: "tint", kind: ParamKind::Color }],
     },
     Recipe {
@@ -111,6 +126,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("split=2[%A%b][%A%g];[%A%g]colorlevels=rimin={threshold}:gimin={threshold}:bimin={threshold},colorchannelmixer=rr=1:gg=0.45:bb=0.3,gblur=sigma={radius}[%A%gb];[%A%b][%A%gb]blend=all_mode=screen:all_opacity={intensity}"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "threshold", kind: ParamKind::Float }, RecipeParam { id: "radius", kind: ParamKind::Float }, RecipeParam { id: "intensity", kind: ParamKind::Float }],
     },
     Recipe {
@@ -118,13 +134,23 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["vignette=angle={angle}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "angle", kind: ParamKind::Float }, RecipeParam { id: "softness", kind: ParamKind::Float }, RecipeParam { id: "roundness", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "light.leak",
+        chain: &[],
+        graph: Some("split=2[%A%b][%A%l];[%A%b]format=gbrp[%A%base];[%A%l]format=gbrp,geq=r='clip({tint.r}*(clip(((0.5+0.55*(0.3*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*4.3+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*2.6+0)+0.24*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-7.1+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*5.9+1.7)+0.18*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*12.5+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-9.2+3.9)+0.12*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-23.6+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*19.4+0.6)+0.08*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*46.7+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-41.6+2.4)))*0.6+(clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*(3-2*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)))*0.8-0.35)/0.5,0,1)*clip(((0.5+0.55*(0.3*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*4.3+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*2.6+0)+0.24*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-7.1+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*5.9+1.7)+0.18*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*12.5+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-9.2+3.9)+0.12*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-23.6+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*19.4+0.6)+0.08*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*46.7+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-41.6+2.4)))*0.6+(clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*(3-2*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)))*0.8-0.35)/0.5,0,1)*(3-2*clip(((0.5+0.55*(0.3*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*4.3+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*2.6+0)+0.24*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-7.1+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*5.9+1.7)+0.18*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*12.5+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-9.2+3.9)+0.12*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-23.6+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*19.4+0.6)+0.08*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*46.7+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-41.6+2.4)))*0.6+(clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*(3-2*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)))*0.8-0.35)/0.5,0,1)))*{amount}*255,0,255)':g='clip({tint.g}*(clip(((0.5+0.55*(0.3*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*4.3+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*2.6+0)+0.24*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-7.1+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*5.9+1.7)+0.18*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*12.5+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-9.2+3.9)+0.12*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-23.6+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*19.4+0.6)+0.08*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*46.7+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-41.6+2.4)))*0.6+(clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*(3-2*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)))*0.8-0.35)/0.5,0,1)*clip(((0.5+0.55*(0.3*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*4.3+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*2.6+0)+0.24*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-7.1+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*5.9+1.7)+0.18*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*12.5+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-9.2+3.9)+0.12*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-23.6+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*19.4+0.6)+0.08*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*46.7+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-41.6+2.4)))*0.6+(clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*(3-2*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)))*0.8-0.35)/0.5,0,1)*(3-2*clip(((0.5+0.55*(0.3*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*4.3+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*2.6+0)+0.24*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-7.1+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*5.9+1.7)+0.18*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*12.5+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-9.2+3.9)+0.12*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-23.6+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*19.4+0.6)+0.08*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*46.7+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-41.6+2.4)))*0.6+(clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*(3-2*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)))*0.8-0.35)/0.5,0,1)))*{amount}*255,0,255)':b='clip({tint.b}*(clip(((0.5+0.55*(0.3*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*4.3+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*2.6+0)+0.24*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-7.1+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*5.9+1.7)+0.18*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*12.5+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-9.2+3.9)+0.12*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-23.6+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*19.4+0.6)+0.08*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*46.7+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-41.6+2.4)))*0.6+(clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*(3-2*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)))*0.8-0.35)/0.5,0,1)*clip(((0.5+0.55*(0.3*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*4.3+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*2.6+0)+0.24*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-7.1+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*5.9+1.7)+0.18*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*12.5+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-9.2+3.9)+0.12*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-23.6+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*19.4+0.6)+0.08*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*46.7+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-41.6+2.4)))*0.6+(clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*(3-2*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)))*0.8-0.35)/0.5,0,1)*(3-2*clip(((0.5+0.55*(0.3*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*4.3+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*2.6+0)+0.24*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-7.1+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*5.9+1.7)+0.18*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*12.5+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-9.2+3.9)+0.12*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*-23.6+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*19.4+0.6)+0.08*sin(((X+0.5-0.5*W)/H*1.6+T*{speed})*46.7+((Y+0.5-0.5*H)/H*1.6+T*{speed}*0.4)*-41.6+2.4)))*0.6+(clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)*(3-2*clip((sqrt((X+0.5-0.5*W)/H*(X+0.5-0.5*W)/H+(Y+0.5-0.5*H)/H*(Y+0.5-0.5*H)/H)-0.35)/0.75,0,1)))*0.8-0.35)/0.5,0,1)))*{amount}*255,0,255)'[%A%ov];[%A%base][%A%ov]blend=all_mode=screen"),
+        audio_chain: &[],
+        concat_audio: false,
+        params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "tint", kind: ParamKind::Color }, RecipeParam { id: "speed", kind: ParamKind::Float }],
     },
     Recipe {
         id: "light.flare",
         chain: &[],
         graph: Some("split=2[%A%b][%A%l];[%A%b]format=gbrp[%A%base];[%A%l]format=gbrp,geq=r='clip({tint.r}*((clip(1-sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H/max({size},0.000001),0,1)*clip(1-sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H/max({size},0.000001),0,1)*(3-2*clip(1-sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H/max({size},0.000001),0,1)))+(clip((1.4*max({size},0.000001)-abs(sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H-max({size},0.000001)*0.9))/max(max({size},0.000001)*0.4,0.000001),0,1)*clip((1.4*max({size},0.000001)-abs(sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H-max({size},0.000001)*0.9))/max(max({size},0.000001)*0.4,0.000001),0,1)*(3-2*clip((1.4*max({size},0.000001)-abs(sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H-max({size},0.000001)*0.9))/max(max({size},0.000001)*0.4,0.000001),0,1))*0.5)+(clip(1-sqrt((X+0.5-(1-{position.x})*W)*(X+0.5-(1-{position.x})*W)+(Y+0.5-(1-{position.y})*H)*(Y+0.5-(1-{position.y})*H))/H/max(max({size},0.000001)*0.6,0.000001),0,1)*clip(1-sqrt((X+0.5-(1-{position.x})*W)*(X+0.5-(1-{position.x})*W)+(Y+0.5-(1-{position.y})*H)*(Y+0.5-(1-{position.y})*H))/H/max(max({size},0.000001)*0.6,0.000001),0,1)*(3-2*clip(1-sqrt((X+0.5-(1-{position.x})*W)*(X+0.5-(1-{position.x})*W)+(Y+0.5-(1-{position.y})*H)*(Y+0.5-(1-{position.y})*H))/H/max(max({size},0.000001)*0.6,0.000001),0,1))*0.6))*{intensity}*255,0,255)':g='clip({tint.g}*((clip(1-sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H/max({size},0.000001),0,1)*clip(1-sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H/max({size},0.000001),0,1)*(3-2*clip(1-sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H/max({size},0.000001),0,1)))+(clip((1.4*max({size},0.000001)-abs(sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H-max({size},0.000001)*0.9))/max(max({size},0.000001)*0.4,0.000001),0,1)*clip((1.4*max({size},0.000001)-abs(sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H-max({size},0.000001)*0.9))/max(max({size},0.000001)*0.4,0.000001),0,1)*(3-2*clip((1.4*max({size},0.000001)-abs(sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H-max({size},0.000001)*0.9))/max(max({size},0.000001)*0.4,0.000001),0,1))*0.5)+(clip(1-sqrt((X+0.5-(1-{position.x})*W)*(X+0.5-(1-{position.x})*W)+(Y+0.5-(1-{position.y})*H)*(Y+0.5-(1-{position.y})*H))/H/max(max({size},0.000001)*0.6,0.000001),0,1)*clip(1-sqrt((X+0.5-(1-{position.x})*W)*(X+0.5-(1-{position.x})*W)+(Y+0.5-(1-{position.y})*H)*(Y+0.5-(1-{position.y})*H))/H/max(max({size},0.000001)*0.6,0.000001),0,1)*(3-2*clip(1-sqrt((X+0.5-(1-{position.x})*W)*(X+0.5-(1-{position.x})*W)+(Y+0.5-(1-{position.y})*H)*(Y+0.5-(1-{position.y})*H))/H/max(max({size},0.000001)*0.6,0.000001),0,1))*0.6))*{intensity}*255,0,255)':b='clip({tint.b}*((clip(1-sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H/max({size},0.000001),0,1)*clip(1-sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H/max({size},0.000001),0,1)*(3-2*clip(1-sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H/max({size},0.000001),0,1)))+(clip((1.4*max({size},0.000001)-abs(sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H-max({size},0.000001)*0.9))/max(max({size},0.000001)*0.4,0.000001),0,1)*clip((1.4*max({size},0.000001)-abs(sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H-max({size},0.000001)*0.9))/max(max({size},0.000001)*0.4,0.000001),0,1)*(3-2*clip((1.4*max({size},0.000001)-abs(sqrt((X+0.5-{position.x}*W)*(X+0.5-{position.x}*W)+(Y+0.5-{position.y}*H)*(Y+0.5-{position.y}*H))/H-max({size},0.000001)*0.9))/max(max({size},0.000001)*0.4,0.000001),0,1))*0.5)+(clip(1-sqrt((X+0.5-(1-{position.x})*W)*(X+0.5-(1-{position.x})*W)+(Y+0.5-(1-{position.y})*H)*(Y+0.5-(1-{position.y})*H))/H/max(max({size},0.000001)*0.6,0.000001),0,1)*clip(1-sqrt((X+0.5-(1-{position.x})*W)*(X+0.5-(1-{position.x})*W)+(Y+0.5-(1-{position.y})*H)*(Y+0.5-(1-{position.y})*H))/H/max(max({size},0.000001)*0.6,0.000001),0,1)*(3-2*clip(1-sqrt((X+0.5-(1-{position.x})*W)*(X+0.5-(1-{position.x})*W)+(Y+0.5-(1-{position.y})*H)*(Y+0.5-(1-{position.y})*H))/H/max(max({size},0.000001)*0.6,0.000001),0,1))*0.6))*{intensity}*255,0,255)'[%A%ov];[%A%base][%A%ov]blend=all_mode=screen"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "position", kind: ParamKind::Vec2 }, RecipeParam { id: "size", kind: ParamKind::Float }, RecipeParam { id: "intensity", kind: ParamKind::Float }, RecipeParam { id: "tint", kind: ParamKind::Color }],
     },
     Recipe {
@@ -132,6 +158,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["gblur=sigma={radius}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "radius", kind: ParamKind::Float }],
     },
     Recipe {
@@ -139,6 +166,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["tmix=frames={samples}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "angle", kind: ParamKind::Float }, RecipeParam { id: "length", kind: ParamKind::Float }, RecipeParam { id: "samples", kind: ParamKind::Int }],
     },
     Recipe {
@@ -146,6 +174,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("split=12[%A%b0][%A%b1][%A%b2][%A%b3][%A%b4][%A%b5][%A%s0][%A%s1][%A%s2][%A%s3][%A%s4][%A%s5];[%A%s0]scale=w='trunc(iw/max(1-{amount}*0,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0,0.05)/2)*2'[%A%z0];[%A%s1]scale=w='trunc(iw/max(1-{amount}*0.2,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0.2,0.05)/2)*2'[%A%z1];[%A%s2]scale=w='trunc(iw/max(1-{amount}*0.4,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0.4,0.05)/2)*2'[%A%z2];[%A%s3]scale=w='trunc(iw/max(1-{amount}*0.6,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0.6,0.05)/2)*2'[%A%z3];[%A%s4]scale=w='trunc(iw/max(1-{amount}*0.8,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0.8,0.05)/2)*2'[%A%z4];[%A%s5]scale=w='trunc(iw/max(1-{amount}*1,0.05)/2)*2':h='trunc(ih/max(1-{amount}*1,0.05)/2)*2'[%A%z5];[%A%b0][%A%z0]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t0];[%A%b1][%A%z1]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t1];[%A%b2][%A%z2]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t2];[%A%b3][%A%z3]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t3];[%A%b4][%A%z4]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t4];[%A%b5][%A%z5]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t5];[%A%t0][%A%t1]blend=all_mode=average[%A%m1];[%A%m1][%A%t2]blend=all_mode=average[%A%m2];[%A%m2][%A%t3]blend=all_mode=average[%A%m3];[%A%m3][%A%t4]blend=all_mode=average[%A%m4];[%A%m4][%A%t5]blend=all_mode=average"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "samples", kind: ParamKind::Int }, RecipeParam { id: "center", kind: ParamKind::Vec2 }],
     },
     Recipe {
@@ -153,6 +182,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["gblur=sigma={radius}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "focus", kind: ParamKind::Float }, RecipeParam { id: "band", kind: ParamKind::Float }, RecipeParam { id: "radius", kind: ParamKind::Float }],
     },
     Recipe {
@@ -160,6 +190,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["unsharp=5:5:{amount}:5:5:0"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "radius", kind: ParamKind::Float }],
     },
     Recipe {
@@ -167,6 +198,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["edgedetect=low=0.05:high=0.25"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "gain", kind: ParamKind::Float }, RecipeParam { id: "color", kind: ParamKind::Bool }],
     },
     Recipe {
@@ -174,6 +206,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["edgedetect=mode=colormix:high=0.2", "negate"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "strength", kind: ParamKind::Float }, RecipeParam { id: "paper", kind: ParamKind::Float }],
     },
     Recipe {
@@ -181,6 +214,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["pixelize=w={size}:h={size}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "size", kind: ParamKind::Float }],
     },
     Recipe {
@@ -188,6 +222,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("format=gbrp,geq=r='(clip(((1-clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1))*0.62-sqrt(((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)+((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)))/0.08,0,1)*clip(((1-clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1))*0.62-sqrt(((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)+((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)))/0.08,0,1)*(3-2*clip(((1-clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1))*0.62-sqrt(((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)+((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)))/0.08,0,1)))*255':g='(clip(((1-clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1))*0.62-sqrt(((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)+((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)))/0.08,0,1)*clip(((1-clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1))*0.62-sqrt(((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)+((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)))/0.08,0,1)*(3-2*clip(((1-clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1))*0.62-sqrt(((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)+((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)))/0.08,0,1)))*255':b='(clip(((1-clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1))*0.62-sqrt(((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)+((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)))/0.08,0,1)*clip(((1-clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1))*0.62-sqrt(((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)+((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)))/0.08,0,1)*(3-2*clip(((1-clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1))*0.62-sqrt(((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((cos({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)-sin({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)+((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)*((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1))-floor((sin({angle}*0.017453292519943295)*(X+0.5)/max({scale},1)+cos({angle}*0.017453292519943295)*(Y+0.5)/max({scale},1)))-0.5)))/0.08,0,1)))*255'"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "scale", kind: ParamKind::Float }, RecipeParam { id: "angle", kind: ParamKind::Float }, RecipeParam { id: "contrast", kind: ParamKind::Float }],
     },
     Recipe {
@@ -195,6 +230,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["elbg=codebook_length={levels}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "levels", kind: ParamKind::Int }],
     },
     Recipe {
@@ -202,6 +238,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["smartblur=lr=3:ls=-0.6:lt=8"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "radius", kind: ParamKind::Float }, RecipeParam { id: "levels", kind: ParamKind::Int }],
     },
     Recipe {
@@ -209,6 +246,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("split=2[%A%b][%A%e];[%A%e]edgedetect=low=0.04:high=0.12,negate,format=rgb24[%A%mask];[%A%b][%A%mask]blend=all_mode=multiply"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "thickness", kind: ParamKind::Float }, RecipeParam { id: "color", kind: ParamKind::Color }, RecipeParam { id: "opacity", kind: ParamKind::Float }],
     },
     Recipe {
@@ -216,6 +254,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["rgbashift=rh={amount}:bh=-{amount}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "angle", kind: ParamKind::Float }],
     },
     Recipe {
@@ -223,6 +262,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["noise=alls=14:allf=t+u", "rgbashift=rh=3:bh=-3"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "rows", kind: ParamKind::Int }, RecipeParam { id: "rate", kind: ParamKind::Float }, RecipeParam { id: "density", kind: ParamKind::Float }],
     },
     Recipe {
@@ -230,6 +270,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["drawgrid=w=iw:h=3:t=1:c=black@0.25", "noise=alls=10:allf=t"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "density", kind: ParamKind::Float }, RecipeParam { id: "strength", kind: ParamKind::Float }, RecipeParam { id: "noise", kind: ParamKind::Float }],
     },
     Recipe {
@@ -237,6 +278,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["rgbashift=rh=4:bh=-4", "noise=alls=18:allf=t+u"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "intensity", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }, RecipeParam { id: "blocks", kind: ParamKind::Float }],
     },
     Recipe {
@@ -244,6 +286,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("crop=iw/2:ih:0:0,split=2[%A%l][%A%r];[%A%r]hflip[%A%rf];[%A%l][%A%rf]hstack"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "segments", kind: ParamKind::Int }, RecipeParam { id: "rotation", kind: ParamKind::Float }, RecipeParam { id: "zoom", kind: ParamKind::Float }],
     },
     Recipe {
@@ -251,6 +294,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("crop=iw/2:ih:0:0,split=2[%A%l][%A%r];[%A%r]hflip[%A%rf];[%A%l][%A%rf]hstack"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "mode", kind: ParamKind::Enum }],
     },
     Recipe {
@@ -258,6 +302,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("format=gbrp,geq=r='r(clip(X+sin(Y/H*{frequency}*6.28318530718+T*{speed})*{amplitude}*W,0,W-1),Y)':g='g(clip(X+sin(Y/H*{frequency}*6.28318530718+T*{speed})*{amplitude}*W,0,W-1),Y)':b='b(clip(X+sin(Y/H*{frequency}*6.28318530718+T*{speed})*{amplitude}*W,0,W-1),Y)'"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amplitude", kind: ParamKind::Float }, RecipeParam { id: "frequency", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }],
     },
     Recipe {
@@ -265,6 +310,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["rgbashift=rh=4:bh=-4", "noise=alls=16:allf=t+u", "drawgrid=w=iw:h=3:t=1:c=black@0.2", "eq=saturation=0.85:contrast=1.05"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "noise", kind: ParamKind::Float }, RecipeParam { id: "tracking", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }],
     },
     Recipe {
@@ -272,6 +318,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["colorchannelmixer=rr=0.393:rg=0.769:rb=0.189:gr=0.349:gg=0.686:gb=0.168:br=0.272:bg=0.534:bb=0.131"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }],
     },
     Recipe {
@@ -279,6 +326,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["hue=s=0"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "tint", kind: ParamKind::Color }],
     },
     Recipe {
@@ -286,6 +334,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["colorbalance=rs=0.06:gs=0.01:bs=-0.05", "noise=alls=22:allf=t", "vignette=PI/4.5", "eq=saturation=0.9:contrast=1.08"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "flicker", kind: ParamKind::Float }, RecipeParam { id: "weave", kind: ParamKind::Float }],
     },
     Recipe {
@@ -293,6 +342,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["noise=alls={amount}:allf=t"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "size", kind: ParamKind::Float }, RecipeParam { id: "animate", kind: ParamKind::Bool }],
     },
     Recipe {
@@ -300,6 +350,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["lenscorrection=k1=-0.08:k2=0", "drawgrid=w=iw:h=2:t=1:c=black@0.2", "vignette=PI/4.2"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "curve", kind: ParamKind::Float }, RecipeParam { id: "scanlines", kind: ParamKind::Float }, RecipeParam { id: "glow", kind: ParamKind::Float }],
     },
     Recipe {
@@ -307,6 +358,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["crop=iw-40:ih-40:20+12*sin(t*7):20+8*cos(t*5)", "scale=w=iw+40:h=ih+40"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }],
     },
     Recipe {
@@ -314,6 +366,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["eq=brightness=0.3:enable='lt(mod(t*{rate},1),{duty})'"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "rate", kind: ParamKind::Float }, RecipeParam { id: "depth", kind: ParamKind::Float }, RecipeParam { id: "duty", kind: ParamKind::Float }],
     },
     Recipe {
@@ -321,6 +374,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("split=2[%A%o][%A%z];[%A%z]scale=w='trunc(iw*(1+{amount}*exp(-6*(t*{rate}-floor(t*{rate}))))/2)*2':h='trunc(ih*(1+{amount}*exp(-6*(t*{rate}-floor(t*{rate}))))/2)*2':eval=frame[%A%zs];[%A%o][%A%zs]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':eval=frame:format=auto"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "rate", kind: ParamKind::Float }, RecipeParam { id: "center", kind: ParamKind::Vec2 }],
     },
     Recipe {
@@ -328,6 +382,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["tmix=frames={frames}:weights=1"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "frames", kind: ParamKind::Int }, RecipeParam { id: "intensity", kind: ParamKind::Float }],
     },
     Recipe {
@@ -335,6 +390,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["chromakey=color={key}:similarity={similarity}:blend={smoothness}"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "key", kind: ParamKind::Color }, RecipeParam { id: "similarity", kind: ParamKind::Float }, RecipeParam { id: "smoothness", kind: ParamKind::Float }, RecipeParam { id: "spill", kind: ParamKind::Float }],
     },
     Recipe {
@@ -342,6 +398,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("format=gbrp,geq=r='r(clip(X+(((X+0.5)/W-{center.x})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*W,0,W-1),clip(Y+(((Y+0.5)/H-{center.y})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*H,0,H-1))':g='g(clip(X+(((X+0.5)/W-{center.x})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*W,0,W-1),clip(Y+(((Y+0.5)/H-{center.y})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*H,0,H-1))':b='b(clip(X+(((X+0.5)/W-{center.x})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*W,0,W-1),clip(Y+(((Y+0.5)/H-{center.y})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*H,0,H-1))'"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "amplitude", kind: ParamKind::Float }, RecipeParam { id: "frequency", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }, RecipeParam { id: "center", kind: ParamKind::Vec2 }],
     },
     Recipe {
@@ -349,6 +406,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: Some("format=gbrp,geq=r='r(clip(cos(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(X+0.5-{center.x}*W)-sin(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(Y+0.5-{center.y}*H)+{center.x}*W-0.5,0,W-1),clip(sin(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(X+0.5-{center.x}*W)+cos(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(Y+0.5-{center.y}*H)+{center.y}*H-0.5,0,H-1))':g='g(clip(cos(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(X+0.5-{center.x}*W)-sin(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(Y+0.5-{center.y}*H)+{center.x}*W-0.5,0,W-1),clip(sin(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(X+0.5-{center.x}*W)+cos(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(Y+0.5-{center.y}*H)+{center.y}*H-0.5,0,H-1))':b='b(clip(cos(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(X+0.5-{center.x}*W)-sin(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(Y+0.5-{center.y}*H)+{center.x}*W-0.5,0,W-1),clip(sin(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(X+0.5-{center.x}*W)+cos(({angle}*0.017453292519943295)*(1-clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1)*(3-2*clip(sqrt((X+0.5-{center.x}*W)*(X+0.5-{center.x}*W)+(Y+0.5-{center.y}*H)*(Y+0.5-{center.y}*H))/H/max({radius},0.000001),0,1))))*(Y+0.5-{center.y}*H)+{center.y}*H-0.5,0,H-1))'"),
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "angle", kind: ParamKind::Float }, RecipeParam { id: "radius", kind: ParamKind::Float }, RecipeParam { id: "center", kind: ParamKind::Vec2 }],
     },
     Recipe {
@@ -356,6 +414,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &["lenscorrection=k1={strength}:k2=0:i=bilinear"],
         graph: None,
         audio_chain: &[],
+        concat_audio: false,
         params: &[RecipeParam { id: "strength", kind: ParamKind::Float }, RecipeParam { id: "zoom", kind: ParamKind::Float }],
     },
     Recipe {
@@ -363,6 +422,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["apulsator=hz={rate}:amount={depth}:mode=triangle"],
+        concat_audio: false,
         params: &[RecipeParam { id: "rate", kind: ParamKind::Float }, RecipeParam { id: "depth", kind: ParamKind::Float }],
     },
     Recipe {
@@ -370,6 +430,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["chorus=0.6:0.9:{delay}:0.35:{speed}:{depth}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "delay", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }, RecipeParam { id: "depth", kind: ParamKind::Float }],
     },
     Recipe {
@@ -377,6 +438,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["aecho=0.8:0.9:{delay}:{decay}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "delay", kind: ParamKind::Float }, RecipeParam { id: "decay", kind: ParamKind::Float }],
     },
     Recipe {
@@ -384,6 +446,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["flanger=delay={delay}:depth={depth}:regen={regen}:width={width}:speed={speed}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "delay", kind: ParamKind::Float }, RecipeParam { id: "depth", kind: ParamKind::Float }, RecipeParam { id: "regen", kind: ParamKind::Float }, RecipeParam { id: "width", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }],
     },
     Recipe {
@@ -391,6 +454,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["aphaser=in_gain=0.4:out_gain=0.74:delay={delay}:decay={decay}:speed={speed}:type={type}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "delay", kind: ParamKind::Float }, RecipeParam { id: "decay", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }, RecipeParam { id: "type", kind: ParamKind::Enum }],
     },
     Recipe {
@@ -398,6 +462,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["aecho=0.85:0.85:{delay}:{decay}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "delay", kind: ParamKind::Float }, RecipeParam { id: "decay", kind: ParamKind::Float }],
     },
     Recipe {
@@ -405,6 +470,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["tremolo=f={rate}:d={depth}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "rate", kind: ParamKind::Float }, RecipeParam { id: "depth", kind: ParamKind::Float }],
     },
     Recipe {
@@ -412,6 +478,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["extrastereo=m={width}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "width", kind: ParamKind::Float }],
     },
     Recipe {
@@ -419,6 +486,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["acrusher=bits={bits}:mix={mix}:mode=log:aa=0.6:samples={downsample}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "bits", kind: ParamKind::Float }, RecipeParam { id: "mix", kind: ParamKind::Float }, RecipeParam { id: "downsample", kind: ParamKind::Int }],
     },
     Recipe {
@@ -426,6 +494,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["aexciter=amount={amount}:drive={drive}:blend={blend}:freq={freq}:ceil=18000"],
+        concat_audio: false,
         params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "drive", kind: ParamKind::Float }, RecipeParam { id: "blend", kind: ParamKind::Float }, RecipeParam { id: "freq", kind: ParamKind::Float }],
     },
     Recipe {
@@ -433,6 +502,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["aresample=8000,acrusher=bits={bits}:mix=1:mode=log,aresample=%RATE%"],
+        concat_audio: false,
         params: &[RecipeParam { id: "bits", kind: ParamKind::Float }],
     },
     Recipe {
@@ -440,6 +510,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["highpass=f=55,lowpass=f={cutoff},vibrato=f={wow}:d={flutter},acompressor=threshold=-18dB:ratio=2.5:attack=8:release=120"],
+        concat_audio: false,
         params: &[RecipeParam { id: "cutoff", kind: ParamKind::Float }, RecipeParam { id: "wow", kind: ParamKind::Float }, RecipeParam { id: "flutter", kind: ParamKind::Float }],
     },
     Recipe {
@@ -447,6 +518,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["highpass=f=70,lowpass=f={cutoff},acrusher=bits={bits}:mix={crackle}:mode=lin,equalizer=f=2500:t=q:w=1.2:g={presence}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "cutoff", kind: ParamKind::Float }, RecipeParam { id: "bits", kind: ParamKind::Float }, RecipeParam { id: "crackle", kind: ParamKind::Float }, RecipeParam { id: "presence", kind: ParamKind::Float }],
     },
     Recipe {
@@ -454,6 +526,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["highpass=f=600,lowpass=f=3200,acompressor=threshold=-22dB:ratio=8:attack=2:release=40,volume={drive}dB,aexciter=amount=2:drive=9:freq=6000"],
+        concat_audio: false,
         params: &[RecipeParam { id: "drive", kind: ParamKind::Float }],
     },
     Recipe {
@@ -461,6 +534,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["lowpass=f={cutoff}:poles=2,volume={level}dB"],
+        concat_audio: false,
         params: &[RecipeParam { id: "cutoff", kind: ParamKind::Float }, RecipeParam { id: "level", kind: ParamKind::Float }],
     },
     Recipe {
@@ -468,6 +542,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["highpass=f={low},lowpass=f={high},acompressor=threshold=-18dB:ratio=4:attack=5:release=80"],
+        concat_audio: false,
         params: &[RecipeParam { id: "low", kind: ParamKind::Float }, RecipeParam { id: "high", kind: ParamKind::Float }],
     },
     Recipe {
@@ -475,6 +550,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["lowpass=f={cutoff},aecho=0.7:0.6:60:0.3,vibrato=f={wobble}:d=0.35"],
+        concat_audio: false,
         params: &[RecipeParam { id: "cutoff", kind: ParamKind::Float }, RecipeParam { id: "wobble", kind: ParamKind::Float }],
     },
     Recipe {
@@ -482,6 +558,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["highpass=f=450,lowpass=f=2600,acompressor=threshold=-20dB:ratio=6:attack=3:release=60,acrusher=bits={bits}:mix={grit}:mode=log"],
+        concat_audio: false,
         params: &[RecipeParam { id: "bits", kind: ParamKind::Float }, RecipeParam { id: "grit", kind: ParamKind::Float }],
     },
     Recipe {
@@ -489,6 +566,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["acompressor=threshold={threshold}dB:ratio={ratio}:attack={attack}:release={release}:makeup={makeup}dB"],
+        concat_audio: false,
         params: &[RecipeParam { id: "threshold", kind: ParamKind::Float }, RecipeParam { id: "ratio", kind: ParamKind::Float }, RecipeParam { id: "attack", kind: ParamKind::Float }, RecipeParam { id: "release", kind: ParamKind::Float }, RecipeParam { id: "makeup", kind: ParamKind::Float }],
     },
     Recipe {
@@ -496,6 +574,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["deesser=i={intensity}:m={max}:f={freq}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "intensity", kind: ParamKind::Float }, RecipeParam { id: "max", kind: ParamKind::Float }, RecipeParam { id: "freq", kind: ParamKind::Float }],
     },
     Recipe {
@@ -503,6 +582,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["bass=g={low}:f={lowFreq},treble=g={high}:f={highFreq}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "low", kind: ParamKind::Float }, RecipeParam { id: "lowFreq", kind: ParamKind::Float }, RecipeParam { id: "high", kind: ParamKind::Float }, RecipeParam { id: "highFreq", kind: ParamKind::Float }],
     },
     Recipe {
@@ -510,6 +590,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["agate=threshold={threshold}:ratio={ratio}:attack={attack}:release={release}:range={range}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "threshold", kind: ParamKind::Float }, RecipeParam { id: "ratio", kind: ParamKind::Float }, RecipeParam { id: "attack", kind: ParamKind::Float }, RecipeParam { id: "release", kind: ParamKind::Float }, RecipeParam { id: "range", kind: ParamKind::Float }],
     },
     Recipe {
@@ -517,6 +598,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["dynaudnorm=f={frame}:g={gaussian}:p={peak}:m={maxGain}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "frame", kind: ParamKind::Float }, RecipeParam { id: "gaussian", kind: ParamKind::Int }, RecipeParam { id: "peak", kind: ParamKind::Float }, RecipeParam { id: "maxGain", kind: ParamKind::Float }],
     },
     Recipe {
@@ -524,6 +606,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["alimiter=limit={limit}:attack={attack}:release={release}:level=0"],
+        concat_audio: false,
         params: &[RecipeParam { id: "limit", kind: ParamKind::Float }, RecipeParam { id: "attack", kind: ParamKind::Float }, RecipeParam { id: "release", kind: ParamKind::Float }],
     },
     Recipe {
@@ -531,6 +614,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["asetrate=%RATE%*{pitch},aresample=%RATE%,atempo=%INV:pitch%,aphaser=type=sinusoidal:speed=0.8"],
+        concat_audio: false,
         params: &[RecipeParam { id: "pitch", kind: ParamKind::Float }],
     },
     Recipe {
@@ -538,6 +622,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["asetrate=%RATE%*{pitch},aresample=%RATE%,atempo=%INV:pitch%"],
+        concat_audio: false,
         params: &[RecipeParam { id: "pitch", kind: ParamKind::Float }],
     },
     Recipe {
@@ -545,6 +630,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["asetrate=%RATE%*{pitch},aresample=%RATE%,atempo=%INV:pitch%"],
+        concat_audio: false,
         params: &[RecipeParam { id: "pitch", kind: ParamKind::Float }],
     },
     Recipe {
@@ -552,6 +638,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["vibrato=f={rate}:d={depth},aecho=0.8:0.8:18:0.25"],
+        concat_audio: false,
         params: &[RecipeParam { id: "rate", kind: ParamKind::Float }, RecipeParam { id: "depth", kind: ParamKind::Float }],
     },
     Recipe {
@@ -559,6 +646,7 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["asetrate=%RATE%*{pitch},aresample=%RATE%,atempo=%INV:pitch%,lowpass=f={cutoff},aecho=0.8:0.9:40:0.3"],
+        concat_audio: false,
         params: &[RecipeParam { id: "pitch", kind: ParamKind::Float }, RecipeParam { id: "cutoff", kind: ParamKind::Float }],
     },
     Recipe {
@@ -566,10 +654,212 @@ pub static RECIPES: &[Recipe] = &[
         chain: &[],
         graph: None,
         audio_chain: &["vibrato=f={rate}:d={depth},tremolo=f={rate}:d={trem}"],
+        concat_audio: false,
         params: &[RecipeParam { id: "rate", kind: ParamKind::Float }, RecipeParam { id: "depth", kind: ParamKind::Float }, RecipeParam { id: "trem", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.bass",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "gain", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.bright",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "gain", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.cathedral",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "size", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.chipmunk",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "pitch", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.deep",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "pitch", kind: ParamKind::Float }, RecipeParam { id: "body", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.denoise",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "strength", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.distorted",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "drive", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.echo",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "delay", kind: ParamKind::Float }, RecipeParam { id: "decay", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.enhance-voice",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "amount", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.hall",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "size", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.lofi",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "bits", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.loudness",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "target", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.megaphone",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "drive", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.pitch",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "semitones", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.plate",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "size", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.radio",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "noise", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.robot",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "depth", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.room",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "size", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.stadium",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "size", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.sweet",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "pitch", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.telephone",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "drive", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.treble",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "gain", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.underwater",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "depth", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.vinyl",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "warmth", kind: ParamKind::Float }],
+    },
+    Recipe {
+        id: "concat.whisper",
+        chain: &[],
+        graph: None,
+        audio_chain: &[],
+        concat_audio: true,
+        params: &[RecipeParam { id: "air", kind: ParamKind::Float }],
     },
 ];
 
 pub fn find(id: &str) -> Option<&'static Recipe> {
     RECIPES.iter().find(|recipe| recipe.id == id)
 }
+

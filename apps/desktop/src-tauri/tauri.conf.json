@@ -50,7 +50,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' asset: http://asset.localhost ipc: http://ipc.localhost",
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' asset: http://asset.localhost ipc: http://ipc.localhost",
       "assetProtocol": {
         "enable": true,
         "scope": []
@@ -82,9 +82,11 @@
       "resources/tools/*": "tools/",
       "resources/onnxruntime/onnxruntime.dll": "onnxruntime.dll",
       "resources/piper": "piper",
+      "resources/sfx": "sfx",
       "resources/watermark.png": "watermark.png",
       "resources/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt",
-      "resources/plugins": "plugins"
+      "resources/plugins": "plugins",
+      "../../../apps/concat-worker/target/release/concat-worker.exe": "concat-worker/concat-worker.exe"
     },
     "windows": {
       "nsis": {

@@ -122,9 +122,15 @@ pub async fn create_video_proxy(
     })?;
     let file_name = format!("proxy-{}.mp4", uuid::Uuid::new_v4());
     let target = directory.join(&file_name);
-    // Proxy con GPU si la máquina tiene encoder de hardware: es material de
-    // vista previa, donde la velocidad pesa más que la máxima calidad.
-    let hw = crate::commands::audio::hardware_h264(&ffmpeg);
+    // Proxy con GPU si la máquina tiene encoder de hardware; si no, el
+    // mejor H.264 de software que el binario declare (el bundle LGPL no
+    // trae libx264). Es material de vista previa: la velocidad pesa más
+    // que la máxima calidad.
+    let detected = crate::render::ffmpeg::detect_hardware_cached(&ffmpeg);
+    let encoder = detected
+        .h264
+        .as_deref()
+        .or(detected.h264_software.as_deref());
     let mut command = std::process::Command::new(&ffmpeg);
     command
         .arg("-hide_banner")
@@ -136,7 +142,7 @@ pub async fn create_video_proxy(
             "-vf",
             "scale=w='min(854,iw)':h='min(854,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
         ])
-        .args(crate::commands::audio::proxy_video_args(hw.as_deref()))
+        .args(crate::commands::audio::proxy_video_args(encoder))
         .args([
             "-c:a",
             "aac",

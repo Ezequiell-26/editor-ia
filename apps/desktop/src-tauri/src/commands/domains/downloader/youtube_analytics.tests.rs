@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 
 #[test]
 fn normalizes_channel_urls_and_rejects_videos() {
@@ -82,4 +83,72 @@ fn weekday_names_match_known_dates() {
     let epoch = days_from_civil(2026, 10, 27) * 86_400;
     assert_eq!(weekday_name(epoch), "martes");
     assert_eq!(date_from_epoch(epoch), "2026-10-27");
+}
+
+fn raw(id: &str, views: u64) -> RawVideo {
+    RawVideo {
+        id: id.to_owned(),
+        title: format!("video {id}"),
+        views,
+        duration: 100.0,
+        thumbnail_url: None,
+        likes: None,
+        comments: None,
+        timestamp: None,
+        upload_date: None,
+    }
+}
+
+#[test]
+fn detail_selection_mixes_popular_and_newest_without_duplicates() {
+    // entry_ids preserva el orden original del listado (más nuevos primero).
+    let listed = vec![
+        raw("aaaaaaa0001", 100),
+        raw("bbbbbbb0002", 900),
+        raw("ccccccc0003", 500),
+        raw("ddddddd0004", 50),
+        raw("eeeeeee0005", 10),
+        raw("fffffff0006", 700),
+    ];
+    let entry_ids: Vec<String> = listed.iter().map(|v| v.id.clone()).collect();
+    let selected = select_detail_videos(&listed, &entry_ids, 4);
+    let ids: Vec<&str> = selected.iter().map(|v| v.id.as_str()).collect();
+    assert_eq!(selected.len(), 4);
+    assert_eq!(ids[0], "bbbbbbb0002", "el más visto va primero");
+    assert!(ids.contains(&"aaaaaaa0001"), "los más nuevos entran a la muestra");
+    let unique: HashSet<&&str> = ids.iter().collect();
+    assert_eq!(unique.len(), ids.len(), "sin duplicados");
+}
+
+#[test]
+fn listing_parser_filters_non_video_ids_and_reads_totals() {
+    let payload = serde_json::json!({
+        "channel": "Canal",
+        "channel_follower_count": 12345,
+        "playlist_count": 678,
+        "entries": [
+            {"id": "abcdefghijk", "title": "ok", "view_count": 10},
+            {"id": "short", "title": "no es video"},
+            {"id": "lmnopqrstuv", "title": "otro", "view_count": 20}
+        ]
+    });
+    let (videos, subscribers, total) = parse_listing(&payload);
+    assert_eq!(videos.len(), 2);
+    assert_eq!(subscribers, Some(12345));
+    assert_eq!(total, Some(678));
+    assert_eq!(videos[0].views, 10);
+}
+
+#[test]
+fn comments_payload_skips_empty_text() {
+    let payload = serde_json::json!({
+        "comments": [
+            {"text": "genial", "author": "ana", "like_count": 3},
+            {"text": "   ", "author": "bob"},
+            "basura"
+        ]
+    });
+    let comments = parse_comments_payload(&payload);
+    assert_eq!(comments.len(), 1);
+    assert_eq!(comments[0].text, "genial");
 }

@@ -1,0 +1,33 @@
+format = 2
+
+[effect]
+id = "concat.linear-wipe"
+name = "Linear Wipe"
+kind = "transition"
+category = "Wipe"
+order = 10
+aliases = ["wipe-left", "wipe-right"]
+description = "A straight line crosses the frame and leaves the next shot behind it."
+
+[[param]]
+key = "direction"
+label = "Direction"
+type = "enum"
+values = [0, 1, 2, 3]
+labels = ["Left to Right", "Right to Left", "Top to Bottom", "Bottom to Top"]
+default = 0
+min = 0
+max = 3
+
+[[param]]
+key = "softness"
+label = "Softness"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 20
+
+[transition]
+fallback = "cross-fade"
+entry = "effect.wgsl"

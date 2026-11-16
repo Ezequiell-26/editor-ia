@@ -57,6 +57,26 @@ describe('marker actions', () => {
     );
   });
 
+  it('keeps a single cover marker per project', () => {
+    const first = addMarker(base(), 30, { label: 'A' });
+    const second = addMarker(first.project, 90, { label: 'B' });
+    const covered = validated(
+      updateMarker(second.project, first.markerId, { role: 'cover' }),
+    );
+    expect(covered.markers[0]?.role).toBe('cover');
+    // Marcar otro como portada le quita el rol al anterior.
+    const moved = validated(
+      updateMarker(covered, second.markerId, { role: 'cover' }),
+    );
+    expect(moved.markers.find((item) => item.id === first.markerId)?.role).toBeUndefined();
+    expect(moved.markers.find((item) => item.id === second.markerId)?.role).toBe('cover');
+    // Y se puede quitar.
+    const cleared = validated(
+      updateMarker(moved, second.markerId, { role: undefined }),
+    );
+    expect(cleared.markers.every((item) => item.role === undefined)).toBe(true);
+  });
+
   it('rejects a second marker on the same frame', () => {
     const first = addMarker(base(), 30);
     expect(() => addMarker(first.project, 30)).toThrow(ProjectActionError);

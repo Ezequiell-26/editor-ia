@@ -69,6 +69,7 @@ pub async fn find_missing_assets(
 
 #[tauri::command]
 pub async fn relink_asset(
+    app: AppHandle,
     state: State<'_, AppState>,
     asset_id: String,
     new_path: String,
@@ -76,12 +77,29 @@ pub async fn relink_asset(
     let session = state.project_session();
     let documents = state.project_documents();
     let recovery = state.project_asset_recovery();
-    use_cases::relink_asset(&session, &documents, &recovery, &asset_id, &new_path)
+    let result =
+        use_cases::relink_asset(&session, &documents, &recovery, &asset_id, &new_path)?;
+    // Si el relink dejó el asset apuntando fuera del proyecto (sin copia),
+    // su preview por asset:// necesita el archivo concedido al scope.
+    if result.ok {
+        if let Some(path) = result.path.as_deref() {
+            let resolved = Path::new(path);
+            let resolved = if resolved.is_absolute() {
+                resolved.to_path_buf()
+            } else if let Ok(info) = state.require_session() {
+                info.root.join(resolved)
+            } else {
+                resolved.to_path_buf()
+            };
+            crate::commands::allow_asset_protocol_file(&app, &resolved);
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn relink_assets_from_folder(
-    _app: AppHandle,
+    app: AppHandle,
     state: State<'_, AppState>,
     project_path: Option<String>,
     folder: String,
@@ -90,14 +108,33 @@ pub async fn relink_assets_from_folder(
     let environment = state.project_environment();
     let documents = state.project_documents();
     let recovery = state.project_asset_recovery();
-    use_cases::relink_assets_from_folder(
+    let result = use_cases::relink_assets_from_folder(
         &session,
         &environment,
         &documents,
         &recovery,
         project_path.as_deref(),
         &folder,
-    )
+    )?;
+    // Mismo motivo que `relink_asset`: assets repuntados fuera del proyecto
+    // necesitan su archivo en el scope del asset protocol.
+    if let Ok(info) = state.require_session() {
+        for relinked in &result.relinked {
+            if !relinked.ok {
+                continue;
+            }
+            if let Some(path) = relinked.path.as_deref() {
+                let resolved = Path::new(path);
+                let resolved = if resolved.is_absolute() {
+                    resolved.to_path_buf()
+                } else {
+                    info.root.join(resolved)
+                };
+                crate::commands::allow_asset_protocol_file(&app, &resolved);
+            }
+        }
+    }
+    Ok(result)
 }
 
 #[tauri::command]

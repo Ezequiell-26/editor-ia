@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
+import { onKeyboardActivate } from '../../lib/a11y';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import { relinkAsset, toggleAssetFavorite } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
@@ -87,7 +88,34 @@ function AssetThumbnailCard({
   const store = useProjectStore();
   const thumbnail = useThumbnail(store.service, asset, root);
   const [relinkBusy, setRelinkBusy] = useState(false);
+  const [hoverPreview, setHoverPreview] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scrubRaf = useRef(0);
+  const [scrubPct, setScrubPct] = useState<number | null>(null);
   const fps = projectFps(store);
+  const previewUrl =
+    asset.kind === 'video' && hoverPreview
+      ? store.service.mediaUrl(root, asset.source.path)
+      : null;
+
+  /** Aguja de scrub sobre el thumbnail (paridad del scrub de thumbs de
+   * CapCut/Filmora): la posición horizontal del mouse busca ese instante
+   * del video; la línea marca el frame bajo el cursor. */
+  function handleScrub(event: ReactMouseEvent<HTMLDivElement>): void {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const pct = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    setScrubPct(pct);
+    const video = videoRef.current;
+    const media =
+      asset.kind === 'video' && 'media' in asset ? asset.media : undefined;
+    if (!video || !media || !('durationFrames' in media)) return;
+    cancelAnimationFrame(scrubRaf.current);
+    scrubRaf.current = requestAnimationFrame(() => {
+      video.pause();
+      video.currentTime = pct * (media.durationFrames / fps);
+    });
+  }
 
   const relinkable =
     asset.kind === 'video' || asset.kind === 'image' || asset.kind === 'audio';
@@ -145,18 +173,50 @@ function AssetThumbnailCard({
   return (
     <div
       className={`asset-thumbnail-card ${isSelected ? 'selected' : ''} ${asset.status !== 'ready' ? 'unready' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={asset.label}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => onKeyboardActivate(event, onClick)}
+      onMouseEnter={() => setHoverPreview(true)}
+      onMouseLeave={() => setHoverPreview(false)}
       title={asset.label}
     >
-      <div className="asset-thumbnail-preview">
-        {thumbnail ? (
+      <div
+        className={`asset-thumbnail-preview${previewUrl ? ' scrub' : ''}`}
+        onMouseMove={previewUrl ? handleScrub : undefined}
+      >
+        {previewUrl ? (
+          // Paridad `espiada_midia.js` de AlaukCut: al pasar el mouse la
+          // tarjeta muestra el video en vivo (mute+loop) en vez del
+          // fotograma estático; mover el mouse horizontalmente busca el
+          // frame bajo la aguja.
+          <video
+            ref={videoRef}
+            className="asset-thumbnail-video"
+            src={previewUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+          />
+        ) : thumbnail ? (
           <img src={thumbnail} alt={asset.label} loading="lazy" />
         ) : (
           <div className="asset-thumbnail-placeholder">
             <Icon name={getAssetIcon(asset.kind)} size={32} />
           </div>
         )}
+        {previewUrl && scrubPct !== null ? (
+          <span
+            className="asset-scrub-needle"
+            style={{ left: `${scrubPct * 100}%` }}
+            aria-hidden="true"
+          />
+        ) : null}
         {duration && <span className="asset-duration-badge">{duration}</span>}
         {asset.kind === 'video' && <Icon name="play" size={16} className="asset-play-icon" />}
         <button
@@ -228,8 +288,13 @@ function AssetListItem({
   return (
     <div
       className={`asset-list-item ${isSelected ? 'selected' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={asset.label}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => onKeyboardActivate(event, onClick)}
     >
       <div className="asset-list-thumbnail">
         {thumbnail ? (

@@ -4,27 +4,22 @@
 //! command mirrors their referenced media into one shared folder and writes
 //! each `.editoria.json` atomically. It never opens a native dialog, so the
 //! loop can generate N variants without stopping the user.
-
-use std::path::{Path, PathBuf};
+//!
+//! La lógica de filesystem/JSON vive en `application::variants`; estos
+//! comandos sólo resuelven sesión/perfil y devuelven los DTOs IPC.
 
 use serde::Serialize;
 use serde_json::Value;
 use tauri::State;
 
+use crate::application::variants::{
+    self, CopiedMedia, VariantWritten,
+};
 use crate::commands::system::resolve_tools;
-use crate::media::resolve_inside_root;
 use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{self, build_plan, parse_profile, BuildPlanInput};
 use crate::render::motion::{build_motion_ass, has_visible_graphic_clips, MotionAssInput};
 use crate::state::AppState;
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VariantWritten {
-    pub path: String,
-    pub bytes: u64,
-    pub copied_assets: usize,
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,125 +31,6 @@ pub struct VariantRendered {
     pub height: u32,
 }
 
-fn safe_stem(name: &str) -> String {
-    let mut stem = String::new();
-    for character in name.trim().chars() {
-        if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
-            stem.push(character.to_ascii_lowercase());
-        } else if (character.is_whitespace() || matches!(character, '.' | '/' | '\\'))
-            && !stem.ends_with('-')
-        {
-            stem.push('-');
-        }
-    }
-    let trimmed = stem.trim_matches('-').to_owned();
-    if trimmed.is_empty() {
-        "variante".to_owned()
-    } else {
-        trimmed.chars().take(80).collect()
-    }
-}
-
-fn relative_asset_paths(project: &Value) -> Result<Vec<String>, ProjectError> {
-    let assets = project["assets"].as_array().cloned().unwrap_or_default();
-    if assets.len() > 10_000 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la variante declara demasiados assets",
-        ));
-    }
-    let mut paths = Vec::new();
-    for asset in &assets {
-        let Some(relative) = asset["source"]["path"].as_str() else {
-            continue;
-        };
-        if relative.contains("..") || Path::new(relative).is_absolute() {
-            return Err(ProjectError::message(
-                ProjectErrorCode::PathEscapesRoot,
-                "un asset de la variante intenta salir de la carpeta del proyecto",
-            ));
-        }
-        paths.push(relative.to_string());
-    }
-    for relative in crate::media::project_lut_paths(project)? {
-        if !paths.iter().any(|path| path == &relative) {
-            paths.push(relative);
-        }
-    }
-    for relative in crate::media::project_proxy_paths(project)? {
-        if !paths.iter().any(|path| path == &relative) {
-            paths.push(relative);
-        }
-    }
-    Ok(paths)
-}
-
-/// Copy only the missing media. Existing files must match the source size to
-/// avoid silently mixing two different assets with the same relative path.
-fn mirror_assets(project: &Value, old_root: &Path, new_root: &Path) -> Result<usize, ProjectError> {
-    let old_root = old_root.canonicalize().map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::NotFound,
-            "la carpeta del proyecto original no está disponible",
-        )
-    })?;
-    let mut copied = 0;
-    for relative in relative_asset_paths(project)? {
-        let source = resolve_inside_root(&old_root, &relative)?;
-        if !source.is_file() {
-            return Err(ProjectError::message(
-                ProjectErrorCode::NotFound,
-                "un asset de la variante no está en disco",
-            ));
-        }
-        let destination = new_root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
-        let Some(parent) = destination.parent() else {
-            continue;
-        };
-        std::fs::create_dir_all(parent).map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "no se pudo preparar la carpeta de medios de las variantes",
-            )
-        })?;
-        let parent_canonical = parent.canonicalize().map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "la carpeta de medios de las variantes no es accesible",
-            )
-        })?;
-        if !parent_canonical.starts_with(new_root) {
-            return Err(ProjectError::message(
-                ProjectErrorCode::PathEscapesRoot,
-                "la copia de medios intentaría salir de la carpeta de variantes",
-            ));
-        }
-        if destination.exists() {
-            let source_size = std::fs::metadata(&source)
-                .map(|meta| meta.len())
-                .unwrap_or(0);
-            let destination_size = std::fs::metadata(&destination)
-                .map(|meta| meta.len())
-                .unwrap_or(0);
-            if source_size != destination_size {
-                return Err(ProjectError::message(
-                    ProjectErrorCode::AlreadyExists,
-                    "ya existe un medio distinto con el mismo nombre en la carpeta de variantes",
-                ));
-            }
-            continue;
-        }
-        std::fs::copy(&source, &destination).map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "no se pudo copiar un medio a la carpeta de variantes",
-            )
-        })?;
-        copied += 1;
-    }
-    Ok(copied)
-}
-
 #[tauri::command]
 pub async fn write_project_variant(
     state: State<'_, AppState>,
@@ -163,51 +39,7 @@ pub async fn write_project_variant(
     project: Value,
 ) -> Result<VariantWritten, ProjectError> {
     let session = state.require_session()?;
-    let directory = PathBuf::from(directory.trim());
-    if directory.as_os_str().is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "elegí una carpeta para las variantes",
-        ));
-    }
-    if !directory.is_absolute() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la carpeta de variantes debe ser una ruta absoluta",
-        ));
-    }
-    std::fs::create_dir_all(&directory).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo crear la carpeta de variantes",
-        )
-    })?;
-    let new_root = directory.canonicalize().map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "la carpeta de variantes no es accesible",
-        )
-    })?;
-    let mut name = safe_stem(&file_name);
-    if name.ends_with(".editoria") {
-        name.push_str(".json");
-    } else if !name.ends_with(".json") {
-        name.push_str(".editoria.json");
-    }
-    let target = new_root.join(&name);
-    if target.exists() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::AlreadyExists,
-            "ya existe una variante con ese nombre; no se sobrescribió",
-        ));
-    }
-    let copied_assets = mirror_assets(&project, &session.root, &new_root)?;
-    let saved = service::save_project(&target, &project)?;
-    Ok(VariantWritten {
-        path: saved.path,
-        bytes: saved.bytes,
-        copied_assets,
-    })
+    variants::write_project_variant_file(&directory, &file_name, &project, &session.root)
 }
 
 #[tauri::command]
@@ -233,7 +65,7 @@ pub async fn render_project_variant(
             "ffprobe no está disponible para verificar variantes",
         ));
     };
-    let project_file = PathBuf::from(project_path.trim());
+    let project_file = crate::application::fs::resolve_user_file_path(&project_path)?;
     if !project_file.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
@@ -300,7 +132,7 @@ pub async fn render_project_variant(
             String::new()
         }
     };
-    let mut final_output = PathBuf::from(output_path.trim());
+    let mut final_output = crate::application::fs::validate_user_write_path(&output_path)?;
     if final_output.as_os_str().is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
@@ -406,14 +238,6 @@ pub async fn render_project_variant(
     })
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CopiedMedia {
-    pub source: String,
-    pub relative_path: String,
-    pub bytes: u64,
-}
-
 /// Copia material externo dentro de una carpeta de entrega.
 ///
 /// La cola por carpeta trabaja con archivos que no pertenecen a ningún
@@ -424,60 +248,7 @@ pub fn copy_media_into(
     directory: String,
     paths: Vec<String>,
 ) -> Result<Vec<CopiedMedia>, ProjectError> {
-    let root = PathBuf::from(directory.trim());
-    if !root.is_absolute() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la carpeta de entrega debe ser una ruta absoluta",
-        ));
-    }
-    let media = root.join("media");
-    std::fs::create_dir_all(&media).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo crear la carpeta media de la entrega",
-        )
-    })?;
-    let mut copied = Vec::new();
-    for path in paths {
-        let source = PathBuf::from(path.trim());
-        if !source.is_file() {
-            return Err(ProjectError::message(
-                ProjectErrorCode::NotFound,
-                "uno de los archivos de la carpeta no existe",
-            ));
-        }
-        let stem = source
-            .file_stem()
-            .map(|value| safe_stem(&value.to_string_lossy()))
-            .unwrap_or_else(|| "media".to_owned());
-        let extension = source
-            .extension()
-            .map(|value| value.to_string_lossy().to_lowercase())
-            .unwrap_or_else(|| "mp4".to_owned());
-        let mut candidate = media.join(format!("{stem}.{extension}"));
-        let mut index = 2;
-        while candidate.exists() {
-            candidate = media.join(format!("{stem}-{index}.{extension}"));
-            index += 1;
-        }
-        let bytes = std::fs::copy(&source, &candidate).map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "no se pudo copiar uno de los archivos a la entrega",
-            )
-        })?;
-        let relative = candidate
-            .strip_prefix(&root)
-            .map(|value| value.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|_| candidate.to_string_lossy().to_string());
-        copied.push(CopiedMedia {
-            source: path,
-            relative_path: relative,
-            bytes,
-        });
-    }
-    Ok(copied)
+    variants::copy_media_files(&directory, &paths)
 }
 
 /// Escribe un proyecto en una carpeta **sin** exigir una sesión abierta.
@@ -491,30 +262,5 @@ pub fn write_project_file(
     file_name: String,
     project: Value,
 ) -> Result<VariantWritten, ProjectError> {
-    let root = PathBuf::from(directory.trim());
-    if !root.is_absolute() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la carpeta de entrega debe ser una ruta absoluta",
-        ));
-    }
-    std::fs::create_dir_all(&root).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo crear la carpeta de entrega",
-        )
-    })?;
-    let mut name = safe_stem(&file_name);
-    if name.ends_with(".editoria") {
-        name.push_str(".json");
-    } else if !name.ends_with(".json") {
-        name.push_str(".editoria.json");
-    }
-    let target = root.join(&name);
-    let saved = service::save_project(&target, &project)?;
-    Ok(VariantWritten {
-        path: saved.path,
-        bytes: saved.bytes,
-        copied_assets: 0,
-    })
+    variants::write_project_document(&directory, &file_name, &project)
 }

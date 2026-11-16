@@ -20,7 +20,7 @@ import {
   type MulticamBuild,
   type MulticamCamera,
   type MulticamCut,
-} from './multicam';
+} from '../../state/multicam';
 import { deriveTimecodeOffsets } from './multicam-timecode';
 import { resolveMulticamSync } from './multicam-sync';
 

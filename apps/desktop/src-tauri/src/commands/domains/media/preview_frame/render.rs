@@ -95,7 +95,20 @@ fn render_frame(
     };
     // El PNG decodificado en proceso sólo vive hasta que FFmpeg termina.
     let _cleanup = Cleanup(cleanup);
-    let filters = visual_filter(
+    // Marco del monitor (`monitorFrame`): mismo PNG rasterizado que el
+    // export, como input extra `[1:v]` — el preview «Frame real» muestra
+    // el marco igual que el MP4.
+    let mut frame_args: Vec<String> = Vec::new();
+    let mut next_input = 1usize;
+    let frame_input = prepare_frame_input(
+        &clip,
+        &asset,
+        &view_profile,
+        output_dir,
+        &mut frame_args,
+        &mut next_input,
+    )?;
+    let filters = visual_filter_with_format(
         0,
         &clip,
         &asset,
@@ -106,8 +119,16 @@ fn render_frame(
         1,
         1,
         is_image,
+        "rgba",
+        frame_input,
+        // El frame suelto no modela el lead de transición (lead_seconds=0):
+        // una textura `textura-*` nunca aplica acá.
+        None,
     );
     let mut chain = filters;
+    if let Some(camera_lut) = camera_lut_path(&clip["effects"], output_dir) {
+        chain = apply_lut_to_chain(chain, "v0", &camera_lut, 1.0);
+    }
     if let Some((lut, intensity)) = effects_lut(&clip["effects"], root)? {
         chain = apply_lut_to_chain(chain, "v0", &lut, intensity);
     }
@@ -122,6 +143,7 @@ fn render_frame(
         }
         command.arg("-i").arg(&source);
     }
+    command.args(&frame_args);
     command
         .args([
             "-frames:v",
@@ -147,6 +169,11 @@ fn render_frame(
             format!("no se pudo iniciar FFmpeg para el preview: {error}").as_str(),
         )
     })?;
+    // PNG intermedio del marco: se elimina siempre (el resultado es el
+    // frame-*.png, no el insumo).
+    if frame_input.is_some() {
+        let _ = std::fs::remove_file(output_dir.join("monitor-frame-1.png"));
+    }
     if !result.status.success() || !output.is_file() {
         let detail = String::from_utf8_lossy(&result.stderr);
         let tail = detail

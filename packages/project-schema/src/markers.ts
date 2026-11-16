@@ -28,6 +28,12 @@ export const MarkerSchema = z
       }),
     color: MarkerColorSchema.optional(),
     note: z.string().trim().max(MAX_MARKER_NOTE).optional(),
+    /**
+     * Rol del marcador (paridad `Marcadores.extra("capa")` de AlaukCut):
+     * `cover` marca el frame que el diálogo de export usa como portada.
+     * Como mucho un marcador del proyecto puede tenerlo.
+     */
+    role: z.enum(['cover']).optional(),
   })
   .strict()
   .superRefine((marker, ctx) => {

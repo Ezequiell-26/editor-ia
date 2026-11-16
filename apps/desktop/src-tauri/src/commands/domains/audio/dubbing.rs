@@ -102,6 +102,13 @@ mod tests {
         assert_eq!(normalize_language("EN-us"), Some("en"));
         assert_eq!(normalize_language("zh-CN"), Some("zh"));
         assert_eq!(normalize_language("fr"), Some("fr"));
+        // Los 17 idiomas de traducción (port de main 616744a): ja/ko/tr/pl/nl/cs.
+        assert_eq!(normalize_language("ja-JP"), Some("ja"));
+        assert_eq!(normalize_language("ko-KR"), Some("ko"));
+        assert_eq!(normalize_language("TR"), Some("tr"));
+        assert_eq!(normalize_language("pl-PL"), Some("pl"));
+        assert_eq!(normalize_language("nl-BE"), Some("nl"));
+        assert_eq!(normalize_language("cs-CZ"), Some("cs"));
         assert_eq!(normalize_language("xx"), None);
     }
 
@@ -156,6 +163,39 @@ mod tests {
         assert!(with_bed.contains("[0:a]"));
         assert!(with_bed.contains("[bed]"));
         assert!(with_bed.contains("amix=inputs=4"));
+    }
+
+    #[test]
+    fn safe_stem_normaliza_y_acota() {
+        assert_eq!(safe_stem("Mi Video (2024)!"), "mi-video-2024");
+        // '_' se conserva; los '-' seguidos colapsan al unir las partes.
+        assert_eq!(safe_stem("clip__final---v2"), "clip__final-v2");
+        // Sólo caracteres no-ASCII o de puntuación: cae al fallback.
+        assert_eq!(safe_stem("áéí óú ¡!"), "video");
+        assert_eq!(safe_stem(""), "video");
+        // Tope de 60 caracteres.
+        assert_eq!(safe_stem(&"a".repeat(100)).len(), 60);
+    }
+
+    #[test]
+    fn unique_output_propone_nombres_sucesivos() {
+        let dir = std::env::temp_dir().join(format!("editoria-dub-probe-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = unique_output(&dir, "clip", "es");
+        assert_eq!(first.file_name().unwrap().to_str().unwrap(), "clip-dub-es.mp4");
+        std::fs::write(&first, b"x").unwrap();
+        let second = unique_output(&dir, "clip", "es");
+        assert_eq!(
+            second.file_name().unwrap().to_str().unwrap(),
+            "clip-dub-es-2.mp4"
+        );
+        std::fs::write(&second, b"x").unwrap();
+        let third = unique_output(&dir, "clip", "es");
+        assert_eq!(
+            third.file_name().unwrap().to_str().unwrap(),
+            "clip-dub-es-3.mp4"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

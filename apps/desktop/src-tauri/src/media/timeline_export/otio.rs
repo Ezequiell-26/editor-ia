@@ -103,7 +103,7 @@ fn track_clips(project: &Value, track: &Value, rate: f64) -> (Vec<Value>, usize,
         if clip["reverse"].as_bool().unwrap_or(false) {
             warnings.push(format!("{name}: el reverse no se exporta a OTIO"));
         }
-        if clip.get("transitionIn").is_some() {
+        if clip.get("transitionIn").is_some() || clip.get("transitionOut").is_some() {
             warnings.push(format!("{name}: la transición no se exporta a OTIO"));
         }
         children.push(clip_json);
@@ -245,6 +245,11 @@ mod tests {
                     "speed": { "num": 2, "den": 1 }, "reverse": true,
                     "transitionIn": { "type": "dissolve", "frames": 6 },
                     "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 60 }
+                }, {
+                    "id": "c2", "kind": "video", "label": "Salida", "trackId": "v1",
+                    "startFrame": 30, "durationFrames": 30,
+                    "transitionOut": { "type": "fade-black", "frames": 6 },
+                    "source": { "type": "asset", "assetId": "a", "inFrame": 60, "outFrame": 120 }
                 }]
             }
         });
@@ -255,8 +260,8 @@ mod tests {
             output_dir: dir.to_string_lossy().into_owned(),
         })
         .expect("otio");
-        assert_eq!(result.clips, 1);
-        assert_eq!(result.warnings.len(), 2, "{:?}", result.warnings);
+        assert_eq!(result.clips, 2);
+        assert_eq!(result.warnings.len(), 3, "{:?}", result.warnings);
         assert!(
             result
                 .warnings

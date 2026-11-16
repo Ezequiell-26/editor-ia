@@ -140,6 +140,26 @@ export interface EnhanceOptions {
   readonly normalizeAudio?: boolean;
 }
 
+export type FileConversionTarget =
+  | 'gif'
+  | 'mp3'
+  | 'wav'
+  | 'm4a'
+  | 'aac'
+  | 'ogg'
+  | 'opus'
+  | 'flac';
+
+export interface FileConversionRequest {
+  readonly inputPath: string;
+  readonly target: FileConversionTarget;
+  readonly outputDir: string;
+  readonly quality?: number;
+  readonly maxWidth?: number;
+  /** FPS objetivo para GIF (paridad `exp-gif-taxa`); 10–30 típico. */
+  readonly fps?: number;
+}
+
 export interface ConversionRequest {
   readonly assetId: string;
   readonly target: ConversionTarget;
@@ -564,6 +584,41 @@ export interface FaceTrackResult {
   readonly yExpression: string;
 }
 
+/** Rectángulo semilla del tracking de objeto, normalizado 0..1 del frame. */
+export interface ObjectTrackRect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+export interface ObjectTrackRequest {
+  readonly path: string;
+  readonly rect: ObjectTrackRect;
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+}
+
+export interface ObjectTrackSample {
+  readonly time: number;
+  readonly centerX: number;
+  readonly centerY: number;
+  readonly size: number;
+  /** NCC del mejor candidato (0..1); valores bajos marcan oclusión. */
+  readonly confidence: number;
+  /** Rotación estimada del patch en grados (0 = sin rotar). */
+  readonly rotationDeg?: number;
+}
+
+export interface ObjectTrackResult {
+  readonly samples: readonly ObjectTrackSample[];
+  readonly frames: number;
+  readonly confident: number;
+  readonly durationSeconds: number;
+  readonly scaledWidth: number;
+  readonly scaledHeight: number;
+}
+
 export interface CompressRequest {
   readonly assetId: string;
   readonly outputDir: string;
@@ -626,4 +681,182 @@ export interface ImageContent {
   /** Solo videos: segundo del que salió el cuadro analizado. */
   readonly sampledAtSeconds?: number | undefined;
   readonly warnings: readonly string[];
+}
+
+/**
+ * Efecto de sonido de la biblioteca empaquetada (paridad `sons.js` de
+ * AlaukCut). Los WAV se sintetizan con `scripts/generate-sfx.mjs`; `path`
+ * es absoluto dentro del recurso `sfx/` para preview e importación.
+ */
+export interface SfxItem {
+  readonly id: string;
+  readonly file: string;
+  readonly label: string;
+  readonly description: string;
+  readonly durationSeconds: number;
+  /** Grupo colapsable del panel (paridad `som-grupo` de `sons.js`). */
+  readonly group?: string;
+  readonly path: string;
+}
+
+// ───────────────────────── concat-worker ─────────────────────────
+// Comandos `concat_worker_status` / `concat_worker_request`
+// (`commands/domains/media/concat_worker.rs`): estado del worker
+// JSON-lines de `concat-media` y requests genéricas con allowlist de ops.
+// El worker no está empaquetado en todas las builds: `available=false` es
+// un estado honesto, no un error.
+
+/** Ops del protocolo actual (`application/concat_worker.rs::WORKER_OPS`). */
+export type ConcatWorkerOp =
+  | 'ping'
+  | 'probe'
+  | 'decode_frame'
+  | 'render_export'
+  | 'shutdown';
+
+/** `ConcatWorkerStatus` del backend (serde camelCase). */
+export interface ConcatWorkerStatus {
+  /** `true` si el ejecutable existe en disco (no implica que corra). */
+  readonly available: boolean;
+  /** Ruta resuelta del binario, si existe. */
+  readonly path: string | null;
+  /** Por qué no está disponible, cuando `available` es false. */
+  readonly reason: string | null;
+  /** Ops implementadas por el protocolo. */
+  readonly ops: readonly string[];
+  /** `true` si hay un proceso hijo vivo ahora mismo. */
+  readonly running: boolean;
+}
+
+/**
+ * Envelope del worker: `{"ok": true, ...}` o `{"ok": false, "error": "..."}`.
+ * El resto del payload depende de la op (`ping`, `probe`, `decode_frame`).
+ */
+export interface ConcatWorkerEnvelope {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly [key: string]: unknown;
+}
+
+/**
+ * Evento del concat-worker re-emitido por Tauri como `concat-worker-progress`.
+ *
+ * Son las líneas JSON-lines del worker SIN `ok` (no son respuestas del
+ * envelope): `render_export_progress` reporta el avance del render
+ * (`phase`: `"composite"` frames, `"audio"` mezcla, `"mux"` unión;
+ * `frames`/`frames_total`/`percent` en la fase composite) y `cancel_ack`
+ * confirma que el `{"op":"cancel"}` llegó al proceso.
+ */
+export interface ConcatWorkerEvent {
+  readonly type?: string;
+  readonly phase?: string;
+  readonly frames?: number;
+  readonly frames_total?: number;
+  readonly percent?: number;
+  readonly target?: string;
+  readonly [key: string]: unknown;
+}
+
+// ───────────────────── render_export (concat-worker) ─────────────────────
+// `{"op":"render_export"}` (`apps/concat-worker/src/protocol.rs`):
+// composición CPU de clips sobre un canvas a un MP4/MOV/WebM. Los campos
+// de tiempo (`in`, `start`, `duration`, `frame_rate`, `transition.duration`)
+// son strings: decimales (`"1.5"`) o racionales (`"30000/1001"`).
+
+/** Transición xfade de un clip con el anterior (`transition` del protocolo). */
+export interface ConcatWorkerExportTransition {
+  /** Nombre xfade de FFmpeg que conoce el catálogo de Concat (`"dissolve"`, `"wipeleft"`, …). */
+  readonly type: string;
+  /** Duración en segundos (string de tiempo). Excluyente con `frames`. */
+  readonly duration?: string;
+  /** Duración en frames de salida. Excluyente con `duration`. */
+  readonly frames?: number;
+  /** Crossfade de audio durante la ventana (fade out del saliente + fade in
+   *  del entrante). Default `true` cuando ambos clips tienen audio. */
+  readonly audio_crossfade?: boolean;
+}
+
+/** Punto de `speed_curve`: velocidad en la fracción `at` del clip. */
+export interface ConcatWorkerExportSpeedCurvePoint {
+  /** Fracción `0..=1` de la duración del clip en el timeline. */
+  readonly at: number;
+  /** Segundos de fuente por segundo de timeline (0.0625..=16 efectivo). */
+  readonly speed: number;
+  /** Pendiente opcional; sólo cuenta si TODOS los puntos la traen (si no,
+   *  la curva interpola en líneas rectas). */
+  readonly slope?: number;
+}
+
+/** Un clip de `render_export`: un tramo de un archivo sobre el canvas. */
+export interface ConcatWorkerExportClip {
+  /** Ruta del archivo de medio. */
+  readonly path: string;
+  /** Punto de entrada en la fuente, en segundos (`"1.5"`, `"3/2"`). Default `"0"`. */
+  readonly in?: string;
+  /** Dónde empieza el clip en la línea de tiempo, en segundos. */
+  readonly start?: string;
+  /** Cuánto dura en la línea de tiempo, en segundos. */
+  readonly duration?: string;
+  /** Rectángulo de destino en píxeles del canvas (todos opcionales). */
+  readonly x?: number;
+  readonly y?: number;
+  readonly width?: number;
+  readonly height?: number;
+  /** `"contain"` (default), `"cover"` o `"fill"`. */
+  readonly fit?: string;
+  /** `true` mezcla el audio del clip en la salida (AAC 48 kHz estéreo). */
+  readonly audio?: boolean;
+  /** Velocidad: segundos de fuente por segundo de timeline (`2` = el doble).
+   *  Si hay `speed_curve`, ésta manda y `speed` se ignora. */
+  readonly speed?: number | string;
+  /** Curva de velocidad por puntos `(at, speed[, slope])`; `at` es la
+   *  fracción 0..1 del clip en el timeline. Video remuestrea por la
+   *  integral; audio por pasos `atempo` (~8/seg). */
+  readonly speed_curve?: readonly ConcatWorkerExportSpeedCurvePoint[];
+  /** Transición con el clip anterior (índice menor en `clips`). */
+  readonly transition?: ConcatWorkerExportTransition;
+}
+
+/** Params de `{"op":"render_export"}` (se mezclan con `op` en el request). */
+export interface ConcatWorkerExportParams {
+  /** Dónde escribir el archivo (`.mp4`, `.mov`, `.webm` según codec). */
+  readonly output: string;
+  /** Canvas en píxeles; si faltan se usa el tamaño del primer clip. */
+  readonly width?: number;
+  readonly height?: number;
+  /** Frame rate de salida: `"30/1"`, `"29.97"`, `"30000/1001"` o número. */
+  readonly frame_rate?: string | number;
+  /** Duración total en segundos; nunca acorta lo que los clips cubren. */
+  readonly duration?: string;
+  /** `"h264"` (default), `"hevc"`, `"av1"`, `"prores-4444"`, `"vp9-alpha"`. */
+  readonly codec?: string;
+  /** Preset del encoder (`"medium"` default). */
+  readonly preset?: string;
+  /** CRF 0..=51 (`18` default). */
+  readonly crf?: number;
+  /** `false` fuerza encoder por software. */
+  readonly hardware?: boolean;
+  /** Clips en orden de pintado: los últimos cubren a los primeros. */
+  readonly clips: readonly ConcatWorkerExportClip[];
+}
+
+/** Resumen del envelope `ok` de `render_export` (campos del worker). */
+export interface ConcatWorkerExportResult {
+  readonly output: string;
+  readonly width: number;
+  readonly height: number;
+  readonly frame_rate: string;
+  readonly frame_rate_fps: number;
+  readonly frames: number;
+  readonly duration: string;
+  readonly duration_seconds: number;
+  readonly codec: string;
+  readonly audio: boolean;
+  readonly audio_clips: number;
+  readonly audio_clips_skipped: number;
+  /** Crossfades de audio aplicados durante las transiciones. */
+  readonly audio_crossfades?: number;
+  /** Clips que usaron `speed_curve`. */
+  readonly speed_curves?: number;
+  readonly transitions: number;
 }

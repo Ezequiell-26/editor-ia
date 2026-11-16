@@ -8,7 +8,7 @@
  *
  *  - `WORKSPACE_STEPS`: las seis etapas reales, derivadas de `app/pipeline.ts`
  *    (que además es quien calcula el progreso desde el proyecto).
- *  - `WORKSPACE_GROUPS`: los 33 `ViewId` agrupados, exactamente una vez.
+ *  - `WORKSPACE_GROUPS`: las vistas publicadas agrupadas, exactamente una vez.
  *
  * Las etiquetas y hints NO se copian: se leen de `NAV_VIEWS`. La ruta canónica
  * de cada vista NO se copia: se resuelve con `resolveViewRoute`.
@@ -79,8 +79,8 @@ export interface WorkspaceGroup {
 }
 
 /**
- * Los 33 `ViewId` en cuatro grupos. La unión debe ser exactamente `NAV_VIEWS`
- * y no puede repetir ninguno; `workspace-map.test.ts` lo verifica.
+ * Las vistas navegables en cuatro grupos. La unión debe ser exactamente
+ * `NAV_VIEWS` y no repetir ninguna; `workspace-map.test.ts` lo verifica.
  */
 export const WORKSPACE_GROUPS: readonly WorkspaceGroup[] = [
   {
@@ -103,7 +103,7 @@ export const WORKSPACE_GROUPS: readonly WorkspaceGroup[] = [
     label: 'Potenciar',
     hint: 'Análisis, IA local y utilidades de laboratorio',
     views: [
-      'director', 'auto-edit', 'ai-hub', 'mcp', 'lab', 'convert',
+      'director', 'ai-hub', 'mcp', 'lab', 'convert',
       'compare', 'compress', 'denoise', 'sharpen', 'background', 'upscale',
       'record',
     ],

@@ -12,17 +12,20 @@
 //! aquí se usa `tokio-tungstenite`, mismo protocolo, menos superficie).
 
 use futures_util::{SinkExt, StreamExt};
-use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::State;
 
+use crate::application::browser_instances::{
+    sanitize_profile_id, validate_proxy, validate_web_url, BrowserInstanceInfo,
+};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
-use super::flow_browser::{cdp_alive, find_browser, free_port, wait_cdp};
+use super::flow_browser::{find_browser, free_port};
+use crate::application::cdp;
 
 const STEALTH_JS: &str = r#"
 (() => {
@@ -70,41 +73,18 @@ fn instances() -> std::sync::MutexGuard<'static, Option<HashMap<String, Instance
     INSTANCES.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn sanitize_id(id: &str) -> Result<String, ProjectError> {
-    let id = id.trim();
-    if id.is_empty() || id.len() > 64 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "profile_id debe tener entre 1 y 64 caracteres",
-        ));
-    }
-    if !id
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "profile_id solo admite letras, números, '-' y '_'",
-        ));
-    }
-    Ok(id.to_owned())
-}
-
-fn validate_proxy(proxy: &str) -> Result<(), ProjectError> {
-    // Solo http(s):// o socks5:// con host[:puerto]; nada de credenciales en la
-    // URL para no filtrar secretos en logs/args visibles.
-    let ok = (proxy.starts_with("http://")
-        || proxy.starts_with("https://")
-        || proxy.starts_with("socks5://"))
-        && !proxy.contains('@')
-        && proxy.len() <= 300;
-    if !ok {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "proxy_url debe ser http(s):// o socks5://host[:puerto], sin credenciales",
-        ));
-    }
-    Ok(())
+/// Quita del mapa las instancias cuyo proceso ya terminó (cerradas a mano o
+/// caídas). Devuelve los ids eliminados. AUD-026.
+fn reap_dead_instances(map: &mut HashMap<String, Instance>) -> Vec<String> {
+    let mut dead = Vec::new();
+    map.retain(|id, inst| match inst.child.try_wait() {
+        Ok(Some(_)) => {
+            dead.push(id.clone());
+            false
+        }
+        _ => true,
+    });
+    dead
 }
 
 fn profiles_root() -> PathBuf {
@@ -112,18 +92,6 @@ fn profiles_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
     base.join("Olyvia").join("browser-profiles")
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BrowserInstanceInfo {
-    pub id: String,
-    pub port: u16,
-    pub pid: Option<u32>,
-    pub cdp_url: String,
-    pub profile_dir: String,
-    pub proxy: Option<String>,
-    pub browser: String,
 }
 
 /// Lanza una instancia aislada de Chromium con perfil propio, proxy opcional
@@ -136,13 +104,23 @@ pub async fn browser_instance_launch(
     url: Option<String>,
 ) -> Result<BrowserInstanceInfo, ProjectError> {
     let _ = state; // settings futuras (UA custom) leerán de aquí
-    let id = sanitize_id(&profile_id)?;
+    let id = sanitize_profile_id(&profile_id)?;
     if let Some(proxy) = proxy_url.as_deref() {
         validate_proxy(proxy)?;
     }
+    // AUD-019: la URL inicial pasa la misma validación http(s) que navigate;
+    // file:// leería archivos locales y Runtime.evaluate podría exfiltrarlos.
+    let initial_url = url
+        .as_deref()
+        .filter(|u| !u.trim().is_empty())
+        .map(validate_web_url)
+        .transpose()?;
     {
-        let guard = instances();
-        if let Some(map) = guard.as_ref() {
+        let mut guard = instances();
+        if let Some(map) = guard.as_mut() {
+            // AUD-026: liberar entradas cuyo proceso ya murió antes de
+            // bloquear el profile_id.
+            reap_dead_instances(map);
             if map.contains_key(&id) {
                 return Err(ProjectError::message(
                     ProjectErrorCode::AlreadyExists,
@@ -170,21 +148,26 @@ pub async fn browser_instance_launch(
 
     let mut command = Command::new(&executable);
     command
+        // AUD-021: CDP no tiene autenticación; al menos se fija el bind a
+        // loopback explícito para que ningún adaptador de red lo exponga.
+        // El puerto ya es efímero (free_port) y el proceso muere con la app.
         .arg(format!("--remote-debugging-port={port}"))
+        .arg("--remote-debugging-address=127.0.0.1")
         .arg(format!("--user-data-dir={}", profile_dir.to_string_lossy()))
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
         .arg("--disable-session-crashed-bubble")
         .arg("--hide-crash-restore-bubble")
-        // Anti-automatización a nivel de flags.
+        // Anti-automatización a nivel de flags. Site Isolation se mantiene
+        // activo (AUD-020): desactivarlo ampliaba el alcance de un compromiso
+        // de página sobre otros orígenes del mismo perfil.
         .arg("--disable-blink-features=AutomationControlled")
-        .arg("--disable-features=IsolateOrigins,site-per-process")
         .arg("--disable-infobars")
         .arg("--start-maximized");
     if let Some(proxy) = proxy_url.as_deref() {
         command.arg(format!("--proxy-server={proxy}"));
     }
-    if let Some(target) = url.as_deref().filter(|u| !u.trim().is_empty()) {
+    if let Some(target) = initial_url.as_deref() {
         command.arg(target);
     }
     command
@@ -207,7 +190,14 @@ pub async fn browser_instance_launch(
             )
         })?;
 
-    let alive = tauri::async_runtime::spawn_blocking(move || wait_cdp(port))
+    let alive = tauri::async_runtime::spawn_blocking(move || {
+        cdp::wait_cdp(
+            port,
+            std::time::Duration::from_secs(3),
+            std::time::Duration::from_secs(15),
+            std::time::Duration::from_millis(400),
+        )
+    })
         .await
         .unwrap_or(false);
     if !alive {
@@ -252,7 +242,7 @@ pub async fn browser_instance_launch(
 /// Cierra una instancia y libera su proceso.
 #[tauri::command]
 pub async fn browser_instance_close(profile_id: String) -> Result<bool, ProjectError> {
-    let id = sanitize_id(&profile_id)?;
+    let id = sanitize_profile_id(&profile_id)?;
     let mut guard = instances();
     let Some(map) = guard.as_mut() else {
         return Err(ProjectError::message(
@@ -271,10 +261,13 @@ pub async fn browser_instance_close(profile_id: String) -> Result<bool, ProjectE
     Ok(true)
 }
 
-/// Lista las instancias abiertas.
+/// Lista las instancias abiertas (las que ya murieron se podan antes).
 #[tauri::command]
 pub async fn browser_instance_list() -> Result<Vec<BrowserInstanceInfo>, ProjectError> {
-    let guard = instances();
+    let mut guard = instances();
+    if let Some(map) = guard.as_mut() {
+        reap_dead_instances(map);
+    }
     let mut out = Vec::new();
     if let Some(map) = guard.as_ref() {
         for (id, inst) in map {
@@ -298,17 +291,8 @@ pub async fn browser_instance_navigate(
     profile_id: String,
     url: String,
 ) -> Result<bool, ProjectError> {
-    let id = sanitize_id(&profile_id)?;
-    // Sólo http(s): file:// leería archivos locales al contexto de la
-    // página y Runtime.evaluate podría exfiltrarlos; javascript: ejecuta
-    // script arbitrario en el origen activo.
-    let url = url.trim();
-    if url.len() > 2_048 || !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "la URL debe ser http(s)",
-        ));
-    }
+    let id = sanitize_profile_id(&profile_id)?;
+    let url = validate_web_url(&url)?;
     let port = {
         let guard = instances();
         guard
@@ -329,7 +313,7 @@ pub async fn browser_instance_eval(
     profile_id: String,
     expression: String,
 ) -> Result<serde_json::Value, ProjectError> {
-    let id = sanitize_id(&profile_id)?;
+    let id = sanitize_profile_id(&profile_id)?;
     if expression.len() > 100_000 {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
@@ -359,20 +343,36 @@ pub async fn browser_instance_eval(
 /// Primer target "page" del navegador y su websocket URL.
 async fn page_ws_url(port: u16) -> Result<String, ProjectError> {
     let url = format!("http://127.0.0.1:{port}/json/list");
-    let text = reqwest::blocking::get(&url)
-        .map_err(|e| {
-            ProjectError::message(
-                ProjectErrorCode::ProviderUnavailable,
-                &format!("CDP no responde en /json/list: {e}"),
-            )
-        })?
-        .text()
-        .map_err(|e| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                &format!("no se pudo leer /json/list: {e}"),
-            )
-        })?;
+    // Chrome publica /json/version antes que /json/list durante el arranque
+    // en frío; sin reintento las primeras llamadas eval/navigate fallaban.
+    // El sondeo bloqueante va en spawn_blocking para no frenar el runtime.
+    let fetched = tokio::task::spawn_blocking(move || {
+        let mut last_err = String::new();
+        for _ in 0..10 {
+            match reqwest::blocking::get(&url) {
+                Ok(resp) => match resp.text() {
+                    Ok(text) => return Ok(text),
+                    Err(e) => last_err = format!("no se pudo leer /json/list: {e}"),
+                },
+                Err(e) => last_err = format!("CDP no responde en /json/list: {e}"),
+            }
+            std::thread::sleep(std::time::Duration::from_millis(700));
+        }
+        Err(last_err)
+    })
+    .await
+    .map_err(|e| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo consultar el CDP del navegador: {e}"),
+        )
+    })?;
+    let text = fetched.map_err(|e| {
+        ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            &e,
+        )
+    })?;
     let pages: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
         ProjectError::message(
             ProjectErrorCode::InvalidProviderResponse,
@@ -488,34 +488,28 @@ async fn inject_stealth(port: u16) -> Result<(), ProjectError> {
     Ok(())
 }
 
+/// Mata todas las instancias abiertas. Lo invoca el hook de salida de la app
+/// (AUD-024): sin esto, Chrome/Edge quedaba huérfano con el perfil
+/// autenticado y el puerto CDP activo después de cerrar Olyvia.
+pub fn stop_all_browser_instances() {
+    let mut guard = instances();
+    if let Some(map) = guard.as_mut() {
+        for (_, mut inst) in map.drain() {
+            let _ = inst.child.kill();
+            let _ = inst.child.wait();
+        }
+    }
+}
+
 // Mantenido para diagnóstico: verifica que el puerto CDP siga vivo.
 #[allow(dead_code)]
 fn still_alive(port: u16) -> bool {
-    cdp_alive(port)
+    cdp::cdp_alive(port, std::time::Duration::from_secs(3))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sanitize_id_rejects_bad_chars() {
-        assert!(sanitize_id("perfil-1_ok").is_ok());
-        assert!(sanitize_id("perfil con espacios").is_err());
-        assert!(sanitize_id("..").is_err());
-        assert!(sanitize_id("").is_err());
-        assert!(sanitize_id(&"x".repeat(65)).is_err());
-    }
-
-    #[test]
-    fn proxy_validation() {
-        assert!(validate_proxy("http://127.0.0.1:8080").is_ok());
-        assert!(validate_proxy("socks5://10.0.0.2:1080").is_ok());
-        assert!(validate_proxy("https://proxy.example.com:443").is_ok());
-        assert!(validate_proxy("ftp://x").is_err());
-        assert!(validate_proxy("http://user:pass@host").is_err()); // sin credenciales en args
-        assert!(validate_proxy("http://").is_err() || true); // forma mínima aceptada por prefijo
-    }
 
     #[test]
     fn stealth_js_overrides_webdriver() {

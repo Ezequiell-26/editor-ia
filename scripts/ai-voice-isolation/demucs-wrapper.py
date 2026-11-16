@@ -122,10 +122,13 @@ class VoiceIsolationEngine:
             raise
 
     def _load_audio(self, input_path: Path) -> "tuple[np.ndarray, int]":
-        """Devuelve (samples, channels) float32 estéreo a 44.1 kHz."""
+        """Devuelve (samples, channels) float32 estéreo a 44.1 kHz.
+
+        htdemucs exige 2 canales; el fallback por soundfile (o un ffmpeg que
+        no remapee) puede devolver mono, así que se hace upmix explícito.
+        """
         try:
             audio, sample_rate = _decode_with_ffmpeg(input_path, self.ffmpeg)
-            return audio, TARGET_SAMPLE_RATE
         except Exception as ffmpeg_error:
             try:
                 audio, sample_rate = _decode_with_soundfile(input_path)
@@ -134,7 +137,13 @@ class VoiceIsolationEngine:
                     f"no se pudo decodificar el audio ni con ffmpeg ni con soundfile: {ffmpeg_error}"
                 )
         audio = _resample_stereo(audio, sample_rate)
-        return audio, TARGET_SAMPLE_RATE
+        if audio.ndim == 1:
+            audio = audio.reshape(-1, 1)
+        if audio.shape[1] == 1:
+            audio = np.repeat(audio, 2, axis=1)
+        elif audio.shape[1] > 2:
+            audio = audio[:, :2]
+        return np.ascontiguousarray(audio.astype(np.float32)), TARGET_SAMPLE_RATE
 
     def _separate(self, input_path: Path) -> "tuple[dict[str, np.ndarray], float]":
         """Corre la separación y devuelve stems float32 (samples, channels)."""

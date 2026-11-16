@@ -9,7 +9,7 @@ import {
   lumaMatePick,
   moveLumaMateToOwnTrack,
   placeFreezeMate,
-} from './luma-mate';
+} from '../../state/luma-mate';
 
 const FPS = 30;
 

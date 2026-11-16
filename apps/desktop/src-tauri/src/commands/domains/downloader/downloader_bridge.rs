@@ -4,8 +4,11 @@
 //! browser extension calls it to analyze a page and to start a download that
 //! lands in Downloads/Videos descargados/<Platform>. No arbitrary paths, no
 //! shell, and the same yt-dlp/FFmpeg pipeline as the in-app downloader.
+//!
+//! DTOs del protocolo y helpers puros (token, naming, probe de imagen, parse
+//! del head HTTP) viven en `application::downloader_bridge`; acá queda el
+//! servidor TCP y los comandos.
 
-use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -13,20 +16,20 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
 use crate::commands::downloader::{
     download_blocking, folder_from_file_name, platform_folder, probe_with_engine, resolve_engine,
-    validate_url, DownloadProbe, DownloadRequest,
+    validate_url, DownloadRequest,
 };
 use crate::commands::system::resolve_tools;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
-const MAX_BODY_BYTES: usize = 1_500_000;
+// DTOs, constantes y helpers puros del protocolo: `application::downloader_bridge`.
+pub use crate::application::downloader_bridge::*;
 
 pub struct BridgeRuntime {
     pub port: u16,
@@ -34,109 +37,67 @@ pub struct BridgeRuntime {
     pub downloads_dir: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BridgeInfo {
-    pub port: u16,
-    pub token: String,
-    pub downloads_dir: String,
-    pub running: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BridgeFile {
-    name: String,
-    bytes: u64,
-    path: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BridgeJob {
-    id: String,
-    status: String,
-    stage: String,
-    percent: Option<f64>,
-    message: String,
-    files: Vec<BridgeFile>,
-    error: Option<String>,
-}
-
-struct HttpRequest {
-    method: String,
-    path: String,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BridgeProbeRequest {
-    url: String,
-    direct_image: Option<bool>,
-}
-
-fn direct_image_probe(url: &str) -> DownloadProbe {
-    let title = url
-        .split('?')
-        .next()
-        .unwrap_or(url)
-        .rsplit('/')
-        .next()
-        .filter(|value| !value.is_empty())
-        .unwrap_or("Imagen");
-    DownloadProbe {
-        url: url.to_owned(),
-        title: title.chars().take(200).collect(),
-        uploader: None,
-        duration_seconds: None,
-        thumbnail: Some(url.to_owned()),
-        kind: "image".to_owned(),
-        entry_count: 1,
-        max_height: None,
-        estimated_bytes: None,
-        qualities: Vec::new(),
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BridgeDownloadRequest {
-    #[serde(flatten)]
-    download: DownloadRequest,
-    direct_image: Option<bool>,
-}
-
 fn provider_error(message: impl Into<String>) -> ProjectError {
     let message = message.into();
     ProjectError::message(ProjectErrorCode::ProviderUnavailable, &message)
 }
 
-fn token_matches(candidate: &str, expected: &str) -> bool {
-    if candidate.len() != expected.len() {
-        return false;
-    }
-    candidate
-        .bytes()
-        .zip(expected.bytes())
-        .fold(0u8, |accumulator, (left, right)| {
-            accumulator | (left ^ right)
-        })
-        == 0
+const BRIDGE_KEYRING_SERVICE: &str = "editor-ia.downloader-bridge";
+const BRIDGE_KEYRING_USER: &str = "token";
+
+fn bridge_key_entry() -> Result<keyring::Entry, ProjectError> {
+    keyring::Entry::new(BRIDGE_KEYRING_SERVICE, BRIDGE_KEYRING_USER).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::KeyringUnavailable,
+            "el almacén de claves de Windows no está disponible",
+        )
+    })
 }
 
-fn bridge_token(config_dir: &Path) -> String {
-    let path = config_dir.join("downloader-bridge.token");
-    if let Ok(existing) = std::fs::read_to_string(&path) {
-        let token = existing.trim().to_owned();
-        if token.len() >= 32 && token.chars().all(|value| value.is_ascii_hexdigit()) {
-            return token;
+/// AUD-100: el token del puente vive en el Credential Manager — antes se
+/// persistía en `downloader-bridge.token` en texto plano y el error de
+/// escritura se descartaba (`let _ =`), así que un fallo de disco anunciaba
+/// un emparejamiento que no sobrevivía al reinicio y la extensión quedaba
+/// con un token viejo. Ahora cualquier fallo del llavero es error y el
+/// puente no arranca (la UI lo reporta como no disponible).
+///
+/// Migración: si el llavero está vacío pero existe el archivo legado con
+/// un token válido, se adopta ese token (la extensión guardada en
+/// chrome.storage sigue funcionando) y el archivo en claro se borra.
+fn stored_bridge_token(config_dir: &Path) -> Result<String, ProjectError> {
+    let entry = bridge_key_entry()?;
+    match entry.get_password() {
+        Ok(token) if token.len() >= 32 => return Ok(token),
+        Ok(_) => {}
+        Err(keyring::Error::NoEntry) => {}
+        Err(_) => {
+            return Err(ProjectError::message(
+                ProjectErrorCode::KeyringUnavailable,
+                "no se pudo leer el token del puente del almacén de Windows",
+            ));
         }
     }
-    let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-    let _ = std::fs::write(&path, &token);
-    token
+    let legacy_path = config_dir.join("downloader-bridge.token");
+    if let Ok(text) = std::fs::read_to_string(&legacy_path) {
+        if let Some(token) = parse_legacy_bridge_token(&text) {
+            entry.set_password(&token).map_err(|_| {
+                ProjectError::message(
+                    ProjectErrorCode::KeyringUnavailable,
+                    "no se pudo migrar el token del puente al almacén de Windows",
+                )
+            })?;
+            let _ = std::fs::remove_file(&legacy_path);
+            return Ok(token);
+        }
+    }
+    let token = generate_bridge_token();
+    entry.set_password(&token).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::KeyringUnavailable,
+            "no se pudo guardar el token del puente en el almacén de Windows",
+        )
+    })?;
+    Ok(token)
 }
 
 fn bind_listener() -> Option<TcpListener> {
@@ -158,7 +119,9 @@ pub fn start(app: AppHandle) -> Option<BridgeRuntime> {
         .download_dir()
         .unwrap_or_else(|_| config_dir.join("Downloads"))
         .join("Videos descargados");
-    let token = bridge_token(&config_dir);
+    // AUD-100: sin token persistible no hay emparejamiento estable — el
+    // puente no arranca y `downloader_bridge_info` lo reporta honesto.
+    let token = stored_bridge_token(&config_dir).ok()?;
     let listener = bind_listener()?;
     let port = listener.local_addr().ok()?.port();
     let job = Arc::new(Mutex::new(None));
@@ -220,38 +183,5 @@ include!("downloader_bridge/routes.rs");
 include!("downloader_bridge/jobs.rs");
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tokens_are_compared_without_early_exit() {
-        assert!(token_matches("abc123", "abc123"));
-        assert!(!token_matches("abc124", "abc123"));
-        assert!(!token_matches("abc", "abc123"));
-    }
-
-    #[test]
-    fn destinations_do_not_overwrite_existing_files() {
-        let directory = std::env::temp_dir().join(format!("editor-ia-bridge-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("video.mp4"), b"old").unwrap();
-        let destination = unique_destination(&directory, "video.mp4");
-        assert_eq!(
-            destination.file_name().unwrap().to_string_lossy(),
-            "video (2).mp4"
-        );
-        let _ = std::fs::remove_dir_all(&directory);
-    }
-
-    #[test]
-    fn unsafe_file_names_are_sanitized() {
-        let directory = std::env::temp_dir().join(format!("editor-ia-bridge-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let destination = unique_destination(&directory, "a:b?c*d.mp4");
-        assert_eq!(
-            destination.file_name().unwrap().to_string_lossy(),
-            "a_b_c_d.mp4"
-        );
-        let _ = std::fs::remove_dir_all(&directory);
-    }
-}
+#[path = "downloader_bridge.tests.rs"]
+mod tests;

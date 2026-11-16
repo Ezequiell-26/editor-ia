@@ -6,6 +6,7 @@
 //! con las demás.
 
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::PathBuf;
 
 use serde_json::Value;
@@ -104,9 +105,23 @@ pub fn set_flow_proxy(
     let text = serde_json::to_string_pretty(&map).map_err(|_| {
         ProjectError::message(ProjectErrorCode::Io, "no pude serializar los proxies")
     })?;
-    std::fs::write(proxies_file(), text).map_err(|_| {
-        ProjectError::message(ProjectErrorCode::Io, "no pude escribir proxies.json")
-    })?;
+    // Escritura atómica: un proxies.json truncado se lee como mapa vacío
+    // y cada cuenta saldría a Flow sin su proxy (mezcla de IPs entre
+    // cuentas). Temporal + fsync + rename, mismo patrón que settings.json.
+    let path = proxies_file();
+    let tmp = data_dir().join("proxies.json.tmp");
+    let io_error = || ProjectError::message(ProjectErrorCode::Io, "no pude escribir proxies.json");
+    let write_result = (|| -> Result<(), std::io::Error> {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, &path)
+    })();
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    write_result.map_err(|_| io_error())?;
     Ok(map)
 }
 

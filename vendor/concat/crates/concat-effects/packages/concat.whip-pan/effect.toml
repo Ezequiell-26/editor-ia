@@ -1,0 +1,23 @@
+format = 2
+
+[effect]
+id = "concat.whip-pan"
+name = "Whip Pan"
+kind = "transition"
+category = "Wipe"
+order = 14
+description = "The camera whips sideways so fast the frame smears, and lands on the next shot."
+
+[[param]]
+key = "speed"
+label = "Speed"
+unit = "%"
+min = 20
+max = 100
+step = 1
+default = 80
+
+[transition]
+fallback = "slideleft"
+xfade = "slideleft"
+entry = "effect.wgsl"

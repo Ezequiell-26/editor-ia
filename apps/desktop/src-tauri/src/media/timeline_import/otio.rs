@@ -196,8 +196,15 @@ fn parse_timecode(value: &str, fps: u32, drop_frame: bool) -> Option<u64> {
     if minutes >= 60 || seconds >= 60 || frames >= nominal {
         return None;
     }
-    let total_minutes = hours * 60 + minutes;
-    let base = (total_minutes * 60 + seconds) * nominal + frames;
+    // AUD-076: `hours` no tiene cota propia; sin checked_* un timecode como
+    // `18446744073709551615:00:00:00` desborda u64 (panic en debug, wrap en
+    // release) y produce offsets absurdos. Overflow → None → warning + skip.
+    let total_minutes = hours.checked_mul(60)?.checked_add(minutes)?;
+    let base = total_minutes
+        .checked_mul(60)?
+        .checked_add(seconds)?
+        .checked_mul(nominal)?
+        .checked_add(frames)?;
     if !drop_frame {
         return Some(base);
     }
@@ -207,5 +214,5 @@ fn parse_timecode(value: &str, fps: u32, drop_frame: bool) -> Option<u64> {
     if seconds == 0 && frames < dropped && !total_minutes.is_multiple_of(10) {
         return None;
     }
-    Some(base - dropped * (total_minutes - total_minutes / 10))
+    base.checked_sub(dropped.checked_mul(total_minutes - total_minutes / 10)?)
 }

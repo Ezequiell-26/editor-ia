@@ -81,6 +81,96 @@ pub(crate) fn animation_overlay_terms(
     (join(x_terms), join(y_terms))
 }
 
+/// Grafo `scale`+`rotate` para las animaciones `zoom-in`/`zoom-out`/`spin`,
+/// aplicado sobre el stream ya compuesto del clip (su `setpts` final lo deja
+/// en tiempo global, así que `t` coincide con el reloj del overlay).
+///
+/// Las fórmulas replican `animationState` del Preview: el factor queda en 1
+/// fuera de la ventana con `if(between(t,...))`, así una entrada no deja el
+/// clip achicado antes de arrancar ni una salida lo estira después de volver
+/// a 1.
+pub(crate) fn animation_transform_graph(
+    source_label: &str,
+    tag: usize,
+    clip: &Value,
+    start_seconds: f64,
+    clip_seconds: f64,
+    fps: f64,
+) -> Option<String> {
+    let mut scale_factors: Vec<String> = Vec::new();
+    let mut angle_terms: Vec<String> = Vec::new();
+    for side in ["in", "out"] {
+        let field = if side == "in" { "animationIn" } else { "animationOut" };
+        let animation = &clip[field];
+        let Some((progress, kind)) =
+            animation_progress(animation, side, start_seconds, clip_seconds, fps)
+        else {
+            continue;
+        };
+        let Some(duration) = animation_duration_seconds(animation, clip_seconds, fps) else {
+            continue;
+        };
+        let (from, to) = if side == "in" {
+            (start_seconds, start_seconds + duration)
+        } else {
+            (
+                (start_seconds + clip_seconds - duration).max(start_seconds),
+                start_seconds + clip_seconds,
+            )
+        };
+        let window = format!("between(t,{from:.6},{to:.6})");
+        match kind.as_str() {
+            // Preview: in zoom-in 0.82→1, out zoom-in 1→1.18; zoom-out invierte.
+            "zoom-in" => {
+                let base = if side == "in" { "0.82" } else { "1" };
+                scale_factors.push(format!("if({window},{base}+0.18*({progress}),1)"));
+            }
+            "zoom-out" => {
+                let base = if side == "in" { "1.18" } else { "1" };
+                scale_factors.push(format!("if({window},{base}-0.18*({progress}),1)"));
+            }
+            // Preview: spin in -120→0, out 0→+120 (grados).
+            "spin" => {
+                let expr = if side == "in" {
+                    format!("-120+120*({progress})")
+                } else {
+                    format!("120*({progress})")
+                };
+                angle_terms.push(format!("if({window},{expr},0)"));
+            }
+            _ => {}
+        }
+    }
+    if scale_factors.is_empty() && angle_terms.is_empty() {
+        return None;
+    }
+    let dst = format!("v{tag}anim");
+    let mut chain = format!("[{source_label}]");
+    if !scale_factors.is_empty() {
+        let factor = scale_factors
+            .iter()
+            .map(|term| format!("({term})"))
+            .collect::<Vec<_>>()
+            .join("*");
+        chain.push_str(&format!(
+            "scale=w='iw*{factor}':h='ih*{factor}':eval=frame,"
+        ));
+    }
+    if !angle_terms.is_empty() {
+        let angle = angle_terms
+            .iter()
+            .map(|term| format!("({term})"))
+            .collect::<Vec<_>>()
+            .join("+");
+        // `format=rgba` garantiza alfa para `fillcolor=none` (esquinas
+        // transparentes en vez de negras al rotar).
+        chain.push_str(&format!(
+            "format=rgba,rotate=a='{angle}':fillcolor=none,"
+        ));
+    }
+    Some(format!("{chain}[{dst}]"))
+}
+
 pub(crate) fn animation_fade_filters(
     clip: &Value,
     lead_seconds: f64,

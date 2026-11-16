@@ -1,0 +1,35 @@
+format = 2
+
+[effect]
+id = "concat.shape-wipe"
+name = "Shape Wipe"
+kind = "transition"
+category = "Wipe"
+order = 12
+description = "The next shot shows through a circle, heart or star that grows from the centre until it covers the frame."
+
+[[param]]
+key = "shape"
+label = "Shape"
+type = "enum"
+values = [0, 1, 2]
+labels = ["Circle", "Heart", "Star"]
+default = 0
+min = 0
+max = 2
+
+[[param]]
+key = "softness"
+label = "Softness"
+unit = "%"
+min = 0
+max = 100
+step = 1
+default = 15
+
+[transition]
+fallback = "cross-fade"
+entry = "effect.wgsl"
+
+[card]
+progress = 0.55

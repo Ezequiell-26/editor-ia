@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180">
+<defs>
+<linearGradient id="gdg" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#22d3ee"/>
+<stop offset="0.5" stop-color="#a78bfa"/>
+<stop offset="1" stop-color="#f472b6"/>
+</linearGradient>
+</defs>
+<rect width="320" height="180" fill="#0b1020"/>
+<g>
+<rect x="0" y="0" width="320" height="180" fill="#0b1020"/>
+<g opacity="0.9">
+<rect x="8" y="10" width="52" height="26" fill="#22d3ee" opacity="0.75"/>
+<rect x="70" y="10" width="44" height="26" fill="#f472b6" opacity="0.7"/>
+<rect x="150" y="8" width="60" height="28" fill="#a78bfa" opacity="0.75"/>
+<rect x="250" y="12" width="58" height="24" fill="#22d3ee" opacity="0.6"/>
+<rect x="16" y="48" width="70" height="24" fill="#f472b6" opacity="0.55"/>
+<rect x="110" y="46" width="48" height="28" fill="#22d3ee" opacity="0.8"/>
+<rect x="180" y="50" width="66" height="24" fill="#a78bfa" opacity="0.6"/>
+<rect x="262" y="46" width="46" height="28" fill="#f472b6" opacity="0.7"/>
+<rect x="6" y="84" width="58" height="26" fill="#a78bfa" opacity="0.7"/>
+<rect x="90" y="82" width="76" height="28" fill="#22d3ee" opacity="0.55"/>
+<rect x="196" y="86" width="52" height="24" fill="#f472b6" opacity="0.75"/>
+<rect x="270" y="82" width="44" height="28" fill="#a78bfa" opacity="0.8"/>
+<rect x="24" y="120" width="48" height="26" fill="#22d3ee" opacity="0.65"/>
+<rect x="104" y="118" width="62" height="28" fill="#f472b6" opacity="0.6"/>
+<rect x="196" y="122" width="70" height="24" fill="#a78bfa" opacity="0.7"/>
+<rect x="8" y="152" width="66" height="22" fill="#f472b6" opacity="0.5"/>
+<rect x="120" y="150" width="54" height="26" fill="#22d3ee" opacity="0.75"/>
+<rect x="210" y="154" width="60" height="22" fill="#a78bfa" opacity="0.65"/>
+<rect x="280" y="150" width="34" height="26" fill="#22d3ee" opacity="0.7"/>
+</g>
+<rect x="0" y="0" width="320" height="180" fill="none" stroke="#67e8f9" stroke-width="2" opacity="0.6"/>
+<rect x="3" y="3" width="314" height="174" fill="none" stroke="#f472b6" stroke-width="1.5" opacity="0.5"/>
+</g>
+</svg>

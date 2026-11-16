@@ -14,7 +14,7 @@ import {
   syncOffsetsFromEnvelopes,
   type AudioEnvelope,
   type MulticamCamera,
-} from './multicam';
+} from '../../state/multicam';
 
 const NOW = '2026-10-24T00:00:00.000Z';
 

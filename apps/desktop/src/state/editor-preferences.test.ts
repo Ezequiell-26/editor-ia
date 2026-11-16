@@ -73,6 +73,22 @@ describe('preferencias del editor', () => {
     expect(normalizeEditorPreferences({ emojiStyle: 3 }).emojiStyle).toBe('android');
   });
 
+  it('normaliza el cursor propio y su onda de click', () => {
+    expect(DEFAULT_EDITOR_PREFERENCES.editorCursor).toBe('system');
+    expect(DEFAULT_EDITOR_PREFERENCES.editorCursorRipple).toBe(true);
+    for (const style of ['classico', 'cheia', '3d'] as const) {
+      expect(normalizeEditorPreferences({ editorCursor: style }).editorCursor).toBe(style);
+    }
+    expect(normalizeEditorPreferences({ editorCursor: 'neon' }).editorCursor).toBe('system');
+    expect(normalizeEditorPreferences({ editorCursor: 3 }).editorCursor).toBe('system');
+    expect(normalizeEditorPreferences({ editorCursorRipple: false }).editorCursorRipple).toBe(
+      false,
+    );
+    expect(normalizeEditorPreferences({ editorCursorRipple: 'x' }).editorCursorRipple).toBe(
+      true,
+    );
+  });
+
   it('ignora objetos que no son preferencias', () => {
     expect(normalizeEditorPreferences(null)).toEqual(DEFAULT_EDITOR_PREFERENCES);
     expect(normalizeEditorPreferences('texto')).toEqual(DEFAULT_EDITOR_PREFERENCES);

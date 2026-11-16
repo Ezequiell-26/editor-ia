@@ -11,6 +11,7 @@ import {
 } from '../../state/project-actions';
 import { createFakeService, readyAsset } from '../../test/fake-service';
 import { VisualsView } from './VisualsView';
+import { FALLBACK_VISUAL_CATALOG } from './visuals';
 
 const NOW = '2026-11-08T00:00:00.000Z';
 
@@ -36,6 +37,7 @@ function Probe() {
 function renderView(
   prepare?: (project: ProjectDocument) => ProjectDocument,
   clipBAtFrame = 300,
+  service: ReturnType<typeof createFakeService> = createFakeService(),
 ) {
   let project: ProjectDocument = ensureDelivery(createEmptyProject('Demo fundidos', NOW));
   const assetA = readyAsset({ label: 'Toma Alfa' });
@@ -52,7 +54,6 @@ function renderView(
   }).project;
   if (prepare) project = prepare(project);
   const clipIds = project.timeline.clips.map((clip) => clip.id);
-  const service = createFakeService();
   render(
     <ProjectProvider
       service={service}
@@ -313,5 +314,50 @@ describe('VisualsView · mate de luma-wipe', () => {
       .closest('label')
       ?.querySelector('select');
     expect(select?.value).toBe(clipIds[0]);
+  });
+});
+
+describe('VisualsView · verificación del catálogo', () => {
+  it('sin medición del backend no ofrece una transición declarada como aplicable', async () => {
+    const service = {
+      ...createFakeService(),
+      listVisualCatalog: () => Promise.reject(new Error('backend sin respuesta')),
+    };
+    renderView(undefined, 300, service);
+
+    await screen.findByText(/Catálogo sin verificar/);
+    expect(screen.getByRole('button', { name: 'Medir de nuevo' })).toBeTruthy();
+    // El motivo aparece en el aviso de la transición y en el panel de problemas.
+    expect(screen.getAllByText(/no se midió contra FFmpeg/).length).toBeGreaterThan(0);
+
+    const apply = transitionSection().getByRole('button', { name: 'Aplicar' });
+    expect(apply.hasAttribute('disabled')).toBe(true);
+
+    // Aunque se fuerce el click, el documento no recibe una transición no verificada.
+    fireEvent.click(apply);
+    const probe = await screen.findByTestId('probe');
+    expect(probe.textContent).not.toContain('"type":"dissolve"');
+  });
+
+  it('«Medir de nuevo» recupera la verificación y habilita Aplicar', async () => {
+    let calls = 0;
+    const service = {
+      ...createFakeService(),
+      listVisualCatalog: () => {
+        calls += 1;
+        return calls === 1
+          ? Promise.reject(new Error('backend sin respuesta'))
+          : Promise.resolve(FALLBACK_VISUAL_CATALOG);
+      },
+    };
+    renderView(undefined, 300, service);
+
+    await screen.findByText(/Catálogo sin verificar/);
+    fireEvent.click(screen.getByRole('button', { name: 'Medir de nuevo' }));
+    await screen.findByText('Catálogo medido');
+
+    const apply = transitionSection().getByRole('button', { name: 'Aplicar' });
+    expect(apply.hasAttribute('disabled')).toBe(false);
+    expect(calls).toBe(2);
   });
 });

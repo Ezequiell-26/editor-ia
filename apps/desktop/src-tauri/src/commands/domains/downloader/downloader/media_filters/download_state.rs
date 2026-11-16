@@ -1,31 +1,5 @@
-fn media_extension(path: &Path) -> String {
-    path.extension()
-        .map(|extension| extension.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default()
-}
-
-fn downloaded_kind(path: &Path) -> &'static str {
-    let extension = media_extension(path);
-    if IMAGE_EXTENSIONS.contains(&extension.as_str()) {
-        "image"
-    } else if AUDIO_EXTENSIONS.contains(&extension.as_str()) {
-        "audio"
-    } else if VIDEO_EXTENSIONS.contains(&extension.as_str()) {
-        "video"
-    } else {
-        "other"
-    }
-}
-
-fn parse_progress_percent(line: &str) -> Option<f64> {
-    let percent_index = line.find('%')?;
-    let token = line[..percent_index].split_whitespace().last()?;
-    token
-        .trim()
-        .parse::<f64>()
-        .ok()
-        .filter(|value| (0.0..=100.0).contains(value))
-}
+// `media_extension`, `downloaded_kind` y `parse_progress_percent` viven en
+// `application::downloads` (pub use de control.rs).
 
 fn read_download_output(
     progress: ProgressSink<'_>,

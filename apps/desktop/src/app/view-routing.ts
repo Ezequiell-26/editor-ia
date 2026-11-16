@@ -8,6 +8,7 @@ export type EditorModeId =
   | 'multicam'
   | 'mixer'
   | 'vfx'
+  | 'nodes'
   | 'motion'
   | 'visuals'
   | 'guide'
@@ -50,6 +51,7 @@ const EDITOR_MODE_ALIASES: Readonly<Partial<Record<ViewId, EditorModeId>>> = {
   multicam: 'multicam',
   mixer: 'mixer',
   vfx: 'vfx',
+  nodes: 'nodes',
   motion: 'motion',
   visuals: 'visuals',
 };
@@ -101,12 +103,13 @@ export function viewForEditorMode(mode: EditorModeId): ViewId | undefined {
 }
 
 /**
- * T1 · Hosts de herramientas que, con proyecto abierto, se montan como PANEL
- * del editor (modo `tools`). Son las 7 superficies canónicas que no son el
- * editor, ni Ajustes (ventana flotante del sistema), ni las 6 de F2, ni los
- * 6 alias a modos. Los 12 alias a hubs NO se listan acá: se derivan de
+ * T1 · Hosts de herramientas que se montan como PANEL del editor (modo
+ * `tools`). Enmienda 2026-11-14 «UN SOLO EDITOR, SIN OTRAS PANTALLAS»:
+ * `settings` dejó de ser una ventana flotante del sistema y se sumó acá,
+ * de modo que los 35 `ViewId` resuelven DENTRO de `EditorWorkspace` sin
+ * excepción. Los 12 alias a hubs NO se listan acá: se derivan de
  * `HUB_ALIASES` vía `resolveViewRoute`, así no hay una segunda lista que
- * mantener. Una sola fuente de verdad, 33 ViewId cubiertos.
+ * mantener. Una sola fuente de verdad.
  */
 export const EDITOR_TOOL_HOSTS: ReadonlySet<ViewId> = new Set<ViewId>([
   'home',
@@ -116,6 +119,7 @@ export const EDITOR_TOOL_HOSTS: ReadonlySet<ViewId> = new Set<ViewId>([
   'lab',
   'mcp',
   'learn',
+  'settings',
 ]);
 
 export interface EditorToolRoute {
@@ -128,8 +132,9 @@ export interface EditorToolRoute {
 /**
  * Resuelve CUALQUIER `ViewId` a un panel de herramientas del editor.
  * `youtube` -> { view:'download', hubTab:'youtube' }; `lab` -> { view:'lab' };
- * `editor`, `settings`, `mixer`, `script` -> undefined (los atienden otras
- * ramas de App.tsx). No modifica `resolveViewRoute`.
+ * `settings` -> { view:'settings' } (panel del editor, ya no ventana aparte);
+ * `editor`, `mixer`, `script` -> undefined (son modos del editor).
+ * No modifica `resolveViewRoute`.
  */
 export function editorToolForView(id: ViewId): EditorToolRoute | undefined {
   const route = resolveViewRoute(id);

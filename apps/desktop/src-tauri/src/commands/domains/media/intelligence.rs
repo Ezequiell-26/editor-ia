@@ -167,6 +167,7 @@ mod tests {
                 "null",
                 "-",
             ],
+            std::time::Duration::from_secs(120),
         )
         .expect("silence pass");
         let ranges = parse_silences(&silence.stderr, 2.6);
@@ -178,6 +179,7 @@ mod tests {
             Path::new("ffmpeg"),
             &audio,
             &["-vn", "-af", "ebur128=peak=true", "-f", "null", "-"],
+            std::time::Duration::from_secs(120),
         )
         .expect("loudness pass");
         let summary = parse_loudness(&loud.stderr).expect("loudness");
@@ -220,6 +222,7 @@ mod tests {
                 "null",
                 "-",
             ],
+            std::time::Duration::from_secs(120),
         )
         .expect("black pass");
         let blacks = parse_black_ranges(&detection.stderr, 2.0);
@@ -277,6 +280,7 @@ mod tests {
             ffmpeg,
             &video,
             &["-an", "-vf", &scene_filter(0.35), "-f", "null", "-"],
+            std::time::Duration::from_secs(120),
         );
         let _ = run_pass(
             ffmpeg,
@@ -289,6 +293,7 @@ mod tests {
                 "null",
                 "-",
             ],
+            std::time::Duration::from_secs(120),
         );
         let _ = analyze_luma(ffmpeg, &video, 10.0);
         let _ = run_pass(
@@ -302,16 +307,19 @@ mod tests {
                 "null",
                 "-",
             ],
+            std::time::Duration::from_secs(120),
         );
         let _ = run_pass(
             ffmpeg,
             &video,
             &["-vn", "-af", "ebur128=peak=true", "-f", "null", "-"],
+            std::time::Duration::from_secs(120),
         );
         let _ = run_pass(
             ffmpeg,
             &video,
             &["-vn", "-af", "astats=metadata=0:reset=0", "-f", "null", "-"],
+            std::time::Duration::from_secs(120),
         );
         let legacy = started.elapsed();
 

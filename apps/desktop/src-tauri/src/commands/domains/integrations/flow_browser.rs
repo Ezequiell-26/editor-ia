@@ -13,7 +13,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::Serialize;
 
@@ -113,27 +113,15 @@ pub(crate) fn free_port() -> Option<u16> {
         .map(|addr| addr.port())
 }
 
-/// Pregunta al endpoint HTTP de CDP si el navegador responde de verdad.
-pub(crate) fn cdp_alive(port: u16) -> bool {
-    let url = format!("http://127.0.0.1:{port}/json/version");
-    reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(3))
-        .build()
-        .ok()
-        .and_then(|client| client.get(&url).send().ok())
-        .map(|response| response.status().is_success())
-        .unwrap_or(false)
-}
-
-pub(crate) fn wait_cdp(port: u16) -> bool {
-    let deadline = Instant::now() + CDP_READY_TIMEOUT;
-    while Instant::now() < deadline {
-        if cdp_alive(port) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(400));
-    }
-    false
+/// Espera el endpoint CDP con los timeouts propios de este flujo
+/// (3 s por intento, 15 s totales — ver `application::cdp`).
+fn wait_cdp(port: u16) -> bool {
+    crate::application::cdp::wait_cdp(
+        port,
+        Duration::from_secs(3),
+        CDP_READY_TIMEOUT,
+        Duration::from_millis(400),
+    )
 }
 
 fn validate_url(url: &str) -> Result<String, ProjectError> {
@@ -225,6 +213,9 @@ pub async fn flow_browser_launch(url: Option<String>) -> Result<FlowBrowserStatu
     let mut command = Command::new(&executable);
     command
         .arg(format!("--remote-debugging-port={port}"))
+        // AUD-021: CDP no tiene auth; el bind queda explícitamente en loopback
+        // y el puerto es efímero por slot.
+        .arg("--remote-debugging-address=127.0.0.1")
         .arg(format!("--user-data-dir={}", profile.to_string_lossy()))
         .arg("--no-first-run")
         .arg("--no-default-browser-check")

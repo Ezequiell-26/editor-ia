@@ -26,7 +26,7 @@ describe('mapa único del estudio', () => {
     }
   });
 
-  it('cubre los 33 ViewId exactamente una vez, sin sobrantes ni faltantes', () => {
+  it('cubre todas las vistas publicadas exactamente una vez', () => {
     const grouped = WORKSPACE_GROUPS.flatMap((group) => group.views);
     expect(new Set(grouped).size).toBe(grouped.length);
     expect(new Set(grouped)).toEqual(new Set<ViewId>(NAV_VIEWS.map((view) => view.id)));

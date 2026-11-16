@@ -14,6 +14,7 @@ export function FolderQueuePanel() {
   const root = store.state.opened?.root ?? '';
   const [folder, setFolder] = useState('');
   const [outputDir, setOutputDir] = useState(root ? `${root}\\entregas` : '');
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<FolderQueueReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +28,7 @@ export function FolderQueuePanel() {
       const result = await runFolderQueue(store.service, {
         folder: folder.trim(),
         outputDir: outputDir.trim(),
+        rightsConfirmed,
       });
       setReport(result);
       store.setNotice(`Cola por carpeta: ${folderQueueSummary(result)}`);
@@ -70,11 +72,22 @@ export function FolderQueuePanel() {
           />
         </label>
       </div>
+      <label className="field checkbox">
+        <input
+          type="checkbox"
+          checked={rightsConfirmed}
+          onChange={(event) => setRightsConfirmed(event.target.checked)}
+        />
+        <span>
+          Confirmo que tengo derechos de uso comercial sobre estos videos. Sin tildar, los
+          proyectos quedan con licencia pendiente.
+        </span>
+      </label>
       <div className="actions compact">
         <button
           type="button"
           className="small primary"
-          disabled={busy || !folder.trim() || !outputDir.trim()}
+          disabled={busy || !folder.trim() || !outputDir.trim() || !rightsConfirmed}
           onClick={() => void run()}
         >
           {busy ? 'Procesando carpeta…' : 'Procesar carpeta'}

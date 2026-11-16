@@ -50,9 +50,10 @@ async function abrirEditor(): Promise<void> {
       name: 'Proyectos',
     }),
   );
-  const input = within(screen.getByRole('main')).getByRole('textbox', { name: /nombre/i });
+  // «Proyectos» vive dentro del editor (modo «Todo») y su chunk es lazy.
+  const input = await within(screen.getByRole('main')).findByRole('textbox', { name: /nombre/i });
   fireEvent.change(input, { target: { value: 'Obra teclado' } });
-  fireEvent.click(screen.getByRole('button', { name: /Crear y elegir ubicación/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /Crear y elegir ubicación/i }));
   await waitFor(
     () => {
       expect(screen.getByRole('main').textContent).toContain('Timeline 01');

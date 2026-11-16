@@ -1,6 +1,7 @@
 # ADR-0002: Fundación del Autonomous Creative Studio
 
-**Estado:** aceptada (contratos implementados; providers pendientes).
+**Estado:** aceptada (contratos implementados; Quality Gate expuesto por IPC
+como `quality_gate_review`; providers del estudio pendientes).
 **Fecha:** 2026-02 (worktree `architecture/refactor-foundation`).
 
 ## Problema
@@ -64,6 +65,10 @@ Se definieron contratos sin implementar providers:
 
 ## Pendiente
 
-- Implementaciones reales de catálogo, fuentes de adquisición y generadores.
-- El orquestador (`Idea → Plan → … → Deliver`) que consume estos puertos.
-- Comando IPC del Quality Gate (los casos de uso existen; falta exponerlos).
+- ~~Comando IPC del Quality Gate~~ **hecho**: `quality_gate_review` está
+  registrado en `commands/registry.rs`.
+- Implementaciones reales de catálogo, fuentes de adquisición y generadores de
+  contenido (vídeo/música/SFX); los providers remotos además reportan
+  `cost_cents = None`, lo que limita el control de presupuesto real (ver
+  `PDF-100-TRACKER.md` F6).
+- ~~El orquestador~~ **hecho**: ver ADR-0004 (`production_*` + executors).

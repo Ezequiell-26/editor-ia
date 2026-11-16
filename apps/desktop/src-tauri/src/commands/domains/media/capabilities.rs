@@ -92,6 +92,7 @@ pub fn list_capabilities(state: State<'_, AppState>) -> Vec<CapabilityInfo> {
     capabilities.push(whisper_capability(&state));
     capabilities.push(tts_capability(&state));
     capabilities.push(vmaf_capability(&state));
+    capabilities.push(whiteboard_capability());
 
     capabilities
 }
@@ -105,14 +106,71 @@ fn capability_label(capability: &str) -> String {
     }
 }
 
-/// Whisper local: el motor no viene empaquetado. Se informa disponible sólo si
-/// hay un Python verificado que pueda importar faster_whisper; si no, el motivo
-/// dice exactamente qué instalar y que hay que reiniciar la app.
+/// Whisper local: hay dos motores y la capability queda disponible si
+/// cualquiera de los dos puede producir una transcripción.
+///
+/// - **whisper.cpp in-process** (concat-speech-min): compilado en el
+///   binario; los modelos `ggml` se descargan bajo demanda a
+///   `<config>/whisper-models` con SHA-256. "Descargable" cuenta como
+///   disponible — la primera transcripción baja el modelo sola — pero el
+///   detalle lo dice explícito: la descarga pide conexión una vez.
+/// - **faster-whisper** (Python externo): el camino histórico; disponible
+///   sólo con un Python verificado que importe el módulo.
 fn whisper_capability(state: &AppState) -> CapabilityInfo {
-    let _ = state;
-    let status = super::transcribe::whisper_status();
-    let available = status.available();
-    let detail = match status
+    let python_status = super::transcribe::whisper_status();
+    let native = super::transcribe::native_whisper_status(&state.config_dir).ok();
+
+    let mut backends = Vec::with_capacity(2);
+    let mut native_available = false;
+    if let Some(native) = &native {
+        native_available = native.engine_available;
+        let downloaded = native.models.iter().filter(|model| model.downloaded).count();
+        let total = native.models.len();
+        let downloading = native.download.running;
+        let detail = if downloading {
+            format!(
+                "whisper.cpp integrado; descargando el modelo {} ahora ({}/{} MB aprox.)",
+                native.download.model_id.as_deref().unwrap_or("?"),
+                native
+                    .download
+                    .progress
+                    .as_ref()
+                    .map(|progress| progress.received / 1_048_576)
+                    .unwrap_or(0),
+                native
+                    .download
+                    .progress
+                    .as_ref()
+                    .map(|progress| progress.total / 1_048_576)
+                    .unwrap_or(0),
+            )
+        } else {
+            format!(
+                "whisper.cpp integrado ({} de {} modelos descargados; el que falte se baja solo al transcribir, una vez)",
+                downloaded, total
+            )
+        };
+        backends.push(backend_local(
+            "whisper.cpp",
+            detail,
+            native_available,
+            if native_available {
+                None
+            } else {
+                Some("el motor nativo no está disponible en este build".to_owned())
+            },
+        ));
+    } else {
+        backends.push(backend_local(
+            "whisper.cpp",
+            "whisper.cpp integrado; no se pudo leer el estado de sus modelos".to_owned(),
+            false,
+            Some("no se pudo inspeccionar la carpeta de modelos whisper".to_owned()),
+        ));
+    }
+
+    let python_available = python_status.available();
+    let detail = match python_status
         .python
         .as_deref()
         .and_then(|python| python.file_name())
@@ -123,21 +181,59 @@ fn whisper_capability(state: &AppState) -> CapabilityInfo {
         ),
         None => "Python del equipo con faster-whisper (el motor no viene empaquetado)".to_owned(),
     };
+    backends.push(backend_local(
+        "faster-whisper",
+        detail,
+        python_available,
+        if python_available {
+            None
+        } else {
+            Some(python_status.reason.clone().unwrap_or_else(|| {
+                "falta un Python con faster-whisper; instalá el motor y reiniciá Olyvia".to_owned()
+            }))
+        },
+    ));
+
     CapabilityInfo {
         id: "transcribe".to_owned(),
         label: "Transcribir audio y video".to_owned(),
         purpose: "Pasa la voz a texto con subtítulos por palabra, todo local.".to_owned(),
+        available: native_available || python_available,
+        backends,
+    }
+}
+
+/// Whiteboard: el motor `whiteboard-animator` tampoco viene empaquetado; se
+/// informa disponible sólo con un Python verificado que importe el paquete.
+fn whiteboard_capability() -> CapabilityInfo {
+    let status = super::whiteboard::whiteboard_status();
+    let available = status.available;
+    let detail = match status
+        .python
+        .as_deref()
+        .and_then(|python| python.file_name())
+    {
+        Some(name) => format!(
+            "Python verificado con whiteboard-animator en el equipo ({})",
+            name.to_string_lossy()
+        ),
+        None => {
+            "Python del equipo con whiteboard-animator (el motor no viene empaquetado)"
+                .to_owned()
+        }
+    };
+    CapabilityInfo {
+        id: "whiteboard".to_owned(),
+        label: "Animar una imagen como pizarra".to_owned(),
+        purpose: "Convierte una imagen en un video donde el contenido se dibuja trazo a trazo.".to_owned(),
         backends: vec![backend_local(
-            "faster-whisper",
+            "whiteboard-animator",
             detail,
             available,
             if available {
                 None
             } else {
-                Some(status.reason.clone().unwrap_or_else(|| {
-                    "falta un Python con faster-whisper; instalá el motor y reiniciá Olyvia"
-                        .to_owned()
-                }))
+                status.reason.clone()
             },
         )],
         available,

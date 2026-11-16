@@ -13,12 +13,34 @@ import {
   updateProjectSettings,
 } from '../../state/project-actions';
 import { createFakeService, readyAsset } from '../../test/fake-service';
+import type { RenderQueueEntry } from '../../state/render-queue';
+import type { QualityGateReport } from '../../services/project-service';
 
 const NOW = '2026-10-19T00:00:00.000Z';
+
+function queueEntry(
+  id: string,
+  status: RenderQueueEntry['status'],
+  projectId = 'otro-proyecto',
+): RenderQueueEntry {
+  return {
+    id,
+    profileId: `perfil-${id}`,
+    profileName: `Perfil ${id}`,
+    includeCaptions: false,
+    status,
+    outputPath: status === 'done' ? `C:\\tester\\Exports\\${id}.mp4` : null,
+    message: status === 'error' ? 'falló' : null,
+    queuedAt: NOW,
+    projectId,
+    projectName: 'Otro proyecto',
+  };
+}
 
 function renderDialog(
   hardware?: HardwareEncoders,
   mutate?: (project: ProjectDocument) => ProjectDocument,
+  seedQueue?: readonly RenderQueueEntry[],
 ) {
   const base = ensureDelivery(createEmptyProject('Lote masivo', NOW));
   const asset = readyAsset();
@@ -30,6 +52,7 @@ function renderDialog(
   const service = createFakeService();
   service.hardwareEncoders = async () =>
     hardware ?? { h264: null, hevc: null, av1: null, vp9: null, checked: true };
+  if (seedQueue) void service.renderQueueSave(seedQueue);
   render(
     <ProjectProvider
       service={service}
@@ -49,7 +72,10 @@ function renderDialog(
   return { service, project };
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe('ExportDialog · lote de variantes', () => {
   it('exporta todos los perfiles a una carpeta en secuencia', async () => {
@@ -193,6 +219,34 @@ describe('ExportDialog · lote de variantes', () => {
     expect(spy.mock.calls[0]?.[4]).toBe('av1_nvenc');
   });
 
+  it('con ProRes sólo ofrece los pixel formats 10-bit que el backend emite', async () => {
+    renderDialog(undefined, (project) => applyCompression(project, 'maximo', 'prores'));
+
+    const codec = (await screen.findByLabelText(/^Códec de video$/i)) as HTMLSelectElement;
+    expect(codec.value).toBe('prores');
+
+    const pixel = screen.getByLabelText(/^Pixel format$/i) as HTMLSelectElement;
+    expect(pixel.value).toBe('yuv422p10le');
+    const byValue = (value: string) =>
+      Array.from(pixel.options).find((option) => option.value === value);
+    // 4:2:0/4:4:4 de 8 bits son inválidos con ProRes: el schema y
+    // `pixel_format_for` los rechazan, así que la UI los deshabilita.
+    expect(byValue('yuv420p')?.disabled).toBe(true);
+    expect(byValue('yuv444p')?.disabled).toBe(true);
+    expect(byValue('yuv422p10le')?.disabled).toBe(false);
+    expect(byValue('yuva444p10le')?.disabled).toBe(false);
+  });
+
+  it('sin ProRes no ofrece los pixel formats 10-bit de edición', () => {
+    renderDialog();
+
+    const pixel = screen.getByLabelText(/^Pixel format$/i) as HTMLSelectElement;
+    const values = Array.from(pixel.options).map((option) => option.value);
+    expect(values).not.toContain('yuv422p10le');
+    expect(values).not.toContain('yuva444p10le');
+    expect(pixel.value).toBe('yuv420p');
+  });
+
   it('se detiene si un render falla', async () => {
     const { service } = renderDialog();
     fireEvent.click(screen.getByRole('button', { name: /Elegir carpeta y exportar lote/i }));
@@ -213,5 +267,113 @@ describe('ExportDialog · lote de variantes', () => {
 
     await waitFor(() => expect(screen.getByText(/El lote se detuvo/i)).toBeTruthy());
     expect(screen.getAllByText(/Falló · ffmpeg falló/i)).toHaveLength(1);
+  });
+});
+
+describe('ExportDialog · Quality Gate', () => {
+  it('guarda el proyecto y muestra el veredicto con sus hallazgos', async () => {
+    const { service } = renderDialog();
+    const report: QualityGateReport = {
+      passed: false,
+      errors: 1,
+      warnings: 1,
+      findings: [
+        {
+          check: 'missing-resources',
+          severity: 'error',
+          path: 'assets[0].file',
+          message: 'el archivo del asset no existe en disco',
+        },
+        {
+          check: 'loudness',
+          severity: 'warning',
+          path: 'audio.mix',
+          message: 'loudness integrado fuera del objetivo',
+        },
+      ],
+    };
+    const gateSpy = vi.spyOn(service, 'qualityGateReview').mockResolvedValue(report);
+    const saveSpy = vi.spyOn(service, 'saveProject');
+
+    fireEvent.click(screen.getByRole('button', { name: /Revisar calidad/i }));
+
+    await waitFor(() => expect(gateSpy).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/No aprobado: 1 error\(es\) · 1 advertencia\(s\)/i)).toBeTruthy();
+    expect(screen.getByText(/Recursos faltantes/)).toBeTruthy();
+    expect(screen.getByText(/el archivo del asset no existe en disco/)).toBeTruthy();
+    expect(screen.getByText(/loudness integrado fuera del objetivo/)).toBeTruthy();
+    // El gate evalúa lo persistido: la UI guarda antes de pedir el veredicto.
+    expect(saveSpy).toHaveBeenCalled();
+  });
+
+  it('muestra el veredicto aprobado cuando no hay errores', async () => {
+    const { service } = renderDialog();
+    vi.spyOn(service, 'qualityGateReview').mockResolvedValue({
+      passed: true,
+      errors: 0,
+      warnings: 0,
+      findings: [],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Revisar calidad/i }));
+
+    expect(await screen.findByText(/Aprobado: sin errores bloqueantes/i)).toBeTruthy();
+  });
+
+  it('muestra el error del servicio sin inventar un veredicto', async () => {
+    const { service } = renderDialog();
+    vi.spyOn(service, 'qualityGateReview').mockRejectedValue(new Error('sin proyecto abierto'));
+
+    fireEvent.click(screen.getByRole('button', { name: /Revisar calidad/i }));
+
+    expect(await screen.findByText(/sin proyecto abierto/)).toBeTruthy();
+    expect(screen.queryByText(/Aprobado/i)).toBeNull();
+  });
+});
+
+describe('ExportDialog · limpieza de cola finalizada', () => {
+  it('vacía las terminadas vía backend y refresca la lista', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    const { service } = renderDialog(undefined, undefined, [
+      queueEntry('done-1', 'done'),
+      queueEntry('done-2', 'error'),
+      queueEntry('pendiente-ajeno', 'pending'),
+    ]);
+    const clearSpy = vi.spyOn(service, 'renderQueueClearFinished');
+
+    // Las entradas sembradas son de otro proyecto: se listan pero no drenan.
+    expect(await screen.findByText('Perfil done-1')).toBeTruthy();
+    const clearButton = screen.getByRole('button', { name: /Limpiar finalizadas del equipo/i });
+    expect(clearButton.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(clearButton);
+
+    await waitFor(() => expect(clearSpy).toHaveBeenCalledTimes(1));
+    // El backend devuelve la cola restante (sólo el pendiente ajeno).
+    await waitFor(() => expect(screen.queryByText('Perfil done-1')).toBeNull());
+    expect(screen.queryByText('Perfil done-2')).toBeNull();
+    expect(screen.getByText('Perfil pendiente-ajeno')).toBeTruthy();
+    // Con pocas terminadas no hubo confirmación.
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('pide confirmación cuando hay muchas finalizadas y respeta la cancelación', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const { service } = renderDialog(undefined, undefined, [
+      queueEntry('d1', 'done'),
+      queueEntry('d2', 'done'),
+      queueEntry('d3', 'error'),
+      queueEntry('d4', 'cancelled'),
+      queueEntry('d5', 'done'),
+      queueEntry('d6', 'error'),
+    ]);
+    const clearSpy = vi.spyOn(service, 'renderQueueClearFinished');
+
+    // Esperar la hidratación desde el backend antes de usar la cola.
+    expect(await screen.findByText('Perfil d1')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Limpiar finalizadas del equipo/i }));
+
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
+    expect(clearSpy).not.toHaveBeenCalled();
+    expect(screen.getByText('Perfil d1')).toBeTruthy();
   });
 });

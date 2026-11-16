@@ -20,7 +20,7 @@ import { effectRegistry, ALL_EFFECTS } from '@editor-ia/effect-kit';
 import type { ViewId } from '../../app/navigation';
 import { useProjectStore } from '../../state/project-store';
 import { Icon, type IconName } from '../../components/Icon';
-import { buildProjectMotionPlans } from '../motion/plan';
+import { buildProjectMotionPlans } from '../../state/motion-plan';
 import {
   GraphRunError,
   emptyGraph,

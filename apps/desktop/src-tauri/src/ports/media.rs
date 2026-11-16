@@ -7,10 +7,37 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::time::Duration;
 
 use serde::Serialize;
 
 use crate::projects::service::ProjectError;
+
+/// Deadline para sondas ffprobe/ffmpeg de inspección (metadatos, verificación
+/// de exports, códecs): leen cabeceras y terminan en segundos; 2 min cubre
+/// archivos grandes en discos lentos sin esperas eternas ante un cuelgue.
+pub const MEDIA_PROBE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Deadline para chequeos triviales de la herramienta (`-filters`, `-version`):
+/// no procesan media; si tardan más de medio minuto algo está roto.
+pub const MEDIA_TOOL_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Deadline para pasadas de análisis que decodifican el medio completo sin
+/// escribir (scene detect, vidstabdetect, VMAF, silencedetect/ebur128): ~5×
+/// realtime con piso de 2 min y techo de 3 h. Sin duración conocida se usa el
+/// techo: un asset sin metadata puede ser tan largo como el disco lo permita,
+/// pero nunca una espera eterna. El techo es menor que el de los renders
+/// (`proportional_media_timeout`, 24 h) porque un análisis colgado no debe
+/// retener el comando IPC durante horas.
+pub fn proportional_analysis_timeout(total_seconds: f64) -> Duration {
+    const FACTOR: f64 = 5.0;
+    const FLOOR_SECS: f64 = 120.0;
+    const CEILING_SECS: f64 = 3.0 * 60.0 * 60.0;
+    if !total_seconds.is_finite() || total_seconds <= 0.0 {
+        return Duration::from_secs_f64(CEILING_SECS);
+    }
+    Duration::from_secs_f64((total_seconds * FACTOR).clamp(FLOOR_SECS, CEILING_SECS))
+}
 
 /// Estado en disco de un asset del proyecto (para `check_asset_files`).
 #[derive(Debug, Clone, Serialize)]
@@ -147,6 +174,24 @@ pub trait MediaRunner {
     ) -> Result<Output, ProjectError>;
     /// Ejecuta `ffprobe <args>` con stdout y stderr capturados.
     fn run_ffprobe(&self, ffprobe: &Path, args: &[String]) -> Result<Output, ProjectError>;
+    /// Igual que `run_ffmpeg`, pero con deadline: la implementación debe
+    /// matar al proceso si no termina dentro de `timeout` y devolver un error
+    /// informativo en vez de quedar bloqueada para siempre. La variante sin
+    /// deadline queda para operaciones largas legítimas (exports, transcodes).
+    fn run_ffmpeg_with_timeout(
+        &self,
+        ffmpeg: &Path,
+        args: &[String],
+        cwd: Option<&Path>,
+        timeout: Duration,
+    ) -> Result<Output, ProjectError>;
+    /// Igual que `run_ffprobe`, con deadline.
+    fn run_ffprobe_with_timeout(
+        &self,
+        ffprobe: &Path,
+        args: &[String],
+        timeout: Duration,
+    ) -> Result<Output, ProjectError>;
     /// Crea un directorio de salida si no existe.
     fn ensure_dir(&self, path: &Path) -> Result<(), ProjectError>;
     /// La ruta existe como archivo.

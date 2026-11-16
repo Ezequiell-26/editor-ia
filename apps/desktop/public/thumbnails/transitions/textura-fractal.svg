@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180">
+<defs>
+<radialGradient id="tfr" cx="0.5" cy="0.5" r="0.7">
+<stop offset="0" stop-color="#0a1030"/>
+<stop offset="0.55" stop-color="#1b2a6e"/>
+<stop offset="0.8" stop-color="#7a2fb0"/>
+<stop offset="1" stop-color="#e0703a"/>
+</radialGradient>
+</defs>
+<rect width="320" height="180" fill="url(#tfr)"/>
+<g fill="none" stroke="#8ab4ff" stroke-width="1.2" opacity="0.65">
+<path d="M160 90 m-70 0 a70 70 0 1 1 140 0 a52 52 0 1 0 -104 0 a36 36 0 1 1 72 0 a22 22 0 1 0 -44 0"/>
+<path d="M160 90 m-46 0 a46 46 0 1 1 92 0 a34 34 0 1 0 -68 0 a20 20 0 1 1 40 0" opacity="0.8"/>
+</g>
+<circle cx="196" cy="66" r="7" fill="#ff9d5c" opacity="0.9"/>
+<circle cx="196" cy="66" r="13" fill="none" stroke="#ffd166" stroke-width="1.4" opacity="0.7"/>
+</svg>

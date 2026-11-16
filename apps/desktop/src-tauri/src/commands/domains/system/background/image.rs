@@ -14,7 +14,7 @@ pub fn remove_background(
     output_path: Option<String>,
 ) -> Result<BackgroundRemoval, ProjectError> {
     let model_path = require_recorte_model(&state)?;
-    let input = PathBuf::from(input_path.trim());
+    let input = crate::application::fs::resolve_user_file_path(&input_path)?;
     if !input.is_file() {
         return Err(ProjectError::message(
             ProjectErrorCode::NotFound,
@@ -33,7 +33,9 @@ pub fn remove_background(
     let output = composite_with_alpha(&image, &mask);
 
     let destination = match output_path {
-        Some(path) if !path.trim().is_empty() => PathBuf::from(path.trim()),
+        Some(path) if !path.trim().is_empty() => {
+            crate::application::fs::validate_user_write_path(&path)?
+        }
         _ => {
             let stem = input
                 .file_stem()

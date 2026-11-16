@@ -20,98 +20,21 @@ include!("media/color_proxy.rs");
 include!("media/lut_thumbnail.rs");
 include!("media/filesystem.rs");
 
-/// Archivo de una carpeta que el asistente puede montar en la timeline.
-#[derive(Debug, Clone, Serialize)]
-pub struct MediaFolderFile {
-    pub path: String,
-    pub name: String,
-    /// `image`, `audio` o `video`.
-    pub kind: String,
-    pub bytes: u64,
-}
+// DTOs, scanners de carpeta y validadores: `media::folder`.
+pub use crate::media::folder::{
+    collect_media_folder_files, collect_media_folder_matches, media_folder_listing,
+    normalize_media_search_kind, resolve_media_folder_dir, sanitize_media_folder_name,
+    validate_media_search_query, MediaFolderFile, MediaFolderListing, MediaSearchResult,
+    MEDIA_SEARCH_MAX_DEPTH,
+};
 
-#[derive(Debug, Clone, Serialize)]
-pub struct MediaFolderListing {
-    pub directory: String,
-    pub files: Vec<MediaFolderFile>,
-}
-
-const MEDIA_FOLDER_IMAGE_EXTENSIONS: [&str; 9] = [
-    "jpg", "jpeg", "png", "webp", "gif", "avif", "bmp", "heic", "tif",
-];
-const MEDIA_FOLDER_AUDIO_EXTENSIONS: [&str; 7] =
-    ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"];
-const MEDIA_FOLDER_VIDEO_EXTENSIONS: [&str; 7] = ["mp4", "mov", "mkv", "webm", "m4v", "avi", "mts"];
-const MEDIA_FOLDER_MAX_FILES: usize = 300;
-
-pub use crate::media::folder::sanitize_media_folder_name;
-fn media_folder_kind(path: &std::path::Path) -> Option<&'static str> {
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())?
-        .to_ascii_lowercase();
-    if MEDIA_FOLDER_IMAGE_EXTENSIONS.contains(&extension.as_str()) {
-        Some("image")
-    } else if MEDIA_FOLDER_AUDIO_EXTENSIONS.contains(&extension.as_str()) {
-        Some("audio")
-    } else if MEDIA_FOLDER_VIDEO_EXTENSIONS.contains(&extension.as_str()) {
-        Some("video")
-    } else {
-        None
-    }
-}
-
-/// Lista imágenes, audio y video hasta dos niveles; ignora cualquier otro archivo.
-pub fn collect_media_folder_files(directory: &std::path::Path) -> Vec<MediaFolderFile> {
-    let mut files = Vec::new();
-    let mut pending = vec![(directory.to_path_buf(), 0u8)];
-    while let Some((current, depth)) = pending.pop() {
-        if depth > 2 {
-            continue;
-        }
-        let Ok(entries) = std::fs::read_dir(&current) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            if files.len() >= MEDIA_FOLDER_MAX_FILES {
-                break;
-            }
-            let path = entry.path();
-            if path.is_dir() {
-                if depth < 2 {
-                    pending.push((path, depth + 1));
-                }
-                continue;
-            }
-            let Some(kind) = media_folder_kind(&path) else {
-                continue;
-            };
-            let name = path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or("")
-                .to_owned();
-            if name.is_empty() {
-                continue;
-            }
-            let bytes = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
-            files.push(MediaFolderFile {
-                path: path.to_string_lossy().into_owned(),
-                name,
-                kind: kind.to_owned(),
-                bytes,
-            });
-        }
-    }
-    files.sort_by_key(|left| left.name.to_lowercase());
-    files
-}
-
-fn media_folder_listing(directory: PathBuf) -> MediaFolderListing {
-    MediaFolderListing {
-        directory: directory.to_string_lossy().into_owned(),
-        files: collect_media_folder_files(&directory),
-    }
+fn resolve_folder_dir(
+    app: &AppHandle,
+    folder: &str,
+    root: Option<String>,
+) -> Result<PathBuf, ProjectError> {
+    let downloads_dir = app.path().download_dir().ok();
+    resolve_media_folder_dir(folder, root, downloads_dir)
 }
 
 /// Resuelve una carpeta por nombre dentro de Descargas y del destino del
@@ -122,60 +45,30 @@ pub fn list_media_folder(
     folder: String,
     root: Option<String>,
 ) -> Result<MediaFolderListing, ProjectError> {
-    let trimmed = folder.trim().trim_matches(['"', '\'', '“', '”', '«', '»']);
-    let direct_path = PathBuf::from(trimmed);
-    if direct_path.is_dir() {
-        let listing = media_folder_listing(direct_path);
-        if !listing.files.is_empty() {
-            return Ok(listing);
-        }
-    }
+    let directory = resolve_folder_dir(&app, &folder, root)?;
+    Ok(media_folder_listing(directory))
+}
 
-    let name = sanitize_media_folder_name(&folder).ok_or_else(|| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "El nombre de la carpeta no es válido.",
-        )
-    })?;
-    let mut roots: Vec<PathBuf> = Vec::new();
-    if let Some(root) = root.map(|value| value.trim().to_owned()) {
-        if !root.is_empty() {
-            let candidate = PathBuf::from(&root);
-            if candidate.is_dir() {
-                roots.push(candidate);
-            }
-        }
-    }
-    if let Ok(downloads) = app.path().download_dir() {
-        roots.push(downloads);
-    }
-    for root in roots {
-        let direct = root.join(&name);
-        if direct.is_dir() {
-            let listing = media_folder_listing(direct);
-            if !listing.files.is_empty() {
-                return Ok(listing);
-            }
-        }
-        let nested = root.join("Videos descargados");
-        if let Ok(entries) = std::fs::read_dir(&nested) {
-            for entry in entries.flatten() {
-                if !entry.path().is_dir() {
-                    continue;
-                }
-                let candidate = entry.path().join(&name);
-                if candidate.is_dir() {
-                    let listing = media_folder_listing(candidate);
-                    if !listing.files.is_empty() {
-                        return Ok(listing);
-                    }
-                }
-            }
-        }
-    }
-    let message =
-        format!("No encontré la carpeta «{name}» con imágenes, audio o video en Descargas.");
-    Err(ProjectError::message(ProjectErrorCode::Io, &message))
+/// Busca medios por nombre dentro de una carpeta (misma resolución que
+/// `list_media_folder`). `kind` es opcional: `image`, `audio` o `video`.
+#[tauri::command]
+pub fn search_media_folder(
+    app: AppHandle,
+    folder: String,
+    query: String,
+    kind: Option<String>,
+    root: Option<String>,
+) -> Result<MediaSearchResult, ProjectError> {
+    let query = validate_media_search_query(&query)?;
+    let kind = normalize_media_search_kind(kind)?;
+    let directory = resolve_folder_dir(&app, &folder, root)?;
+    let (files, truncated) = collect_media_folder_matches(&directory, &query, kind.as_deref());
+    Ok(MediaSearchResult {
+        directory: directory.to_string_lossy().into_owned(),
+        query,
+        files,
+        truncated,
+    })
 }
 
 #[allow(dead_code)]
@@ -251,6 +144,54 @@ mod tests {
             asset["rights"]["provenance"]["provider"],
             "google-flow-image"
         );
+    }
+
+    #[test]
+    fn media_search_matches_name_case_insensitive_and_kind() {
+        let root =
+            std::env::temp_dir().join(format!("olyvia-media-search-{}", uuid::Uuid::new_v4()));
+        let deep = root.join("a").join("b").join("c");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(root.join("Boda-Clip.MP4"), b"x").unwrap();
+        std::fs::write(root.join("boda-foto.JPG"), b"x").unwrap();
+        std::fs::write(root.join("otra-cosa.png"), b"x").unwrap();
+        std::fs::write(deep.join("boda-lejos.wav"), b"x").unwrap();
+        std::fs::write(root.join("boda-nota.txt"), b"x").unwrap();
+
+        let (all, truncated) = collect_media_folder_matches(&root, "boda", None);
+        let names: Vec<&str> = all.iter().map(|file| file.name.as_str()).collect();
+        assert!(!truncated);
+        assert_eq!(
+            names,
+            vec!["Boda-Clip.MP4", "boda-foto.JPG", "boda-lejos.wav"]
+        );
+
+        let (videos, _) = collect_media_folder_matches(&root, "boda", Some("video"));
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].name, "Boda-Clip.MP4");
+
+        let (none, _) = collect_media_folder_matches(&root, "inexistente", None);
+        assert!(none.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn media_search_respects_depth_limit() {
+        let root =
+            std::env::temp_dir().join(format!("olyvia-media-depth-{}", uuid::Uuid::new_v4()));
+        let mut deep = root.clone();
+        for index in 0..(MEDIA_SEARCH_MAX_DEPTH as usize + 2) {
+            deep = deep.join(format!("d{index}"));
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(root.join("cerca.mp4"), b"x").unwrap();
+        std::fs::write(deep.join("lejos.mp4"), b"x").unwrap();
+
+        let (files, _) = collect_media_folder_matches(&root, "mp4", None);
+        let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+        assert!(names.contains(&"cerca.mp4"));
+        assert!(!names.contains(&"lejos.mp4"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

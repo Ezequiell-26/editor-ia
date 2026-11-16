@@ -2164,6 +2164,51 @@
   justify-content: flex-end;
   gap: 8px;
 }
+.history-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 62vh;
+}
+.history-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  max-height: 52vh;
+}
+.history-step {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-primary, inherit);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.history-step:hover,
+.history-step:focus-visible {
+  background: var(--color-surface-hover, rgba(127, 127, 127, 0.12));
+  border-color: var(--color-border-subtle, rgba(127, 127, 127, 0.25));
+  outline: none;
+}
+.history-step-current {
+  cursor: default;
+  font-weight: 600;
+  padding: 7px 10px;
+}
+.history-step-label {
+  font-size: 13px;
+}
 .timeline-resize {
   flex: 0 0 auto;
   height: 6px;
@@ -2383,6 +2428,32 @@
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+}
+.media-spy {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: #000;
+  pointer-events: none;
+}
+.media-spy-media {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.media-spy-time {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #d9e6f2;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  pointer-events: none;
 }
 .preview-look {
   position: absolute;
@@ -2725,8 +2796,15 @@
   background: color-mix(in srgb, var(--color-accent) 55%, transparent);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
   opacity: 0.9;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   z-index: 1;
+}
+.clip-transition.selected {
+  opacity: 1;
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 0 0 2px var(--color-accent);
 }
 .trim-handle {
   position: absolute;
@@ -3052,6 +3130,12 @@
 .preset-card:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+/* Audición de catálogo: la tarjeta que está sonando en la preview. */
+.preset-card.auditioning {
+  border-color: var(--color-accent);
+  background: rgba(94, 234, 212, 0.08);
+  color: var(--color-text);
 }
 .preset-card strong {
   font-weight: 600;
@@ -3446,6 +3530,40 @@
   inset: 10%;
   border-color: color-mix(in srgb, var(--color-accent) 34%, transparent);
 }
+.safe-area-overlay svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.safe-cover {
+  fill: color-mix(in srgb, #000 42%, transparent);
+}
+.safe-zone {
+  fill: color-mix(in srgb, var(--color-accent) 7%, transparent);
+  stroke: color-mix(in srgb, var(--color-accent) 75%, transparent);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+.safe-title-zone {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-text) 50%, transparent);
+  stroke-width: 0.4;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+.safe-area-label {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  color: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  backdrop-filter: blur(9px);
+}
 .rail-browser {
   display: flex;
   gap: 4px;
@@ -3580,6 +3698,17 @@
 .clip-waveform rect {
   fill: currentColor;
 }
+.clip-waveform .clip-waveform-guide {
+  stroke: currentColor;
+  stroke-width: 0.6;
+  opacity: 0.4;
+}
+.clip-waveform .wave-hot {
+  fill: #f08a34;
+}
+.clip-waveform .wave-clip {
+  fill: #ff5a5c;
+}
 .transport-scrub {
   overflow: visible;
 }
@@ -3668,5 +3797,77 @@
 @media (max-width: 1240px) {
 .transport-frames {
     display: none;
+  }
+}
+
+/* Perspectiva: quad editable sobre la vista previa (paridad canto_fixado). */
+.perspective-handles {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+.perspective-quad {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.perspective-quad polygon {
+  fill: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+}
+.perspective-quad-hit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: move;
+  pointer-events: auto;
+}
+.perspective-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  background: var(--color-text);
+  border: 2px solid var(--color-accent);
+  border-radius: 2px;
+  cursor: crosshair;
+  pointer-events: auto;
+  touch-action: none;
+}
+.perspective-handles.dragging .perspective-quad polygon {
+  stroke-dasharray: none;
+}
+
+/* UN SOLO EDITOR · Preview persistente en los modos de herramienta: el
+   `.preview-panel` es un hijo directo y permanente del grid (primer hijo en
+   el DOM, `grid-column: 2; grid-row: 1` en CSS) — `<Preview/>` y
+   `<Transport/>` nunca se desmontan al cambiar de modo. En modos de
+   herramienta el grid pasa a dos columnas (contenido | monitor ~340 px) y
+   el monitor se pliega con `editor-monitor-hidden` sin desmontarse. */
+.editor-grid.editor-mode-active {
+  grid-template-columns: minmax(0, 1fr) var(--mode-monitor-width, 340px) !important;
+}
+.editor-grid.editor-mode-active.editor-monitor-hidden {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.editor-grid.editor-mode-active.editor-monitor-hidden > .preview-panel {
+  display: none;
+}
+.editor-grid.editor-mode-active > .editor-mode-panel {
+  grid-column: 1;
+  grid-row: 1;
+}
+@media (max-width: 1120px) {
+  .editor-grid.editor-mode-active {
+    --mode-monitor-width: 280px;
   }
 }

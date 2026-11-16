@@ -19,6 +19,7 @@ use crate::mcp::server::{is_studio_tool, McpReply};
 use crate::ports::mcp_server::McpToolInvoker;
 use crate::ports::media::MediaTools as _;
 use crate::ports::render::RenderRuntime as _;
+use crate::ports::studio::ContentGenerator;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 use crate::studio::plan::ProductionPlan;
@@ -228,12 +229,90 @@ impl McpToolInvoker for StudioMcpInvoker {
     }
 }
 
+/// Matriz por `StudioResourceKind` para `studio_capabilities`.
+///
+/// - `generation.providers`: ids de los ContentGenerator presentes que
+///   declaran esa capability. Vacío ⇒ `status: "unsupported_capability"`:
+///   no existe forma de generar ese kind hoy y un plan que lo exija
+///   fallará `requires_provider` en `acquire` (nunca se promete de más).
+/// - `acquisition.sources`: fuentes que pueden servir el kind.
+///   `project-assets` acepta cualquier kind (la biblioteca del proyecto);
+///   `internet-archive` sólo los que `mediatype_for` mapea a un mediatype
+///   real — la misma regla que usa `search`, sin duplicarla.
+fn resource_kind_matrix(
+    generators: &[Box<dyn ContentGenerator>],
+    archive_available: bool,
+) -> Vec<Value> {
+    use crate::studio::plan::StudioResourceKind;
+
+    const KINDS: [StudioResourceKind; 8] = [
+        StudioResourceKind::Video,
+        StudioResourceKind::Image,
+        StudioResourceKind::Audio,
+        StudioResourceKind::Music,
+        StudioResourceKind::Sfx,
+        StudioResourceKind::Voice,
+        StudioResourceKind::Animation,
+        StudioResourceKind::Graphic,
+    ];
+
+    // Providers por kind, deduplicados y en orden de declaración.
+    let mut providers_by_kind: Vec<(StudioResourceKind, Vec<String>)> = Vec::new();
+    for generator in generators {
+        for capability in generator.capabilities() {
+            let entry = providers_by_kind
+                .iter_mut()
+                .find(|(kind, _)| *kind == capability.kind);
+            match entry {
+                Some((_, providers)) => {
+                    if !providers.contains(&capability.provider) {
+                        providers.push(capability.provider.clone());
+                    }
+                }
+                None => {
+                    providers_by_kind.push((capability.kind, vec![capability.provider.clone()]))
+                }
+            }
+        }
+    }
+
+    KINDS
+        .iter()
+        .map(|kind| {
+            let providers = providers_by_kind
+                .iter()
+                .find(|(k, _)| k == kind)
+                .map(|(_, providers)| providers.clone())
+                .unwrap_or_default();
+            let supported = !providers.is_empty();
+            let mut sources = vec!["project-assets".to_owned()];
+            if archive_available
+                && crate::infrastructure::studio::internet_archive::mediatype_for(*kind).is_some()
+            {
+                sources.push("internet-archive".to_owned());
+            }
+            json!({
+                "kind": kind,
+                "generation": {
+                    "supported": supported,
+                    "status": if supported { "supported" } else { "unsupported_capability" },
+                    "providers": providers,
+                },
+                "acquisition": {
+                    "supported": !sources.is_empty(),
+                    "sources": sources,
+                },
+            })
+        })
+        .collect()
+}
+
 /// Inventario real de capacidades del estudio autónomo: instancia cada
 /// provider y reporta lo que declara (coste, red, límites) más la
 /// disponibilidad de ffmpeg/ffprobe. Nada hardcodeado: si un provider no
 /// puede construirse, simplemente no aparece.
 fn studio_capabilities(state: &AppState) -> Value {
-    use crate::ports::studio::{ContentGenerator, ResourceAcquisition};
+    use crate::ports::studio::ResourceAcquisition;
 
     let tools = state.media_tools();
     let ffmpeg = tools.ffmpeg_path();
@@ -254,6 +333,7 @@ fn studio_capabilities(state: &AppState) -> Value {
                 ffmpeg.clone(),
             ),
         ),
+        Box::new(crate::infrastructure::studio::local_sfx::LocalSfxGenerator::new()),
     ];
     // Generador remoto BYOK: aparece en la lista sólo si está configurado
     // y usable (nunca expone la clave, sólo capabilities declaradas).
@@ -295,15 +375,23 @@ fn studio_capabilities(state: &AppState) -> Value {
             &state.config_dir,
         ),
     )];
-    if let Ok(remote) =
+    let archive_available =
         crate::infrastructure::studio::internet_archive::InternetArchiveAcquisition::new()
-    {
-        acquisitions.push(Box::new(remote));
-    }
+            .map(|remote| {
+                acquisitions.push(Box::new(remote));
+            })
+            .is_ok();
     let acquisition_reports: Vec<Value> = acquisitions
         .iter()
         .map(|acquisition| json!({ "sources": acquisition.sources() }))
         .collect();
+
+    // Matriz honesta por `StudioResourceKind`: qué kinds tienen
+    // ContentGenerator real (y cuáles no — `unsupported_capability`, el
+    // acquire los reportará `requires_provider`) y qué fuentes de
+    // adquisición pueden servirlos. Se deriva de las capabilities
+    // declaradas y de `mediatype_for`, nunca de una lista hardcodeada.
+    let resource_kinds = resource_kind_matrix(&generators, archive_available);
 
     json!({
         "schemaVersion": 1,
@@ -314,6 +402,11 @@ fn studio_capabilities(state: &AppState) -> Value {
         },
         "generators": generator_reports,
         "acquisitions": acquisition_reports,
+        // Todos los kinds del plan con su estado real de generación y
+        // adquisición; un kind sin generator se declara
+        // `unsupported_capability` en vez de omitirse (omitirlo haría
+        // creer que existe).
+        "resourceKinds": resource_kinds,
         // Generador remoto BYOK: `null` si no está configurado; nunca
         // incluye la clave, sólo si está listo y si requiere red.
         "remoteImage": remote_image_info,
@@ -324,6 +417,7 @@ fn studio_capabilities(state: &AppState) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::studio::ContentGenerator;
 
     #[test]
     fn error_reply_carries_typed_code() {
@@ -342,5 +436,95 @@ mod tests {
         assert!(StudioMcpInvoker::arg_str(&args, "other").is_err());
         let long = json!({ "runId": "x".repeat(200) });
         assert!(StudioMcpInvoker::arg_str(&long, "runId").is_err());
+    }
+
+    fn local_generators() -> Vec<Box<dyn ContentGenerator>> {
+        vec![
+            Box::new(crate::infrastructure::studio::local_voice::LocalVoiceGenerator::new()),
+            Box::new(
+                crate::infrastructure::studio::local_titlecard::LocalTitleCardGenerator::new(None),
+            ),
+            Box::new(crate::infrastructure::studio::local_music::LocalMusicGenerator::new(None)),
+            Box::new(
+                crate::infrastructure::studio::local_pattern::LocalPatternGenerator::new(None),
+            ),
+            Box::new(crate::infrastructure::studio::local_sfx::LocalSfxGenerator::new()),
+        ]
+    }
+
+    #[test]
+    fn resource_kind_matrix_marks_unsupported_generation_explicitly() {
+        let matrix = resource_kind_matrix(&local_generators(), true);
+        assert_eq!(matrix.len(), 8);
+
+        let by_kind = |kind: &str| {
+            matrix
+                .iter()
+                .find(|entry| entry["kind"].as_str() == Some(kind))
+                .unwrap_or_else(|| panic!("falta el kind {kind}"))
+        };
+
+        // Sin ContentGenerator para video/audio/animation:
+        // la matriz lo declara, no lo omite.
+        for kind in ["video", "audio", "animation"] {
+            let entry = by_kind(kind);
+            assert_eq!(entry["generation"]["supported"], json!(false), "{kind}");
+            assert_eq!(
+                entry["generation"]["status"],
+                json!("unsupported_capability"),
+                "{kind}"
+            );
+            assert_eq!(entry["generation"]["providers"], json!([]), "{kind}");
+        }
+
+        // Con generador local: image+graphic (titlecard+pattern),
+        // music, voice, sfx.
+        for (kind, min_providers) in [
+            ("image", 2),
+            ("graphic", 2),
+            ("music", 1),
+            ("voice", 1),
+            ("sfx", 1),
+        ] {
+            let entry = by_kind(kind);
+            assert_eq!(entry["generation"]["supported"], json!(true), "{kind}");
+            assert_eq!(
+                entry["generation"]["providers"].as_array().unwrap().len() >= min_providers,
+                true,
+                "{kind}"
+            );
+        }
+
+        // Adquisición: project-assets sirve todo; internet-archive sólo
+        // los kinds con mediatype (video/image/audio/music).
+        for kind in ["video", "image", "audio", "music"] {
+            let sources = by_kind(kind)["acquisition"]["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>();
+            assert!(sources.contains(&"internet-archive".to_owned()), "{kind}");
+        }
+        for kind in ["sfx", "voice", "animation", "graphic"] {
+            let sources = by_kind(kind)["acquisition"]["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|s| s.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>();
+            assert!(!sources.contains(&"internet-archive".to_owned()), "{kind}");
+            assert!(sources.contains(&"project-assets".to_owned()), "{kind}");
+        }
+    }
+
+    #[test]
+    fn resource_kind_matrix_without_archive_has_no_remote_source() {
+        let matrix = resource_kind_matrix(&local_generators(), false);
+        for entry in &matrix {
+            let sources = entry["acquisition"]["sources"].as_array().unwrap();
+            assert_eq!(sources.len(), 1, "{entry}");
+            assert_eq!(sources[0], json!("project-assets"));
+        }
     }
 }
