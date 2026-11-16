@@ -1052,7 +1052,14 @@ function chromaTable(fn: (x: number) => number): string {
  * el alfa con `feColorMatrix` y aplica el threshold con `feFuncA`
  * (smoothstep entre `inner` y `outer`). `feComposite operator="in"` conserva
  * el SourceGraphic donde la máscara es opaca — bordes semitransparentes
- * incluidos. `spill` NO se simula (el export lo suprime en bordes).
+ * incluidos.
+ *
+ * `spill` (0..1, sólo verde/azul como el `despill=` del export) se simula con
+ * una cadena `feComposite arithmetic`: `max(o1,o2)` sale exacto de
+ * `0.5·(o1+o2) + 0.5·|o1−o2|` y el canal de derrame se reduce en
+ * `spill·max(0, spill−max)`. Aproximaciones documentadas: el `expand=0.15`
+ * del export no se replica y el cálculo corre sobre valores no
+ * premultiplicados del pipeline SVG.
  *
  * Mapeo (aproximación documentada): `inner = similarity*0.5`,
  * `outer = inner + 0.02 + blend*0.4` sobre la distancia media |ΔRGB|∈[0,1].
@@ -1103,10 +1110,152 @@ export function clipChromaKeySpec(
       },
       {
         tag: 'feComposite',
-        attrs: { in: 'SourceGraphic', in2: 'matte', operator: 'in' },
+        attrs: {
+          in: 'SourceGraphic',
+          in2: 'matte',
+          operator: 'in',
+          result: 'chroma-keyed',
+        },
       },
+      ...chromaSpillPrimitives(key, 'chroma-keyed'),
     ],
   };
+}
+
+/** Canal de derrame según el color de fondo (misma regla que `filter.rs`). */
+function chromaSpillChannel(color: string): 'green' | 'blue' | null {
+  const channel = (start: number): number =>
+    Number.parseInt(color.slice(start, start + 2), 16) || 0;
+  const red = channel(1);
+  const green = channel(3);
+  const blue = channel(5);
+  if (green > red && green > blue) return 'green';
+  if (blue > red && blue > green) return 'blue';
+  return null;
+}
+
+const SPILL_ZERO_ROW = '0 0 0 0 0';
+
+/** Fila feColorMatrix [r,g,b,a,const] con `value` en la posición `index`. */
+function spillRow(index: number, value: number): string {
+  const coeffs = [0, 0, 0, 0, 0];
+  coeffs[index] = value;
+  return coeffs.map((entry) => entry.toFixed(4)).join(' ');
+}
+
+/**
+ * Primitivas de supresión de derrame (`despill=` del export) sobre el
+ * resultado ya keyed. El canal de derrame `s` se reduce en
+ * `spill·max(0, s−max(o1,o2))` donde `max` es exacto:
+ * `0.5·(o1+o2) + 0.5·|o1−o2|`. Los escalares viajan por el canal R de
+ * resultados intermedios; el delta final entra por el canal `s`.
+ */
+function chromaSpillPrimitives(
+  key: ChromaKey,
+  keyedResult: string,
+): readonly SvgPrimitive[] {
+  const spill = clamp(key.spill ?? 0, 0, 1);
+  if (spill <= 0.001) return [];
+  const screen = chromaSpillChannel(key.color);
+  if (!screen) return [];
+  // Canal de derrame y los otros dos, como índices [r,g,b,a,const].
+  const spillIndex = screen === 'green' ? 1 : 2;
+  const others = screen === 'green' ? [0, 2] : [0, 1];
+  const mixRow = (a: number, b: number, bias = 0): string => {
+    const coeffs = [0, 0, 0, 0, bias];
+    coeffs[others[0] ?? 0] = a;
+    coeffs[others[1] ?? 0] = b;
+    return coeffs.map((entry) => entry.toFixed(4)).join(' ');
+  };
+  // diff = (o1−o2)/2 + 0.5 ∈ [0,1]; |2·diff−1|·0.5 = |o1−o2|/2.
+  const diffRow = mixRow(0.5, -0.5, 0.5);
+  const sumRow = mixRow(0.5, 0.5);
+  const spillValueRow = spillRow(spillIndex, 1);
+  // Delta = −spill·excess: el excess viaja en el canal R de la entrada,
+  // así que el coeficiente −spill va en la posición 0 de la fila del canal s.
+  const deltaRow = spillRow(0, -spill);
+  const absHalfTable = chromaTable((x) => 0.5 * Math.abs(2 * x - 1));
+  const excessTable = chromaTable((x) => Math.max(0, 2 * x - 1));
+  /** Matriz escalar: la fórmula va en la fila R; el resto en cero. */
+  const scalarMatrix = (row: string, result: string, input = keyedResult): SvgPrimitive => ({
+    tag: 'feColorMatrix',
+    attrs: {
+      in: input,
+      values: `${row} ${SPILL_ZERO_ROW} ${SPILL_ZERO_ROW} ${SPILL_ZERO_ROW}`,
+      result,
+    },
+  });
+  /** Matriz delta: sólo la fila del canal de derrame tiene contenido. */
+  const deltaMatrix = (row: string, result: string, input: string): SvgPrimitive => {
+    const rows = [SPILL_ZERO_ROW, SPILL_ZERO_ROW, SPILL_ZERO_ROW, SPILL_ZERO_ROW];
+    rows[spillIndex] = row;
+    return {
+      tag: 'feColorMatrix',
+      attrs: { in: input, values: rows.join(' '), result },
+    };
+  };
+  return [
+    scalarMatrix(diffRow, 'spill-diff'),
+    {
+      tag: 'feComponentTransfer',
+      attrs: { in: 'spill-diff', result: 'spill-abs' },
+      funcs: { r: absHalfTable },
+    },
+    scalarMatrix(sumRow, 'spill-sum'),
+    {
+      tag: 'feComposite',
+      attrs: {
+        in: 'spill-sum',
+        in2: 'spill-abs',
+        operator: 'arithmetic',
+        k1: 0,
+        k2: 1,
+        k3: 1,
+        k4: 0,
+        result: 'spill-max',
+      },
+    },
+    scalarMatrix(spillValueRow, 'spill-val'),
+    {
+      tag: 'feComposite',
+      attrs: {
+        in: 'spill-val',
+        in2: 'spill-max',
+        operator: 'arithmetic',
+        k1: 0,
+        k2: 1,
+        k3: -1,
+        k4: 0,
+        result: 'spill-raw',
+      },
+    },
+    {
+      tag: 'feColorMatrix',
+      attrs: {
+        in: 'spill-raw',
+        values: '0.5000 0 0 0 0.5000 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0',
+        result: 'spill-raw01',
+      },
+    },
+    {
+      tag: 'feComponentTransfer',
+      attrs: { in: 'spill-raw01', result: 'spill-excess' },
+      funcs: { r: excessTable },
+    },
+    deltaMatrix(deltaRow, 'spill-delta', 'spill-excess'),
+    {
+      tag: 'feComposite',
+      attrs: {
+        in: keyedResult,
+        in2: 'spill-delta',
+        operator: 'arithmetic',
+        k1: 0,
+        k2: 1,
+        k3: 1,
+        k4: 0,
+      },
+    },
+  ];
 }
 
 /** Id estable y DOM-safe del filtro SVG de chroma key de un clip. */

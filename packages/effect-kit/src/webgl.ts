@@ -3,6 +3,7 @@ import type { EffectRegistry } from './registry.ts';
 import { activeInstances, type EffectStack } from './stack.ts';
 import { fragmentHeader, VERTEX_SHADER } from './shaders/prelude.ts';
 import type { EffectInstance, EffectManifest, ParamValue } from './types.ts';
+import type { Lut3DData } from './lut3d.ts';
 
 /**
  * Renderer WebGL2 del stack.
@@ -21,6 +22,25 @@ export interface RenderClock {
   readonly timeSeconds: number;
   readonly frameIndex: number;
   readonly frameRate: number;
+}
+
+/**
+ * LUT 3D lista para el renderer (`effects.lutFile`/`cameraProfile` de la
+ * preview). `intensity` mezcla el frame original con el graduado, igual que
+ * `apply_lut_to_chain` del export; el export salta intensidades ≤ 0.001.
+ */
+export interface Lut3DInput {
+  readonly data: Lut3DData;
+  readonly intensity: number;
+  readonly domainMin?: readonly [number, number, number];
+  readonly domainMax?: readonly [number, number, number];
+}
+
+interface Lut3DEntry {
+  readonly texture: WebGLTexture;
+  readonly intensity: number;
+  readonly domainMin: readonly number[];
+  readonly domainMax: readonly number[];
 }
 
 interface CompiledProgram {
@@ -52,6 +72,13 @@ export class EffectRenderer {
   private readonly targets: WebGLTexture[];
   private readonly framebuffers: WebGLFramebuffer[];
   private readonly passthrough: CompiledProgram;
+  private lutProgram: CompiledProgram | null = null;
+  private readonly lutTextureCache = new WeakMap<Lut3DData, WebGLTexture>();
+  private readonly lutTextureSet = new Set<WebGLTexture>();
+  private readonly lutIdMap = new WeakMap<Lut3DData, number>();
+  private lutIdCounter = 0;
+  private lutSignature = '';
+  private lutEntries: Lut3DEntry[] = [];
   private width = 1;
   private height = 1;
   private sourceWidth = 0;
@@ -262,6 +289,15 @@ export class EffectRenderer {
     for (const [name, meta] of compiled.uniforms) {
       const value = values.get(name);
       if (value === undefined) continue;
+      if (meta.type === gl.SAMPLER_3D) {
+        if (!isTexture(value)) continue;
+        const preferred = SAMPLER_UNITS[name] ?? unit;
+        gl.activeTexture(gl.TEXTURE0 + preferred);
+        gl.bindTexture(gl.TEXTURE_3D, value);
+        gl.uniform1i(meta.location, preferred);
+        unit = Math.max(unit, preferred + 1);
+        continue;
+      }
       if (meta.type === gl.SAMPLER_2D) {
         if (!isTexture(value)) continue;
         const preferred = SAMPLER_UNITS[name] ?? unit;
@@ -299,6 +335,86 @@ export class EffectRenderer {
     gl.viewport(0, 0, this.width, this.height);
   }
 
+  /**
+   * Declara las LUTs 3D del frame (cameraProfile + lutFile, en el orden del
+   * export). La firma evita recrear las texturas `TEXTURE_3D` en cada frame:
+   * sólo se reconstruye cuando cambia el set de datos o las intensidades.
+   */
+  setLuts(inputs: readonly Lut3DInput[] | null): void {
+    const list = (inputs ?? []).filter(
+      (input) => input.intensity > 0.001 && input.data.size >= 2,
+    );
+    const signature = list
+      .map((input) => {
+        let id = this.lutIdMap.get(input.data);
+        if (id === undefined) {
+          this.lutIdCounter += 1;
+          id = this.lutIdCounter;
+          this.lutIdMap.set(input.data, id);
+        }
+        const domainMin = input.domainMin ?? [0, 0, 0];
+        const domainMax = input.domainMax ?? [1, 1, 1];
+        return `${id}:${input.intensity}:${domainMin.join(',')}:${domainMax.join(',')}`;
+      })
+      .join('|');
+    if (signature === this.lutSignature) return;
+    this.lutSignature = signature;
+    this.lutEntries = list.map((input) => ({
+      texture: this.lutTextureFor(input.data),
+      intensity: Math.min(1, Math.max(0, input.intensity)),
+      domainMin: input.domainMin ?? [0, 0, 0],
+      domainMax: input.domainMax ?? [1, 1, 1],
+    }));
+  }
+
+  private lutTextureFor(data: Lut3DData): WebGLTexture {
+    const cached = this.lutTextureCache.get(data);
+    if (cached) return cached;
+    const gl = this.gl;
+    const texture = gl.createTexture();
+    if (!texture) throw new Error('No se pudo crear la textura LUT del preview.');
+    gl.bindTexture(gl.TEXTURE_3D, texture);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+    gl.texImage3D(
+      gl.TEXTURE_3D,
+      0,
+      gl.RGBA8,
+      data.size,
+      data.size,
+      data.size,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      data.data,
+    );
+    this.lutTextureCache.set(data, texture);
+    this.lutTextureSet.add(texture);
+    return texture;
+  }
+
+  private lutProgramFor(): CompiledProgram {
+    if (this.lutProgram) return this.lutProgram;
+    this.lutProgram = this.compileRaw(
+      '__lut3d',
+      `uniform sampler3D u_lut;
+       uniform float u_lutIntensity;
+       uniform vec3 u_lutDomainMin;
+       uniform vec3 u_lutDomainMax;
+       void main() {
+         vec4 c = texture(u_currentTexture, v_texCoord);
+         vec3 span = max(u_lutDomainMax - u_lutDomainMin, vec3(1e-5));
+         vec3 coord = clamp((c.rgb - u_lutDomainMin) / span, 0.0, 1.0);
+         vec3 graded = texture(u_lut, coord).rgb;
+         fragColor = vec4(mix(c.rgb, graded, clamp(u_lutIntensity, 0.0, 1.0)), c.a);
+       }`,
+    );
+    return this.lutProgram;
+  }
+
   /** Dibuja el stack completo. Sin efectos, el frame pasa tal cual. */
   render(registry: EffectRegistry, stack: EffectStack, clock: RenderClock): void {
     const gl = this.gl;
@@ -309,6 +425,41 @@ export class EffectRenderer {
 
     let input: WebGLTexture = this.sourceTexture;
     let targetIndex = 0;
+
+    // LUTs 3D antes del stack: el export aplica `lut3d` dentro de la cadena
+    // del clip y el stack después (`plan/range.rs`), así que el orden interno
+    // se respeta. La preview lee frames crudos (sin los filtros CSS), misma
+    // aproximación documentada que `clipPreviewStack`.
+    for (let lutIndex = 0; lutIndex < this.lutEntries.length; lutIndex += 1) {
+      const lut = this.lutEntries[lutIndex];
+      if (!lut) continue;
+      const toScreen = instances.length === 0 && lutIndex === this.lutEntries.length - 1;
+      let target = toScreen ? null : targetIndex % 2;
+      let targetTexture = target === null ? null : this.targets[target] ?? null;
+      if (target !== null && targetTexture === input) {
+        target = (target + 1) % 2;
+        targetTexture = this.targets[target] ?? null;
+      }
+      const compiled = this.lutProgramFor();
+      this.bindTarget(target);
+      const values = new Map<string, UniformValue>([
+        ['u_currentTexture', input],
+        ['u_lut', lut.texture],
+        ['u_lutIntensity', lut.intensity],
+        ['u_lutDomainMin', lut.domainMin],
+        ['u_lutDomainMax', lut.domainMax],
+        ['u_resolution', [this.width, this.height]],
+        ['u_time', clock.timeSeconds],
+        ['u_timeUs', clock.timeSeconds * 1_000_000],
+        ['u_frameIndex', clock.frameIndex],
+        ['u_frameRate', clock.frameRate],
+      ]);
+      this.drawProgram(compiled, values);
+      gl.bindVertexArray(this.vao);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      if (!toScreen && targetTexture) input = targetTexture;
+      targetIndex += 1;
+    }
 
     for (let effectIndex = 0; effectIndex < instances.length; effectIndex += 1) {
       const instance = instances[effectIndex];
@@ -357,8 +508,8 @@ export class EffectRenderer {
       if (last) input = last;
     }
 
-    if (instances.length === 0) {
-      // Sin stack: copiar la fuente a pantalla con el programa trivial.
+    if (instances.length === 0 && this.lutEntries.length === 0) {
+      // Sin stack ni LUT: copiar la fuente a pantalla con el programa trivial.
       this.bindTarget(null);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -405,7 +556,11 @@ export class EffectRenderer {
   dispose(): void {
     const gl = this.gl;
     for (const compiled of this.programs.values()) gl.deleteProgram(compiled.program);
+    if (this.lutProgram) gl.deleteProgram(this.lutProgram.program);
     this.programs.clear();
+    this.lutProgram = null;
+    for (const texture of this.lutTextureSet) gl.deleteTexture(texture);
+    this.lutTextureSet.clear();
     for (const texture of [this.sourceTexture, ...this.targets]) gl.deleteTexture(texture);
     for (const framebuffer of this.framebuffers) gl.deleteFramebuffer(framebuffer);
     gl.deleteVertexArray(this.vao);

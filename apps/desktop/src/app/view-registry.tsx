@@ -21,7 +21,7 @@ export const ShortcutsCheatSheet = lazy(() =>
 // hojas legacy â€” viven en un entry dinÃ¡mico cada una: se cargan antes de montar
 // la primera vista (sin FOUC) y el otro contexto se prefetcha en ocioso. Ver
 // docs/CSS-PERF-NOTES.md Â§5.
-export const EDITOR_STYLE_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
+const EDITOR_STYLE_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
   'editor',
   'text-edit',
   'multicam',
@@ -31,11 +31,11 @@ export const EDITOR_STYLE_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
   'visuals',
 ]);
 
-export const loadEditorStyles = () => import('../styles/entries/editor.css');
+const loadEditorStyles = () => import('../styles/entries/editor.css');
 
-export const loadContentStyles = () => import('../styles/entries/content.css');
+const loadContentStyles = () => import('../styles/entries/content.css');
 
-export const viewStyleLoaders = {
+const viewStyleLoaders = {
   editor: loadEditorStyles,
   content: loadContentStyles,
   // F2: una vista de flujo embebida necesita AMBAS capas: la del workspace
@@ -46,7 +46,7 @@ export const viewStyleLoaders = {
 
 export type ViewStyleKind = keyof typeof viewStyleLoaders;
 
-export const viewStyleCache = new Map<ViewStyleKind, Promise<unknown>>();
+const viewStyleCache = new Map<ViewStyleKind, Promise<unknown>>();
 
 
 export function styleKindForView(view: ViewId, embedded = false): ViewStyleKind {
@@ -73,97 +73,72 @@ export function ensureViewStyles(kind: ViewStyleKind): Promise<unknown> {
 // `resolveViewRoute` normaliza a un hub o a un modo del editor NO tienen
 // loader acÃ¡: sus componentes los importa el hub/editor que los contiene.
 // Antes habÃ­a un loader por cada ViewId y 18 quedaban muertos en el arranque.
-export const loadHome = () =>
+const loadHome = () =>
   import('../features/home/HomeView').then((module) => ({ default: module.HomeView }));
 
-export const loadProduction = () =>
+const loadProduction = () =>
   import('../features/production/ProductionView').then((module) => ({
     default: module.ProductionView,
   }));
 
-export const loadCreator = () =>
+const loadCreator = () =>
   import('../features/creator/CreatorHubView').then((module) => ({
     default: module.CreatorHubView,
   }));
 
-export const loadDirector = () =>
+const loadDirector = () =>
   import('../features/director/DirectorView').then((module) => ({ default: module.DirectorView }));
 
-export const loadAutoEdit = () =>
+const loadAutoEdit = () =>
   import('../features/autoedit/AutoEditView').then((module) => ({
     default: module.AutoEditView,
   }));
 
-export const loadEditor = () =>
+const loadEditor = () =>
   import('../features/editor/EditorWorkspace').then((module) => ({
     default: module.EditorWorkspace,
   }));
 
-export const loadScript = () =>
+const loadScript = () =>
   import('../features/script/ScriptView').then((module) => ({ default: module.ScriptView }));
 
-export const loadAssets = () =>
+const loadAssets = () =>
   import('../features/assets/AssetsPanel').then((module) => ({ default: module.AssetsPanel }));
 
-export const loadAiHub = () =>
+const loadAiHub = () =>
   import('../features/ai-hub/AiHubView').then((module) => ({ default: module.AiHubView }));
 
-export const loadDownload = () =>
+const loadDownload = () =>
   import('../features/download/DownloadsHubView').then((module) => ({
     default: module.DownloadsHubView,
   }));
 
-export const loadLab = () =>
+const loadLab = () =>
   import('../features/lab/MediaLabView').then((module) => ({
     default: module.MediaLabView,
   }));
 
-export const loadLearn = () =>
+const loadLearn = () =>
   import('../features/learn/LearnView').then((module) => ({ default: module.LearnView }));
 
-export const loadMcp = () =>
+const loadMcp = () =>
   import('../features/mcp/McpView').then((module) => ({ default: module.McpView }));
 
-export const loadSettings = () =>
+const loadSettings = () =>
   import('../features/settings/SettingsHome').then((module) => ({ default: module.SettingsHome }));
 
-export const loadNodes = () =>
+const loadNodes = () =>
   import('../features/nodes/NodeGraphView').then((module) => ({ default: module.NodeGraphView }));
 
 
-export const HomeView = lazy(loadHome);
-
-export const ProductionView = lazy(loadProduction);
-
-export const CreatorHubView = lazy(loadCreator);
-
-export const DirectorView = lazy(loadDirector);
-
-export const AutoEditView = lazy(loadAutoEdit);
-
+// `EditorWorkspace` es la única vista que WorkspaceView monta directamente;
+// el resto de las vistas canónicas las renderiza el propio workspace con sus
+// loaders internos (ver EditorWorkspace.tsx).
 export const EditorWorkspace = lazy(loadEditor);
-
-export const ScriptView = lazy(loadScript);
-
-export const AssetsPanel = lazy(loadAssets);
-
-export const AiHubView = lazy(loadAiHub);
-
-export const DownloadsHubView = lazy(loadDownload);
-
-export const MediaLabView = lazy(loadLab);
-
-export const LearnView = lazy(loadLearn);
-
-export const McpView = lazy(loadMcp);
-
-export const NodeGraphView = lazy(loadNodes);
-
-export const SettingsHome = lazy(loadSettings);
 
 
 /** Precargadores SOLO de superficies canÃ³nicas (las que tiene `renderView`). */
-export const VIEW_PRELOADERS: Partial<Record<ViewId, () => Promise<unknown>>> = {
+const VIEW_PRELOADERS: Partial<Record<ViewId, () => Promise<unknown>>> = {
   home: loadHome,
   director: loadDirector,
   'auto-edit': loadAutoEdit,
@@ -188,7 +163,7 @@ export const VIEW_PRELOADERS: Partial<Record<ViewId, () => Promise<unknown>>> = 
  * evaluado): eso competÃ­a con la primera pintura. Las vistas secundarias se
  * cargan al abrirse; Ã©stas cubren el recorrido habitual.
  */
-export const PRIMARY_PRELOADS: readonly Exclude<ViewId, 'projects'>[] = [
+const PRIMARY_PRELOADS: readonly Exclude<ViewId, 'projects'>[] = [
   'home',
   'editor',
   'assets',

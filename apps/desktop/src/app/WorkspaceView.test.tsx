@@ -3,9 +3,7 @@ import { Fragment, isValidElement, type ReactElement, type ReactNode } from 'rea
 import { describe, expect, it } from 'vitest';
 import type { ViewId } from './navigation';
 import { EditorWorkspace } from './view-registry';
-import { MinimalEditor } from '../features/editor/MinimalEditor';
 import { WorkspaceView, type WorkspaceViewProps } from './WorkspaceView';
-// MinimalEditor se importa sólo para el test negativo de P7: ya no se monta.
 
 /**
  * UN SOLO MONTAJE (Etapa B1 de la unificación): `WorkspaceView` es una
@@ -75,31 +73,6 @@ describe('WorkspaceView · raíz única de editor', () => {
         (child) => isValidElement(child) && (child.type === EditorWorkspace),
       );
       expect(editors, `EditorWorkspace duplicado en ${id}`).toHaveLength(1);
-    }
-  });
-
-  it('P7: MinimalEditor ya no se monta en NINGUNA condición (overlay retirado)', () => {
-    // Antes existía un overlay `.minimal-editor` por encima del workspace
-    // en editor+timeline+proyecto — duplicaba Timeline/Inspector/Assets y
-    // dejaba un Preview oculto decodificando. P7 lo retiró: EditorWorkspace
-    // ES la única superficie, con el chrome AlaukCut en modo timeline.
-    const cases: [ViewId, Partial<WorkspaceViewProps>][] = [
-      ['editor', {}],
-      ['editor', { hasProject: false }],
-      ['editor', { toolActive: true, toolView: 'download', toolTab: 'youtube' }],
-      ['editor', { editorMode: 'auto-edit' }],
-      ['download', {}],
-    ];
-    for (const [id, overrides] of cases) {
-      const { children } = workspaceChildren(id, overrides);
-      expect(
-        children.some((child) => isValidElement(child) && child.type === MinimalEditor),
-        `MinimalEditor montado en ${id} ${JSON.stringify(overrides)}`,
-      ).toBe(false);
-      expect(
-        children.some((child) => isValidElement(child) && child.type === EditorWorkspace),
-        `EditorWorkspace ausente en ${id}`,
-      ).toBe(true);
     }
   });
 

@@ -403,4 +403,47 @@ describe('clipChromaKeySpec', () => {
     // Inicio (distancia 0 = color exacto) → remover = 0.
     expect(matte[0]).toBeCloseTo(0, 2);
   });
+
+  it('sin spill (o spill ~0) la cadena queda en 4 primitivas', () => {
+    expect(clipChromaKeySpec({ ...key, spill: 0 }, 'k1')!.primitives).toHaveLength(4);
+    expect(clipChromaKeySpec({ ...key, spill: 0.0005 }, 'k1')!.primitives).toHaveLength(4);
+  });
+
+  it('con spill verde agrega la cadena de supresión y cierra con arithmetic', () => {
+    const spec = clipChromaKeySpec({ ...key, spill: 0.6 }, 'k1')!;
+    expect(spec.primitives).toHaveLength(14);
+    const last = spec.primitives[spec.primitives.length - 1]!;
+    expect(last.tag).toBe('feComposite');
+    expect(last.attrs.operator).toBe('arithmetic');
+    expect(last.attrs.in).toBe('chroma-keyed');
+    expect(last.attrs.k2).toBe(1);
+    expect(last.attrs.k3).toBe(1);
+    // El delta entra por el canal G (fila 1) leyendo el excess del canal R.
+    const delta = spec.primitives.find((p) => p.attrs.result === 'spill-delta')!;
+    const rows = String(delta.attrs.values).split(' ').map(Number);
+    // values son 4 filas de 5: la fila G es indices 5..9.
+    expect(rows[5]).toBeCloseTo(-0.6, 3);
+    expect(rows[6]).toBe(0);
+    expect(rows[9]).toBe(0);
+  });
+
+  it('con spill azul el delta entra por el canal B (fila 2)', () => {
+    const spec = clipChromaKeySpec(
+      { color: '#0000ff', similarity: 0.3, blend: 0.1, spill: 0.5 },
+      'k1',
+    )!;
+    const delta = spec.primitives.find((p) => p.attrs.result === 'spill-delta')!;
+    const rows = String(delta.attrs.values).split(' ').map(Number);
+    // Fila B = indices 10..14; coeficiente -0.5 en la posición R (índice 10).
+    expect(rows[10]).toBeCloseTo(-0.5, 3);
+    expect(rows[11]).toBe(0);
+  });
+
+  it('spill sobre color que no es pantalla no agrega primitivas', () => {
+    const spec = clipChromaKeySpec(
+      { color: '#ff0000', similarity: 0.3, blend: 0.1, spill: 0.8 },
+      'k1',
+    )!;
+    expect(spec.primitives).toHaveLength(4);
+  });
 });

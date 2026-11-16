@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { EffectRenderer, effectRegistry, type EffectStack } from '@editor-ia/effect-kit';
+import {
+  EffectRenderer,
+  effectRegistry,
+  type EffectStack,
+  type Lut3DInput,
+} from '@editor-ia/effect-kit';
 
 export interface EffectCanvasProps {
   readonly source: HTMLVideoElement | HTMLImageElement | null;
   readonly stack: EffectStack;
+  /** LUTs 3D del clip (cameraProfile/lutFile), aplicadas antes del stack. */
+  readonly luts?: readonly Lut3DInput[] | null;
   readonly frameIndex: number;
   readonly frameRate: number;
   readonly active: boolean;
@@ -44,6 +51,7 @@ function sourceReady(source: HTMLVideoElement | HTMLImageElement): boolean {
 export function EffectCanvas({
   source,
   stack,
+  luts,
   frameIndex,
   frameRate,
   active,
@@ -60,6 +68,12 @@ export function EffectCanvas({
   const stackRef = useRef(stack);
   stackRef.current = stack;
   const stackKey = useMemo(() => JSON.stringify(stack), [stack]);
+  const lutsRef = useRef(luts ?? null);
+  lutsRef.current = luts ?? null;
+  const lutKey = useMemo(
+    () => JSON.stringify((luts ?? []).map((lut) => [lut.data.size, lut.intensity])),
+    [luts],
+  );
 
   useEffect(() => {
     if (!WEBGL_AVAILABLE || !active) return;
@@ -100,6 +114,7 @@ export function EffectCanvas({
       try {
         renderer.resize(width, height);
         renderer.uploadSource(target);
+        renderer.setLuts(lutsRef.current);
         renderer.render(effectRegistry, stackRef.current, {
           timeSeconds:
             target instanceof HTMLVideoElement ? target.currentTime : frameIndex / frameRate,
@@ -179,7 +194,7 @@ export function EffectCanvas({
         video.removeEventListener('loadeddata', onFrameChanged);
       }
     };
-  }, [active, source, stackKey, frameIndex, frameRate]);
+  }, [active, source, stackKey, lutKey, frameIndex, frameRate]);
 
   if (!active) return null;
   if (error) {

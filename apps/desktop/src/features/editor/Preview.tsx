@@ -66,6 +66,11 @@ import {
   previewTransitionLeadFrames,
 } from './preview-transition';
 import { isLumaWipeClip, lumaMaskStyle, useLumaWipeMasks } from './preview-luma-mask';
+import { clipPreviewLuts, usePreviewLuts } from './preview-luts';
+
+/** Stack vacío estable: `EffectCanvas` compara por contenido y un `[]` nuevo
+ * en cada render reiniciaría el scheduler de frames. */
+const EMPTY_EFFECT_STACK: EffectStack = [];
 import {
   clipIsReversed,
   clipPreviewRateAtLocal,
@@ -1070,6 +1075,8 @@ function VideoLayer({
 
   const isImageSrc = url.endsWith('.jpg') || url.endsWith('.png') || url.endsWith('.webp');
   const stack = WEBGL_AVAILABLE ? clipPreviewStack(clip, audition) : null;
+  const luts = usePreviewLuts(clipPreviewLuts(clip, audition));
+  const gpuFx = WEBGL_AVAILABLE && (stack !== null || luts.length > 0);
   const mediaStyle: CSSProperties = {
     ...transformStyle(clip, project, playheadFrame, viewport),
     ...effectsStyle(clip, audition),
@@ -1138,15 +1145,15 @@ function VideoLayer({
       src={url}
       crossOrigin="anonymous"
       data-clip-id={clip.id}
-      style={stack ? { ...mediaStyle, opacity: 0 } : mediaStyle}
+      style={gpuFx ? { ...mediaStyle, opacity: 0 } : mediaStyle}
       muted={mediaMuted}
       playsInline
       preload="auto"
       onError={() => setFailed(true)}
     />
   );
-  if (!stack) return video;
-  // Con stack el frame visible lo compone el renderer WebGL sobre el mismo
+  if (!gpuFx) return video;
+  // Con stack/LUT el frame visible lo compone el renderer WebGL sobre el mismo
   // elemento (sigue reproduciendo audio y alimenta la textura). El wrapper
   // lleva transform/efectos/máscara para que el canvas quede donde estaba el
   // video; `opacity: 0` en el <video> evita el doble pintado.
@@ -1156,7 +1163,8 @@ function VideoLayer({
       <div className="preview-media" data-clip-id={clip.id} style={mediaStyle}>
         <EffectCanvas
           source={mediaEl}
-          stack={stack}
+          stack={stack ?? EMPTY_EFFECT_STACK}
+          luts={luts}
           frameIndex={stackFrame}
           frameRate={fps}
           active
@@ -1210,6 +1218,7 @@ function ImageLayer({
       clearPreviewMedia(key);
     };
   }, [url, clip.id, reload]);
+  const luts = usePreviewLuts(clipPreviewLuts(clip, audition));
   if (!url || failed) {
     return (
       <div
@@ -1234,6 +1243,7 @@ function ImageLayer({
     );
   }
   const stack = WEBGL_AVAILABLE ? clipPreviewStack(clip, audition) : null;
+  const gpuFx = WEBGL_AVAILABLE && (stack !== null || luts.length > 0);
   const mediaStyle: CSSProperties = {
     ...transformStyle(clip, project, playheadFrame, viewport),
     ...effectsStyle(clip, audition),
@@ -1250,18 +1260,19 @@ function ImageLayer({
       crossOrigin="anonymous"
       data-clip-id={clip.id}
       alt={clip.label ?? 'Imagen de la timeline'}
-      style={stack ? { ...mediaStyle, opacity: 0 } : mediaStyle}
+      style={gpuFx ? { ...mediaStyle, opacity: 0 } : mediaStyle}
       onError={() => setFailed(true)}
     />
   );
-  if (!stack) return img;
+  if (!gpuFx) return img;
   return (
     <>
       {img}
       <div className="preview-media" data-clip-id={clip.id} style={mediaStyle}>
         <EffectCanvas
           source={mediaEl}
-          stack={stack}
+          stack={stack ?? EMPTY_EFFECT_STACK}
+          luts={luts}
           frameIndex={Math.max(0, playheadFrame - clip.startFrame)}
           frameRate={fpsOf(project)}
           active

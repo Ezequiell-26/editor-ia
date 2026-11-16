@@ -12224,3 +12224,80 @@ El motor de animación 2D era ~75% dominio puro (FK, rasterizador RGB, partícul
 - **`vpn.rs`**: 402 → ~276. Quedan `unsupported` (cfg), `run_with_timeout`/`powershell_json` (procesos Windows), `wireguard_candidates` y los 5 comandos.
 - **`vpn.tests.rs`**: los 4 tests migraron sin cambios.
 - Evidencia: `cargo check` 0 errores/0 warnings, `cargo test --lib vpn` **4/4**, architecture-rules **12/12**.
+
+## Pasada 60 — Preview en vivo: LUT 3D (`lutFile` + `cameraProfile`) y spill de chromaKey
+
+Cierre de la brecha "efectos solo export" más visible para el usuario:
+
+- **`packages/effect-kit/src/lut3d.ts`** (nuevo): `parseCubeLut` (formato
+  `.cube` Iridas/Resolve con `LUT_3D_SIZE`, `DOMAIN_MIN/MAX`, N³ entradas
+  rojo-más-rápido → `Uint8Array` RGBA8) y `cameraProfileLut` — port exacto
+  de `camera_log.rs` (8 perfiles log→Rec.709, LUT 33³ cacheada por id).
+- **`webgl.ts`**: `EffectRenderer.setLuts()` — texturas `TEXTURE_3D`
+  trilineales + pass `__lut3d` (sampler3D, dominio, mezcla por intensidad)
+  aplicadas ANTES del stack, igual que el export (`plan/range.rs`:
+  grade→cameraLUT→clipLUT→glow→stack). Firma por contenido evita recrear
+  texturas por frame; `drawProgram` ahora bindea `SAMPLER_3D`.
+- **`EffectCanvas`**: prop `luts`; `Preview.tsx`: `clipPreviewLuts()` +
+  hook `usePreviewLuts` (`preview-luts.ts`) que resuelve `cameraProfile`
+  síncrono y `.cube` vía `service.mediaUrl` + cache por URL. `VideoLayer` e
+  `ImageLayer` montan `EffectCanvas` cuando hay stack O LUT (antes solo
+  stack). En modo navegador o sin WebGL el clip se ve igual que antes.
+- **`color-engine.ts`**: spill de `chromaKey` ya no es export-only —
+  `chromaSpillPrimitives` añade 10 primitivas SVG (`feComposite
+  arithmetic`): `max(o1,o2)` exacto vía `0.5·sum+0.5·|diff|`, excess
+  `max(0,s−max)` por tablas, delta `−spill·excess` en el canal de pantalla
+  (verde/azul, misma regla que `filter.rs`). `expand=0.15` del export no se
+  replica (documentado).
+- **No cubierto (honesto)**: LUT de `project.look` global y de clips de
+  ajuste (el export la aplica gateada sobre la imagen inferior); LUT en
+  `renderTransition`; spill sobre valores >1 (HDR).
+- **Time-remap**: `speedCurve` ya cubre remapeo continuo (0.1×–4×, easing/
+  Bézier, optical flow, preview+export). Lo que falta del time-remap por
+  frame estilo CapCut es freeze-frame (speed=0), segmentos reversa y holds
+  arbitrarios — requiere schema nuevo + export por tramos + UI de curva.
+- Evidencia: `lut3d.test.ts` 8/8 · `preview-luts.test.ts` 7/7 ·
+  `color-engine.test.ts` 37/37 (+5 spill) · effect-kit 76/76 ·
+  `npm run typecheck` exit 0.
+- Pendiente de verificación real: render WebGL de LUT y el filtro SVG de
+  spill en Chromium/Playwright (estructura testeada, píxeles no).
+
+## Pasada 61 — Limpieza de código muerto verificada (frontend)
+
+Barrido de archivos sin importadores fuera de sus tests (grep por nombre
+de módulo y por símbolo exportado, incluyendo `import()` dinámicos):
+
+- **`[done]` MinimalEditor + `features/editor/minimal/` eliminados** —
+  la réplica «AlaukCut» retirada del camino de producción en P7. 0
+  imports fuera de sus propios tests; `WorkspaceView.test.tsx` sólo la
+  usaba para el test negativo P7 (bloque y import retirados; el resto del
+  contrato de raíz única se conserva). ~2.900 líneas + 3 archivos de test.
+  Los CSS `minimal-editor*.css` NO se tocaron: los componentes de
+  producción (AlaukChrome/EditorWorkspace) usan clases `me-*` de esas
+  hojas — borrarlas rompería estilos.
+- **`[done]` `features/editor/layer-bounds.ts` eliminado** — módulo puro
+  (187 líneas) sin un solo import ni test; functionality nunca llegó a
+  cablearse.
+- **`[done]` `components/PremiumShowcase.tsx`,
+  `components/PremiumComponentShowcase.tsx`, `components/ProgressSystem.tsx`
+  eliminados** — demos/showcase y sistema de progresogamificado sin
+  referencias en todo `src` (verificado por símbolo exportado:
+  ProgressRing, UndoToast, SmartHint, etc., 0 usos).
+- **`[done]` `app/view-registry.tsx`** — eliminados 14 wrappers `lazy()`
+  sin consumidores (`HomeView`…`SettingsHome`; las vistas canónicas las
+  monta `EditorWorkspace` con sus propios loaders internos). Helpers
+  internos (`loadX`, `VIEW_PRELOADERS`, `PRIMARY_PRELOADS`,
+  `EDITOR_STYLE_VIEWS`, `viewStyleLoaders`, `viewStyleCache`,
+  `loadEditorStyles`, `loadContentStyles`) pasaron a privados: siguen
+  vivos dentro del módulo (`preloadViews`/`ensureViewStyles` los usan) y
+  `Shell.tsx`/`WorkspaceView.tsx` conservan su API (`ViewStyleKind` se
+  mantiene exportado porque `Shell.tsx` lo importa como tipo).
+- **Verificado NO muerto (se conserva)**: `components/SettingsWindow.tsx`
+  (la usa `StartScreen.tsx`), todo `state/brain/` (re-exportado por
+  `index.ts` → `AssistantDock`/`BrainPanel`), `usePlayback.ts` (sólo un
+  comentario menciona MinimalEditor).
+- Evidencia: `npx vitest run` sobre `WorkspaceView.test.tsx`,
+  `unified-editor.contract.test.tsx`, `workspace-map.test.ts`,
+  `view-routing.test.ts`, `pipeline.test.ts` → 26/26 verde;
+  `npx tsc --noEmit` en `apps/desktop` exit 0;
+  `architecture-rules` + `dependency-rules` 20/20 verde.

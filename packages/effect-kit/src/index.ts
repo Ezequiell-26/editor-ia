@@ -91,7 +91,14 @@ export {
 export type { CompiledAudioStack, CompiledStack, CompiledStep } from './ffmpeg.ts';
 
 export { EffectRenderer } from './webgl.ts';
-export type { RenderClock } from './webgl.ts';
+export type { Lut3DInput, RenderClock } from './webgl.ts';
+
+export {
+  CAMERA_PROFILE_IDS,
+  cameraProfileLut,
+  parseCubeLut,
+} from './lut3d.ts';
+export type { Lut3DData, Lut3DSource } from './lut3d.ts';
 
 export { COMMON_GLSL, VERTEX_SHADER, fragmentHeader } from './shaders/prelude.ts';
 
