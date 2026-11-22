@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { hideMediaSpy, useMediaSpy } from '../../state/media-spy';
 import { createRafCoalescer } from './timeline-raf';
 
@@ -16,15 +16,23 @@ function mmss(seconds: number): string {
  *
  * Un solo <video> por medio visible: `currentTime` se actualiza
  * coalescido por frame (el puntero puede emitir 100+ eventos/segundo).
+ *
+ * Con `pinned` (clic en la tarjeta) el overlay se vuelve interactivo:
+ * controles nativos de <video> (play/pausa/seek/volumen) y autoplay
+ * silencioso. Escape o el clic de nuevo sueltan el pin.
  */
 export function MediaSpyOverlay() {
   const spy = useMediaSpy();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const coalescerRef = useRef<ReturnType<typeof createRafCoalescer<number>> | null>(null);
+  const [liveTime, setLiveTime] = useState<number | null>(null);
+
+  const interactive = Boolean(spy?.pinned && spy.kind === 'video');
 
   // Alta/baja del <video>: sólo cuando cambia el medio espiado.
   useEffect(() => {
     const video = videoRef.current;
+    setLiveTime(null);
     if (!video || !spy || spy.kind !== 'video') return;
     video.src = spy.url;
     video.muted = true;
@@ -46,6 +54,20 @@ export function MediaSpyOverlay() {
     return () => coalescerRef.current?.flush();
   }, [spy?.timeSeconds, spy?.assetId, spy?.kind]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Pin activado: reproduce el medio (muteado, autoplay permitido).
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!interactive || !video) return;
+    if (video.paused) void video.play().catch(() => {});
+  }, [interactive, spy?.assetId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Al soltar el pin el <video> queda en pausa: si siguiera corriendo, el
+  // hover-scrub pelearía con currentTime avanzando solo.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video && !interactive && !video.paused) video.pause();
+  }, [interactive]);
+
   useEffect(
     () => () => {
       coalescerRef.current?.cancel();
@@ -66,8 +88,13 @@ export function MediaSpyOverlay() {
 
   if (!spy) return null;
 
+  const shownTime = spy.pinned && liveTime !== null ? liveTime : spy.timeSeconds;
+
   return (
-    <div className="media-spy" aria-hidden="true">
+    <div
+      className={`media-spy${interactive ? ' media-spy-interactive' : ''}`}
+      aria-hidden={!interactive}
+    >
       {spy.kind === 'image' ? (
         <img className="media-spy-media" src={spy.url} alt="" draggable={false} />
       ) : (
@@ -77,9 +104,13 @@ export function MediaSpyOverlay() {
           muted
           playsInline
           preload="auto"
+          controls={interactive}
+          onTimeUpdate={(event) => {
+            if (interactive) setLiveTime(event.currentTarget.currentTime);
+          }}
         />
       )}
-      <span className="media-spy-time">{mmss(spy.timeSeconds)}</span>
+      <span className="media-spy-time">{mmss(shownTime)}</span>
       {spy.pinned ? (
         <span className="media-spy-pin" title="Preview fijada — clic en la tarjeta o Escape para soltar">
           fijado

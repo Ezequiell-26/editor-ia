@@ -18580,3 +18580,25 @@ Residual honesto: es frame estático fijado, sin transporte propio
 (play/pausa/scrub del source). El monitor de programa queda tapado
 mientras el pin está activo — diseño deliberado del overlay existente.
 Siguiente iteración natural: transporte del source (play + scrub bar).
+
+## Pasada 293 — source monitor: transporte con controles nativos
+
+Iteración 2 del frente elegido: el pin del media-spy ahora es un source
+monitor funcional, no sólo un frame fijo.
+
+- `<video controls>` nativo cuando `pinned && kind==='video'`: play,
+  pausa, seek, volumen y fullscreen sin UI propia que mantener.
+- Autoplay muteado al fijar (permitido por política); al soltar el pin
+  el video hace `pause()` — si no, el hover-scrub pelearía con
+  `currentTime` avanzando solo (bug evitado por diseño).
+- `pointer-events: auto` sólo en modo interactivo: el overlay sigue
+  siendo `none` en hover normal, así no bloquea el monitor.
+- Timecode vivo vía `onTimeUpdate` → `liveTime` local (no escribe al
+  store: ~4 emits/segundo de más no aportan).
+- `aria-hidden` se apaga en modo interactivo (los controles deben ser
+  accesibles).
+- Imagen fijada queda estática con badge (sin controles — no hay
+  transporte que dar).
+
+Verificación: tsc exit 0 · media-spy 6/6 · EditorAssets 14/14.
+Commit `d2f03bf4`+este cambio. TS-only → próximo rebuild.

@@ -2467,6 +2467,12 @@
   letter-spacing: 0.04em;
   pointer-events: none;
 }
+.media-spy-interactive {
+  pointer-events: auto;
+}
+.media-spy-interactive .media-spy-media {
+  pointer-events: auto;
+}
 .preview-look {
   position: absolute;
   inset: 0;

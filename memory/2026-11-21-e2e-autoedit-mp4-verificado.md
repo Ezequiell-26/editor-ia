@@ -152,3 +152,9 @@ pendiente de la primera descarga del usuario.
 WIP completo commiteado (438 archivos). Source monitor v1: pinMediaSpy
 fija el asset en el monitor (clic/Escape), bloquea hover ajeno y scrub
 cruzado. Sin transporte propio todavía. TS-only → próximo rebuild.
+
+## Addendum 15 — source monitor transporte (pasada 293)
+
+Pin del spy ahora da controles nativos de video (play/seek/volumen),
+autoplay muteado al fijar y pause() al soltar. pointer-events sólo en
+modo interactivo; timecode vivo por timeupdate. TS-only → rebuild.
