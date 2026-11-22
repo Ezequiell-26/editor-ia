@@ -151,15 +151,28 @@ pub async fn lip_sync(
             "FFprobe es necesario para validar el video y el audio del lip-sync",
         ));
     };
-    let (source_width, source_height, video_duration) = probe_video(&ffprobe, &video)?;
-    if source_width == 0 || source_height == 0 || video_duration <= 0.0 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el video del lip-sync no tiene dimensiones o duración válidas",
-        ));
-    }
-    let audio_duration = probe_audio(&ffprobe, &audio)?;
-    validate_audio_duration(audio_duration)?;
+    // probe_video/probe_audio lanzan ffprobe: procesos bloqueantes que
+    // no pueden correr en el runtime async (AUD-129).
+    let ffprobe_for_probe = ffprobe.clone();
+    let video_for_probe = video.clone();
+    let audio_for_probe = audio.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (width, height, duration) = probe_video(&ffprobe_for_probe, &video_for_probe)?;
+        if width == 0 || height == 0 || duration <= 0.0 {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "el video del lip-sync no tiene dimensiones o duración válidas",
+            ));
+        }
+        validate_audio_duration(probe_audio(&ffprobe_for_probe, &audio_for_probe)?)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la validación del lip-sync se interrumpió",
+        )
+    })??;
     let _ = app.emit(
         "lipsync-progress",
         json!({ "percent": 5.0, "stage": "Validando video y audio" }),
@@ -169,35 +182,50 @@ pub async fn lip_sync(
         json!({ "percent": 35.0, "stage": "Generando la sincronización local" }),
     );
     let bytes = request_lipsync(&endpoint, &video, &audio, request.api_key.as_deref()).await?;
-    let temp = output_dir.join(format!(".lipsync-{}.mp4", Uuid::new_v4()));
-    std::fs::write(&temp, &bytes).map_err(|error| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo guardar el lip-sync: {error}").as_str(),
-        )
-    })?;
-    let (width, height, duration) = match probe_video(&ffprobe, &temp) {
-        Ok(value) => value,
-        Err(error) => {
-            let _ = std::fs::remove_file(&temp);
-            return Err(error);
-        }
-    };
-    if let Err(error) = validate_output_probe(width, height, duration) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(error);
-    }
-    let final_path = lipsync_output_path(&output_dir, &video);
-    std::fs::rename(&temp, &final_path).map_err(|error| {
-        let _ = std::fs::remove_file(&temp);
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo publicar el lip-sync: {error}").as_str(),
-        )
-    })?;
-    let published = std::fs::metadata(&final_path)
-        .map(|metadata| metadata.len())
-        .unwrap_or(bytes.len() as u64);
+    // Escribir el video completo (puede ser GBs) + ffprobe de salida +
+    // publicación: fuera del runtime async (AUD-129).
+    let ffprobe_for_output = ffprobe.clone();
+    let video_for_output = video.clone();
+    let (final_path, published, width, height, duration) =
+        tauri::async_runtime::spawn_blocking(move || -> Result<_, ProjectError> {
+            let temp = output_dir.join(format!(".lipsync-{}.mp4", Uuid::new_v4()));
+            std::fs::write(&temp, &bytes).map_err(|error| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    format!("no se pudo guardar el lip-sync: {error}").as_str(),
+                )
+            })?;
+            let (width, height, duration) = match probe_video(&ffprobe_for_output, &temp) {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = std::fs::remove_file(&temp);
+                    return Err(error);
+                }
+            };
+            if let Err(error) = validate_output_probe(width, height, duration) {
+                let _ = std::fs::remove_file(&temp);
+                return Err(error);
+            }
+            let final_path = lipsync_output_path(&output_dir, &video_for_output);
+            std::fs::rename(&temp, &final_path).map_err(|error| {
+                let _ = std::fs::remove_file(&temp);
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    format!("no se pudo publicar el lip-sync: {error}").as_str(),
+                )
+            })?;
+            let published = std::fs::metadata(&final_path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(bytes.len() as u64);
+            Ok((final_path, published, width, height, duration))
+        })
+        .await
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "la publicación del lip-sync se interrumpió",
+            )
+        })??;
     let _ = app.emit(
         "lipsync-progress",
         json!({ "percent": 100.0, "stage": "Lip-sync listo" }),

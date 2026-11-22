@@ -75,6 +75,10 @@ pub struct StabilizationAnalysis {
     pub smoothing: u32,
     pub in_frame: u64,
     pub out_frame: u64,
+    /// MP4 horneado con `vidstabtransform` para la preview en vivo. `None`
+    /// cuando el bake falla: el análisis y el export no se ven afectados.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_proxy: Option<String>,
 }
 
 /// Inspección de un archivo arbitrario vía ffprobe (`probe_any_file`).

@@ -4,7 +4,7 @@ import * as shared from './shared';
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { AssetFileInfo, CopiedMedia, DuplicateAssetGroup, MissingAssetInfo, ProjectVersionInfo, QualityGateReport, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from "../../services/contracts";
 
-export function createProjectsService(call: NativeCall): Pick<DesktopService, 'createProject' | 'openProject' | 'openProjectAt' | 'adoptProject' | 'saveProject' | 'saveProjectAs' | 'saveDeliveryPackage' | 'closeProject' | 'importAssets' | 'importMediaPaths' | 'matchMediaPlan' | 'listMediaFolder' | 'searchMediaFolder' | 'listDirectory' | 'readTextFile' | 'writeTextFile' | 'makeDirectory' | 'movePath' | 'deletePath' | 'absoluteFileUrl' | 'recentProjectThumbnail' | 'qualityGateReview' | 'checkAssetFiles' | 'chooseMediaFolder' | 'findMissingAssets' | 'relinkAsset' | 'relinkAssetsFromFolder' | 'listProjectVersions' | 'restoreProjectVersion' | 'findDuplicateAssets' | 'writeProjectVariant' | 'writeProjectFile' | 'copyMediaInto' | 'loadDirectorMemory' | 'saveDirectorMemory' | 'savePublicationManifest' | 'mediaUrl' | 'joinPath'> {
+export function createProjectsService(call: NativeCall): Pick<DesktopService, 'createProject' | 'openProject' | 'openProjectAt' | 'adoptProject' | 'saveProject' | 'saveProjectAs' | 'saveDeliveryPackage' | 'closeProject' | 'importAssets' | 'importMediaPaths' | 'importMediaBytes' | 'matchMediaPlan' | 'listMediaFolder' | 'searchMediaFolder' | 'listDirectory' | 'readTextFile' | 'writeTextFile' | 'makeDirectory' | 'movePath' | 'deletePath' | 'absoluteFileUrl' | 'recentProjectThumbnail' | 'qualityGateReview' | 'checkAssetFiles' | 'mediaProbeColor' | 'chooseMediaFolder' | 'findMissingAssets' | 'relinkAsset' | 'relinkAssetsFromFolder' | 'listProjectVersions' | 'restoreProjectVersion' | 'findDuplicateAssets' | 'writeProjectVariant' | 'writeProjectFile' | 'copyMediaInto' | 'loadDirectorMemory' | 'saveDirectorMemory' | 'savePublicationManifest' | 'mediaUrl' | 'joinPath'> {
   return {
     async createProject(input) {
       return shared.requireOpened(
@@ -86,6 +86,21 @@ export function createProjectsService(call: NativeCall): Pick<DesktopService, 'c
           : [],
       };
     },
+    async importMediaBytes(input) {
+      const raw = await call(shared.PROJECT_COMMANDS.importMediaBytes, {
+        fileName: input.fileName,
+        dataBase64: input.dataBase64,
+        fpsNum: input.fpsNum,
+        fpsDen: input.fpsDen,
+      });
+      const record = (raw ?? {}) as { assets?: unknown; warnings?: unknown };
+      return {
+        assets: shared.parseAssets(record.assets),
+        warnings: Array.isArray(record.warnings)
+          ? record.warnings.filter((warning): warning is string => typeof warning === 'string')
+          : [],
+      };
+    },
     async matchMediaPlan(input) {
       const raw = (await call(shared.PROJECT_COMMANDS.matchMediaPlan, {
         sentences: [...input.sentences],
@@ -145,6 +160,29 @@ export function createProjectsService(call: NativeCall): Pick<DesktopService, 'c
               }))
               .filter((file) => file.path !== '' && file.name !== '')
           : [],
+      };
+    },
+    async mediaProbeColor(path) {
+      const raw = (await call(shared.PROJECT_COMMANDS.mediaProbeColor, {
+        path,
+      })) as Record<string, unknown>;
+      return {
+        width: typeof raw.width === 'number' ? raw.width : null,
+        height: typeof raw.height === 'number' ? raw.height : null,
+        pixFmt: typeof raw.pixFmt === 'string' ? raw.pixFmt : null,
+        colorSpace: typeof raw.colorSpace === 'string' ? raw.colorSpace : null,
+        colorTransfer: typeof raw.colorTransfer === 'string' ? raw.colorTransfer : null,
+        colorPrimaries: typeof raw.colorPrimaries === 'string' ? raw.colorPrimaries : null,
+        hdr: (['pq', 'hlg', 'sdr', 'desconocido'] as const).includes(raw.hdr as never)
+          ? (raw.hdr as 'pq' | 'hlg' | 'sdr' | 'desconocido')
+          : 'desconocido',
+        wideGamut: raw.wideGamut === true,
+        cameraProfiles: Array.isArray(raw.cameraProfiles)
+          ? raw.cameraProfiles.filter((v): v is string => typeof v === 'string')
+          : [],
+        suggestion: (['hdr-pq', 'hdr-hlg', 'posible-log'] as const).includes(raw.suggestion as never)
+          ? (raw.suggestion as 'hdr-pq' | 'hdr-hlg' | 'posible-log')
+          : null,
       };
     },
     async listDirectory(path) {

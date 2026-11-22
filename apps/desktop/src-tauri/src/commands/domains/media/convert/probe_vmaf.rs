@@ -12,9 +12,31 @@ use tauri::State;
 
 use crate::application::media as use_cases;
 use crate::commands::hide_console;
-use crate::ports::media::MediaProbe;
-use crate::projects::service::ProjectError;
+use crate::ports::media::{MediaProbe, MediaTools};
+use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
+
+/// `MediaTools` con rutas ya resueltas: `StateMediaTools` presta
+/// `&AppState` y no puede cruzar `spawn_blocking`.
+struct FixedMediaTools {
+    ffmpeg: Option<PathBuf>,
+    ffprobe: Option<PathBuf>,
+}
+
+impl MediaTools for FixedMediaTools {
+    fn ffmpeg_path(&self) -> Option<PathBuf> {
+        self.ffmpeg.clone()
+    }
+    fn ffprobe_path(&self) -> Option<PathBuf> {
+        self.ffprobe.clone()
+    }
+}
+
+fn fixed_media_tools(state: &AppState) -> Result<FixedMediaTools, ProjectError> {
+    let settings = state.settings_snapshot()?;
+    let (ffmpeg, ffprobe, _) = crate::commands::system::resolve_tools(&settings);
+    Ok(FixedMediaTools { ffmpeg, ffprobe })
+}
 
 /// Inspección completa de cualquier archivo que FFmpeg entienda.
 ///
@@ -25,9 +47,18 @@ pub async fn probe_any_file(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<MediaProbe, ProjectError> {
-    let tools = state.media_tools();
+    let tools = fixed_media_tools(state.inner())?;
     let runner = state.media_runner();
-    use_cases::probe_any_file(&tools, &runner, &path)
+    // AUD-129 (resto del dominio media): ffprobe puede tardar; el runner
+    // es una unidad sin lifetime y cruza spawn_blocking sin problema.
+    tauri::async_runtime::spawn_blocking(move || use_cases::probe_any_file(&tools, &runner, &path))
+        .await
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "la inspección del archivo se interrumpió antes de terminar",
+            )
+        })?
 }
 
 /// Resuelve las herramientas externas para otros módulos (capacidades).
@@ -63,7 +94,17 @@ pub async fn measure_vmaf(
     original: String,
     compressed: String,
 ) -> Result<Option<f64>, ProjectError> {
-    let tools = state.media_tools();
+    let tools = fixed_media_tools(state.inner())?;
     let runner = state.media_runner();
-    use_cases::measure_vmaf(&tools, &runner, &original, &compressed)
+    // VMAF es un encode completo de comparación; va a spawn_blocking.
+    tauri::async_runtime::spawn_blocking(move || {
+        use_cases::measure_vmaf(&tools, &runner, &original, &compressed)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la medición VMAF se interrumpió antes de terminar",
+        )
+    })?
 }

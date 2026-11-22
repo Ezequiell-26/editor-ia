@@ -53,6 +53,19 @@ pub fn safe_stem(name: &str) -> String {
 /// Nombre de archivo de variante: siempre termina en `.editoria.json` (o
 /// `.json` si el nombre ya declaraba la extensión del proyecto).
 pub fn variant_file_name(file_name: &str) -> String {
+    const SUFFIX: &str = ".editoria.json";
+    let trimmed = file_name.trim();
+    // Si el nombre ya declara la extensión del proyecto, sanear sólo el stem:
+    // pasarla entera por `safe_stem` convierte los puntos en guiones y el
+    // resultado queda "nombre-editoria-json.editoria.json".
+    if trimmed.len() > SUFFIX.len()
+        && trimmed[trimmed.len() - SUFFIX.len()..].eq_ignore_ascii_case(SUFFIX)
+    {
+        return format!(
+            "{}{SUFFIX}",
+            safe_stem(&trimmed[..trimmed.len() - SUFFIX.len()])
+        );
+    }
     let mut name = safe_stem(file_name);
     if name.ends_with(".editoria") {
         name.push_str(".json");
@@ -98,7 +111,11 @@ fn relative_asset_paths(project: &Value) -> Result<Vec<String>, ProjectError> {
 
 /// Copy only the missing media. Existing files must prove they are the same
 /// bytes — size alone can collide between two different assets (AUD-138).
-fn mirror_assets(project: &Value, old_root: &Path, new_root: &Path) -> Result<usize, ProjectError> {
+fn mirror_assets(
+    project: &Value,
+    old_root: &Path,
+    new_root: &Path,
+) -> Result<(usize, Vec<PathBuf>), ProjectError> {
     let old_root = old_root.canonicalize().map_err(|_| {
         ProjectError::message(
             ProjectErrorCode::NotFound,
@@ -107,15 +124,20 @@ fn mirror_assets(project: &Value, old_root: &Path, new_root: &Path) -> Result<us
     })?;
     // AUD-139: si una copia posterior falla, se revierten sólo los archivos
     // que esta operación creó — la carpeta de variantes no queda con
-    // medios huérfanos de una escritura abortada.
+    // medios huérfanos de una escritura abortada. La lista `created` se
+    // devuelve para que el caller también pueda revertir si la escritura
+    // del JSON falla después de copiar.
     let mut created: Vec<PathBuf> = Vec::new();
     let result = copy_missing_assets(project, &old_root, new_root, &mut created);
-    if result.is_err() {
-        for path in created.iter().rev() {
-            let _ = std::fs::remove_file(path);
+    match result {
+        Ok(copied) => Ok((copied, created)),
+        Err(error) => {
+            for path in created.iter().rev() {
+                let _ = std::fs::remove_file(path);
+            }
+            Err(error)
         }
     }
-    result
 }
 
 fn copy_missing_assets(
@@ -126,7 +148,7 @@ fn copy_missing_assets(
 ) -> Result<usize, ProjectError> {
     let mut copied = 0;
     for relative in relative_asset_paths(project)? {
-        let source = crate::media::resolve_inside_root(&old_root, &relative)?;
+        let source = crate::media::resolve_inside_root(old_root, &relative)?;
         if !source.is_file() {
             return Err(ProjectError::message(
                 ProjectErrorCode::NotFound,
@@ -240,13 +262,23 @@ pub fn write_project_variant_file(
             "ya existe una variante con ese nombre; no se sobrescribió",
         ));
     }
-    let copied_assets = mirror_assets(project, source_root, &new_root)?;
-    let saved = service::save_project(&target, project)?;
-    Ok(VariantWritten {
-        path: saved.path,
-        bytes: saved.bytes,
-        copied_assets,
-    })
+    let (copied_assets, created) = mirror_assets(project, source_root, &new_root)?;
+    // AUD-139 residual: si la escritura del JSON falla después de copiar,
+    // los medios recién creados se revierten — la transacción cubre ambas
+    // fases, no sólo la copia.
+    match service::save_project(&target, project) {
+        Ok(saved) => Ok(VariantWritten {
+            path: saved.path,
+            bytes: saved.bytes,
+            copied_assets,
+        }),
+        Err(error) => {
+            for path in created.iter().rev() {
+                let _ = std::fs::remove_file(path);
+            }
+            Err(error)
+        }
+    }
 }
 
 /// Copia material externo dentro de una carpeta de entrega.
@@ -254,7 +286,10 @@ pub fn write_project_variant_file(
 /// La cola por carpeta trabaja con archivos que no pertenecen a ningún
 /// proyecto. El render resuelve las rutas **dentro** de la raíz del proyecto,
 /// así que primero se copian a `media/` y el proyecto apunta a la ruta relativa.
-pub fn copy_media_files(directory: &str, paths: &[String]) -> Result<Vec<CopiedMedia>, ProjectError> {
+pub fn copy_media_files(
+    directory: &str,
+    paths: &[String],
+) -> Result<Vec<CopiedMedia>, ProjectError> {
     let root = prepare_directory(directory, "no se pudo crear la carpeta media de la entrega")?;
     let media = root.join("media");
     std::fs::create_dir_all(&media).map_err(|_| {

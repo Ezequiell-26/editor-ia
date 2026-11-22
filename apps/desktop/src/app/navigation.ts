@@ -27,6 +27,7 @@ export type ViewId =
   | 'sharpen'
   | 'thumbnails'
   | 'localization'
+  | 'teleprompter'
   | 'ai-hub'
   | 'motion'
   | 'visuals'
@@ -77,6 +78,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'sharpen', label: 'Definición', hint: 'Nitidez perceptual · Máscara de enfoque, curva S, grano y Lanczos 4K', group: 'herramientas' },
   { id: 'thumbnails', label: 'Miniaturas', hint: 'Creador de miniaturas · Diseñar carátulas para YouTube y redes', group: 'herramientas' },
   { id: 'localization', label: 'Localización', hint: 'Subtítulos y traducción · Traducir a 12 idiomas con exportación SRT/VTT', group: 'herramientas' },
+  { id: 'teleprompter', label: 'Teleprompter', hint: 'Teleprompter · Guion con scroll automático para narrar y locutar', group: 'herramientas' },
   { id: 'ai-hub', label: 'AI Hub', hint: 'Hub de IA · Prompts, briefs y operador local (comandos sin tokens)', group: 'herramientas' },
   { id: 'motion', label: 'Motion', hint: 'Motion graphics · Títulos, lower-thirds y cierres con render local', group: 'herramientas' },
   { id: 'visuals', label: 'Efectos', hint: 'Efectos y transiciones · Aplicar presets, ajustes y auditoría visual', group: 'herramientas' },

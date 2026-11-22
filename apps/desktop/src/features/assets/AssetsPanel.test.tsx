@@ -246,7 +246,15 @@ describe('AssetsPanel · limpieza de caché de proxies', () => {
     renderPanel([image('foto.png')]);
     // Un placeholder no es un nombre accesible para lectores de pantalla.
     expect(
-      screen.getByRole('searchbox', { name: /Buscar medios por nombre, etiqueta o bin/i }),
+      screen.getByRole('searchbox', { name: /Buscar en la biblioteca de medios/i }),
     ).toBeTruthy();
+    // Un solo buscador: el header duplicado se eliminó.
+    expect(screen.getAllByRole('searchbox')).toHaveLength(1);
+  });
+
+  it('no ofrece "Nueva carpeta" porque las carpetas no se pueden persistir vacías', () => {
+    renderPanel([image('foto.png')]);
+    expect(screen.queryByRole('button', { name: /Crear nueva carpeta/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Nueva carpeta/i })).toBeNull();
   });
 });

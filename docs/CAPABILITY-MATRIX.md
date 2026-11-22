@@ -40,10 +40,10 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 
 | Funcionalidad | Referencia | Estado | Evidencia / hueco |
 |---|---|---|---|
-| Catálogo de efectos con parámetros | gl-transitions, PixiJS filters | 🟡 | `packages/effect-kit` (17 tests) + `features/vfx`; cobertura amplia pero no todos los filtros GL |
+| Catálogo de efectos con parámetros | gl-transitions, PixiJS filters | 🟡 | `packages/effect-kit` (24 tests catálogo) + `features/vfx`; 74 FX video + 43 audio + 31 transiciones, recetas FFmpeg 9-nativas (`eq`→`lutyuv` vía `catalog/eq.ts`, sondas reales OK en las 3 vías: chain video, chain audio, graph); cobertura amplia pero no todos los filtros GL |
 | Chroma key / green screen | Estándar | ✅ | `vfx/ChromaPreview.test.ts`, `project-schema/audio-chroma` |
 | Color grading: wheels, curvas, HSL, LUT 3D, scopes | Resolve | ✅ | `color_lut.rs`, `filmcraft_scopes.rs`, inspector con subpestañas |
-| Máscaras / face mask | — | 🟡 | `vfx/face-mask.test.ts`, `face.rs` |
+| Máscaras / face mask | — | ✅ | `vfx/face-mask.test.ts`, `face.rs`, `state/face-mask.ts` + tool MCP `clip_mask_from_face` (track→máscara poligonal animada, agent-drivable); aproximación poligonal rígida, no contorno facial |
 | Picture in picture / transform / perspectiva | — | ✅ | `project-schema/perspective.test.ts`, PiP en screen_record |
 | Keyframes | AE | ✅ | `keyframe_add` MCP, `project-schema/motion`, keyframes por parámetro de efecto (◆ en EffectStudio) con export segmentado en FFmpeg |
 | Motion graphics / Lottie | lottie-web (MIT) | ✅ | `commands/lottie.rs`, `features/motion/LottiePanel` |
@@ -62,7 +62,7 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 | Diarización / separación hablantes | pyannote-audio | ✅ | `diarize.rs`, tool `diarize` |
 | TTS local (SAPI) + piper + clonación | — | ✅ | `narration.rs`, `piper.rs`, `voice_clone.rs` |
 | Doblaje / localización | — | ✅ | `dubbing.rs`, `localization.rs` |
-| EQ/compresor/limitador por clip | Tone.js | ✅ | Catálogo `effect-kit/catalog/audio.ts` (~12 FX: autopan, chorus, echo, flanger, phaser, slapback, tremolo, widen, bitcrush, crystal, 8bit, tape…) compilado a `-af` en `render/ffmpeg.rs`; UI `AudioEffectStack` + `EffectBrowser kind="audio"` |
+| EQ/compresor/limitador por clip | Tone.js | ✅ | Catálogo `effect-kit/catalog/audio.ts` (43 FX: autopan, chorus, echo, flanger, phaser, slapback, tremolo, widen, haas, reverb, bitcrush, crystal, 8bit, tape, megaphone, compressor, deesser, eq, tone bass/treble, gate, leveler, limiter, loudnorm EBU R128, speechnorm, afftdn, dialoguenhance, vibrato, softclip, stutter, reverse, dual_mono, swap…) compilado a `-af` en `render/ffmpeg.rs`; UI `AudioEffectStack` + `EffectBrowser kind="audio"` |
 
 ## 4. Transcripción y subtítulos
 
@@ -71,7 +71,7 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 | faster-whisper con detección honesta | faster-whisper, whisper.cpp | ✅ | `transcribe.rs`: sólo `EDITORIA_WHISPER_PYTHON` o python verificado con `import faster_whisper`; estado honesto en Ajustes |
 | Subtítulos SRT/ASS/VTT, estilos, animación, highlight | pysubs2 | ✅ | `subtitles.rs`, `captions`, `caption_style_update` MCP |
 | Subtítulos automáticos desde audio | — | ✅ | flujo transcribe→captions |
-| Traducción/subtítulos multilingües | — | 🟡 | `localization.rs` existe; `translate_subtitles` acepta 12 idiomas (es,en,zh,hi,ar,pt,bn,ru,fr,de,it,ja) y Descargar ya no ofrece destinos que el backend rechaza; cobertura no exhaustiva |
+| Traducción/subtítulos multilingües | — | ✅ | `translate_subtitles` acepta 37 idiomas (`language_name` en `ai/providers.rs`); doblaje SAPI y clonación siguen limitados a sus 17/16 whitelists propias |
 
 ## 5. IA y automatización
 
@@ -111,7 +111,7 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 4. **Escenas OBS**: **HECHO** — `commands/obs_scenes.rs`: presets persistentes (capture target, webcam, mic, RTMP, encoder) en `obs-scenes.json`, `obs_scene_start` delega en el motor real, `obs_scene_preview` captura un frame PNG real de la escena (ver fila de la matriz). Tool MCP `obs_scenes`. Transiciones entre escenas quedan pendientes.
 5. ~~**Scopes en preview nativo**~~ **HECHO** — la pestaña Scopes de la página de Color ahora tiene paridad con el monitor: renderiza el frame del clip gradeado con el mismo `visual_filter` del export (`render_preview_frame`, debounced 400 ms mientras la pestaña está activa) y habilita el análisis nativo FilmCraft (waveform, vectorscope, histograma RGB/Y) sobre ese archivo, además del muestreo canvas en vivo que ya existía. Sin frame disponible (servicio caído) el panel sigue midiendo el canvas.
 6. ~~**Subtítulos traducidos automáticos**~~ **HECHO (v1)** — `subtitles_pipeline.rs`: video → faster-whisper → traducción por proveedor (mock honesto `simulated:true`) → `.ass` con PlayRes real → burn-in FFmpeg con verificación. Tool MCP + servicio + 3 tests.
-7. **Transiciones OBS en vivo**: pendiente (filtergraph multi-inputo con timeline). ~~Preview de escena~~ **HECHO**: `obs_scene_preview`/`screen_record_snapshot`.
+7. **Transiciones OBS en vivo**: **PARCIAL (programada + switching por sesión)** — `obs_transition_record` (render finito A→B con `xfade`, 24 tipos, screen+webcam+chroma+cursor) y **`obs_switch_*` (sesión de switching en vivo)**: la escena activa se graba en segmentos MP4 sucesivos; `obs_switch_scene` cierra el segmento y abre otro con la escena nueva; `obs_switch_stop` cierra el último y re-codifica todos con `xfade`/`acrossfade` encadenados (`application/obs_switch.rs`) en un MP4 verificado con ffprobe. Audio por segmento (override de sesión o `audioDevice` de cada escena; silenciosos se rellenan con `anullsrc`). Cursor overlay por segmento (tracker + burn ASS al cerrar, regla escritorio-completo). **Streaming RTMP**: `obs_switch_start.streamUrl` hace que cada segmento escriba a archivo y al RTMP en el mismo proceso ffmpeg (segunda salida `-f flv`); cada cambio de escena renegocia la conexión (gap breve) y el stderr se redacta con la clave (AUD-098). Slot `RECORDING` compartido: un start/stop/transition concurrente se rechaza; `screen_record_stop` rechaza sesiones de switching. Tool MCP `obs_scenes` actions `switch_start`/`switch_scene`/`switch_stop`/`switch_status`. Pendiente honesto: conexión RTMP persistente sin renegociar por escena (mixer propio). ~~Preview de escena~~ **HECHO**: `obs_scene_preview`/`screen_record_snapshot`; ~~preview del programa en vivo~~ **HECHO**: `obs_switch_preview` (frame PNG de la escena activa de la sesión). Encoder por hardware disponible en segmentos y cosido vía `obs_switch_start.encoder` (x264/nvenc/qsv/amf/mf, mismo set que `screen_record_start`).
 8. ~~**Editor visual del rig stickman**~~ **HECHO (2026-11-11)**: `StickmanRigEditor` en la acción `custom` — preview SVG con FK idéntica a Rust (`stickman-rig.ts`), sliders por los 11 huesos editables (grados + `pelvis_dy` en px), captura/carga/borrado de keyframes por frame y scrub de la pose interpolada. La tool MCP `stickman_render` ahora pasa los campos de pose (antes los descartaba). **Física 2D** de cuerpos rígidos: pendiente.
 9. ~~**Grafos de nodos dentro del `.olyp`**~~ **HECHO** — `features/nodes/graph-store.ts`: los grafos se guardan en `x-nodeGraphs` del documento del proyecto (namespace `x-`, compatible con el validador Zod, el de Rust y versiones anteriores); «Guardar» hace upsert por nombre + `saveNow`, la vista restaura el último del documento y conserva el fallback legado `graphs/*.json`. Selector de grafos guardados + nombre editable. 7 tests (`graph-store.test.ts`, incluido el contrato `parseProject`).
 

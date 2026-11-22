@@ -68,7 +68,10 @@ fn model_download_lock(id: &str) -> Arc<tokio::sync::Mutex<()>> {
 #[tauri::command]
 pub fn list_models(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, ProjectError> {
     let snapshot = &*state;
-    Ok(MODELS.iter().map(|spec| model_info(snapshot, spec)).collect())
+    Ok(MODELS
+        .iter()
+        .map(|spec| model_info(snapshot, spec))
+        .collect())
 }
 
 /// Descarga los archivos que falten del modelo, con progreso y verificación.

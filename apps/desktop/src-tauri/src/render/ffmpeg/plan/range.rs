@@ -234,7 +234,10 @@ pub(crate) fn build_plan_range(
     let mut audio_filters: Vec<String> = Vec::new();
     let mut audio_track_ids: Vec<String> = Vec::new();
 
-    let mut probed_audio: HashMap<String, bool> = HashMap::new();
+    // Cache de `probe_audio_stream` por ruta real del input: `Some` = hay
+    // pista de audio, el Option interno son los canales (`None` = ffprobe
+    // no reportó `channels`). Cubre assets viejos sin `media.channels`.
+    let mut probed_audio: HashMap<String, Option<Option<u32>>> = HashMap::new();
     for clip in visual_clips {
         let kind = text(clip, "kind").unwrap_or("video");
         let track_id = text(clip, "trackId").unwrap_or("");
@@ -382,10 +385,12 @@ pub(crate) fn build_plan_range(
         // ya generó el stem, su audio reemplaza al del material. El stem es el
         // wav del archivo completo, así que se le aplica la misma ventana
         // -ss/-t que al input de video para alinear el in-point del clip.
+        let mut stem_audio_path: Option<std::path::PathBuf> = None;
         let stem_index =
             if !is_image && clip["audio"]["voiceIsolation"]["enabled"].as_bool() == Some(true) {
                 let stem = isolation_stem_path(input.root, asset_id);
                 if stem.is_file() {
+                    stem_audio_path = Some(stem.clone());
                     let in_seconds =
                         clip["source"]["inFrame"].as_u64().unwrap_or(0) as f64 / project_fps;
                     let ratio = speed_num as f64 / speed_den as f64;
@@ -616,14 +621,21 @@ pub(crate) fn build_plan_range(
         }
         base_label = next_label;
 
+        // Canales del input de audio real: el stem si el clip aísla voz,
+        // si no la fuente. Se prefieren los medidos por ffprobe sobre el
+        // `media.channels` del asset (que puede faltar en imports viejos).
+        let mut source_channels: Option<u32> = None;
         let has_audio = if is_image {
             false
         } else {
-            stem_index.is_some()
-                || *probed_audio
-                    .entry(asset_id.to_owned())
-                    .or_insert_with(|| has_audio_stream(input.ffprobe, &path))
+            let probe = audio_probe_cached(&mut probed_audio, input.ffprobe, &path);
+            source_channels = probe.flatten();
+            stem_index.is_some() || probe.is_some()
         };
+        if let Some(stem) = &stem_audio_path {
+            let probe = audio_probe_cached(&mut probed_audio, input.ffprobe, stem);
+            source_channels = probe.flatten().or(source_channels);
+        }
         if has_audio
             && !muted
             && (!any_solo || track_solo || clip["audio"]["solo"].as_bool().unwrap_or(false))
@@ -645,6 +657,11 @@ pub(crate) fn build_plan_range(
                 track_gain,
                 &track,
                 &clip["effects"],
+                source_channels.or_else(|| {
+                    asset["media"]["channels"]
+                        .as_u64()
+                        .map(|channels| channels.min(u32::MAX as u64) as u32)
+                }),
             );
             filters.push(chain.clone());
             audio_filters.push(chain);
@@ -798,6 +815,10 @@ pub(crate) fn build_plan_range(
         inputs += 1;
         let (track_gain, _) = track_mix.get(track_id).copied().unwrap_or((0.0, false));
         let track = track_by_id.get(track_id).cloned().unwrap_or(Value::Null);
+        // `audio_path` ya es el input real (stem si aísla voz): el probe
+        // mide sus canales directamente, con `media.channels` de respaldo.
+        let probed_channels = audio_probe_cached(&mut probed_audio, input.ffprobe, &audio_path)
+            .flatten();
         let chain = audio_filter(
             index,
             profile,
@@ -812,6 +833,11 @@ pub(crate) fn build_plan_range(
             track_gain,
             &track,
             &clip["effects"],
+            probed_channels.or_else(|| {
+                asset["media"]["channels"]
+                    .as_u64()
+                    .map(|channels| channels.min(u32::MAX as u64) as u32)
+            }),
         );
         filters.push(chain.clone());
         audio_filters.push(chain);
@@ -998,6 +1024,8 @@ pub(crate) fn build_plan_range(
             width: profile.width,
             height: profile.height,
             fps: profile.fps(),
+            audio_sample_rate: profile.audio_rate,
+            audio_channels: profile.audio_channels,
             profile_name: profile.name.clone(),
         });
     }
@@ -1197,6 +1225,21 @@ pub(crate) fn build_plan_range(
         width: profile.width,
         height: profile.height,
         fps: profile.fps(),
+        audio_sample_rate: audio_rate,
+        audio_channels: profile.audio_channels,
         profile_name: profile.name.clone(),
     })
+}
+
+/// `probe_audio_stream` con cache por ruta del input ( stems y fuentes se
+/// comparten entre clips). Devuelve `Some` = hay audio; el Option interno
+/// son los canales medidos.
+fn audio_probe_cached(
+    cache: &mut HashMap<String, Option<Option<u32>>>,
+    ffprobe: &std::path::Path,
+    path: &std::path::Path,
+) -> Option<Option<u32>> {
+    *cache
+        .entry(path.to_string_lossy().into_owned())
+        .or_insert_with(|| probe_audio_stream(ffprobe, path))
 }

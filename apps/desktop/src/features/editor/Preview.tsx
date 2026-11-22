@@ -75,6 +75,7 @@ import {
   clipIsReversed,
   clipPreviewRateAtLocal,
   clipSourceFrameAtLocal,
+  clipStabilizationPreviewProxy,
   type SpeedCurveMode,
 } from '../../state/clip-source-time';
 import { useReversedClipAudio } from './useReversedClipAudio';
@@ -188,12 +189,44 @@ function maskPolygon(
   centerY: number,
   radiusX: number,
   radiusY: number,
+  aspect = 1,
 ): Array<readonly [number, number]> {
   if (mask.shape === 'polygon' || mask.shape === 'freehand') {
-    return (mask.points ?? []).map((point) => [
-      point.x * 100 + mask.x * 100,
-      point.y * 100 + mask.y * 100,
-    ]);
+    const points = mask.points ?? [];
+    // Paridad con `masks.rs`: width/height escalan el polígono alrededor
+    // del centro de su bounding box (1 = identidad) antes de aplicar el
+    // offset x/y — así una máscara de tracking facial crece con el sujeto.
+    // Con escala 1 se conserva la forma corta `p*100 + offset*100` (evita
+    // errores de punto flotante en el string del clip-path).
+    const scaleX = mask.width ?? 1;
+    const scaleY = mask.height ?? 1;
+    if (scaleX === 1 && scaleY === 1 && !mask.rotationDeg) {
+      return points.map((point) => [
+        point.x * 100 + mask.x * 100,
+        point.y * 100 + mask.y * 100,
+      ]);
+    }
+    const xs = points.map((point) => point.x);
+    const ys = points.map((point) => point.y);
+    const pivotX = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const pivotY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    // Rotación horaria (convención CSS/SVG/NLE) sobre el punto ya escalado,
+    // con corrección de aspecto igual que `masks.rs`: dy (fracción del alto)
+    // se pasa a unidades x dividiendo por `aspect` (ancho/alto) y se vuelve
+    // a multiplicar al proyectar de nuevo a y.
+    const radians = ((mask.rotationDeg ?? 0) * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const safeAspect = aspect > 0.01 ? aspect : 1;
+    return points.map((point) => {
+      const dx = (point.x - pivotX) * scaleX;
+      const dy = (point.y - pivotY) * scaleY;
+      const dyx = dy / safeAspect;
+      return [
+        (pivotX + cos * dx - sin * dyx + mask.x) * 100,
+        (pivotY + (sin * dx + cos * dyx) * safeAspect + mask.y) * 100,
+      ];
+    });
   }
   if (mask.shape === 'diamond') {
     return [
@@ -242,7 +275,7 @@ function maskPolygon(
   return [];
 }
 
-export function maskClipPath(mask: ClipMask): string {
+export function maskClipPath(mask: ClipMask, aspect = 1): string {
   const clamp = (value: number): number => Math.max(0, Math.min(100, value));
   if (mask.shape === 'text') {
     // CSS no puede recortar por glifos sin duplicar la fuente; la máscara real
@@ -283,6 +316,7 @@ export function maskClipPath(mask: ClipMask): string {
     centerY,
     radiusX,
     radiusY,
+    aspect,
   )
     .map(([x, y]) => `${clamp(x)}% ${clamp(y)}%`)
     .join(', ');
@@ -294,7 +328,7 @@ export function maskClipPath(mask: ClipMask): string {
  * preview matches the per-pixel `geq` mask of the renderer. Unrotated,
  * non-inverted masks keep the cheaper clip-path.
  */
-function maskImage(mask: ClipMask): string | undefined {
+function maskImage(mask: ClipMask, aspect = 1): string | undefined {
   const pointMask = mask.shape === 'polygon' || mask.shape === 'freehand';
   const rotation = pointMask ? 0 : (mask.rotationDeg ?? 0);
   // Sin feather, rotación ni inversión alcanza el clip-path barato. Con
@@ -331,6 +365,7 @@ function maskImage(mask: ClipMask): string | undefined {
             centerY,
             radiusX,
             radiusY,
+            aspect,
           )
             .map(([x, y]) => `${x},${y}`)
             .join(' ')}" fill="${fill}" transform="${transform}" filter="url(#soft)"/>`;
@@ -567,7 +602,8 @@ function transformStyle(
         )
       : {};
   const effectiveMask = mask ? { ...mask, ...sampledMask } : undefined;
-  const image = effectiveMask ? maskImage(effectiveMask) : undefined;
+  const maskAspect = project.video.width / Math.max(1, project.video.height);
+  const image = effectiveMask ? maskImage(effectiveMask, maskAspect) : undefined;
   const perspective =
     transform?.perspective && viewport
       ? perspectiveMatrix3d(transform.perspective.corners, viewport)
@@ -589,7 +625,7 @@ function transformStyle(
             maskRepeat: 'no-repeat',
             WebkitMaskRepeat: 'no-repeat',
           }
-        : { clipPath: maskClipPath(effectiveMask) }
+        : { clipPath: maskClipPath(effectiveMask, maskAspect) }
       : {}),
   };
 }
@@ -788,8 +824,56 @@ export function clipPreviewStack(
 ): EffectStack | null {
   const effects = auditionedEffects(clip, audition);
   const stack = effects?.stack;
-  if (!stack || stack.length === 0) return null;
-  return stack as EffectStack;
+  const lens = effects?.lensCorrection;
+  const motionBlur = effects?.motionBlur;
+  const denoise = effects?.denoise;
+  const hasLens = lens !== undefined && (lens.k1 !== 0 || lens.k2 !== 0);
+  const hasTemporal = motionBlur !== undefined && motionBlur.frames >= 2;
+  const hasDenoise = denoise !== undefined && denoise > 0.001;
+  if ((!stack || stack.length === 0) && !hasLens && !hasTemporal && !hasDenoise) return null;
+  // denoise.temporal va PRIMERO: promedia el fuente crudo actual con el frame
+  // fuente anterior sólo en zonas estáticas (componente temporal de hqdn3d;
+  // la espacial la aproxima el blur CSS). blur.temporal después mezcla el
+  // resultado con el previo — mismo orden que hqdn3d→tmix→stack del export.
+  // Si hay LUTs activas el frame previo entra sin graduar (aproximación
+  // documentada en los manifiestos).
+  const instances = [
+    ...(hasDenoise && denoise !== undefined
+      ? [{
+          id: 'denoise.temporal-' + clip.id,
+          effectId: 'denoise.temporal',
+          enabled: true,
+          params: { strength: Math.min(1, denoise), tolerance: 0.35 },
+        }]
+      : []),
+    ...(hasTemporal && motionBlur
+      ? [{
+          id: 'blur.temporal-' + clip.id,
+          effectId: 'blur.temporal',
+          enabled: true,
+          params: { frames: motionBlur.frames, intensity: motionBlur.intensity },
+        }]
+      : []),
+    ...(stack ?? []),
+  ];
+  if (hasLens && lens) {
+    // effects.lensCorrection no es una instancia del stack: el export lo aplica
+    // con lenscorrection en la cadena del clip. Se sintetiza una instancia
+    // lens.correct al final para que la preview WebGL muestre el mismo warp
+    // radial (aproximación documentada en el manifiesto).
+    instances.push({
+      id: 'lens.correct-' + clip.id,
+      effectId: 'lens.correct',
+      enabled: true,
+      params: {
+        k1: lens.k1,
+        k2: lens.k2,
+        cx: lens.cx ?? 0.5,
+        cy: lens.cy ?? 0.5,
+      },
+    });
+  }
+  return instances as EffectStack;
 }
 
 function effectsStyle(clip: Clip, audition: LookAudition | null = null): CSSProperties {
@@ -864,12 +948,17 @@ function VideoLayer({
   // Proxy listo verificado por el backend aunque aún no esté aplicado al
   // proyecto (`applyProxyToAsset`): sólo lo usa el modo automático.
   const readyProxyPath = asset ? proxyPlaybackPath(getProxyStatus(asset.id)) : null;
+  // Proxy de estabilización horneado (`vidstabtransform`, el mismo filtro del
+  // export): cuando aplica es la fuente de verdad visual, no una aproximación
+  // — no pasa por la telemetría original/proxy.
+  const stabProxy = clipStabilizationPreviewProxy(clip);
   const mediaPath = asset
-    ? telemetry.auto
-      ? telemetry.quality === 'full'
-        ? asset.source.path
-        : (proxy?.path ?? readyProxyPath ?? asset.source.path)
-      : (proxy?.path ?? asset.source.path)
+    ? stabProxy ??
+      (telemetry.auto
+        ? telemetry.quality === 'full'
+          ? asset.source.path
+          : (proxy?.path ?? readyProxyPath ?? asset.source.path)
+        : (proxy?.path ?? asset.source.path))
     : '';
   const url = asset ? store.service.mediaUrl(root, mediaPath) : '';
   useEffect(() => {
@@ -953,7 +1042,15 @@ function VideoLayer({
   const sourceFrame = clipSourceFrameAtLocal(clip, localFrame, {
     speedCurve: speedCurveMode,
   });
-  const sourceSeconds = sourceFrame !== null ? Math.max(0, sourceFrame) / fps : 0;
+  // Con proxy de estabilización el medio empieza en `inFrame` del fuente
+  // (el bake cubre exactamente esa ventana): el currentTime del elemento es
+  // `sourceFrame - inFrame`. Sin proxy el offset es 0 como siempre.
+  const stabInFrame =
+    stabProxy !== undefined && clip.kind === 'video' && 'inFrame' in clip.source
+      ? clip.source.inFrame
+      : 0;
+  const sourceSeconds =
+    sourceFrame !== null ? Math.max(0, sourceFrame - stabInFrame) / fps : 0;
   const fxFrame = Math.max(0, Math.min(clip.durationFrames - 1, localFrame + leadFrames));
   const clipGainDb = clipGainAtFrame(clip, fxFrame);
   // Filtros de voz del clip (HP/LP/EQ/denoise/de-esser/puerta/compresor/
@@ -3095,6 +3192,30 @@ export const Preview = memo(function Preview() {
                 : 'Movés el playhead o agregás un clip visual en este punto.'}
             </span>
           </div>
+        ) : null}
+        {!playing ? (
+          <button
+            type="button"
+            className="preview-start"
+            aria-label="Start · reproducir video"
+            title={
+              visualClips.length > 0
+                ? 'Reproducir el resultado de la edición (Espacio)'
+                : 'Pedile a Olyvia que importe material para tener qué reproducir'
+            }
+            onClick={() => {
+              if (visualClips.length === 0) {
+                store.setNotice(
+                  'Todavía no hay clips: pedile a Olyvia que importe material o cree el video.',
+                );
+                return;
+              }
+              store.setPlaying(true);
+            }}
+          >
+            <Icon name="play" size={26} />
+            <span>Start</span>
+          </button>
         ) : null}
         <MediaSpyOverlay />
       </div>

@@ -162,132 +162,144 @@ pub async fn denoise_media(
             "ffmpeg no está disponible para reducir ruido",
         ));
     };
-    let (duration, width, height, fps) = probe_media(ffprobe.as_deref(), &input_path);
+    // AUD-129 (resto del dominio media): probe + encode completo + publish
+    // pueden tardar minutos; todo va a spawn_blocking.
+    let ffprobe_path = ffprobe.clone();
+    let ffmpeg_path = ffmpeg.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (duration, width, height, fps) = probe_media(ffprobe_path.as_deref(), &input_path);
 
-    let mut command = Command::new(&ffmpeg);
-    command
-        .arg("-hide_banner")
-        .arg("-y")
-        .arg("-i")
-        .arg(&input_path);
-    command.arg("-vf").arg(&filter);
-    match mode {
-        DenoiseMode::Video => {
-            // El FFmpeg empaquetado no tiene libx264: se elige el primer encoder
-            // H.264 que realmente funcione (NVENC, AMF, QSV u OpenH264).
-            let encoder = crate::commands::sharpen::resolve_encoder(&ffmpeg)?;
-            command.args(["-map", "0:v:0", "-map", "0:a?"]);
-            command.args(crate::commands::sharpen::video_codec_args(
-                &encoder,
-                18,
-                width.unwrap_or(1920),
-                height.unwrap_or(1080),
-                fps.unwrap_or(30.0),
-            ));
-            command.args(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
+        let mut command = Command::new(&ffmpeg_path);
+        command
+            .arg("-hide_banner")
+            .arg("-y")
+            .arg("-i")
+            .arg(&input_path);
+        command.arg("-vf").arg(&filter);
+        match mode {
+            DenoiseMode::Video => {
+                // El FFmpeg empaquetado no tiene libx264: se elige el primer encoder
+                // H.264 que realmente funcione (NVENC, AMF, QSV u OpenH264).
+                let encoder = crate::commands::sharpen::resolve_encoder(&ffmpeg_path)?;
+                command.args(["-map", "0:v:0", "-map", "0:a?"]);
+                command.args(crate::commands::sharpen::video_codec_args(
+                    &encoder,
+                    18,
+                    width.unwrap_or(1920),
+                    height.unwrap_or(1080),
+                    fps.unwrap_or(30.0),
+                ));
+                command.args(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
+            }
+            DenoiseMode::Image => {
+                command.args(["-frames:v", "1", "-update", "1"]);
+            }
         }
-        DenoiseMode::Image => {
-            command.args(["-frames:v", "1", "-update", "1"]);
-        }
-    }
-    command.args(["-progress", "pipe:1", "-nostats"]);
-    command.arg(&temp_path);
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    hide_console(&mut command);
+        command.args(["-progress", "pipe:1", "-nostats"]);
+        command.arg(&temp_path);
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        hide_console(&mut command);
 
-    let mut child = command.spawn().map_err(|error| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo iniciar FFmpeg para denoise: {error}").as_str(),
-        )
-    })?;
-    let stdout = child.stdout.take().ok_or_else(|| {
-        ProjectError::message(ProjectErrorCode::Io, "FFmpeg no expuso el progreso")
-    })?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| ProjectError::message(ProjectErrorCode::Io, "FFmpeg no expuso el log"))?;
+        let mut child = command.spawn().map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo iniciar FFmpeg para denoise: {error}").as_str(),
+            )
+        })?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            ProjectError::message(ProjectErrorCode::Io, "FFmpeg no expuso el progreso")
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            ProjectError::message(ProjectErrorCode::Io, "FFmpeg no expuso el log")
+        })?;
 
-    let stderr_handle = thread::spawn(move || {
-        let mut text = String::new();
-        let _ = BufReader::new(stderr)
-            .take(64 * 1024)
-            .read_to_string(&mut text);
-        text
-    });
+        let stderr_handle = thread::spawn(move || {
+            let mut text = String::new();
+            let _ = BufReader::new(stderr)
+                .take(64 * 1024)
+                .read_to_string(&mut text);
+            text
+        });
 
-    let total_seconds = duration.unwrap_or(0.0);
-    let emitter = app.clone();
-    let progress_handle = thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines().map_while(Result::ok) {
-            if let Some(value) = line.strip_prefix("out_time_us=") {
-                if let Ok(microseconds) = value.trim().parse::<f64>() {
-                    if total_seconds > 0.0 {
-                        let percent = (microseconds / (total_seconds * 1_000_000.0) * 100.0)
-                            .clamp(0.0, 100.0);
-                        let _ = emitter.emit(
-                            "denoise-progress",
-                            serde_json::json!({ "percent": percent }),
-                        );
+        let total_seconds = duration.unwrap_or(0.0);
+        let emitter = app.clone();
+        let progress_handle = thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().map_while(Result::ok) {
+                if let Some(value) = line.strip_prefix("out_time_us=") {
+                    if let Ok(microseconds) = value.trim().parse::<f64>() {
+                        if total_seconds > 0.0 {
+                            let percent = (microseconds / (total_seconds * 1_000_000.0) * 100.0)
+                                .clamp(0.0, 100.0);
+                            let _ = emitter.emit(
+                                "denoise-progress",
+                                serde_json::json!({ "percent": percent }),
+                            );
+                        }
                     }
                 }
             }
-        }
-    });
+        });
 
-    let status = child.wait().map_err(|error| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("FFmpeg de denoise no terminó: {error}").as_str(),
-        )
-    })?;
-    let _ = progress_handle.join();
-    let stderr_text = stderr_handle.join().unwrap_or_default();
-    if !status.success() {
-        let _ = std::fs::remove_file(&temp_path);
-        let sanitized = sanitize_log(&stderr_text, &output_dir, 24);
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            format!("el denoise falló: {sanitized}").as_str(),
-        ));
-    }
-    if std::fs::metadata(&temp_path)
-        .map(|meta| meta.len())
-        .unwrap_or(0)
-        == 0
-    {
-        let _ = std::fs::remove_file(&temp_path);
-        return Err(ProjectError::message(
-            ProjectErrorCode::Io,
-            "FFmpeg no produjo un archivo de denoise válido",
-        ));
-    }
-    std::fs::rename(&temp_path, &final_path).map_err(|error| {
-        let _ = std::fs::remove_file(&temp_path);
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo publicar el archivo de denoise: {error}").as_str(),
-        )
-    })?;
-    let bytes = std::fs::metadata(&final_path)
-        .map(|meta| meta.len())
-        .unwrap_or(0);
-    let (output_duration, width, height, _) = probe_media(ffprobe.as_deref(), &final_path);
-    let _ = app.emit("denoise-progress", serde_json::json!({ "percent": 100.0 }));
-    Ok(DenoiseResult {
-        path: final_path.to_string_lossy().into_owned(),
-        bytes,
-        source_bytes,
-        filter,
-        width,
-        height,
-        duration_seconds: output_duration.or(duration),
+        let status = child.wait().map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("FFmpeg de denoise no terminó: {error}").as_str(),
+            )
+        })?;
+        let _ = progress_handle.join();
+        let stderr_text = stderr_handle.join().unwrap_or_default();
+        if !status.success() {
+            let _ = std::fs::remove_file(&temp_path);
+            let sanitized = sanitize_log(&stderr_text, &output_dir, 24);
+            return Err(ProjectError::message(
+                ProjectErrorCode::ProviderUnavailable,
+                format!("el denoise falló: {sanitized}").as_str(),
+            ));
+        }
+        if std::fs::metadata(&temp_path)
+            .map(|meta| meta.len())
+            .unwrap_or(0)
+            == 0
+        {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(ProjectError::message(
+                ProjectErrorCode::Io,
+                "FFmpeg no produjo un archivo de denoise válido",
+            ));
+        }
+        std::fs::rename(&temp_path, &final_path).map_err(|error| {
+            let _ = std::fs::remove_file(&temp_path);
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo publicar el archivo de denoise: {error}").as_str(),
+            )
+        })?;
+        let bytes = std::fs::metadata(&final_path)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        let (output_duration, width, height, _) = probe_media(ffprobe_path.as_deref(), &final_path);
+        let _ = app.emit("denoise-progress", serde_json::json!({ "percent": 100.0 }));
+        Ok(DenoiseResult {
+            path: final_path.to_string_lossy().into_owned(),
+            bytes,
+            source_bytes,
+            filter,
+            width,
+            height,
+            duration_seconds: output_duration.or(duration),
+        })
     })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "el denoise se interrumpió antes de terminar",
+        )
+    })?
 }
 
 #[cfg(test)]

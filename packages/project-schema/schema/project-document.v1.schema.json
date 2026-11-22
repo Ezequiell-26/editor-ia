@@ -1640,6 +1640,11 @@
                   "frameRate": {
                     "$ref": "#/properties/video/properties/frameRate"
                   },
+                  "channels": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8
+                  },
                   "alpha": {
                     "type": "boolean"
                   }
@@ -1767,9 +1772,7 @@
                     "maximum": 192000
                   },
                   "channels": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 8
+                    "$ref": "#/properties/assets/items/anyOf/0/properties/media/properties/channels"
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
@@ -2736,6 +2739,11 @@
                       },
                       "outFrame": {
                         "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
+                      },
+                      "previewProxy": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
                       }
                     },
                     "required": [

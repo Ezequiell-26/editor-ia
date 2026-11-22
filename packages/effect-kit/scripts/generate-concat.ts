@@ -230,16 +230,16 @@ function parseArray(text: string): TomlArray {
 interface ConcatParam {
   readonly key: string;
   readonly label: string;
-  readonly group?: string;
+  readonly group?: string | undefined;
   readonly type: string;
   readonly min: number;
   readonly max: number;
   readonly default: number;
   readonly step: number;
-  readonly unit?: string;
+  readonly unit?: string | undefined;
   readonly animate: boolean;
-  readonly values?: readonly number[];
-  readonly labels?: readonly string[];
+  readonly values?: readonly number[] | undefined;
+  readonly labels?: readonly string[] | undefined;
 }
 
 interface ConcatPackage {
@@ -251,11 +251,11 @@ interface ConcatPackage {
   readonly order: number;
   readonly aliases: readonly string[];
   readonly params: readonly ConcatParam[];
-  readonly ffmpegChain?: string;
+  readonly ffmpegChain?: string | undefined;
   readonly ffmpegLets: readonly string[];
   readonly hasWgsl: boolean;
   readonly hasTransition: boolean;
-  readonly xfade?: string;
+  readonly xfade?: string | undefined;
 }
 
 function asRecord(value: unknown): TomlTable {

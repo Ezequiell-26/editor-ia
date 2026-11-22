@@ -274,7 +274,17 @@ fn stream_download(
     max_bytes: u64,
     mut on_chunk: impl FnMut(&[u8]) -> Result<(), ProjectError>,
 ) -> Result<(), ProjectError> {
-    let response = reqwest::blocking::Client::new()
+    // AUD-032: las URLs del catálogo son fijas, pero los redirects que
+    // siguen (GitHub → CDN, S3) se revalidan igual que en el downloader.
+    let response = reqwest::blocking::Client::builder()
+        .redirect(crate::application::net_guard::ssrf_redirect_policy())
+        .build()
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::ProviderUnavailable,
+                "no se pudo preparar la descarga del modelo",
+            )
+        })?
         .get(url)
         .timeout(std::time::Duration::from_secs(1800))
         .send()
@@ -385,6 +395,7 @@ pub fn archive_byte_cap(files: &[ModelFileSpec], base_url: &str) -> u64 {
 /// SHA-256 y los bytes, y recién entonces lo mueve a su ruta final.
 /// `archive_cap` es el tope de la descarga del ZIP (ver `archive_byte_cap`).
 /// Cualquier error borra el `.partial` (AUD-088).
+#[allow(clippy::too_many_arguments)]
 pub fn download_file_verified(
     file: &ModelFileSpec,
     target: &Path,
@@ -518,7 +529,7 @@ fn download_file_verified_inner(
             .as_str(),
         ));
     }
-    std::fs::rename(&partial, target).map_err(|_| {
+    std::fs::rename(partial, target).map_err(|_| {
         ProjectError::message(ProjectErrorCode::Io, "no se pudo instalar el modelo")
     })?;
     Ok(())

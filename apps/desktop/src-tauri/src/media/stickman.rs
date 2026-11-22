@@ -70,8 +70,10 @@ impl Pose {
     }
 }
 
-/// Emisor de partículas procedural: `kind` = confetti | snow | sparks | bounce.
-/// `gravity` (px/s²) y `bounce` (restitución 0..1) aplican a `bounce`.
+/// Emisor de partículas procedural: `kind` = confetti | snow | sparks |
+/// bounce | tumble. `gravity` (px/s²) y `bounce` (restitución 0..1)
+/// aplican a `bounce` y `tumble`; `spin` escala la velocidad angular de
+/// `tumble`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParticleSpec {
@@ -85,6 +87,8 @@ pub struct ParticleSpec {
     pub gravity: Option<f64>,
     #[serde(default)]
     pub bounce: Option<f64>,
+    #[serde(default)]
+    pub spin: Option<f64>,
 }
 
 fn default_particle_kind() -> String {
@@ -95,7 +99,7 @@ fn default_particle_count() -> u32 {
 }
 
 pub const ACTIONS: &[&str] = &["idle", "walk", "run", "wave", "jump"];
-pub const PARTICLE_KINDS: &[&str] = &["confetti", "snow", "sparks", "bounce"];
+pub const PARTICLE_KINDS: &[&str] = &["confetti", "snow", "sparks", "bounce", "tumble"];
 
 pub fn parse_hex(hex: &str, fallback: [u8; 3]) -> [u8; 3] {
     let clean = hex.trim().trim_start_matches('#');
@@ -167,7 +171,7 @@ pub fn plan_stickman_render(
         if !PARTICLE_KINDS.contains(&spec.kind.as_str()) {
             return Err(ProjectError::message(
                 ProjectErrorCode::InvalidProject,
-                "particles.kind debe ser confetti, snow, sparks o bounce",
+                "particles.kind debe ser confetti, snow, sparks, bounce o tumble",
             ));
         }
         if let Some(g) = spec.gravity {
@@ -183,6 +187,14 @@ pub fn plan_stickman_render(
                 return Err(ProjectError::message(
                     ProjectErrorCode::InvalidProject,
                     "particles.bounce debe estar entre 0 y 1",
+                ));
+            }
+        }
+        if let Some(s) = spec.spin {
+            if !(s.is_finite() && (-8.0..=8.0).contains(&s)) {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    "particles.spin debe estar entre -8 y 8",
                 ));
             }
         }
@@ -222,11 +234,11 @@ include!("stickman/render.rs");
 include!("stickman/particles.rs");
 
 #[cfg(test)]
-#[path = "stickman.tests.rs"]
-mod tests;
-#[cfg(test)]
 #[path = "stickman.particles.tests.rs"]
 mod particle_tests;
+#[cfg(test)]
+#[path = "stickman.tests.rs"]
+mod tests;
 
 #[cfg(test)]
 mod plan_tests {
@@ -290,6 +302,7 @@ mod plan_tests {
             color_hex: None,
             gravity: None,
             bounce: None,
+            spin: None,
         };
         assert!(plan("idle", "out.mp4", Some(&bad_kind)).is_err());
         let bad_gravity = ParticleSpec {
@@ -298,6 +311,7 @@ mod plan_tests {
             color_hex: None,
             gravity: Some(-1.0),
             bounce: None,
+            spin: None,
         };
         assert!(plan("idle", "out.mp4", Some(&bad_gravity)).is_err());
         let bad_bounce = ParticleSpec {
@@ -306,6 +320,7 @@ mod plan_tests {
             color_hex: None,
             gravity: None,
             bounce: Some(1.5),
+            spin: None,
         };
         assert!(plan("idle", "out.mp4", Some(&bad_bounce)).is_err());
     }
@@ -313,8 +328,18 @@ mod plan_tests {
     #[test]
     fn hex_colors_parse_with_fallback() {
         let p = plan_stickman_render(
-            "idle", false, 0, 0, None, 24, 640, 360, 4.0, "out.mp4",
-            Some("#FF8800"), Some("zzz"),
+            "idle",
+            false,
+            0,
+            0,
+            None,
+            24,
+            640,
+            360,
+            4.0,
+            "out.mp4",
+            Some("#FF8800"),
+            Some("zzz"),
         )
         .unwrap();
         assert_eq!(p.bone, [255, 136, 0]);

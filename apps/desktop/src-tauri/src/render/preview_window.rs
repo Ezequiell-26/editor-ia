@@ -588,7 +588,10 @@ pub(crate) fn window_project(project: &Value, frame: u64) -> Result<Value, Proje
                     "slide-up" if remaining > 0.0005 => Some(serde_json::json!({
                         "x": 0.0, "y": frame_height * remaining
                     })),
-                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris" | "blinds" | "clock-wipe" | "ink" | "bolhas" | "colmeia" | "chuva" | "vento" | "triangulos" | "persiana" | "reflexo" | "barrido-diagonal")
+                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris"
+                    | "blinds" | "clock-wipe" | "ink" | "bolhas" | "colmeia" | "chuva"
+                    | "vento" | "triangulos" | "persiana" | "reflexo"
+                    | "barrido-diagonal")
                         if remaining > 0.0005 =>
                     {
                         Some(serde_json::json!({
@@ -620,7 +623,9 @@ pub(crate) fn window_project(project: &Value, frame: u64) -> Result<Value, Proje
                     })),
                     // Pixelar/interferencia/liquido/caleidoscopio/desenfoque:
                     // efecto congelado al progreso + alfa de disolución.
-                    kind @ ("pixelar" | "interferencia" | "liquido" | "caleidoscopio" | "desenfoque-lineal" | "warp-direccional" | "glitch-digital" | "zoom-suave" | "zoom-rapido")
+                    kind @ ("pixelar" | "interferencia" | "liquido" | "caleidoscopio"
+                    | "desenfoque-lineal" | "warp-direccional" | "glitch-digital"
+                    | "zoom-suave" | "zoom-rapido")
                         if remaining > 0.0005 =>
                     {
                         Some(serde_json::json!({
@@ -633,15 +638,16 @@ pub(crate) fn window_project(project: &Value, frame: u64) -> Result<Value, Proje
                     // playhead; el clip mate queda en la ventana como clip
                     // normal y `luma_mate` la lee por `mateClipId`.
                     "luma-wipe" if remaining > 0.0005 => {
-                        let mate = clip["transitionIn"]["mateClipId"]
-                            .as_str()
-                            .unwrap_or("");
+                        let mate = clip["transitionIn"]["mateClipId"].as_str().unwrap_or("");
                         Some(serde_json::json!({
                             "mode": "luma",
                             "mateClipId": mate
                         }))
                     }
-                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris" | "blinds" | "clock-wipe" | "ink" | "bolhas" | "colmeia" | "chuva" | "vento" | "triangulos" | "persiana" | "reflexo" | "barrido-diagonal")
+                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris"
+                    | "blinds" | "clock-wipe" | "ink" | "bolhas" | "colmeia" | "chuva"
+                    | "vento" | "triangulos" | "persiana" | "reflexo"
+                    | "barrido-diagonal")
                         if remaining > 0.0005 =>
                     {
                         Some(serde_json::json!({
@@ -668,16 +674,11 @@ pub(crate) fn window_project(project: &Value, frame: u64) -> Result<Value, Proje
                     let keep = 1.0 - progress;
                     match clip["transitionOut"]["type"].as_str().unwrap_or("") {
                         "dissolve" => Some(serde_json::json!({ "mode": "alpha", "keep": keep })),
-                        "fade-black" => {
-                            Some(serde_json::json!({ "mode": "black", "keep": keep }))
-                        }
-                        "fade-white" => {
-                            Some(serde_json::json!({ "mode": "white", "keep": keep }))
-                        }
+                        "fade-black" => Some(serde_json::json!({ "mode": "black", "keep": keep })),
+                        "fade-white" => Some(serde_json::json!({ "mode": "white", "keep": keep })),
                         "dip-color" => {
-                            let color = clip["transitionOut"]["color"]
-                                .as_str()
-                                .unwrap_or("#000000");
+                            let color =
+                                clip["transitionOut"]["color"].as_str().unwrap_or("#000000");
                             Some(serde_json::json!({
                                 "mode": "color", "color": color, "keep": keep
                             }))
@@ -768,9 +769,9 @@ pub(crate) fn window_project(project: &Value, frame: u64) -> Result<Value, Proje
                 fast["startFrame"] = serde_json::json!(0);
                 fast["durationFrames"] = serde_json::json!(1);
                 fast["audio"] = serde_json::json!({ "muted": true });
-                // La escala ya está congelada en el frame pedido: el overlay
-                // no necesita la corrección de tamaño dinámico.
-                fast["scaleFrozen"] = serde_json::json!(true);
+                // Sin `scaleFrozen`: la ventana debe tomar el mismo camino de
+                // escala que el export (zoompan/dinámica) con los keyframes
+                // rebasados, o el preview difiere del render en sub-píxel.
                 kept.push(fast);
             }
             _ => {}

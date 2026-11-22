@@ -161,105 +161,127 @@ pub async fn stickman_render(
     }
 
     let frames_dir = std::env::temp_dir().join(format!("stickman-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&frames_dir).map_err(|e| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            &format!("no se pudo crear el temporal: {e}"),
-        )
-    })?;
 
-    // 1) Rasterizar cada cuadro a PNG.
-    for frame in 0..total_frames {
-        let pose = pose_at(&action, frame, fps as f64, &request.keyframes);
-        let rgb = render_frame(
-            &pose,
-            width as usize,
-            height as usize,
-            bone,
-            bg,
-            request.particles.as_ref(),
-            frame,
-            fps,
-        );
-        let path = frames_dir.join(format!("frame_{frame:05}.png"));
-        image::save_buffer(&path, &rgb, width, height, image::ColorType::Rgb8).map_err(|e| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                &format!("no se pudo escribir el cuadro {frame}: {e}"),
-            )
-        })?;
-    }
-
-    // 2) Codificar con FFmpeg del proyecto.
+    // Rasterizar cada cuadro, codificar con FFmpeg y medir con ffprobe son
+    // trabajo de CPU/disco pesado (miles de PNG + un encode completo): va a
+    // `spawn_blocking` para no congelar el runtime async de Tauri (AUD-129).
     let settings = state.settings_snapshot()?;
     let ffmpeg = resolve_ffmpeg(&settings)?;
-    let pattern = frames_dir.join("frame_%05d.png");
-    let tmp_out = output.with_extension("tmp.mp4");
-    // libopenh264 es el default LGPL-safe del bundle; si el runtime no puede
-    // cargarlo se reintenta con MediaFoundation (patrón usado por render).
-    let mut encoded = false;
-    let mut last_err = String::new();
-    for encoder in ["libopenh264", "h264_mf"] {
-        let out = std::process::Command::new(&ffmpeg)
-            .args([
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-framerate",
-                &fps.to_string(),
-                "-i",
-                &pattern.to_string_lossy(),
-                "-c:v",
-                encoder,
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-                &tmp_out.to_string_lossy(),
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|e| {
-                ProjectError::message(
-                    ProjectErrorCode::Io,
-                    &format!("no se pudo ejecutar FFmpeg: {e}"),
-                )
-            })?;
-        if out.status.success() {
-            encoded = true;
-            break;
-        }
-        last_err = String::from_utf8_lossy(&out.stderr)
-            .chars()
-            .take(400)
-            .collect();
-        let _ = std::fs::remove_file(&tmp_out);
-    }
-    if !encoded {
-        return Err(ProjectError::message(
-            ProjectErrorCode::RenderFailed,
-            &format!("FFmpeg no pudo codificar la animación stickman: {last_err}"),
-        ));
-    }
-    std::fs::rename(&tmp_out, &output).map_err(|e| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            &format!("no se pudo publicar el video: {e}"),
-        )
-    })?;
-
-    // 3) Verificar con ffprobe real (mismo patrón que screen_record).
-    let (ffprobe, _, _) = (resolve_tools(&settings).1, (), ());
+    let (_, ffprobe, _) = resolve_tools(&settings);
     let ffprobe = ffprobe.ok_or_else(|| {
         ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
             "no se encontró FFprobe",
         )
     })?;
-    let (duration_s, w_s, h_s, has_audio) = probe_output(&ffprobe, &output);
-    let _ = std::fs::remove_dir_all(&frames_dir);
+
+    let keyframes = request.keyframes.clone();
+    let particles = request.particles.clone();
+    // `action` y `output` se reutilizan en la respuesta JSON: el closure se
+    // queda con clones.
+    let action_inner = action.clone();
+    let output_inner = output.clone();
+    let blocking = tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&frames_dir).map_err(|e| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo crear el temporal: {e}"),
+            )
+        })?;
+
+        // 1) Rasterizar cada cuadro a PNG.
+        for frame in 0..total_frames {
+            let pose = pose_at(&action_inner, frame, fps as f64, &keyframes);
+            let rgb = render_frame(
+                &pose,
+                width as usize,
+                height as usize,
+                bone,
+                bg,
+                particles.as_ref(),
+                frame,
+                fps,
+            );
+            let path = frames_dir.join(format!("frame_{frame:05}.png"));
+            image::save_buffer(&path, &rgb, width, height, image::ColorType::Rgb8).map_err(|e| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    &format!("no se pudo escribir el cuadro {frame}: {e}"),
+                )
+            })?;
+        }
+
+        // 2) Codificar con FFmpeg del proyecto.
+        let pattern = frames_dir.join("frame_%05d.png");
+        let tmp_out = output_inner.with_extension("tmp.mp4");
+        // libopenh264 es el default LGPL-safe del bundle; si el runtime no puede
+        // cargarlo se reintenta con MediaFoundation (patrón usado por render).
+        let mut encoded = false;
+        let mut last_err = String::new();
+        for encoder in ["libopenh264", "h264_mf"] {
+            let out = std::process::Command::new(&ffmpeg)
+                .args([
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-framerate",
+                    &fps.to_string(),
+                    "-i",
+                    &pattern.to_string_lossy(),
+                    "-c:v",
+                    encoder,
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
+                    &tmp_out.to_string_lossy(),
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .output()
+                .map_err(|e| {
+                    ProjectError::message(
+                        ProjectErrorCode::Io,
+                        &format!("no se pudo ejecutar FFmpeg: {e}"),
+                    )
+                })?;
+            if out.status.success() {
+                encoded = true;
+                break;
+            }
+            last_err = String::from_utf8_lossy(&out.stderr)
+                .chars()
+                .take(400)
+                .collect();
+            let _ = std::fs::remove_file(&tmp_out);
+        }
+        if !encoded {
+            return Err(ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                &format!("FFmpeg no pudo codificar la animación stickman: {last_err}"),
+            ));
+        }
+        std::fs::rename(&tmp_out, &output_inner).map_err(|e| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo publicar el video: {e}"),
+            )
+        })?;
+
+        // 3) Verificar con ffprobe real (mismo patrón que screen_record).
+        let probe = probe_output(&ffprobe, &output_inner);
+        let _ = std::fs::remove_dir_all(&frames_dir);
+        Ok(probe)
+    });
+    let (duration_s, w_s, h_s, has_audio) = blocking
+        .await
+        .map_err(|e| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo renderizar la animación stickman: {e}"),
+            )
+        })??;
 
     Ok(serde_json::json!({
         "ok": true,

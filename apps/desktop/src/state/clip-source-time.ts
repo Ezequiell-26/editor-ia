@@ -104,3 +104,36 @@ export function clipPreviewRateAtLocal(
 export function clipIsReversed(clip: Clip): boolean {
   return isReversed(clip);
 }
+
+/**
+ * Ruta del proxy de preview horneado por `analyze_stabilization`
+ * (`media/stabilizers/*-preview.mp4`), o `undefined` cuando no aplica.
+ *
+ * Replica las guardas de `resolve_stabilization` (Rust): el proxy cubre
+ * exactamente `inFrame..outFrame` del fuente a velocidad 1×, así que sólo
+ * sirve si la ventana sigue coincidiendo y el clip no tiene reverse,
+ * velocidad ≠1× ni transición de entrada (el lead alimentaría frames
+ * previos al `inFrame` que el proxy no contiene).
+ */
+export function clipStabilizationPreviewProxy(clip: Clip): string | undefined {
+  if (clip.kind !== 'video') return undefined;
+  const stabilization = clip.stabilization;
+  const proxy = stabilization?.previewProxy;
+  if (!stabilization || !proxy) return undefined;
+  const source = windowedSource(clip);
+  if (
+    !source ||
+    source.inFrame !== stabilization.inFrame ||
+    source.outFrame !== stabilization.outFrame
+  ) {
+    return undefined;
+  }
+  const speed = 'speed' in clip ? clip.speed : undefined;
+  if (speed && (speed.num !== 1 || speed.den !== 1)) return undefined;
+  if (isReversed(clip)) return undefined;
+  const transitionIn = 'transitionIn' in clip ? clip.transitionIn : undefined;
+  if (transitionIn && typeof transitionIn === 'object' && Object.keys(transitionIn).length > 0) {
+    return undefined;
+  }
+  return proxy;
+}

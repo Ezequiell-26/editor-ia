@@ -710,3 +710,65 @@ describe('undoTo', () => {
     expect(screen.getByTestId('undo-count').textContent).toBe('1');
   });
 });
+
+function SwitchHarness() {
+  const store = useProjectStore();
+  const [result, setResult] = useState<boolean | null>(null);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          void store.saveNow().then(setResult);
+        }}
+      >
+        guardar
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void store.openProjectAt('C:\tmp\otro.editoria.json');
+        }}
+      >
+        abrir otro
+      </button>
+      <span data-testid="opened-path">{store.state.opened?.path ?? 'none'}</span>
+      <span data-testid="result">{String(result ?? 'none')}</span>
+    </div>
+  );
+}
+
+describe('guardado tardío entre proyectos (AUD-068)', () => {
+  it('un saveNow que termina tras cambiar de proyecto no pisa el opened visible', async () => {
+    const service = createFakeService();
+    const project = ensureDelivery(createEmptyProject('ProyectoA', '2025-01-01T00:00:00Z'));
+    const openedA = {
+      project,
+      label: 'a.editoria.json',
+      path: 'C:\tmp\a.editoria.json',
+      root: 'C:\tmp',
+    };
+    service.current = openedA;
+    const pending = deferred<typeof openedA>();
+    service.saveProject = () => pending.promise;
+    render(
+      <ProjectProvider service={service} initial={{ project, opened: openedA }}>
+        <SwitchHarness />
+      </ProjectProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'guardar' }));
+    // Mientras el guardado de A está en vuelo, se abre el proyecto B.
+    fireEvent.click(screen.getByRole('button', { name: 'abrir otro' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('opened-path').textContent).toBe('C:\tmp\otro.editoria.json');
+    });
+    // El guardado de A termina tarde con una ruta distinta.
+    pending.release({ ...openedA, path: 'C:\tmp\a-guardado.editoria.json' });
+    await waitFor(() => {
+      expect(screen.getByTestId('result').textContent).not.toBe('none');
+    });
+    // El opened visible sigue siendo el de B: path/root/label de A no se
+    // mezclan con el proyecto que se está mostrando.
+    expect(screen.getByTestId('opened-path').textContent).toBe('C:\tmp\otro.editoria.json');
+  });
+});

@@ -460,8 +460,7 @@ pub async fn open_external_url(app: AppHandle, url: String) -> Result<(), Projec
 #[cfg(windows)]
 fn system_font_families() -> Vec<String> {
     use windows::Win32::Graphics::DirectWrite::{
-        DWriteCreateFactory, DWRITE_FACTORY_TYPE_SHARED, IDWriteFactory,
-        IDWriteFontCollection,
+        DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection, DWRITE_FACTORY_TYPE_SHARED,
     };
     let Ok(factory) =
         (unsafe { DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED) })
@@ -496,7 +495,10 @@ fn system_font_families() -> Vec<String> {
         if unsafe { localized.GetString(0, &mut buffer) }.is_err() {
             continue;
         }
-        let end = buffer.iter().position(|&unit| unit == 0).unwrap_or(buffer.len());
+        let end = buffer
+            .iter()
+            .position(|&unit| unit == 0)
+            .unwrap_or(buffer.len());
         let name = String::from_utf16_lossy(&buffer[..end]);
         let name = name.trim();
         if !name.is_empty() {
@@ -556,10 +558,16 @@ mod tests {
     #[test]
     fn system_fonts_include_core_windows_families() {
         let fonts = system_font_families();
-        assert!(fonts.len() > 20, "se esperaban fuentes del sistema, llegaron {}", fonts.len());
+        assert!(
+            fonts.len() > 20,
+            "se esperaban fuentes del sistema, llegaron {}",
+            fonts.len()
+        );
         assert!(fonts.iter().any(|name| name == "Arial"));
         assert!(fonts.iter().any(|name| name == "Segoe UI"));
-        assert!(fonts.windows(2).all(|pair| pair[0].to_lowercase() <= pair[1].to_lowercase()));
+        assert!(fonts
+            .windows(2)
+            .all(|pair| pair[0].to_lowercase() <= pair[1].to_lowercase()));
     }
 }
 

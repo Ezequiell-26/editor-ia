@@ -10,7 +10,12 @@ fn spec() -> CursorOverlaySpec {
 }
 
 fn sample(t: u64, x: f64, y: f64, click: Option<ClickKind>) -> CursorSample {
-    CursorSample { t_ms: t, x, y, click }
+    CursorSample {
+        t_ms: t,
+        x,
+        y,
+        click,
+    }
 }
 
 #[test]
@@ -30,7 +35,15 @@ fn spec_rechaza_valores_invalidos() {
 #[test]
 fn ass_vacio_sin_muestras() {
     assert!(generate_cursor_ass(&[], &spec(), 1920, 1080, (0, 0, 1920, 1080), 5000).is_empty());
-    assert!(generate_cursor_ass(&[sample(0, 1.0, 1.0, None)], &spec(), 0, 1080, (0, 0, 1920, 1080), 5000).is_empty());
+    assert!(generate_cursor_ass(
+        &[sample(0, 1.0, 1.0, None)],
+        &spec(),
+        0,
+        1080,
+        (0, 0, 1920, 1080),
+        5000
+    )
+    .is_empty());
 }
 
 #[test]
@@ -91,7 +104,10 @@ fn dibujos_cheia_y_3d_tienen_geometria_distinta() {
 fn ass_map_offset_traduce_coordenadas() {
     // Cursor en (1920,540) del escritorio virtual -> con map (0,0,3840,1080)
     // y vídeo 1920x1080 debe caer en x=960.
-    let samples = vec![sample(0, 1920.0, 540.0, None), sample(100, 2880.0, 540.0, None)];
+    let samples = vec![
+        sample(0, 1920.0, 540.0, None),
+        sample(100, 2880.0, 540.0, None),
+    ];
     let ass = generate_cursor_ass(&samples, &spec(), 1920, 1080, (0, 0, 3840, 1080), 1000);
     assert!(ass.contains("960"));
 }

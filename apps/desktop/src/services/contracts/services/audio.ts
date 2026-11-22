@@ -1,4 +1,4 @@
-import type { AudioPeaks, AudioScopeData, AudioScopeRange, CloneProgress, CloneVoiceRequest, CloneVoiceResult, DialogueProgress, DialogueRequest, DialogueResult, DiarizeProviderInfo, DiarizeResult, DubProgress, DubResult, FileLoudness, LipSyncProgress, LipSyncRequest, LipSyncResult, LoudnessAnalysisProgress, MixLoudnessReport, NativeWhisperModel, NativeWhisperStatus, SynthesizeDubRequest, VoiceIsolationOutcome, VoiceIsolationStatus, WhisperModelDownloadEvent } from '../audio';
+import type { AudioEffectInfo, AudioEffectStep, AudioFileLoudness, AudioLoudnessNormalizeResult, AudioDuckPlan, AudioPeaks, AudioRemixAnalysis, AudioScopeData, AudioScopeRange, AudioSyncOffset, CloneProgress, CloneVoiceRequest, CloneVoiceResult, DialogueProgress, DialogueRequest, DialogueResult, DiarizeProviderInfo, DiarizeResult, DubProgress, DubResult, FileLoudness, LipSyncProgress, LipSyncRequest, LipSyncResult, LoudnessAnalysisProgress, MixLoudnessReport, NativeWhisperModel, NativeWhisperStatus, TtsVoiceInfo, SynthesizeDubRequest, VoiceIsolationOutcome, VoiceIsolationStatus, WhisperModelDownloadEvent } from '../audio';
 import type { TranscriptionResult } from '../subtitles';
 import type { NarrationResult, VoiceInfo } from '../assistant';
 import type { UnlistenFn } from '../events';
@@ -42,6 +42,99 @@ saveDiarizeProvider(input: {
     assetId: string,
     range?: AudioScopeRange | null,
   ): Promise<AudioScopeData>;
+
+/** Catálogo de efectos DSP offline (filmcraft-audio-dsp) con sus parámetros. */
+  audioEffectsList(): Promise<readonly AudioEffectInfo[]>;
+
+/**
+   * Render offline: decodifica el audio (estéreo 48 kHz), aplica la cadena de
+   * efectos en orden y escribe WAV float32. `speed` (0.1–10) aplica
+   * time-stretch WSOLA antes de los efectos.
+   */
+  audioEffectsRender(
+    path: string,
+    output: string,
+    chain: readonly AudioEffectStep[],
+    speed?: number,
+  ): Promise<string>;
+
+/**
+   * Plan de sidechain ducking sobre un archivo (típicamente la voz):
+   * regiones de actividad en segundos y keyframes de ganancia en dB listos
+   * para automatizar el volumen de la música. Solo análisis, no escribe.
+   */
+  audioDuckPlan(
+    path: string,
+    options?: {
+      sensitivity?: number;
+      minOnSeconds?: number;
+      bridgeSeconds?: number;
+      clipStartSeconds?: number;
+      clipEndSeconds?: number;
+      baseDb?: number;
+      reduceDb?: number;
+      fadeSeconds?: number;
+    },
+  ): Promise<AudioDuckPlan>;
+
+/**
+   * Conversión de layout de canales (mono/stereo/5.1) con las matrices de
+   * filmcraft: fromLayout se autodetecta con ffprobe si se omite; mixdown
+   * (front/frontRear/frontLfe/frontRearLfe) aplica a 5.1→estéreo. WAV out.
+   */
+  audioChannelsConvert(
+    path: string,
+    output: string,
+    toLayout: string,
+    mixdown?: string,
+    fromLayout?: string,
+  ): Promise<string>;
+
+/** Loudness BS.1770/EBU R128 de un archivo (LUFS integrado, LRA, true peak). */
+  audioLoudnessAnalyze(path: string): Promise<AudioFileLoudness>;
+
+/** Offset entre dos grabaciones del mismo evento (GCC-PHAT, precisión de samples). */
+  audioSyncOffset(pathA: string, pathB: string): Promise<AudioSyncOffset>;
+
+/** Time-stretch con pitch preservado (WSOLA): speed>1 acorta, <1 alarga. Salida WAV. */
+  audioTimeStretch(path: string, output: string, speed: number): Promise<string>;
+
+/** Normalización a target LUFS con ganancia peak-limited + limiter de seguridad. */
+  audioLoudnessNormalize(
+    path: string,
+    output: string,
+    targetLufs?: number,
+  ): Promise<AudioLoudnessNormalizeResult>;
+
+/** Análisis rítmico: BPM, beats en segundos y duración (motor Remix). */
+  audioRemixAnalyze(path: string): Promise<AudioRemixAnalysis>;
+
+/**
+   * Remix automático al ritmo: reordena el audio sobre la grilla de beats
+   * minimizando rupturas armónicas, salida a targetSeconds en WAV.
+   */
+  audioRemixRender(
+    path: string,
+    output: string,
+    targetSeconds: number,
+    segments?: number,
+    variations?: number,
+  ): Promise<string>;
+
+/** Voces TTS built-in disponibles sin descarga (formant). */
+  ttsVoices(): Promise<readonly TtsVoiceInfo[]>;
+
+/**
+ * Sintetiza narración TTS a WAV (24 kHz mono). Acepta marcadores
+ * `[pause 1s]`/`[pause 500ms]`. pace 0.5–2.0, semitones ±12.
+ */
+  ttsSynthesize(
+    text: string,
+    output: string,
+    voiceId?: string,
+    pace?: number,
+    semitones?: number,
+  ): Promise<string>;
 
 onLoudnessAnalysisProgress(
     handler: (event: LoudnessAnalysisProgress) => void,

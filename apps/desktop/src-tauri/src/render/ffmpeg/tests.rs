@@ -122,7 +122,8 @@ fn effect_stack_reaches_the_filter_chain_in_order() {
     let chain = apply_effect_stack("[0:v]scale=1920:1080[v0]".to_owned(), "v0", &effects);
     // FFmpeg 9 no tiene `eq`: el grado sale como `lutyuv` (brillo 0.5 → +127.5).
     assert!(chain.contains("lutyuv="), "{chain}");
-    assert!(chain.contains("+127.500000"), "{chain}");
+    // Las recetas TS emiten lutyuv directo: brillo 0.5 → ((0.5)*255).
+    assert!(chain.contains("((0.5)*255)"), "{chain}");
     assert!(!chain.contains("eq="), "{chain}");
     assert!(chain.contains("vignette=angle=0.785"));
     // El orden importa: exposición antes que viñeta.
@@ -143,8 +144,8 @@ fn effect_stack_skips_disabled_and_unknown_effects() {
     });
     let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
     assert!(!chain.contains("brightness"));
-    // contraste 1.4 → coeficiente 1.400000 en la rampa luma del lutyuv.
-    assert!(chain.contains("1.400000*(val-127.5)"), "{chain}");
+    // contraste 1.4 → coeficiente (1.4) en la rampa luma del lutyuv.
+    assert!(chain.contains("(1.4)*(val-127.5)"), "{chain}");
     assert!(!chain.contains("eq="), "{chain}");
 }
 
@@ -438,9 +439,9 @@ fn effect_keyframes_build_a_segmented_concat_graph() {
     // Tramo 2 sostiene el último keyframe (0.5 → +127.5), no el param estático (0.9 → +229.5).
     let seg0 = graph.split("[seg0]").next().unwrap_or("");
     assert!(seg0.contains("lutyuv="), "{graph}");
-    assert!(seg0.contains("+0.000000"), "{graph}");
-    assert!(graph.contains("+127.500000"), "{graph}");
-    assert!(!graph.contains("+229.500000"), "{graph}");
+    assert!(seg0.contains("((0)*255)"), "{graph}");
+    assert!(graph.contains("((0.5)*255)"), "{graph}");
+    assert!(!graph.contains("((0.9)*255)"), "{graph}");
     assert!(!graph.contains("eq="), "{graph}");
 }
 
@@ -609,7 +610,10 @@ fn visual_effects_reach_the_filter_chain() {
     assert!(filter.contains("lutyuv="), "{filter}");
     assert!(filter.contains("+51.000000"), "{filter}");
     // «eq=» a secas no debe quedar (geq=/freqeq= sí son válidos).
-    assert!(!filter.contains(",eq=") && !filter.contains("]eq="), "{filter}");
+    assert!(
+        !filter.contains(",eq=") && !filter.contains("]eq="),
+        "{filter}"
+    );
     assert!(filter.contains("colorbalance=rs=0.0750"));
     assert!(filter.contains("gblur=sigma=2.000"));
     assert!(filter.contains("hqdn3d=2.00:1.50:3.00:2.30"));
@@ -2308,6 +2312,7 @@ fn audio_suite_reaches_the_filter_chain() {
         0.0,
         &serde_json::json!({}),
         &serde_json::json!({}),
+        None,
     );
     assert!(filter.contains("highpass=f=80.0"));
     assert!(filter.contains("lowpass=f=12000.0"));
@@ -2320,6 +2325,43 @@ fn audio_suite_reaches_the_filter_chain() {
     assert!(filter.contains("acompressor="));
     assert!(filter.contains("afade=t=in"));
     assert!(filter.contains("afade=t=out"));
+}
+
+#[test]
+fn audio_filter_mono_source_uses_unity_gain_upmix() {
+    // `aformat` mono→estéreo aplica la ley de rematrix de ffmpeg (−3,01 dB
+    // por canal). Para fuentes mono el upmix debe hacerse con `pan` a
+    // ganancia unitaria; estéreo y multicanal quedan en la ruta `aformat`.
+    let profile = profile();
+    let audio = serde_json::json!({});
+    let track = serde_json::json!({});
+    let effects = serde_json::json!({});
+    let mono = audio_filter(
+        0,
+        &profile,
+        30.0,
+        3.0,
+        0.0,
+        0.0,
+        &audio,
+        false,
+        1,
+        1,
+        0.0,
+        &track,
+        &effects,
+        Some(1),
+    );
+    assert!(mono.contains("pan=stereo|c0=c0|c1=c0"), "{mono}");
+    assert!(mono.contains("aformat=sample_fmts=fltp:channel_layouts=stereo"));
+    // El `pan` debe ir antes del `aformat` para que éste vea estéreo→estéreo.
+    assert!(mono.find("pan=stereo").unwrap() < mono.find("aformat=").unwrap());
+    for channels in [Some(2), Some(6), None] {
+        let filter = audio_filter(
+            0, &profile, 30.0, 3.0, 0.0, 0.0, &audio, false, 1, 1, 0.0, &track, &effects, channels,
+        );
+        assert!(!filter.contains("pan=stereo|c0=c0|c1=c0"), "{filter}");
+    }
 }
 
 #[test]
@@ -2356,6 +2398,7 @@ fn audio_stack_keyframes_build_a_segmented_concat_graph() {
         0.0,
         &serde_json::json!({}),
         &effects,
+        None,
     );
     assert!(filter.contains("asplit=2"), "{filter}");
     assert!(
@@ -2400,6 +2443,7 @@ fn audio_stack_without_keyframes_keeps_the_linear_chain() {
         0.0,
         &serde_json::json!({}),
         &effects,
+        None,
     );
     assert!(!filter.contains("asplit"), "{filter}");
     assert!(filter.contains("tremolo=f=4"), "{filter}");
@@ -2437,6 +2481,7 @@ fn track_pan_and_eq_reach_the_audio_chain() {
         0.0,
         &track,
         &serde_json::json!({}),
+        None,
     );
     assert!(integrated.contains("equalizer=f=120.0"));
     assert!(integrated.contains("pan=stereo|c0=1.0000*c0|c1=0.5000*c1"));
@@ -2479,6 +2524,7 @@ fn clip_pan_overrides_track_pan_and_uses_the_same_linear_law() {
         0.0,
         &track,
         &serde_json::json!({}),
+        None,
     );
     assert!(
         chain.contains("pan=stereo|c0=0.5000*c0|c1=1.0000*c1"),
@@ -2505,6 +2551,7 @@ fn clip_pan_overrides_track_pan_and_uses_the_same_linear_law() {
         0.0,
         &serde_json::json!({}),
         &serde_json::json!({}),
+        None,
     );
     assert!(centered.contains("pan=stereo|c0=1.0000*c0|c1=0.7500*c1"));
 }
@@ -2697,6 +2744,7 @@ fn voice_effects_reach_the_audio_chain() {
         0.0,
         &serde_json::json!({}),
         &serde_json::json!({}),
+        None,
     );
     assert!(deep.contains("asetrate="));
     let echo = audio_filter(
@@ -2713,6 +2761,7 @@ fn voice_effects_reach_the_audio_chain() {
         0.0,
         &serde_json::json!({}),
         &serde_json::json!({}),
+        None,
     );
     assert!(echo.contains("aecho="));
     let radio = audio_filter(
@@ -2729,6 +2778,7 @@ fn voice_effects_reach_the_audio_chain() {
         0.0,
         &serde_json::json!({}),
         &serde_json::json!({}),
+        None,
     );
     assert!(radio.contains("lowpass=f=3200"));
 }
@@ -2778,6 +2828,7 @@ fn audio_stack_reaches_the_audio_chain() {
         0.0,
         &serde_json::json!({}),
         &effects,
+        None,
     );
     assert!(chain.contains("highpass=f=350"), "{chain}");
     assert!(chain.contains("lowpass=f=3200"), "{chain}");
@@ -3491,7 +3542,7 @@ fn extra_transitions_change_the_filter_chain() {
     assert!(
         glitch_frozen_filter.contains("geq=r='if(1,r(X+(")
             && glitch_frozen_filter.contains("0.500000")
-            && glitch_frozen_filter.contains("lt(N,") == false,
+            && !glitch_frozen_filter.contains("lt(N,"),
         "glitch-digital congelado debería usar progreso constante: {glitch_frozen_filter}"
     );
 
@@ -4118,7 +4169,11 @@ fn extra_transitions_change_the_filter_chain() {
         let mut inputs = 1usize;
         let texture_input = prepare_texture_input(&clip, &profile(), 0.2, &mut args, &mut inputs)
             .expect("prepare_texture_input no debería fallar");
-        assert_eq!(texture_input, Some(1), "{kind}: debería reservar input lavfi");
+        assert_eq!(
+            texture_input,
+            Some(1),
+            "{kind}: debería reservar input lavfi"
+        );
         assert_eq!(inputs, 2);
         let joined = args.join(" ");
         assert!(
@@ -4167,8 +4222,14 @@ fn extra_transitions_change_the_filter_chain() {
     let mut plain_args: Vec<String> = Vec::new();
     let mut plain_inputs = 1usize;
     assert_eq!(
-        prepare_texture_input(&plain_clip, &profile(), 0.2, &mut plain_args, &mut plain_inputs)
-            .expect("prepare_texture_input no debería fallar"),
+        prepare_texture_input(
+            &plain_clip,
+            &profile(),
+            0.2,
+            &mut plain_args,
+            &mut plain_inputs
+        )
+        .expect("prepare_texture_input no debería fallar"),
         None
     );
     assert!(plain_args.is_empty());
@@ -4900,6 +4961,61 @@ fn live_polygon_mask_filter_is_renderable() {
 }
 
 #[test]
+#[ignore]
+fn live_rotated_scaled_polygon_mask_is_renderable() {
+    // Camino completo de la máscara facial: polígono con escala por
+    // keyframes width/height + rotación estática. La expresión supera el
+    // límite de `-vf` en Windows, así que viaja por archivo con `-/filter`
+    // (misma vía que `push_filter_complex` usa en producción).
+    let clip = serde_json::json!({
+        "mask": {
+            "shape": "polygon",
+            "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0,
+            "rotationDeg": 30.0,
+            "points": [
+                { "x": 0.4, "y": 0.35 }, { "x": 0.6, "y": 0.35 },
+                { "x": 0.6, "y": 0.65 }, { "x": 0.4, "y": 0.65 }
+            ],
+            "keyframes": [
+                { "frame": 0, "width": 1.0, "height": 1.0 },
+                { "frame": 30, "width": 1.4, "height": 1.4 }
+            ]
+        }
+    });
+    let filter = mask_filter(&clip, 30.0, 0.0).expect("rotated polygon filter");
+    let temp = std::env::temp_dir();
+    let graph_path = temp.join(format!("editor-ia-poly-graph-{}.txt", uuid::Uuid::new_v4()));
+    let output = temp.join(format!("editor-ia-poly-rot-{}.png", uuid::Uuid::new_v4()));
+    std::fs::write(&graph_path, format!("format=rgba,{filter}")).unwrap();
+    let status = std::process::Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=320x180:d=1",
+            "-/filter",
+            graph_path.to_string_lossy().as_ref(),
+            "-frames:v",
+            "1",
+            "-update",
+            "1",
+            output.to_string_lossy().as_ref(),
+        ])
+        .status()
+        .expect("ffmpeg disponible");
+    let _ = std::fs::remove_file(&graph_path);
+    assert!(
+        status.success(),
+        "FFmpeg rechazó la máscara rotada/escalada"
+    );
+    assert!(output.is_file() && std::fs::metadata(&output).unwrap().len() > 100);
+    let _ = std::fs::remove_file(&output);
+}
+
+#[test]
 fn polygon_mask_reaches_the_alpha_expression() {
     let polygon = serde_json::json!({
         "mask": {
@@ -5010,6 +5126,7 @@ fn reverse_reaches_both_filter_chains() {
         0.0,
         &serde_json::json!({}),
         &serde_json::json!({}),
+        None,
     );
     assert!(audio.contains("areverse"));
 }
@@ -5180,6 +5297,7 @@ fn transform_and_gain_keyframes_reach_the_filter_chain() {
         0.0,
         &serde_json::json!({}),
         &clip["effects"],
+        None,
     );
     assert!(audio.contains("volume=volume='pow(10,"));
     assert!(audio.contains("eval=frame"));
@@ -7805,6 +7923,8 @@ fn probe_plan() -> RenderPlan {
         width: 1920,
         height: 1080,
         fps: 30.0,
+        audio_sample_rate: 48_000,
+        audio_channels: 2,
         profile_name: "prueba".into(),
     }
 }
@@ -7819,6 +7939,8 @@ fn probe_value(container: &str, video: Option<&str>, audio: Option<&str>) -> Val
     if let Some(audio) = audio {
         streams.push(serde_json::json!({
             "codec_type": "audio",
+            "channels": 2,
+            "sample_rate": "48000",
             "duration": audio,
         }));
     }
@@ -7853,6 +7975,32 @@ fn probe_payload_rejects_a_short_audio_track() {
         .expect_err("un audio cortado no debería pasar");
     assert!(
         error.message.contains("pista de audio"),
+        "mensaje inesperado: {}",
+        error.message
+    );
+}
+
+#[test]
+fn probe_payload_rejects_wrong_audio_channels() {
+    let mut value = probe_value("5.0", Some("5.0"), Some("5.0"));
+    value["streams"][1]["channels"] = serde_json::json!(1);
+    let error = verify_probe_payload(&value, &probe_plan())
+        .expect_err("audio mono cuando el perfil pide estéreo no debería pasar");
+    assert!(
+        error.message.contains("canales"),
+        "mensaje inesperado: {}",
+        error.message
+    );
+}
+
+#[test]
+fn probe_payload_rejects_wrong_audio_sample_rate() {
+    let mut value = probe_value("5.0", Some("5.0"), Some("5.0"));
+    value["streams"][1]["sample_rate"] = serde_json::json!("44100");
+    let error = verify_probe_payload(&value, &probe_plan())
+        .expect_err("sample rate distinto al perfil no debería pasar");
+    assert!(
+        error.message.contains("frecuencia"),
         "mensaje inesperado: {}",
         error.message
     );
@@ -7911,6 +8059,8 @@ fn verify_output_rejects_a_render_without_audio() {
         width: 320,
         height: 180,
         fps: 30.0,
+        audio_sample_rate: 48_000,
+        audio_channels: 2,
         profile_name: "verificación".into(),
     };
     let error = verify_output(&ffprobe, &plan).expect_err("sin audio debe fallar");
@@ -9023,6 +9173,7 @@ fn los_keyframes_de_fader_de_pista_reemplazan_al_fader_estatico() {
         3.0,
         &track,
         &serde_json::json!({}),
+        None,
     );
     assert!(
         chain.contains("volume=volume='pow(10,(") && chain.contains(")/20)':eval=frame"),
@@ -9062,6 +9213,7 @@ fn el_fader_estatico_de_pista_se_mantiene_sin_keyframes() {
         3.0,
         &serde_json::json!({ "gainDb": 3.0 }),
         &serde_json::json!({}),
+        None,
     );
     assert!(
         chain.contains("volume=3.00dB"),
@@ -9097,6 +9249,7 @@ fn los_keyframes_de_paneo_de_pista_parten_la_cadena_por_canal() {
         0.0,
         &track,
         &serde_json::json!({}),
+        None,
     );
     assert!(
         !chain.contains("pan=stereo|c0="),
@@ -9166,6 +9319,7 @@ fn los_keyframes_de_paneo_se_anclan_al_frame_absoluto_del_clip() {
         0.0,
         &track,
         &serde_json::json!({}),
+        None,
     );
     let left = expresion_canal(&chain, "tpl0");
     let right = expresion_canal(&chain, "tpr0");
@@ -9206,6 +9360,7 @@ fn los_keyframes_de_paneo_pre_muestrean_la_curva_bezier() {
         0.0,
         &track,
         &serde_json::json!({}),
+        None,
     );
     let right = expresion_canal(&chain, "tpr0");
     // La Bézier se emite como 16 tramos lineales anidados (el mismo enfoque
@@ -9337,8 +9492,8 @@ fn voice_isolation_without_stem_fails_honestly() {
         ffprobe: Path::new("ffprobe"),
         motion_ass: None,
     })
-    .err()
-    .expect("sin stem y voiceIsolation activo debe fallar");
+    .map(|_| ())
+    .expect_err("sin stem y voiceIsolation activo debe fallar");
     assert!(
         error.message.contains("aislamiento de voz"),
         "mensaje inesperado: {}",
@@ -9742,22 +9897,16 @@ fn transition_out_resolves_into_the_next_contiguous_clip() {
             clip("a", 0, serde_json::json!({ "transitionOut": out })),
             clip("b", 90, Value::Null),
         ],
-        vec![
-            clip("a", 0, serde_json::json!({ "transitionOut": out })),
-            {
-                let mut other = clip("b", 60, Value::Null);
-                other["trackId"] = serde_json::json!("v2");
-                other
-            },
-        ],
-        vec![
-            clip("a", 0, serde_json::json!({ "transitionOut": out })),
-            {
-                let mut audio = clip("b", 60, Value::Null);
-                audio["kind"] = serde_json::json!("audio");
-                audio
-            },
-        ],
+        vec![clip("a", 0, serde_json::json!({ "transitionOut": out })), {
+            let mut other = clip("b", 60, Value::Null);
+            other["trackId"] = serde_json::json!("v2");
+            other
+        }],
+        vec![clip("a", 0, serde_json::json!({ "transitionOut": out })), {
+            let mut audio = clip("b", 60, Value::Null);
+            audio["kind"] = serde_json::json!("audio");
+            audio
+        }],
         vec![
             {
                 let mut off = clip("a", 0, serde_json::json!({ "transitionOut": out }));
@@ -9792,7 +9941,19 @@ fn transition_out_fade_types_extend_the_clip_tail() {
         );
     }
     // Los gestos no atenúan el clip saliente: los dibuja el entrante.
-    for kind in ["slide-left", "wipe-up", "iris", "clock-wipe", "ink", "bolhas", "colmeia", "chuva", "vento", "triangulos", "luma-wipe"] {
+    for kind in [
+        "slide-left",
+        "wipe-up",
+        "iris",
+        "clock-wipe",
+        "ink",
+        "bolhas",
+        "colmeia",
+        "chuva",
+        "vento",
+        "triangulos",
+        "luma-wipe",
+    ] {
         let mut value = clip("video");
         value["transitionOut"]["type"] = serde_json::json!(kind);
         assert_eq!(transition_trail_seconds(&value, 30.0, 2.0), 0.0, "{kind}");
@@ -9880,7 +10041,8 @@ fn transition_out_plan_feeds_next_clip_and_fades_outgoing() {
 fn rights_block_reason_cubre_licencias_que_impiden_exportar() {
     let allowed = serde_json::json!({ "rights": { "license": { "commercialUse": "allowed" } } });
     assert_eq!(plan::rights_block_reason(&allowed), None);
-    let attribution = serde_json::json!({ "rights": { "license": { "commercialUse": "requires-attribution" } } });
+    let attribution =
+        serde_json::json!({ "rights": { "license": { "commercialUse": "requires-attribution" } } });
     assert_eq!(plan::rights_block_reason(&attribution), None);
     let unknown = serde_json::json!({ "rights": { "license": { "commercialUse": "unknown" } } });
     assert!(plan::rights_block_reason(&unknown).is_some());
@@ -9935,4 +10097,89 @@ fn build_plan_rechaza_material_no_redistribuible() {
     .expect_err("un asset no redistribuible no debería producir plan");
     let rendered = format!("{error:?}");
     assert!(rendered.contains("redistribución"), "{rendered}");
+}
+
+/// Live: un asset de audio mono SIN `media.channels` (imports viejos) debe
+/// salir por el probe del plan con upmix `pan` unity-gain — el `aformat`
+/// mono→estéreo bajaría 3 dB. El estéreo del mismo plan no lleva `pan`.
+#[test]
+#[ignore = "requiere ffmpeg/ffprobe reales; se ejecuta a mano"]
+fn live_plan_mono_asset_without_channels_uses_unity_upmix() {
+    if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+        eprintln!("live_plan_mono omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+        return;
+    }
+    use crate::commands::system::find_executable;
+    let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+    let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+    let root = std::env::temp_dir().join(format!("editor-ia-mono-{}", uuid::Uuid::new_v4()));
+    let media = root.join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    for (name, channels) in [("mono.wav", "1"), ("stereo.wav", "2")] {
+        let status = Command::new(&ffmpeg)
+            .args(["-hide_banner", "-v", "error", "-f", "lavfi", "-i"])
+            .arg("sine=frequency=440:duration=1")
+            .args(["-ac", channels, "-c:a", "pcm_s16le", "-y"])
+            .arg(media.join(name))
+            .status()
+            .expect("generar el wav de prueba");
+        assert!(status.success());
+    }
+    let asset = |id: &str, file: &str| {
+        serde_json::json!({
+            "id": id, "kind": "audio", "status": "ready",
+            "rights": { "license": { "commercialUse": "allowed" } },
+            "source": { "path": format!("media/{file}") },
+            // Sin `channels`: simula un asset importado antes del campo.
+            "media": { "durationFrames": 30, "sampleRate": 48_000 }
+        })
+    };
+    let project = serde_json::json!({
+        "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#101014" },
+        "timeline": {
+            "tracks": [
+                { "id": "m", "kind": "audio", "label": "M", "order": 0, "hidden": false, "muted": false }
+            ],
+            "clips": [
+                { "id": "c1", "trackId": "m", "kind": "audio", "label": "Mono", "startFrame": 0, "durationFrames": 30,
+                  "source": { "type": "asset", "assetId": "mono", "inFrame": 0, "outFrame": 30 } },
+                { "id": "c2", "trackId": "m", "kind": "audio", "label": "Stereo", "startFrame": 0, "durationFrames": 30,
+                  "source": { "type": "asset", "assetId": "stereo", "inFrame": 0, "outFrame": 30 } }
+            ]
+        },
+        "assets": [asset("mono", "mono.wav"), asset("stereo", "stereo.wav")],
+        "captions": { "styles": [], "cues": [] },
+        "audio": { "master": { "gainDb": 0 } }
+    });
+    let temp = root.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let output = root.join("out.mp4");
+    let plan = build_plan_range(
+        BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &root,
+            profile: &profile(),
+            output_path: &output,
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: &ffprobe,
+            motion_ass: None,
+        },
+        None,
+    )
+    .expect("el plan debería construirse");
+    // El grafo puede viajar inline o por filter-graph.txt (>8000 chars).
+    let mut graph = plan.args.join("\n");
+    if let Some(pos) = plan.args.iter().position(|a| a == "-/filter_complex") {
+        if let Some(path) = plan.args.get(pos + 1) {
+            graph = std::fs::read_to_string(path).unwrap_or_default();
+        }
+    }
+    assert_eq!(
+        graph.matches("pan=stereo|c0=c0|c1=c0").count(),
+        1,
+        "sólo el clip mono debería llevar el upmix unity-gain:\n{graph}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }

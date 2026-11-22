@@ -504,6 +504,7 @@ export const TOOLBAR_CATALOG: readonly ToolbarTool[] = [
   { id: 'devices', label: 'Editar Dispositivos', icon: 'settings', pending: true },
   { id: 'rhythm', label: 'Detección de ritmo', icon: 'audio', action: 'Detectar beats para el imán' },
   { id: 'voice-to-text', label: 'Voz a texto', icon: 'captions', pending: true },
+  { id: 'voiceover', label: 'Grabar voz', icon: 'mic', action: 'Grabar voz' },
   { id: 'text-to-voice', label: 'Texto a Voz', icon: 'volume', pending: true },
   { id: 'ai-extend', label: 'Extensión con IA', icon: 'sparkles', pending: true },
   { id: 'audio-extend', label: 'Extensión de audio', icon: 'audio', pending: true },

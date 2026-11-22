@@ -89,7 +89,7 @@ describe('registro de navegación', () => {
     expect(secondary.has('ai-hub')).toBe(true);
     expect(NAV_VIEWS.some((view) => view.id === 'auto-edit')).toBe(false);
     // Y ninguna etiqueta de «Más» puede colisionar con una tab del editor.
-    const editorTabLabels = new Set(['Edición', 'Todo', 'Guion', 'Medios', 'Producción', 'Director', 'Automático', 'AI Hub', 'Guía', 'Cerebro', 'Texto', 'Multicámara', 'Mezcla', 'VFX', 'Motion', 'Efectos']);
+    const editorTabLabels = new Set(['Edición', 'Todo', 'Guion', 'Medios', 'Producción', 'Director', 'Automático', 'AI Hub', 'Guía', 'Cerebro', 'Texto', 'Multicámara', 'Mezcla', 'VFX', 'Motion', 'Efectos', 'Teleprompter']);
     const collisions = SECONDARY_NAV_VIEWS.filter((view) => editorTabLabels.has(view.label));
     // Director y AI Hub comparten nombre con tabs internas a propósito;
     // AutoEdit no ofrece una puerta standalone que vuelva a competir.

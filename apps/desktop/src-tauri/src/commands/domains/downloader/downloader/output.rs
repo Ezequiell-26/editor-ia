@@ -162,9 +162,16 @@ pub async fn download_media(
         )
     })
     .await;
-    let mut outcome =
+    let outcome =
         blocking_result.map_err(|_| provider_error("La descarga se interrumpió."))??;
-    if let Some(root) = destination {
+    // Post-proceso de los archivos: mover entre volúmenes (copy+delete
+    // de GBs), remux de metadatos con ffmpeg, hash completo del archivo
+    // y ffprobe de capítulos — todo bloqueante y fuera del runtime
+    // async (AUD-129; el gate no ve helpers, por eso va explícito).
+    let outcome = tauri::async_runtime::spawn_blocking(
+        move || -> Result<DownloadOutcome, ProjectError> {
+            let mut outcome = outcome;
+            if let Some(root) = destination {
         let original = PathBuf::from(&outcome.directory);
         let destination = download_folder_name(&outcome.files)
             .map(|folder| root.join(folder))
@@ -241,11 +248,17 @@ pub async fn download_media(
             }
         }
     }
-    for file in &mut outcome.files {
-        if file.kind == "video" {
-            file.chapters = probe_chapters(ffprobe_outcome.as_deref(), Path::new(&file.path));
-        }
-    }
+            for file in &mut outcome.files {
+                if file.kind == "video" {
+                    file.chapters =
+                        probe_chapters(ffprobe_outcome.as_deref(), Path::new(&file.path));
+                }
+            }
+            Ok(outcome)
+        },
+    )
+    .await
+    .map_err(|_| provider_error("El post-proceso de la descarga se interrumpió."))??;
     Ok(outcome)
 }
 
@@ -270,7 +283,11 @@ pub async fn cleanup_download(
             "La carpeta de descarga cae fuera del caché de la app.",
         ));
     }
-    std::fs::remove_dir_all(&canonical_target)
-        .map_err(|_| io_error("No se pudo limpiar la descarga temporal."))?;
-    Ok(())
+    // El árbol puede tener GBs: el borrado va fuera del runtime (AUD-129).
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::remove_dir_all(&canonical_target)
+            .map_err(|_| io_error("No se pudo limpiar la descarga temporal."))
+    })
+    .await
+    .map_err(|_| io_error("La limpieza de la descarga se interrumpió."))?
 }

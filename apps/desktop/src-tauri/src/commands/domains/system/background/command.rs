@@ -30,40 +30,47 @@ pub async fn remove_background_asset(
             "el material a recortar ya no está en disco",
         ));
     }
-    match kind.as_str() {
+    let ffmpeg = ffmpeg.ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "FFmpeg es necesario para quitar el fondo de un video",
+        )
+    })?;
+    let root = session.root.clone();
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || match kind.as_str() {
         "image" => remove_image_background(
-            &session.root,
+            &root,
             &input,
             &ffprobe,
             &model_path,
             fps_num.max(1),
             fps_den.max(1),
         ),
-        "video" => {
-            let ffmpeg = ffmpeg.ok_or_else(|| {
-                ProjectError::message(
-                    ProjectErrorCode::Io,
-                    "FFmpeg es necesario para quitar el fondo de un video",
-                )
-            })?;
-            remove_video_background(
-                &session.root,
-                &input,
-                &ffmpeg,
-                &ffprobe,
-                &model_path,
-                in_frame,
-                out_frame,
-                fps_num.max(1),
-                fps_den.max(1),
-                |percent| {
-                    let _ = app.emit("background-progress", json!({ "percent": percent }));
-                },
-            )
-        }
+        "video" => remove_video_background(
+            &root,
+            &input,
+            &ffmpeg,
+            &ffprobe,
+            &model_path,
+            in_frame,
+            out_frame,
+            fps_num.max(1),
+            fps_den.max(1),
+            |percent| {
+                let _ = app_handle.emit("background-progress", json!({ "percent": percent }));
+            },
+        ),
         _ => Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
             "el recorte automático sólo acepta imágenes o videos",
         )),
-    }
+    })
+    .await
+    .map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudo quitar el fondo: {error}").as_str(),
+        )
+    })?
 }

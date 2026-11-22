@@ -17,7 +17,27 @@ export type LocalizationLanguageCode =
   | 'tr'
   | 'pl'
   | 'nl'
-  | 'cs';
+  | 'cs'
+  | 'uk'
+  | 'sv'
+  | 'da'
+  | 'no'
+  | 'fi'
+  | 'el'
+  | 'he'
+  | 'ro'
+  | 'hu'
+  | 'id'
+  | 'vi'
+  | 'th'
+  | 'fa'
+  | 'ur'
+  | 'tl'
+  | 'ca'
+  | 'hr'
+  | 'sr'
+  | 'sk'
+  | 'bg';
 export type LocalizationFormat = 'srt' | 'vtt';
 
 export interface LocalizationLanguage {
@@ -29,7 +49,7 @@ export interface LocalizationLanguage {
 
 /**
  * Los idiomas que `translate_subtitles` acepta en Rust
- * (`ai/providers.rs::language_name`): los diecisiete con nombre completo
+ * (`ai/providers.rs::language_name`): los treinta y siete con nombre completo
  * en el prompt del traductor. El orden no es un ranking de calidad.
  */
 export const LOCALIZATION_LANGUAGES: readonly LocalizationLanguage[] = [
@@ -50,6 +70,26 @@ export const LOCALIZATION_LANGUAGES: readonly LocalizationLanguage[] = [
   { code: 'pl', label: 'Polaco', native: 'Polski', direction: 'ltr' },
   { code: 'nl', label: 'Neerlandés', native: 'Nederlands', direction: 'ltr' },
   { code: 'cs', label: 'Checo', native: 'Čeština', direction: 'ltr' },
+  { code: 'uk', label: 'Ucraniano', native: 'Українська', direction: 'ltr' },
+  { code: 'sv', label: 'Sueco', native: 'Svenska', direction: 'ltr' },
+  { code: 'da', label: 'Danés', native: 'Dansk', direction: 'ltr' },
+  { code: 'no', label: 'Noruego', native: 'Norsk', direction: 'ltr' },
+  { code: 'fi', label: 'Finlandés', native: 'Suomi', direction: 'ltr' },
+  { code: 'el', label: 'Griego', native: 'Ελληνικά', direction: 'ltr' },
+  { code: 'he', label: 'Hebreo', native: 'עברית', direction: 'rtl' },
+  { code: 'ro', label: 'Rumano', native: 'Română', direction: 'ltr' },
+  { code: 'hu', label: 'Húngaro', native: 'Magyar', direction: 'ltr' },
+  { code: 'id', label: 'Indonesio', native: 'Bahasa Indonesia', direction: 'ltr' },
+  { code: 'vi', label: 'Vietnamita', native: 'Tiếng Việt', direction: 'ltr' },
+  { code: 'th', label: 'Tailandés', native: 'ไทย', direction: 'ltr' },
+  { code: 'fa', label: 'Persa', native: 'فارسی', direction: 'rtl' },
+  { code: 'ur', label: 'Urdu', native: 'اردو', direction: 'rtl' },
+  { code: 'tl', label: 'Tagalo', native: 'Tagalog', direction: 'ltr' },
+  { code: 'ca', label: 'Catalán', native: 'Català', direction: 'ltr' },
+  { code: 'hr', label: 'Croata', native: 'Hrvatski', direction: 'ltr' },
+  { code: 'sr', label: 'Serbio', native: 'Српски', direction: 'ltr' },
+  { code: 'sk', label: 'Eslovaco', native: 'Slovenčina', direction: 'ltr' },
+  { code: 'bg', label: 'Búlgaro', native: 'Български', direction: 'ltr' },
 ];
 
 export function localizationLanguage(code: string): LocalizationLanguage | null {

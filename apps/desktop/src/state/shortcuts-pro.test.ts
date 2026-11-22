@@ -33,6 +33,7 @@ import {
 } from './project-actions';
 import { deleteClips, moveClipsBy } from '../features/editor/timeline-edits';
 import { updateEditorPreferences } from './editor-preferences';
+import { toggleAiMode } from './ai-mode';
 import { addMarker, deleteMarker, markerAtFrame, nextMarker, previousMarker } from './markers';
 import { applyClipAttributes, copyClipAttributes } from './clip-attributes';
 import { ProjectProvider, useProjectStore, type ProjectStoreValue } from './project-store';
@@ -110,6 +111,9 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     // Alt+C/V como en AlaukCut: atributos del clip seleccionado vía Timeline.
     'edit.copyAttributes': [copyClipAttributes, applyClipAttributes, Timeline],
     'edit.pasteAttributes': [applyClipAttributes, Timeline],
+    // «Modo IA»: alterna el store persistido state/ai-mode (botón del chrome,
+    // menú Ver y este atajo comparten la misma acción).
+    'view.aiMode': [toggleAiMode],
     'playback.playPause': [store.setPlaying],
     'playback.shuttleForward': [store.shuttlePress],
     'playback.shuttleReverse': [store.shuttlePress],

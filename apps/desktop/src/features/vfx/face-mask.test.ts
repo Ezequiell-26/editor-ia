@@ -48,6 +48,35 @@ describe('roto asistido por seguimiento facial', () => {
     expect(mask?.keyframes?.[1]?.frame).toBe(60);
   });
 
+  it('anima width/height con el tamaño detectado del rostro', () => {
+    const mask = maskFromFaceTrack(
+      result({
+        samples: [
+          { time: 0, centerX: 0.5, centerY: 0.5, size: 0.2 },
+          { time: 1, centerX: 0.5, centerY: 0.5, size: 0.3 },
+        ],
+      }),
+      30,
+    );
+    expect(mask?.keyframes?.[0]?.width).toBeCloseTo(1, 3);
+    expect(mask?.keyframes?.[1]?.width).toBeCloseTo(1.5, 3);
+    expect(mask?.keyframes?.[1]?.height).toBeCloseTo(1.5, 3);
+  });
+
+  it('clampea la escala de la máscara al rango del esquema', () => {
+    const mask = maskFromFaceTrack(
+      result({
+        samples: [
+          { time: 0, centerX: 0.5, centerY: 0.5, size: 0.2 },
+          { time: 1, centerX: 0.5, centerY: 0.5, size: 0.6 },
+        ],
+      }),
+      30,
+    );
+    // 0.6/0.2 = 3 → clamp a 2 (máximo del esquema de keyframes de máscara).
+    expect(mask?.keyframes?.[1]?.width).toBe(2);
+  });
+
   it('limita el número de claves y deduplica frames', () => {
     const samples = Array.from({ length: 200 }, (_, index) => ({
       time: index / 120,
@@ -57,6 +86,20 @@ describe('roto asistido por seguimiento facial', () => {
     }));
     const mask = maskFromFaceTrack(result({ samples }), 30);
     expect(mask?.keyframes?.length).toBeLessThanOrEqual(48);
+  });
+
+  it('conserva la ultima muestra cuando el muestreo llena el cupo (AUD-146)', () => {
+    // 96 muestras → stride 2 → 48 pares; sin reservar slot, la ultima
+    // (indice 95) se agregaba y slice(0,48) la descartaba.
+    const samples = Array.from({ length: 96 }, (_, index) => ({
+      time: index / 10,
+      centerX: 0.5,
+      centerY: 0.5,
+      size: 0.2,
+    }));
+    const mask = maskFromFaceTrack(result({ samples }), 10);
+    expect(mask?.keyframes).toHaveLength(48);
+    expect(mask?.keyframes?.[mask.keyframes.length - 1]?.frame).toBe(95);
   });
 
   it('devuelve null sin muestras o sin fps válido', () => {

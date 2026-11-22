@@ -10,6 +10,41 @@ fn rejects_non_http_and_local_urls() {
 }
 
 #[test]
+fn rejects_ip_forms_that_hide_local_addresses() {
+    // IPv4 en notación entera/hex/octal: el parser WHATWG los normaliza a
+    // dotted-quad antes de llegar al chequeo de IP.
+    for url in [
+        "http://2130706433/video",         // 127.0.0.1
+        "http://0x7f.1/video",             // 127.0.0.1
+        "http://0177.0.0.1/video",         // 127.0.0.1 octal
+        "http://100.64.0.1/video",         // CGNAT 100.64/10
+        "http://198.18.0.1/video",         // benchmarking 198.18/15
+        "http://224.0.0.1/video",          // multicast
+        "http://[::ffff:127.0.0.1]/video", // IPv4-mapped loopback
+        "http://[::ffff:7f00:1]/video",    // mapped en hex
+        "http://[::127.0.0.1]/video",      // IPv4-compatible
+        "http://[64:ff9b::7f00:1]/video",  // NAT64 embebe 127.0.0.1
+        "http://[2001:db8::1]/video",      // documentación
+        "http://[ff02::1]/video",          // multicast v6
+    ] {
+        assert!(validate_url(url).is_err(), "{url} debió rechazarse");
+    }
+    // Un mapped público sigue siendo válido.
+    assert!(validate_url("http://[::ffff:8.8.8.8]/video").is_ok());
+}
+
+#[test]
+fn dns_check_rejects_names_resolving_to_loopback() {
+    // `localhost` resuelve vía hosts/DNS local sin salir a internet:
+    // ensure_public_resolution no exige red para este caso.
+    let url = reqwest::Url::parse("http://localhost:9/").unwrap();
+    assert!(ensure_public_resolution(&url).is_err());
+    // Un literal ya validado no dispara lookup.
+    let literal = reqwest::Url::parse("http://8.8.8.8/").unwrap();
+    assert!(ensure_public_resolution(&literal).is_ok());
+}
+
+#[test]
 fn output_template_keeps_windows_paths_short() {
     let template = download_output_template(Path::new("C:/cache"), None).unwrap();
     assert!(template.contains("%(title).60s"));

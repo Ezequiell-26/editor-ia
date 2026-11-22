@@ -1,6 +1,12 @@
 fn run_engine(engine: &Path, args: &[String], target: &str) -> Result<Vec<u8>, String> {
+    // Mismo cierre AUD-032 que el downloader: las URLs del extractor se
+    // validan una a una en el proxy local antes de conectar.
+    let guard_proxy = crate::commands::downloader::GuardProxy::start()?;
     let mut command = Command::new(engine);
-    command.args(args).arg(target);
+    command
+        .args(args)
+        .args(["--proxy", guard_proxy.proxy_url().as_str()])
+        .arg(target);
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

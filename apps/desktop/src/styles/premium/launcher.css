@@ -194,7 +194,9 @@
   display: inline-flex;
   align-items: center;
   gap: var(--gap-4);
-  height: var(--ctl-h-xs);
+  /* 24 px explícito: --ctl-h-xs queda por debajo del mínimo de target en
+   * la capa filmora (20 px), que redefine los tokens globalmente. */
+  height: 24px;
   margin-left: var(--gap-2);
   padding: 0 var(--gap-6);
   border: var(--hairline) !important;
@@ -240,7 +242,8 @@
   display: grid;
   place-items: center;
   width: 30px;
-  height: var(--ctl-h-sm);
+  /* 24 px explícito: --ctl-h-sm resuelve a 22 px bajo la capa filmora. */
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: var(--rad-sm);
@@ -708,12 +711,13 @@
   gap: var(--gap-8);
 }
 
-/* Input de búsqueda: 28 px con borde de control (§8.2). */
+/* Input de búsqueda: 28 px con borde de control (§8.2). Alto explícito:
+ * --ctl-h-md resuelve a 24 px bajo la capa filmora y desalineaba la barra. */
 .start-search-box {
   display: flex;
   align-items: center;
   gap: var(--gap-6);
-  height: var(--ctl-h-md);
+  height: 28px;
   padding: 0 var(--gap-8);
   border: 1px solid var(--ctl-border);
   border-radius: var(--rad-sm);
@@ -755,6 +759,9 @@
 .start-search-clear {
   display: grid;
   place-items: center;
+  /* Target mínimo 24×24 (auditoría UX): antes era sólo el icono de 10 px. */
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -766,12 +773,12 @@
   color: var(--ink-1);
 }
 
-/* Ordenamiento: segmented de 28 px. */
+/* Ordenamiento: segmented de 28 px (segue la altura de .start-search-box). */
 .start-sort-group {
   display: inline-flex;
   align-items: center;
   gap: var(--gap-2);
-  height: var(--ctl-h-md);
+  height: 28px;
   padding: 2px;
   border: 1px solid var(--ctl-border);
   border-radius: var(--rad-md);
@@ -780,7 +787,9 @@
 }
 
 .start-sort-btn {
-  height: calc(var(--ctl-h-md) - 6px);
+  /* 24 px de target dentro del grupo de 28 px con padding 2 px (antes
+   * calc(--ctl-h-md - 6px) dejaba 18-22 px según la capa de tokens). */
+  height: 24px;
   padding: 0 var(--gap-8);
   border: 0;
   border-radius: var(--rad-sm);
@@ -892,7 +901,23 @@
   box-shadow: var(--elev-2);
 }
 
-.start-project-card:focus-visible {
+/* Botón real que cubre toda la tarjeta (patrón «stretched button»): la
+ * card ya no es role="button" con un <button> anidado, así Enter y Espacio
+ * funcionan de forma nativa y el nombre accesible es «Abrir <proyecto>».
+ * El foco visible lo dibuja base.css sobre este botón (mismo recuadro que
+ * la card por inset:0 + border-radius heredado). */
+.start-project-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.start-project-card:focus-within {
   outline: none;
   box-shadow: var(--focus-ring);
 }
@@ -1049,16 +1074,21 @@
   position: absolute;
   top: var(--gap-6);
   right: var(--gap-6);
+  z-index: 2;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  /* Target 28 px (auditoría UX: mínimo 24); antes 22 px. */
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: var(--hairline-strong);
   border-radius: var(--rad-pill);
   background: color-mix(in srgb, var(--color-bg) 82%, transparent);
   color: var(--ink-2);
   opacity: 0;
+  /* Invisible no intercepta clicks: sin esto la zona superior derecha de la
+   * tarjeta borraba el reciente aunque el botón no se viera. */
+  pointer-events: none;
   cursor: pointer;
   transition:
     opacity var(--dur-3) var(--ease-out),
@@ -1069,6 +1099,7 @@
 .start-project-card:hover .start-card-delete,
 .start-project-card:focus-within .start-card-delete {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .start-card-delete:hover {
@@ -1178,7 +1209,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--gap-4);
-  height: var(--ctl-h-xs);
+  /* 24 px explícito: --ctl-h-xs resuelve a 20 px bajo la capa filmora. */
+  height: 24px;
   padding: 0 var(--gap-6);
   border: 0;
   border-radius: var(--rad-xs);

@@ -15,8 +15,21 @@ import {
   briefTokens,
   categoryLabel,
   composeSkillPrompt,
+  listSkills,
   type AiSkill,
-} from './ai-hub';
+} from '../../state/ai-skills';
+import {
+  deleteCustomSkill,
+  saveCustomSkill,
+  type CustomSkill,
+} from '../../state/custom-skills';
+import { emptyDirectorMemory, normalizeDirectorMemory } from '../../state/editor-memory';
+import {
+  addAiMemory,
+  forgetAiMemory,
+  loadAiMemory,
+  type AiMemoryNote,
+} from '../../state/ai-memory';
 import { OPERATOR_HELP, parseOperatorCommand } from './operator';
 
 const BRIEF_KEY = 'editoria.aihub.brief';
@@ -49,12 +62,25 @@ export function AiHubView({
     { role: 'agent', text: 'Operador local listo. Escribí “ayuda” para ver los comandos.' },
   ]);
   const [skillId, setSkillId] = useState(AI_SKILLS[0]!.id);
+  const [skills, setSkills] = useState<readonly AiSkill[]>(() => listSkills());
+  const [customForm, setCustomForm] = useState(false);
+  const [customDraft, setCustomDraft] = useState({
+    name: '',
+    summary: '',
+    category: 'guion' as AiSkill['category'],
+    target: 'script' as ViewId,
+    output: '',
+    prompt: '',
+  });
+  const [memory, setMemory] = useState<{ runs: number; profiles: number } | null>(null);
+  const [memoryNotes, setMemoryNotes] = useState<readonly AiMemoryNote[]>(() => loadAiMemory());
+  const [memoryDraft, setMemoryDraft] = useState('');
   const [brief, setBrief] = useState('');
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
   const [providerError, setProviderError] = useState<string | null>(null);
   const [providerRetry, setProviderRetry] = useState(0);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const skill = aiSkill(skillId) ?? AI_SKILLS[0]!;
+  const skill = aiSkill(skillId) ?? skills[0] ?? AI_SKILLS[0]!;
   const composed = useMemo(() => composeSkillPrompt(skill, brief), [skill, brief]);
   const problem = briefProblem(brief);
   const ready = !problem && brief.trim().length >= 10;
@@ -76,6 +102,65 @@ export function AiHubView({
       active = false;
     };
   }, [store.service, providerRetry]);
+
+  // Memoria del Director: perfiles por plataforma + historial de runs.
+  useEffect(() => {
+    let active = true;
+    void store.service
+      .loadDirectorMemory()
+      .then((raw) => {
+        if (!active) return;
+        const memory = normalizeDirectorMemory(raw);
+        setMemory({
+          runs: memory.runs.length,
+          profiles: Object.values(memory.profiles).filter(
+            (profile) => profile.samples > 0,
+          ).length,
+        });
+      })
+      .catch(() => {
+        if (active) setMemory(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [store.service]);
+
+  function createCustomSkill(): void {
+    const draft = customDraft;
+    if (
+      !draft.name.trim() ||
+      !draft.summary.trim() ||
+      !draft.prompt.trim() ||
+      !draft.output.trim()
+    ) {
+      return;
+    }
+    const skill: CustomSkill = {
+      id: `custom-${Date.now().toString(36)}`,
+      name: draft.name.trim(),
+      summary: draft.summary.trim(),
+      category: draft.category,
+      target: draft.target,
+      output: draft.output.trim(),
+      prompt: draft.prompt.trim(),
+      custom: true,
+      createdAt: new Date().toISOString(),
+    };
+    saveCustomSkill(skill);
+    setSkills(listSkills());
+    setSkillId(skill.id);
+    setCustomForm(false);
+    setCustomDraft({
+      name: '',
+      summary: '',
+      category: 'guion',
+      target: 'script',
+      output: '',
+      prompt: '',
+    });
+    setFeedback(`Skill «${skill.name}» creada. Ya podés usarla en el compositor.`);
+  }
 
   function pick(next: AiSkill): void {
     setSkillId(next.id);
@@ -227,6 +312,7 @@ export function AiHubView({
       reply = 'El montaje de carpetas se ejecuta desde el asistente flotante de Olyvia.';
     } else if (
       action.kind === 'new_project' ||
+      action.kind === 'open_project' ||
       action.kind === 'import_file' ||
       action.kind === 'download_url' ||
       action.kind === 'add_clip' ||
@@ -361,7 +447,7 @@ export function AiHubView({
         <div className="ai-hub-skills">
           <p className="field-label">Biblioteca de skills</p>
           <div className="ai-hub-grid" role="group" aria-label="Biblioteca de skills">
-            {AI_SKILLS.map((item) => (
+            {skills.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -374,9 +460,188 @@ export function AiHubView({
                 <p>{item.summary}</p>
                 <span className="ai-hub-skill-target">
                   {targetLabel(item.target)} · {item.output}
+                  {'custom' in item && item.custom ? ' · mía' : ''}
                 </span>
+                {'custom' in item && item.custom ? (
+                  <button
+                    type="button"
+                    className="ghost ai-hub-skill-delete"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      deleteCustomSkill(item.id);
+                      setSkills(listSkills());
+                      if (skillId === item.id) setSkillId(AI_SKILLS[0]!.id);
+                    }}
+                  >
+                    Eliminar
+                  </button>
+                ) : null}
               </button>
             ))}
+          </div>
+
+          <div className="ai-hub-custom">
+            {!customForm ? (
+              <button
+                type="button"
+                className="ghost icon-text"
+                onClick={() => setCustomForm(true)}
+              >
+                <Icon name="plus" size={14} />
+                <span>Crear skill propia</span>
+              </button>
+            ) : (
+              <div className="ai-hub-custom-form">
+                <p className="field-label">Skill nueva (plantilla de prompt)</p>
+                <input
+                  type="text"
+                  placeholder="Nombre"
+                  value={customDraft.name}
+                  onChange={(e) => setCustomDraft({ ...customDraft, name: e.target.value })}
+                />
+                <input
+                  type="text"
+                  placeholder="Resumen de una línea"
+                  value={customDraft.summary}
+                  onChange={(e) => setCustomDraft({ ...customDraft, summary: e.target.value })}
+                />
+                <div className="ai-hub-custom-row">
+                  <select
+                    aria-label="Categoría"
+                    value={customDraft.category}
+                    onChange={(e) =>
+                      setCustomDraft({
+                        ...customDraft,
+                        category: e.target.value as AiSkill['category'],
+                      })
+                    }
+                  >
+                    <option value="guion">Guion</option>
+                    <option value="crecimiento">Crecimiento</option>
+                    <option value="produccion">Producción</option>
+                    <option value="localizacion">Localización</option>
+                    <option value="motion">Motion</option>
+                  </select>
+                  <select
+                    aria-label="Destino"
+                    value={customDraft.target}
+                    onChange={(e) =>
+                      setCustomDraft({ ...customDraft, target: e.target.value as ViewId })
+                    }
+                  >
+                    <option value="script">Guion</option>
+                    <option value="localization">Localización</option>
+                    <option value="thumbnails">Miniaturas</option>
+                    <option value="production">Producción</option>
+                    <option value="motion">Motion</option>
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Salida esperada"
+                    value={customDraft.output}
+                    onChange={(e) => setCustomDraft({ ...customDraft, output: e.target.value })}
+                  />
+                </div>
+                <textarea
+                  rows={4}
+                  placeholder="Instrucciones/prompt que va a componer la app"
+                  value={customDraft.prompt}
+                  onChange={(e) => setCustomDraft({ ...customDraft, prompt: e.target.value })}
+                />
+                <div className="ai-hub-custom-row">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={createCustomSkill}
+                    disabled={
+                      !customDraft.name.trim() ||
+                      !customDraft.summary.trim() ||
+                      !customDraft.prompt.trim() ||
+                      !customDraft.output.trim()
+                    }
+                  >
+                    Guardar skill
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => setCustomForm(false)}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="ai-hub-memory">
+            <p className="field-label">Memoria de la IA</p>
+            {memory ? (
+              <p className="fine-print">
+                Director: {memory.runs} corridas · {memory.profiles} perfiles calibrados.
+              </p>
+            ) : (
+              <p className="fine-print">Director: sin memoria todavía.</p>
+            )}
+            {memoryNotes.length > 0 ? (
+              <ul className="ai-hub-memory-list">
+                {memoryNotes.map((note) => (
+                  <li key={note.id}>
+                    <span>{note.text}</span>
+                    <button
+                      type="button"
+                      className="ghost"
+                      aria-label={`Olvidar: ${note.text.slice(0, 40)}`}
+                      onClick={() => setMemoryNotes(forgetAiMemory(note.id))}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="fine-print">
+                Sin notas propias. La IA guarda aquí lo que le pidas recordar o lo que
+                ella misma decide persistir.
+              </p>
+            )}
+            <div className="ai-hub-memory-add">
+              <input
+                type="text"
+                placeholder="Anotá algo para la IA…"
+                value={memoryDraft}
+                onChange={(e) => setMemoryDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && memoryDraft.trim()) {
+                    setMemoryNotes(addAiMemory(memoryDraft));
+                    setMemoryDraft('');
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="ghost"
+                disabled={!memoryDraft.trim()}
+                onClick={() => {
+                  setMemoryNotes(addAiMemory(memoryDraft));
+                  setMemoryDraft('');
+                }}
+              >
+                Guardar
+              </button>
+            </div>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                void store.service
+                  .saveDirectorMemory(emptyDirectorMemory())
+                  .then(() => setMemory({ runs: 0, profiles: 0 }))
+                  .catch(() => setFeedback('No se pudo reiniciar la memoria del Director.'));
+              }}
+            >
+              Reiniciar memoria del Director
+            </button>
           </div>
 
           <div className="ai-hub-budget">

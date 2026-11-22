@@ -110,6 +110,20 @@ describe('operador local', () => {
     expect(parseOperatorCommand('abrir carpeta vigilada', views).kind).toBe('unknown');
   });
 
+  it('abre un proyecto existente sin confundirlo con la vista Proyectos', () => {
+    expect(parseOperatorCommand('abrir proyecto', views)).toEqual({ kind: 'open_project' });
+    expect(parseOperatorCommand('abrí el proyecto existente', views)).toEqual({
+      kind: 'open_project',
+    });
+    expect(parseOperatorCommand('cargar proyecto', views)).toEqual({ kind: 'open_project' });
+    expect(
+      parseOperatorCommand('abrir Proyectos', [
+        ...views,
+        { id: 'projects' as const, label: 'Proyectos' },
+      ]),
+    ).toMatchObject({ kind: 'navigate', view: 'projects' });
+  });
+
   it('crea un proyecto con nombre', () => {
     expect(parseOperatorCommand('nueva proyecto Reel de mayo', views)).toMatchObject({
       kind: 'new_project',

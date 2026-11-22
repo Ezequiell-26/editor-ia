@@ -14,9 +14,7 @@ use serde_json::{json, Value};
 
 use super::detect_scenes;
 use crate::ports::media::{MediaRunner, MediaTools};
-use crate::ports::projects::{
-    ProjectDocuments, ProjectSession, ProjectSessionInfo,
-};
+use crate::ports::projects::{ProjectDocuments, ProjectSession, ProjectSessionInfo};
 use crate::projects::service::{OpenedProject, ProjectError, SaveProjectResult};
 
 fn exit_status(code: i32) -> std::process::ExitStatus {
@@ -162,16 +160,7 @@ fn project_with_video() -> Value {
 
 /// Root temporal con `media/toma.mp4` existente (el caso de uso exige que el
 /// archivo esté en disco) y las dependencias listas para `detect_scenes`.
-fn fixture(
-    stderr: &str,
-    ok: bool,
-) -> (
-    FixedSession,
-    MemDocs,
-    FakeTools,
-    FakeRunner,
-    PathBuf,
-) {
+fn fixture(stderr: &str, ok: bool) -> (FixedSession, MemDocs, FakeTools, FakeRunner, PathBuf) {
     let root = std::env::temp_dir().join(format!("editoria-scenes-{}", uuid::Uuid::new_v4()));
     let media = root.join("media");
     std::fs::create_dir_all(&media).expect("media dir");
@@ -207,8 +196,8 @@ const SHOWINFO: &str = r#"
 #[test]
 fn detect_scenes_ordena_cortes_en_frames_del_asset() {
     let (session, docs, tools, runner, root) = fixture(SHOWINFO, true);
-    let result = detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.35)
-        .expect("detección");
+    let result =
+        detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.35).expect("detección");
     let _ = std::fs::remove_dir_all(&root);
     assert_eq!(result.threshold, 0.35);
     assert_eq!(result.duration_frames, 300);
@@ -235,8 +224,8 @@ fn detect_scenes_ordena_cortes_en_frames_del_asset() {
 #[test]
 fn detect_scenes_sin_cortes_devuelve_lista_vacia() {
     let (session, docs, tools, runner, root) = fixture("sin showinfo\n", true);
-    let result = detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.5)
-        .expect("detección");
+    let result =
+        detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.5).expect("detección");
     let _ = std::fs::remove_dir_all(&root);
     assert!(result.cuts.is_empty());
     assert_eq!(result.threshold, 0.5);
@@ -247,8 +236,8 @@ fn detect_scenes_filtra_frames_fuera_del_asset() {
     // pts_time:0 produce frame 0 (descartado) y 12 s → frame 360 ≥ duration.
     let stderr = "[x] pts_time:0\n[x] pts_time:12\n";
     let (session, docs, tools, runner, root) = fixture(stderr, true);
-    let result = detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.35)
-        .expect("detección");
+    let result =
+        detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.35).expect("detección");
     let _ = std::fs::remove_dir_all(&root);
     assert!(result.cuts.is_empty());
 }
@@ -256,8 +245,8 @@ fn detect_scenes_filtra_frames_fuera_del_asset() {
 #[test]
 fn detect_scenes_propaga_error_de_ffmpeg() {
     let (session, docs, tools, runner, root) = fixture("boom", false);
-    let error = detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.35)
-        .expect_err("ffmpeg falló");
+    let error =
+        detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.35).expect_err("ffmpeg falló");
     let _ = std::fs::remove_dir_all(&root);
     assert!(error.message.contains("FFmpeg"));
 }
@@ -297,17 +286,36 @@ fn live_detect_scenes_encuentra_cortes_en_video_generado() {
     let video = media.join("toma.mp4");
     let mut command = Command::new(&ffmpeg);
     command.args([
-        "-hide_banner", "-loglevel", "error", "-y",
-        "-f", "lavfi", "-i", "testsrc2=size=160x120:rate=30:duration=2",
-        "-f", "lavfi", "-i", "color=c=red:size=160x120:rate=30:duration=3",
-        "-f", "lavfi", "-i", "testsrc=size=160x120:rate=30:duration=2",
-        "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1[v]",
-        "-map", "[v]", "-pix_fmt", "yuv420p",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=160x120:rate=30:duration=2",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:size=160x120:rate=30:duration=3",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=160x120:rate=30:duration=2",
+        "-filter_complex",
+        "[0:v][1:v][2:v]concat=n=3:v=1[v]",
+        "-map",
+        "[v]",
+        "-pix_fmt",
+        "yuv420p",
     ]);
     command.arg(&video);
     crate::commands::hide_console(&mut command);
     let built = command.output().expect("correr ffmpeg");
-    assert!(built.status.success(), "ffmpeg no generó el video de prueba");
+    assert!(
+        built.status.success(),
+        "ffmpeg no generó el video de prueba"
+    );
 
     let session = FixedSession {
         info: ProjectSessionInfo {
@@ -324,8 +332,8 @@ fn live_detect_scenes_encuentra_cortes_en_video_generado() {
     };
     let _ = ffprobe;
     let runner = crate::infrastructure::media::SystemMediaRunner;
-    let result = detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.35)
-        .expect("detección live");
+    let result =
+        detect_scenes(&session, &docs, &tools, &runner, "asset-1", 0.35).expect("detección live");
     let _ = std::fs::remove_dir_all(&root);
     // Cortes esperados en t=2 s (frame 60) y t=5 s (frame 150) a 30 fps.
     assert_eq!(
@@ -353,11 +361,7 @@ impl MediaRunner for ProbeJsonRunner {
     ) -> Result<Output, ProjectError> {
         unimplemented!()
     }
-    fn run_ffprobe(
-        &self,
-        _ffprobe: &Path,
-        _args: &[String],
-    ) -> Result<Output, ProjectError> {
+    fn run_ffprobe(&self, _ffprobe: &Path, _args: &[String]) -> Result<Output, ProjectError> {
         unimplemented!()
     }
     fn run_ffmpeg_with_timeout(

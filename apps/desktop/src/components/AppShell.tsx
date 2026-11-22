@@ -9,14 +9,14 @@ import {
 import { Sidebar } from './Sidebar';
 import { TooltipEnhancer } from './TooltipEnhancer';
 import { Icon, type IconName } from './Icon';
-import { MenuBar } from './MenuBar';
+import { MenuBar, type MenuFeatureDialogs } from './MenuBar';
 import { WindowControls } from './WindowControls';
 import { SafeText } from './SafeText';
-import { AssistantDock } from '../features/assistant/AssistantDock';
 import { NAV_VIEWS, type NavView, type ViewId } from '../app/navigation';
 import { useProjectStore } from '../state/project-store';
 import { useEditorPreferences } from '../state/useEditorPreferences';
 import { setEditorLayout, useEditorLayout, type EditorLayout } from '../state/editor-layout';
+import { useAiOnly } from '../state/ai-mode';
 import { appCursorCss } from '../state/app-cursor';
 
 /** Último segmento de una ruta, para mostrar sólo el nombre del archivo. */
@@ -50,6 +50,10 @@ interface AppShellProps {
   readonly editorSurface?: boolean;
   /** Vuelta al launcher (StartScreen): botón «Inicio» y entrada de menú. */
   readonly onReturnToStart?: () => void;
+  /** Chat del asistente inyectado por el composition root (app/). */
+  readonly assistantDock?: ReactNode;
+  /** Diálogos de dominio del menú inyectados por el composition root. */
+  readonly menuFeatureDialogs?: MenuFeatureDialogs;
 }
 
 export function AppShell({
@@ -66,12 +70,15 @@ export function AppShell({
   flush = false,
   editorSurface = false,
   onReturnToStart,
+  assistantDock = null,
+  menuFeatureDialogs,
 }: AppShellProps) {
   const store = useProjectStore();
   const project = store.state.project;
   const error = store.state.error;
   const notice = store.state.notice;
   const preferences = useEditorPreferences();
+  const aiOnly = useAiOnly();
   const [recovering, setRecovering] = useState(false);
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
   const editorLayout = useEditorLayout();
@@ -168,7 +175,7 @@ export function AppShell({
     };
   }, [layoutMenuOpen]);
 
-  async function recoverSession(): Promise<void> {
+async function recoverSession(): Promise<void> {
     if (recovering) return;
     setRecovering(true);
     try {
@@ -201,7 +208,7 @@ export function AppShell({
 
   return (
     <div
-      className={`app-shell${immersive ? ' editor-immersive' : ''}`}
+      className={`app-shell${immersive ? ' editor-immersive' : ''}${aiOnly ? ' ai-only' : ''}`}
       style={{ cursor: appCursorCss(preferences.editorCursor) }}
       onPointerDown={handlePointerDown}
     >
@@ -219,42 +226,47 @@ export function AppShell({
           <img src="/olyvia-mark.png" alt="" />
           <span>Olyvia</span>
         </div>
-        {onReturnToStart ? (
-          <button
-            type="button"
-            className="topbar-home-btn"
-            aria-label="Pantalla de inicio"
-            data-tooltip="Volver a la pantalla de inicio"
-            onClick={onReturnToStart}
-          >
-            <Icon name="home" size={14} />
-            <span>Inicio</span>
-          </button>
+        {!aiOnly ? (
+          <>
+            {onReturnToStart ? (
+              <button
+                type="button"
+                className="topbar-home-btn"
+                aria-label="Pantalla de inicio"
+                data-tooltip="Volver a la pantalla de inicio"
+                onClick={onReturnToStart}
+              >
+                <Icon name="home" size={14} />
+                <span>Inicio</span>
+              </button>
+            ) : null}
+            {/* UN SOLO EDITOR: no existe un botón que saque de la superficie de
+                edición. «Inicio» es un PANEL dentro del editor, no una pantalla. */}
+            {/* F4 (parcial): desde cualquier hub o herramienta hay un retorno
+                persistente al editor, sin tener que volver a buscar la puerta. */}
+            {project && !editorSurface ? (
+              <button
+                type="button"
+                className="topbar-back-editor"
+                aria-label="Volver al editor"
+                data-tooltip="Volver al editor · la timeline sigue abierta"
+                onClick={() => onSelect('editor')}
+              >
+                <Icon name="editor" size={13} />
+                <span>Editor</span>
+              </button>
+            ) : null}
+            <MenuBar
+              activeId={activeId}
+              views={views}
+              onSelect={onSelect}
+              {...(onReturnToStart ? { onOpenStart: onReturnToStart } : {})}
+              {...(onOpenShortcuts ? { onOpenShortcuts } : {})}
+              {...(onOpenTour ? { onOpenTour } : {})}
+              {...(menuFeatureDialogs ? { featureDialogs: menuFeatureDialogs } : {})}
+            />
+          </>
         ) : null}
-        {/* UN SOLO EDITOR: no existe un botón que saque de la superficie de
-            edición. «Inicio» es un PANEL dentro del editor, no una pantalla. */}
-        {/* F4 (parcial): desde cualquier hub o herramienta hay un retorno
-            persistente al editor, sin tener que volver a buscar la puerta. */}
-        {project && !editorSurface ? (
-          <button
-            type="button"
-            className="topbar-back-editor"
-            aria-label="Volver al editor"
-            data-tooltip="Volver al editor · la timeline sigue abierta"
-            onClick={() => onSelect('editor')}
-          >
-            <Icon name="editor" size={13} />
-            <span>Editor</span>
-          </button>
-        ) : null}
-        <MenuBar
-          activeId={activeId}
-          views={views}
-          onSelect={onSelect}
-          {...(onReturnToStart ? { onOpenStart: onReturnToStart } : {})}
-          {...(onOpenShortcuts ? { onOpenShortcuts } : {})}
-          {...(onOpenTour ? { onOpenTour } : {})}
-        />
         <div className="topbar-center" data-tauri-drag-region aria-hidden="true" />
         {immersive && project ? (
           <div className="topbar-project" data-tauri-drag-region>
@@ -273,6 +285,7 @@ export function AppShell({
             </span>
           </div>
         ) : null}
+        {!aiOnly ? (
         <div className="topbar-actions">
           {/* Puerta única: con proyecto abierto, TODAS las herramientas están
               en el mapa del editor, disponible desde cualquier superficie. */}
@@ -447,6 +460,7 @@ export function AppShell({
             <Icon name="settings" size={16} />
           </button>
         </div>
+        ) : null}
         <WindowControls />
       </header>
       {banner}
@@ -491,17 +505,20 @@ export function AppShell({
         </div>
       ) : null}
       <div className="app-body">
-        <Sidebar
-          views={views}
-          moreViews={moreViews}
-          activeId={activeId}
-          onSelect={onSelect}
-          projectName={project?.name ?? null}
-          phase={store.state.phase}
-        />
+        {!aiOnly ? (
+          <Sidebar
+            views={views}
+            moreViews={moreViews}
+            activeId={activeId}
+            onSelect={onSelect}
+            projectName={project?.name ?? null}
+            phase={store.state.phase}
+          />
+        ) : null}
         <main ref={mainRef} className={flush ? 'content content-flush' : 'content'}>{content}</main>
       </div>
-      <AssistantDock activeId={activeId} onSelect={onSelect} />
+      {assistantDock}
+      {!aiOnly ? (
       <footer className="app-statusbar">
         <span className={`statusbar-dot phase-${store.state.phase}`} aria-hidden="true" />
         <span className="statusbar-project">{project?.name ?? 'Sin proyecto abierto'}</span>
@@ -552,6 +569,7 @@ export function AppShell({
         ) : null}
         <span className="statusbar-meta statusbar-local">FFmpeg local · sin nube</span>
       </footer>
+      ) : null}
     </div>
   );
 }

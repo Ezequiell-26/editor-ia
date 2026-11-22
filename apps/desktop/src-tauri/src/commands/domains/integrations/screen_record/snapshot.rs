@@ -182,35 +182,44 @@ pub async fn screen_record_snapshot(
 
     match result {
         Ok(()) => {
-            let (width, height) = ffprobe
-                .as_ref()
-                .map(|p| {
-                    let probed = Command::new(p)
-                        .args([
-                            "-v",
-                            "error",
-                            "-select_streams",
-                            "v:0",
-                            "-show_entries",
-                            "stream=width,height",
-                            "-of",
-                            "json",
-                            &output.to_string_lossy(),
-                        ])
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::null())
-                        .output();
-                    let Ok(out) = probed else { return (None, None) };
-                    let text = String::from_utf8_lossy(&out.stdout);
-                    let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-                    let stream = &json["streams"][0];
-                    (
-                        stream["width"].as_u64().map(|v| v as u32),
-                        stream["height"].as_u64().map(|v| v as u32),
-                    )
-                })
-                .unwrap_or((None, None));
+            // ffprobe también es un proceso: `.output()` va a
+            // `spawn_blocking` (AUD-129) — la sonda de tamaño no puede
+            // congelar el runtime async.
+            let (width, height) = match ffprobe.clone() {
+                Some(probe_path) => {
+                    let probe_input = output.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        let probed = Command::new(&probe_path)
+                            .args([
+                                "-v",
+                                "error",
+                                "-select_streams",
+                                "v:0",
+                                "-show_entries",
+                                "stream=width,height",
+                                "-of",
+                                "json",
+                                &probe_input.to_string_lossy(),
+                            ])
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::null())
+                            .output();
+                        let Ok(out) = probed else { return (None, None) };
+                        let text = String::from_utf8_lossy(&out.stdout);
+                        let json: serde_json::Value =
+                            serde_json::from_str(&text).unwrap_or_default();
+                        let stream = &json["streams"][0];
+                        (
+                            stream["width"].as_u64().map(|v| v as u32),
+                            stream["height"].as_u64().map(|v| v as u32),
+                        )
+                    })
+                    .await
+                    .unwrap_or((None, None))
+                }
+                None => (None, None),
+            };
             Ok(ScreenRecordPreview {
                 ok: true,
                 path: Some(output.to_string_lossy().into_owned()),

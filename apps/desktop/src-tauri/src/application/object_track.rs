@@ -55,8 +55,8 @@ pub fn track_object(
             // memory to ~5 seconds and re-seeds the next chunk at the
             // previous target box.
             if let Some(last) = tracked.last() {
-                let scale = (last.size * f64::from(w.max(h)) / seed_max_side)
-                    .clamp(MIN_SCALE, MAX_SCALE);
+                let scale =
+                    (last.size * f64::from(w.max(h)) / seed_max_side).clamp(MIN_SCALE, MAX_SCALE);
                 let next_w = (seed_rect.w * scale).clamp(0.005, 1.0);
                 let next_h = (seed_rect.h * scale).clamp(0.005, 1.0);
                 current_rect = ObjectTrackRect {

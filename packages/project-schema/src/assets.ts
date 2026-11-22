@@ -139,6 +139,9 @@ const VideoAssetSchema = z
         height: PixelsSchema,
         durationFrames: DurationSchema,
         frameRate: FrameRateSchema,
+        /** Canales de la primera pista de audio (necesario para el upmix
+         *  mono→estéreo del render: `aformat` baja 3 dB sin compensar). */
+        channels: ChannelsSchema.optional(),
         /** El archivo lleva canal alfa (recortes VP9, ProRes 4444). */
         alpha: z.boolean().optional(),
       })

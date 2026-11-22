@@ -198,11 +198,14 @@ pub async fn browser_instance_launch(
             std::time::Duration::from_millis(400),
         )
     })
-        .await
-        .unwrap_or(false);
+    .await
+    .unwrap_or(false);
     if !alive {
-        let _ = child.kill();
-        let _ = child.wait();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let _ = child.kill();
+            let _ = child.wait();
+        })
+        .await;
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
             "el navegador no abrió el endpoint CDP a tiempo",
@@ -243,21 +246,28 @@ pub async fn browser_instance_launch(
 #[tauri::command]
 pub async fn browser_instance_close(profile_id: String) -> Result<bool, ProjectError> {
     let id = sanitize_profile_id(&profile_id)?;
-    let mut guard = instances();
-    let Some(map) = guard.as_mut() else {
-        return Err(ProjectError::message(
-            ProjectErrorCode::NotFound,
-            "no hay instancias abiertas",
-        ));
+    let instance = {
+        let mut guard = instances();
+        let Some(map) = guard.as_mut() else {
+            return Err(ProjectError::message(
+                ProjectErrorCode::NotFound,
+                "no hay instancias abiertas",
+            ));
+        };
+        let Some(instance) = map.remove(&id) else {
+            return Err(ProjectError::message(
+                ProjectErrorCode::NotFound,
+                "no existe una instancia con ese profile_id",
+            ));
+        };
+        instance
     };
-    let Some(mut instance) = map.remove(&id) else {
-        return Err(ProjectError::message(
-            ProjectErrorCode::NotFound,
-            "no existe una instancia con ese profile_id",
-        ));
-    };
-    let _ = instance.child.kill();
-    let _ = instance.child.wait();
+    let mut child = instance.child;
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        let _ = child.kill();
+        let _ = child.wait();
+    })
+    .await;
     Ok(true)
 }
 
@@ -367,12 +377,8 @@ async fn page_ws_url(port: u16) -> Result<String, ProjectError> {
             &format!("no se pudo consultar el CDP del navegador: {e}"),
         )
     })?;
-    let text = fetched.map_err(|e| {
-        ProjectError::message(
-            ProjectErrorCode::ProviderUnavailable,
-            &e,
-        )
-    })?;
+    let text =
+        fetched.map_err(|e| ProjectError::message(ProjectErrorCode::ProviderUnavailable, &e))?;
     let pages: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
         ProjectError::message(
             ProjectErrorCode::InvalidProviderResponse,

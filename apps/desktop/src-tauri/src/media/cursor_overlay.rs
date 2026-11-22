@@ -33,10 +33,14 @@ pub struct CursorOverlaySpec {
 impl CursorOverlaySpec {
     pub fn validate(&self) -> Result<(), ProjectError> {
         if !CURSOR_STYLES.contains(&self.style.as_str()) {
-            return Err(invalid("cursorStyle debe ser flecha, punto, cruz, cheia o 3d"));
+            return Err(invalid(
+                "cursorStyle debe ser flecha, punto, cruz, cheia o 3d",
+            ));
         }
         if !CURSOR_COLORS.contains(&self.color.as_str()) {
-            return Err(invalid("cursorColor debe ser blanco, negro, amarillo o verde"));
+            return Err(invalid(
+                "cursorColor debe ser blanco, negro, amarillo o verde",
+            ));
         }
         if ![0.5, 1.0, 2.0].contains(&self.scale) {
             return Err(invalid("cursorScale debe ser 0.5, 1 o 2"));
@@ -63,12 +67,7 @@ pub struct CursorSample {
 /// Coordenada del cursor en píxeles de vídeo. `map` es el rectángulo del
 /// escritorio que cubre el vídeo (origen x,y y tamaño w,h en coordenadas de
 /// cursor); con mapa degenerado se usa la posición cruda.
-fn to_video_xy(
-    sample: &CursorSample,
-    map: (i32, i32, i32, i32),
-    vw: u32,
-    vh: u32,
-) -> (f64, f64) {
+fn to_video_xy(sample: &CursorSample, map: (i32, i32, i32, i32), vw: u32, vh: u32) -> (f64, f64) {
     let (mx, my, mw, mh) = map;
     if mw <= 0 || mh <= 0 {
         return (sample.x, sample.y);
@@ -191,8 +190,14 @@ fn shape_drawing(style: &str, scale: f64) -> String {
             let rect = |hx: f64, hy: f64| {
                 format!(
                     "m {} {} l {} {} l {} {} l {} {}",
-                    fmt_f(-hx), fmt_f(-hy), fmt_f(hx), fmt_f(-hy),
-                    fmt_f(hx), fmt_f(hy), fmt_f(-hx), fmt_f(hy),
+                    fmt_f(-hx),
+                    fmt_f(-hy),
+                    fmt_f(hx),
+                    fmt_f(-hy),
+                    fmt_f(hx),
+                    fmt_f(hy),
+                    fmt_f(-hx),
+                    fmt_f(hy),
                 )
             };
             format!("{}{}", rect(a, t), rect(t, a))
@@ -202,12 +207,7 @@ fn shape_drawing(style: &str, scale: f64) -> String {
             // mismos vértices normalizados (punta en el origen, escala
             // 0.9 respecto de la caja de 32 px del original).
             let p: &[(f64, f64)] = if style == "cheia" {
-                &[
-                    (0.0, 0.0),
-                    (0.0, 20.25),
-                    (7.47, 15.30),
-                    (15.75, 13.23),
-                ]
+                &[(0.0, 0.0), (0.0, 20.25), (7.47, 15.30), (15.75, 13.23)]
             } else {
                 &[
                     (0.0, 0.0),
@@ -259,7 +259,12 @@ fn ripple_drawing(scale: f64, strength: f64) -> String {
 
 /// Reducimos muestras a keyframes: nuevo punto si se movió >=3 px o pasaron
 /// >=80 ms. Mantiene el cursor suave sin inflar el .ass.
-fn keyframes(samples: &[CursorSample], map: (i32, i32, i32, i32), vw: u32, vh: u32) -> Vec<(u64, f64, f64)> {
+fn keyframes(
+    samples: &[CursorSample],
+    map: (i32, i32, i32, i32),
+    vw: u32,
+    vh: u32,
+) -> Vec<(u64, f64, f64)> {
     let mut out: Vec<(u64, f64, f64)> = Vec::new();
     for s in samples {
         let (x, y) = to_video_xy(s, map, vw, vh);
@@ -310,7 +315,9 @@ pub fn generate_cursor_ass(
         "Style: Cursor,Arial,0,{primary},&H000000FF,{outline},&H96000000,0,0,0,0,100,100,0,0,1,2.5,0,7,0,0,0,1\n\n"
     ));
     out.push_str("[Events]\n");
-    out.push_str("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
+    out.push_str(
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n",
+    );
 
     // Eventos de movimiento: un Dialogue por tramo keyframe→keyframe.
     for (i, &(t0, x0, y0)) in kf.iter().enumerate() {

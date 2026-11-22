@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createEmptyProject } from '@editor-ia/project-schema';
 import { emitAppReady, isBackgroundStartMode, onAppShowRequested } from './platform/tauri/app';
 import { enterEditorWindowMode, setupCompactWindow } from './platform/tauri/window';
 import { NAV_VIEWS, type ViewId } from './app/navigation';
 import { AppearanceProvider } from './state/AppearanceProvider';
 import { BrowserModeBanner } from './components/BrowserModeBanner';
 import { createDesktopService, detectNativeRuntime, type DesktopService } from './services/project-service';
-import { ProjectProvider } from './state/project-store';
+import { ProjectProvider, useProjectStore } from './state/project-store';
 import { McpBridgeRuntime } from './features/assistant/McpBridgeRuntime';
 import { StartScreen } from './features/start/StartScreen';
 import { useEditorPreferences } from './state/useEditorPreferences';
 import { FlowQueueProvider } from './state/FlowQueueProvider';
 import { useDualMonitorLink } from './state/dual-link';
+import { suggestAiProjectName, useAiOnly } from './state/ai-mode';
 
 import { Shell } from './app/Shell';
 
@@ -21,6 +23,43 @@ interface AppProps {
 }
 
 /** Enlace con la ventana del monitor dual; hook dentro del provider. */
+/**
+ * El proyecto inicial nace en memoria para que el monitor aparezca de
+ * inmediato, pero importar medios y correr el piloto exigen una sesión real
+ * en disco. La creamos en segundo plano una sola vez, sin diálogo nativo.
+ */
+function AiDiskProjectBootstrap({ enabled }: { readonly enabled: boolean }) {
+  const store = useProjectStore();
+  const storeRef = useRef(store);
+  storeRef.current = store;
+
+  useEffect(() => {
+    if (!enabled || !storeRef.current.service.available) return;
+    if (storeRef.current.state.opened) return;
+    let disposed = false;
+    void storeRef.current
+      .createProject({
+        name: suggestAiProjectName(),
+        width: 1920,
+        height: 1080,
+        fpsNum: 30,
+        fpsDen: 1,
+      })
+      .then((ok) => {
+        if (!ok && !disposed) {
+          storeRef.current.setNotice(
+            'No se pudo crear el proyecto en disco: la IA no puede importar medios hasta guardar.',
+          );
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [enabled]);
+
+  return null;
+}
+
 function DualMonitorLinkHost() {
   useDualMonitorLink();
   return null;
@@ -28,6 +67,14 @@ function DualMonitorLinkHost() {
 
 export function App({ service: suppliedService, initialShowStart }: AppProps) {
   const [service] = useState<DesktopService>(() => suppliedService ?? createDesktopService());
+  const aiOnly = useAiOnly();
+  // La superficie IA necesita un monitor real desde el primer frame: sin un
+  // documento abierto el preview mostraba sólo un mensaje y la IA no podía
+  // construir el video “delante” del usuario. Este proyecto vive en memoria
+  // (sin ruta ni autoguardado) hasta que el usuario abra/guarde uno.
+  const [initialProject] = useState(() =>
+    aiOnly ? createEmptyProject('Proyecto IA', new Date().toISOString()) : null,
+  );
   const editorPreferences = useEditorPreferences();
   const deepView = (() => {
     if (typeof window === 'undefined') return null;
@@ -42,6 +89,9 @@ export function App({ service: suppliedService, initialShowStart }: AppProps) {
   // mismo `EditorWorkspace`.
   const [showStart, setShowStart] = useState(() => {
     if (typeof initialShowStart === 'boolean') return initialShowStart;
+    // Superficie IA-only: la app abre directo en el editor con el chat al lado.
+    // Crear/abrir un proyecto se hace desde el propio chat.
+    if (aiOnly) return false;
     if (deepView) return false;
     if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
       return false;
@@ -127,7 +177,11 @@ export function App({ service: suppliedService, initialShowStart }: AppProps) {
 
   return (
     <AppearanceProvider>
-      <ProjectProvider service={service}>
+      <ProjectProvider
+        service={service}
+        {...(initialProject ? { initial: { project: initialProject } } : {})}
+      >
+        <AiDiskProjectBootstrap enabled={aiOnly} />
         {/* Publica proyecto + transporte al monitor dual si está abierto
             (`previa_dupla`); no hace nada hasta que la dual dice «hello». */}
         <DualMonitorLinkHost />

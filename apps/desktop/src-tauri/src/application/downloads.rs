@@ -16,12 +16,12 @@ pub const MAX_PROBE_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_GALLERY_ITEMS: usize = 12;
 pub const MAX_ENGINE_BYTES: usize = 200 * 1024 * 1024;
 pub const MAX_HEIGHT: u32 = 4_320;
-pub const ENGINE_URL: &str =
-    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+pub const ENGINE_URL: &str = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
 pub const ENGINE_SUMS_URL: &str =
     "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
 
-pub const IMAGE_EXTENSIONS: [&str; 8] = ["jpg", "jpeg", "png", "webp", "gif", "avif", "bmp", "heic"];
+pub const IMAGE_EXTENSIONS: [&str; 8] =
+    ["jpg", "jpeg", "png", "webp", "gif", "avif", "bmp", "heic"];
 pub const VIDEO_EXTENSIONS: [&str; 9] = [
     "mp4", "mkv", "webm", "mov", "avi", "flv", "ts", "m4v", "3gp",
 ];
@@ -389,7 +389,10 @@ pub fn audio_language(value: Option<&str>) -> Result<Option<String>, String> {
     Ok(Some(lower))
 }
 
-pub fn download_output_template(directory: &Path, template: Option<&str>) -> Result<String, String> {
+pub fn download_output_template(
+    directory: &Path,
+    template: Option<&str>,
+) -> Result<String, String> {
     let default = "%(title).60s [%(id)s]";
     let custom = template.map(str::trim).filter(|value| !value.is_empty());
     let mut name = if let Some(custom) = custom {

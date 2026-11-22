@@ -152,7 +152,9 @@ fn translation(texts: &[&str], target: &str) -> TranslateRequest {
 #[test]
 fn translation_accepts_the_supported_languages_and_trims() {
     for code in [
-        "es", "en", "zh", "hi", "ar", "pt", "bn", "ru", "fr", "de", "it", "ja",
+        "es", "en", "zh", "hi", "ar", "pt", "bn", "ru", "fr", "de", "it", "ja", "uk", "sv", "da",
+        "no", "fi", "el", "he", "ro", "hu", "id", "vi", "th", "fa", "ur", "tl", "ca", "hr", "sr",
+        "sk", "bg",
     ] {
         let request = translation(&["  Hola  "], code);
         let (texts, target) = validate_translation(&request).expect("válido");
@@ -163,7 +165,7 @@ fn translation_accepts_the_supported_languages_and_trims() {
 
 #[test]
 fn translation_rejects_unknown_languages_empty_and_huge_batches() {
-    assert!(validate_translation(&translation(&["Hola"], "tl")).is_err());
+    assert!(validate_translation(&translation(&["Hola"], "xx")).is_err());
     assert!(validate_translation(&translation(&[], "en")).is_err());
     assert!(validate_translation(&translation(&["   "], "en")).is_err());
     let many = vec!["Hola"; MAX_TRANSLATE_CUES + 1];

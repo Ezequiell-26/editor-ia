@@ -35,12 +35,7 @@ pub async fn dual_monitor_open(app: AppHandle) -> Result<(), ProjectError> {
     .visible(true)
     .center()
     .build()
-    .map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo abrir el monitor dual",
-        )
-    })?;
+    .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo abrir el monitor dual"))?;
     Ok(())
 }
 

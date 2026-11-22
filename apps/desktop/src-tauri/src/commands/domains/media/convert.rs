@@ -106,7 +106,15 @@ pub async fn convert_file(
         media_runner: &media_runner,
         hardware: &hardware,
     };
-    conversion::convert_file(&deps, &input_path, &target, &output_dir, quality, max_width, fps)
+    conversion::convert_file(
+        &deps,
+        &input_path,
+        &target,
+        &output_dir,
+        quality,
+        max_width,
+        fps,
+    )
 }
 
 #[tauri::command]

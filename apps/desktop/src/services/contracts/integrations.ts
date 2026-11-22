@@ -220,6 +220,65 @@ export interface ObsScene {
 
 export type ObsSceneInput = Omit<ObsScene, 'id'> & { readonly id?: string };
 
+/**
+ * Parámetros de `obsTransitionRecord`: render finito de una transición
+ * OBS entre dos escenas de pantalla (xfade de ffmpeg sobre dos capturas
+ * simultáneas). `kind` usa los nombres del filtro xfade de ffmpeg.
+ */
+export interface ObsTransitionInput {
+  readonly fromId: string;
+  readonly toId: string;
+  readonly outputDir: string;
+  readonly kind?: string;
+  readonly leadSecs?: number;
+  readonly durationSecs?: number;
+  readonly tailSecs?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly fps?: number;
+  readonly audioDevice?: string;
+}
+
+/**
+ * Estado de una sesión de switching OBS en vivo (`obsSwitchStatus` y
+ * respuesta de start/scene). `segmentScenes` lista las escenas de los
+ * segmentos ya cerrados; `sceneId` es la escena del segmento en curso.
+ */
+export interface ObsSwitchStatus {
+  readonly active: boolean;
+  readonly sceneId?: string;
+  readonly segmentScenes?: string[];
+  readonly segments: number;
+  readonly elapsedSecs?: number;
+  readonly outputDir?: string;
+  readonly error?: string;
+}
+
+/** Parámetros de `obsSwitchStart`: abre la sesión de switching OBS. */
+export interface ObsSwitchStartInput {
+  readonly sceneId: string;
+  readonly outputDir: string;
+  readonly kind?: string;
+  readonly transitionSecs?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly fps?: number;
+  /** Override de audio para TODOS los segmentos; si falta, cada escena usa su audioDevice. */
+  readonly audioDevice?: string;
+  /**
+   * URL RTMP(S) completa para streamear TODOS los segmentos en vivo —
+   * puede incluir la stream key (nunca se persiste ni se loguea; el
+   * stderr de ffmpeg se redacta). En cada cambio de escena el nuevo
+   * segmento renegocia la conexión (gap breve).
+   */
+  readonly streamUrl?: string;
+  /**
+   * Encoder H.264 de los segmentos y del cosido final: "x264" (default,
+   * mejor software detectado), "nvenc", "qsv", "amf" o "mf" (hardware).
+   */
+  readonly encoder?: string;
+}
+
 export interface ScreenRecordPreview {
   readonly ok: boolean;
   readonly path?: string;

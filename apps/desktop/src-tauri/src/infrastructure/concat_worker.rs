@@ -176,7 +176,10 @@ impl ConcatWorker {
         let mut child = command.spawn()?;
 
         let stdin = child.stdin.take().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stdin del worker no es pipe")
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "stdin del worker no es pipe",
+            )
         })?;
         let stdin = Arc::new(Mutex::new(stdin));
         let stdout = child.stdout.take().ok_or_else(|| {
@@ -225,7 +228,10 @@ impl ConcatWorker {
     /// Cierre limpio: `{"op":"shutdown"}` y espera acotada; si no obedece se
     /// mata. Idempotente.
     pub fn shutdown(&mut self) {
-        let _ = self.request(&serde_json::json!({"op": "shutdown"}), Duration::from_secs(2));
+        let _ = self.request(
+            &serde_json::json!({"op": "shutdown"}),
+            Duration::from_secs(2),
+        );
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -326,6 +332,7 @@ impl Drop for ConcatWorker {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 
@@ -359,7 +366,10 @@ mod tests {
         };
         // Un op desconocido vuelve como ok:false (respuesta válida), no Err.
         let bad = worker
-            .request(&serde_json::json!({"op": "no_existe"}), Duration::from_secs(10))
+            .request(
+                &serde_json::json!({"op": "no_existe"}),
+                Duration::from_secs(10),
+            )
             .expect("respuesta de error del worker");
         assert_eq!(bad["ok"], false);
         assert!(bad["error"].as_str().is_some());
@@ -545,7 +555,10 @@ mod tests {
             .request(&serde_json::json!({"op": "ping"}), Duration::from_secs(10))
             .expect("ping tras cancel");
         assert_eq!(pong["ok"], true, "{pong}");
-        assert!(!out.exists(), "el MP4 parcial del render cancelado se limpia");
+        assert!(
+            !out.exists(),
+            "el MP4 parcial del render cancelado se limpia"
+        );
         worker.shutdown();
     }
 }

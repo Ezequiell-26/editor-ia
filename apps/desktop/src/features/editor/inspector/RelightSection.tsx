@@ -183,8 +183,8 @@ export function RelightSection({ clip }: { readonly clip: Clip }) {
         />
       </div>
       <p className="fine-print">
-        Sólo se renderiza en el MP4; la preview no muestra el cambio. El
-        `geq` por píxel puede ser lento en 4K.
+        La preview aplica el relight en vivo (aproximación del `geq` aditivo
+        del MP4). El cálculo por píxel puede ser lento en 4K.
       </p>
     </Section>
   );

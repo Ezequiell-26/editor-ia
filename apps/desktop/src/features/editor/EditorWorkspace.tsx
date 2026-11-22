@@ -1,4 +1,4 @@
-import { Fragment, memo, lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, memo, lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { ViewId } from '../../app/navigation';
 import { NAV_VIEWS } from '../../app/navigation';
 import type { EditorModeId } from '../../app/view-routing';
@@ -22,6 +22,7 @@ import {
   updateProjectSettings,
 } from '../../state/project-actions';
 import { useEditorLayout } from '../../state/editor-layout';
+import { useAiMode } from '../../state/ai-mode';
 import { setAiColumnElement } from '../../state/ai-column';
 import type {
   ClipInspectorTab,
@@ -81,6 +82,8 @@ const loadMotion = () =>
   import('../motion/MotionView').then((module) => ({ default: module.MotionView }));
 const loadVisuals = () =>
   import('../visuals/VisualsView').then((module) => ({ default: module.VisualsView }));
+const loadTeleprompter = () =>
+  import('./TeleprompterView').then((module) => ({ default: module.TeleprompterView }));
 const loadBrain = () =>
   import('../brain/BrainPanel').then((module) => ({ default: module.BrainPanel }));
 // F2: las seis vistas de flujo se cargan bajo demanda SÓLO cuando el usuario
@@ -129,6 +132,7 @@ const MixerView = lazy(loadMixer);
 const VfxView = lazy(loadVfx);
 const MotionView = lazy(loadMotion);
 const VisualsView = lazy(loadVisuals);
+const TeleprompterView = lazy(loadTeleprompter);
 const BrainPanel = lazy(loadBrain);
 const ScriptView = lazy(loadScript);
 const AssetsPanel = lazy(loadAssetsPanel);
@@ -177,6 +181,7 @@ const EDITOR_MODES: readonly {
   { id: 'nodes', label: 'Nodos', hint: 'Grafo visual de efectos, audio y render', group: 'herramientas' },
   { id: 'motion', label: 'Motion', hint: 'Títulos y gráficos en movimiento', group: 'herramientas' },
   { id: 'visuals', label: 'Efectos', hint: 'Presets, transiciones y auditoría visual', group: 'herramientas' },
+  { id: 'teleprompter', label: 'Teleprompter', hint: 'Guion con scroll automático para narrar y locutar', group: 'herramientas' },
 ];
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -223,7 +228,13 @@ function TimelineFallback() {
   );
 }
 
-/** Pestañas de modo del editor; compartidas por la vista con y sin proyecto. */
+/** Pestañas de modo del editor; compartidas por la vista con y sin proyecto.
+ *
+ * Patrón tabs completo (WAI-ARIA): roving tabindex — sólo la pestaña
+ * activa es tabbable — y ArrowLeft/Right/Home/End mueven el foco y
+ * activan el modo. Cada tab referencia su `tabpanel` (`#editor-mode-panel`,
+ * que existe en todos los modos: la grilla en timeline, el panel de modo
+ * en el resto) vía `aria-controls`/`aria-labelledby`. */
 function EditorModeTabs({
   mode,
   onSwitchMode,
@@ -231,18 +242,48 @@ function EditorModeTabs({
   readonly mode: EditorMode;
   readonly onSwitchMode: (mode: EditorMode) => void;
 }) {
+  function handleKeyDown(event: ReactKeyboardEvent<HTMLElement>): void {
+    const tabs = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'),
+    );
+    const index = tabs.indexOf(document.activeElement as HTMLElement);
+    if (index === -1 || tabs.length === 0) return;
+    let next = index;
+    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    const target = tabs[next];
+    target?.focus();
+    // Activación automática: el modo cambia junto con el foco (patrón
+    // recomendado para tabs que no son formularios pesados).
+    const nextMode = EDITOR_MODES[next]?.id;
+    if (nextMode) onSwitchMode(nextMode);
+  }
+
   return (
-    <nav className="editor-mode-tabs" role="tablist" aria-label="Modos de edición">
+    <nav
+      className="editor-mode-tabs"
+      role="tablist"
+      aria-label="Modos de edición"
+      onKeyDown={handleKeyDown}
+    >
       {EDITOR_MODES.map((item, index) => {
         const firstTool = item.group === 'herramientas' && EDITOR_MODES[index - 1]?.group === 'flujo';
+        const active = mode === item.id;
         return (
           <Fragment key={item.id}>
             {firstTool ? <span className="editor-mode-divider" aria-hidden="true" /> : null}
             <button
               type="button"
               role="tab"
-              aria-selected={mode === item.id}
-              className={`editor-mode-tab${mode === item.id ? ' active' : ''}`}
+              id={`editor-mode-tab-${item.id}`}
+              aria-selected={active}
+              aria-controls="editor-mode-panel"
+              tabIndex={active ? 0 : -1}
+              className={`editor-mode-tab${active ? ' active' : ''}`}
               data-tooltip={item.hint}
               data-mode-group={item.group}
               onClick={() => onSwitchMode(item.id)}
@@ -336,6 +377,7 @@ const PROJECT_OPTIONAL_MODES: ReadonlySet<EditorMode> = new Set<EditorMode>([
   'director',
   'auto-edit',
   'ai-hub',
+  'teleprompter',
 ]);
 
 /** Modos que necesitan un proyecto abierto; sin él se explica y se ofrece la puerta. */
@@ -597,6 +639,7 @@ export const EditorWorkspace = memo(function EditorWorkspace({
     }
   });
   const editorLayout = useEditorLayout();
+  const aiMode = useAiMode();
   // Paridad `escolherLayout` de AlaukCut: entrar a «Vertical (Shorts)» cambia
   // el lienzo a 9:16 si el proyecto es horizontal, y al salir se restaura el
   // tamaño anterior (sólo si el cambio lo hizo este layout, no el usuario).
@@ -629,6 +672,14 @@ export const EditorWorkspace = memo(function EditorWorkspace({
     ? 'Cambiar el ancho del monitor'
     : 'Cambiar el ancho del panel Detalles';
   const edicionLayout = mode === 'timeline' && editorLayout === 'edicion';
+  // «Modo IA» (state/ai-mode): vista reducida del modo timeline — preview,
+  // timeline y la columna del asistente; biblioteca, inspector y divisor
+  // manuales quedan fuera. Es una vista, no un bloqueo: todo sigue
+  // operable por teclado/menú y al apagarla se restaura el estado previo.
+  const aiEditing = mode === 'timeline' && aiMode;
+  const iaColumnVisible = edicionLayout || aiEditing;
+  // El chat nunca se pliega en la superficie IA-only: está siempre al lado.
+  const aiCollapsed = aiMode ? false : aiColumnCollapsed;
 
   useEffect(() => {
     try {
@@ -1028,6 +1079,8 @@ export const EditorWorkspace = memo(function EditorWorkspace({
       <MotionView onNavigate={navigateFromMode} />
     ) : mode === 'visuals' ? (
       <VisualsView onNavigate={navigateFromMode} />
+    ) : mode === 'teleprompter' ? (
+      <TeleprompterView onNavigate={navigateFromMode} />
     ) : mode === 'brain' ? (
       <BrainPanel />
     ) : mode === 'guide' ? (
@@ -1040,6 +1093,94 @@ export const EditorWorkspace = memo(function EditorWorkspace({
         {...(onOpenShortcuts ? { onOpenShortcuts } : {})}
       />
     ) : null;
+
+  /**
+   * Columna del asistente, compartida por el editor con y sin proyecto. En la
+   * superficie IA-only el chat está acoplado desde el primer render: no hay
+   * botón «Abrir el asistente» ni control para plegarlo.
+   */
+  const aiColumn = iaColumnVisible ? (
+    <>
+      <EditorSplitter
+        className="editor-splitter-ia"
+        value={iaWidth}
+        min={IA_WIDTH_MIN}
+        max={IA_WIDTH_MAX}
+        defaultValue={IA_WIDTH_DEFAULT}
+        label="Cambiar el ancho de la columna de IA"
+        hint="Arrastrá para cambiar el ancho de la columna de IA"
+        onChange={setIaWidth}
+      />
+      <aside className="ia-coluna" aria-label="Edición con IA">
+        <div className="ia-col-topo">
+          <strong>Edición con IA</strong>
+          {!aiMode ? (
+            <button
+              type="button"
+              className={`ia-col-toggle${aiColumnCollapsed ? ' collapsed' : ' expanded'}`}
+              aria-label={aiColumnCollapsed ? 'Expandir columna de IA' : 'Plegar columna de IA'}
+              aria-expanded={!aiColumnCollapsed}
+              title={aiColumnCollapsed ? 'Mostrar edición con IA' : 'Plegar edición con IA'}
+              onClick={() => setAiColumnCollapsed((value) => !value)}
+            >
+              <Icon name="chevron" size={13} />
+            </button>
+          ) : null}
+        </div>
+        <div className="ia-col-corpo" ref={setAiColumnElement}>
+          {!aiMode ? (
+            <div className="ia-col-hint">
+              <p>
+                Pedile la edición a la IA: cortar, ordenar y subtitular el video
+                desde acá, viendo el resultado en la línea de tiempo.
+              </p>
+              <button
+                type="button"
+                className="ia-col-abrir"
+                onClick={() => window.dispatchEvent(new Event('olyvia:assistant-open'))}
+              >
+                Abrir el asistente
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </aside>
+    </>
+  ) : null;
+
+  /**
+   * Superficie IA-only sin proyecto: no hay tarjeta con botones manuales. El
+   * asistente acoplado es la única puerta: «crear proyecto <nombre>» o
+   * «abrir proyecto» (ambos comandos corren locales, sin gastar tokens).
+   */
+  if (!project && aiMode && mode === 'timeline') {
+    return (
+      <section className={editorSurfaceClass(mode)} data-editor-mode={mode} data-ai-only="true">
+        <AlaukTopBar
+          onNavigate={onNavigate}
+          {...(onOpenShortcuts ? { onOpenShortcuts } : {})}
+          {...(onOpenPalette ? { onOpenPalette } : {})}
+          showSkinToggle={false}
+        />
+        <div
+          className="editor-grid ai-mode ai-only-empty"
+          style={{ '--ia-width': `${iaWidth}px` } as CSSProperties}
+        >
+          <div className="ai-only-empty-stage">
+            <span className="editor-empty-eyebrow">Olyvia · Edición con IA</span>
+            <h2>¿Qué vamos a crear?</h2>
+            <p>
+              Contale al asistente qué necesitás. Creá un proyecto, abrí uno
+              existente o importá material desde el chat; el editor muestra el
+              resultado acá mientras la IA hace el resto.
+            </p>
+          </div>
+          {aiColumn}
+        </div>
+        <AlaukFooter />
+      </section>
+    );
+  }
 
   // UN SOLO EDITOR · sin proyecto: las pestañas de modo siguen visibles y
   // cada modo muestra lo que puede hacer sin documento — la tarjeta vacía
@@ -1066,8 +1207,13 @@ export const EditorWorkspace = memo(function EditorWorkspace({
           onOpenTools={() => switchMode('tools')}
           showSkinToggle={mode === 'timeline'}
         />
-        <EditorModeTabs mode={mode} onSwitchMode={switchMode} />
-        <div className="editor-mode-panel" role="tabpanel" aria-label={modeInfo.label}>
+        {!aiMode ? <EditorModeTabs mode={mode} onSwitchMode={switchMode} /> : null}
+        <div
+          className="editor-mode-panel"
+          role="tabpanel"
+          id="editor-mode-panel"
+          aria-labelledby={`editor-mode-tab-${mode}`}
+        >
           <div className="editor-mode-context">
             <span className="editor-mode-crumb">
               <Icon name="editor" size={12} />
@@ -1142,22 +1288,34 @@ export const EditorWorkspace = memo(function EditorWorkspace({
         onOpenTools={() => switchMode('tools')}
         showSkinToggle={mode === 'timeline'}
       />
-      <EditorModeTabs mode={mode} onSwitchMode={switchMode} />
+      {!aiMode ? <EditorModeTabs mode={mode} onSwitchMode={switchMode} /> : null}
+      {/* En timeline esta grilla ES el contenido del tab «Edición»: es el
+          único tabpanel del modo (en los demás lo es `.editor-mode-panel`,
+          dentro de esta misma grilla). */}
       <div
         className={`editor-grid${mode !== 'timeline' ? ' editor-mode-active' : ''}${
           mode !== 'timeline' && modeMonitorHidden ? ' editor-monitor-hidden' : ''
         }${
-          mode === 'timeline' && editorLayout === 'shorts'
-            ? ' layout-shorts'
-            : edicionLayout
-              ? ` layout-edicion${aiColumnCollapsed ? ' ai-column-collapsed' : ''}`
-              : ''
+          aiEditing
+            ? ` ai-mode${aiCollapsed ? ' ai-column-collapsed' : ''}`
+            : mode === 'timeline' && editorLayout === 'shorts'
+              ? ' layout-shorts'
+              : edicionLayout
+                ? ` layout-edicion${aiCollapsed ? ' ai-column-collapsed' : ''}`
+                : ''
         }`}
+        {...(mode === 'timeline'
+          ? {
+              role: 'tabpanel',
+              id: 'editor-mode-panel',
+              'aria-labelledby': `editor-mode-tab-${mode}`,
+            }
+          : {})}
         style={
           {
             '--inspector-width': `${inspectorWidth}px`,
             '--layout-shorts-w': `${monitorWidth}px`,
-            '--ia-width': `${aiColumnCollapsed ? 42 : iaWidth}px`,
+            '--ia-width': `${aiCollapsed ? 42 : iaWidth}px`,
           } as CSSProperties
         }
       >
@@ -1217,87 +1375,44 @@ export const EditorWorkspace = memo(function EditorWorkspace({
         </div>
         {mode === 'timeline' ? (
           <>
-            <Suspense fallback={<AssetsFallback />}>
-              <EditorAssets
-                onNavigate={onNavigate}
-                onRequestInspectorTab={requestInspectorTab}
-                emptyGuide={
-                  project.assets.length === 0 && !importGuideDismissed ? (
-                    <EditorImportGuide
-                      onImport={() => onNavigate('assets')}
-                      onDismiss={() => setImportGuideDismissed(true)}
-                    />
-                  ) : null
-                }
-              />
-            </Suspense>
-            <EditorSplitter
-              value={splitterWidth}
-              min={splitterMin}
-              max={splitterMax}
-              defaultValue={splitterDefault}
-              label={splitterLabel}
-              hint={
-                shortsLayout
-                  ? 'Arrastrá para cambiar el ancho del monitor'
-                  : 'Arrastrá para cambiar el ancho de Detalles'
-              }
-              onChange={(width) => {
-                if (shortsLayout) setMonitorWidth(width);
-                else setInspectorWidth(width);
-              }}
-            />
-            <Suspense fallback={<InspectorFallback />}>
-              <Inspector tabRequest={inspectorTabRequest ?? undefined} />
-            </Suspense>
-            {edicionLayout ? (
+            {!aiEditing ? (
               <>
-                {/* Segundo divisor: redimensiona la columna de IA (paridad
-                    `data-divisor="ia"` de AlaukCut). Ocupa toda la altura
-                    porque la columna llega hasta el pie de la ventana. */}
+                <Suspense fallback={<AssetsFallback />}>
+                  <EditorAssets
+                    onNavigate={onNavigate}
+                    onRequestInspectorTab={requestInspectorTab}
+                    emptyGuide={
+                      project.assets.length === 0 && !importGuideDismissed ? (
+                        <EditorImportGuide
+                          onImport={() => onNavigate('assets')}
+                          onDismiss={() => setImportGuideDismissed(true)}
+                        />
+                      ) : null
+                    }
+                  />
+                </Suspense>
                 <EditorSplitter
-                  className="editor-splitter-ia"
-                  value={iaWidth}
-                  min={IA_WIDTH_MIN}
-                  max={IA_WIDTH_MAX}
-                  defaultValue={IA_WIDTH_DEFAULT}
-                  label="Cambiar el ancho de la columna de IA"
-                  hint="Arrastrá para cambiar el ancho de la columna de IA"
-                  onChange={setIaWidth}
+                  value={splitterWidth}
+                  min={splitterMin}
+                  max={splitterMax}
+                  defaultValue={splitterDefault}
+                  label={splitterLabel}
+                  hint={
+                    shortsLayout
+                      ? 'Arrastrá para cambiar el ancho del monitor'
+                      : 'Arrastrá para cambiar el ancho de Detalles'
+                  }
+                  onChange={(width) => {
+                    if (shortsLayout) setMonitorWidth(width);
+                    else setInspectorWidth(width);
+                  }}
                 />
-                <aside className="ia-coluna" aria-label="Edición con IA">
-                  <div className="ia-col-topo">
-                    <strong>Edición con IA</strong>
-                    <button
-                      type="button"
-                      className={`ia-col-toggle${aiColumnCollapsed ? ' collapsed' : ' expanded'}`}
-                      aria-label={aiColumnCollapsed ? 'Expandir columna de IA' : 'Plegar columna de IA'}
-                      aria-expanded={!aiColumnCollapsed}
-                      title={aiColumnCollapsed ? 'Mostrar edición con IA' : 'Plegar edición con IA'}
-                      onClick={() => setAiColumnCollapsed((value) => !value)}
-                    >
-                      <Icon name="chevron" size={13} />
-                    </button>
-                  </div>
-                  <div className="ia-col-corpo" ref={setAiColumnElement}>
-                    <div className="ia-col-hint">
-                      <p>
-                        Pedile la edición a la IA: cortar, ordenar y subtitular
-                        el video desde acá, viendo el resultado en la línea de
-                        tiempo.
-                      </p>
-                      <button
-                        type="button"
-                        className="ia-col-abrir"
-                        onClick={() => window.dispatchEvent(new Event('olyvia:assistant-open'))}
-                      >
-                        Abrir el asistente
-                      </button>
-                    </div>
-                  </div>
-                </aside>
+                <Suspense fallback={<InspectorFallback />}>
+                  <Inspector tabRequest={inspectorTabRequest ?? undefined} />
+                </Suspense>
               </>
             ) : null}
+            {aiColumn}
           </>
         ) : (
           /* UN SOLO EDITOR · en cualquier modo de herramienta el contenido
@@ -1305,7 +1420,12 @@ export const EditorWorkspace = memo(function EditorWorkspace({
              `.preview-panel` persistente de arriba (nunca se desmonta). Se
              pliega con «Monitor» vía la clase `editor-monitor-hidden` del
              grid y la timeline queda abajo siempre. */
-          <div className="editor-mode-panel" role="tabpanel" aria-label={modeInfo.label}>
+          <div
+            className="editor-mode-panel"
+            role="tabpanel"
+            id="editor-mode-panel"
+            aria-labelledby={`editor-mode-tab-${mode}`}
+          >
             {/* Contexto explícito: el usuario siempre sabe que sigue dentro del
                 editor y tiene un camino directo de vuelta a la timeline. */}
             <div className="editor-mode-context">
@@ -1377,7 +1497,11 @@ export const EditorWorkspace = memo(function EditorWorkspace({
             </span>
           </div>
           <Suspense fallback={<TimelineFallback />}>
-            <Timeline onRequestInspectorTab={requestInspectorTab} />
+            <Timeline
+              onRequestInspectorTab={requestInspectorTab}
+              onNavigate={onNavigate}
+              onSwitchEditorMode={switchMode}
+            />
           </Suspense>
         </div>
       </div>

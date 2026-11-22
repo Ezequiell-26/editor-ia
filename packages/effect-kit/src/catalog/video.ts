@@ -1,4 +1,5 @@
 import type { EffectManifest, FfmpegRecipe, GpuPass, ParamSpec } from '../types.ts';
+import { eqCompat } from './eq.ts';
 
 /**
  * Catálogo de efectos de video.
@@ -98,9 +99,9 @@ void main() {
 }`),
   ],
   ffmpeg: {
-    chain: ['eq=brightness={exposure}'],
+    chain: [eqCompat({ brightness: '{exposure}' })],
     fidelity: 'approximate',
-    note: 'eq aplica un corrimiento lineal, no una escala logarítmica por pasos.',
+    note: 'El brillo de export aplica un corrimiento lineal, no una escala logarítmica por pasos.',
   },
 });
 
@@ -119,7 +120,7 @@ void main() {
   fragColor = vec4((c - 0.5) * p_contrast + 0.5, 1.0);
 }`),
   ],
-  ffmpeg: { chain: ['eq=contrast={contrast}'], fidelity: 'exact' },
+  ffmpeg: { chain: [eqCompat({ contrast: '{contrast}' })], fidelity: 'exact' },
 });
 
 const saturation = v({
@@ -137,7 +138,7 @@ void main() {
   fragColor = vec4(ek_saturate(c, p_saturation), 1.0);
 }`),
   ],
-  ffmpeg: { chain: ['eq=saturation={saturation}'], fidelity: 'exact' },
+  ffmpeg: { chain: [eqCompat({ saturation: '{saturation}' })], fidelity: 'exact' },
 });
 
 const temperature = v({
@@ -187,7 +188,7 @@ void main() {
   fragColor = vec4(pow(max(c, 0.0), vec3(1.0 / max(0.05, p_gamma))), 1.0);
 }`),
   ],
-  ffmpeg: { chain: ['eq=gamma={gamma}'], fidelity: 'exact' },
+  ffmpeg: { chain: [eqCompat({ gamma: '{gamma}' })], fidelity: 'exact' },
 });
 
 const hue = v({
@@ -226,9 +227,9 @@ void main() {
 }`),
   ],
   ffmpeg: {
-    chain: ['eq=saturation=1+0.5*{amount}'],
+    chain: [eqCompat({ saturation: '1+0.5*{amount}' })],
     fidelity: 'approximate',
-    note: 'eq satura parejo; el shader pondera por saturación previa.',
+    note: 'La receta satura parejo; el shader pondera por saturación previa.',
   },
 });
 
@@ -311,7 +312,7 @@ void main() {
 }`),
   ],
   ffmpeg: {
-    chain: ['eq=brightness={exposure}:contrast={contrast}:saturation={saturation}',
+    chain: [eqCompat({ brightness: '{exposure}', contrast: '{contrast}', saturation: '{saturation}' }),
       'colorbalance=rs={lift.x}:gs={lift.y}:bs={lift.x}:rm={gammaWheel.x}:gm={gammaWheel.y}:bm={gammaWheel.x}:rh={gain.x}:gh={gain.y}:bh={gain.x}'],
     fidelity: 'approximate',
     note: 'Los pesos por zona del shader son cuadráticos; colorbalance usa rampas lineales.',
@@ -623,6 +624,74 @@ void main() {
   },
 });
 
+// Tomás del light.rays en export: el shader hace blur radial hacia
+// `position` (16 pasos, peso (1-t)², compuerta por luminancia) y mezcla
+// screen. La receta aísla altas luces con colorlevels, las suaviza con
+// gblur y les aplica en geq una máscara angular fija de 8 rayos
+// (cos^6(4·atan2) × caída radial) antes del screen. geq no puede iterar
+// como el shader, así que la forma de los rayos es una aproximación
+// angular, no el mismo muestreo radial.
+const RAYS_DX = '(X+0.5-{position.x}*W)';
+const RAYS_DY = '(Y+0.5-{position.y}*H)';
+const RAYS_DIST = `sqrt(${RAYS_DX}*${RAYS_DX}+${RAYS_DY}*${RAYS_DY})/H`;
+const RAYS_COS = `cos(atan2(${RAYS_DY},${RAYS_DX})*4)`;
+const RAYS_STREAK = `pow(${RAYS_COS}*${RAYS_COS},3)`;
+const RAYS_MASK = `(${RAYS_STREAK}*clip(1-${RAYS_DIST}/{length},0,1))`;
+const raysChannel = (ch: 'r' | 'g' | 'b') => `clip(${ch}(X,Y)*${RAYS_MASK},0,255)`;
+const raysGraph =
+  'split=2[%A%b][%A%l];' +
+  `[%A%l]colorlevels=rimin={threshold}:gimin={threshold}:bimin={threshold},format=gbrp,` +
+  `gblur=sigma={softness},geq=` +
+  `r='${raysChannel('r')}':g='${raysChannel('g')}':b='${raysChannel('b')}'[%A%ray];` +
+  '[%A%b][%A%ray]blend=all_mode=screen:all_opacity={intensity}';
+
+const rays = v({
+  id: 'light.rays',
+  name: 'Rayos de luz',
+  category: 'light',
+  order: 65,
+  description: 'Streaks radiales desde una fuente de luz, como un amanecer o un proyector. El clásico de las demos.',
+  keywords: ['rays', 'rayos', 'god rays', 'sol', 'amanecer', 'luz'],
+  params: [
+    v2('position', 'Fuente', 0, 1, [0.5, 0.12]),
+    f('intensity', 'Intensidad', 0, 1, 0.6, { step: 0.01 }),
+    f('threshold', 'Umbral', 0, 1, 0.55, { step: 0.01 }),
+    f('length', 'Alcance', 0.1, 1, 0.6, { step: 0.01 }),
+    f('softness', 'Suavidad', 0, 0.5, 0.15, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform vec2 p_position;
+uniform float p_intensity;
+uniform float p_threshold;
+uniform float p_length;
+uniform float p_softness;
+void main() {
+  vec3 base = texture(u_currentTexture, v_texCoord).rgb;
+  vec2 toLight = p_position - v_texCoord;
+  float gateLo = max(0.0, p_threshold - p_softness);
+  vec3 sum = vec3(0.0);
+  float wsum = 0.0;
+  for (int s = 0; s < 16; s++) {
+    float t = float(s) / 15.0;
+    float w = (1.0 - t) * (1.0 - t);
+    vec3 c = ek_sample(v_texCoord + toLight * t * p_length * 0.2);
+    float gate = smoothstep(gateLo, 1.0, ek_luma(c));
+    sum += c * w * gate;
+    wsum += w * gate;
+  }
+  vec3 rays = wsum > 0.0001 ? sum / wsum : vec3(0.0);
+  float d = length((v_texCoord - p_position) * vec2(ek_aspect(), 1.0));
+  float mask = smoothstep(p_length * 1.2, 0.0, d);
+  fragColor = vec4(1.0 - (1.0 - base) * (1.0 - rays * p_intensity * mask), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    graph: raysGraph,
+    fidelity: 'approximate',
+    note: 'Export aísla altas luces (colorlevels), las difumina (gblur) y las multiplica por una máscara angular fija de 8 rayos en geq + blend screen; el preview hace blur radial real de 16 pasos. softness es el sigma del gblur en export y el ancho de la compuerta de luminancia en preview.',
+  },
+});
+
 // ──────────────────────────────────────────────────────── Desenfoque ──
 
 const gaussian = v({
@@ -681,6 +750,233 @@ void main() {
     chain: ['tmix=frames={samples}'],
     fidelity: 'approximate',
     note: 'tmix promedia frames en el tiempo, no píxeles en el espacio.',
+  },
+});
+
+// Blur temporal sobre historia real: el renderer guarda los últimos 4
+// frames fuente (`u_hist0..3`, `u_histCount` válidos) y este efecto
+// promedia el actual con hasta 4 tomas anteriores con PESO UNIFORME —
+// el mismo promedio que `tmix=frames=N` del export, ahora con hasta 5
+// tomas reales en vez de 2. `frames` define la ventana (tope honesto en
+// 5: actual + 4 de historia); `intensity` escala todos los pesos. El
+// orden de la cadena (primero, sobre el fuente crudo) no cambia.
+const temporalBlur = v({
+  id: 'blur.temporal',
+  name: 'Desenfoque de movimiento (tiempo)',
+  category: 'blur',
+  order: 25,
+  description:
+    'Promedia los últimos frames reales: el motionBlur del clip, en vivo.',
+  keywords: ['motion blur', 'temporal', 'tiempo', 'movimiento', 'tmix'],
+  params: [
+    // Tope 5 = frame actual + 4 de historia; valores mayores se clampean
+    // en el shader (normalizeParams también respeta el max del manifiesto).
+    i('frames', 'Frames', 2, 5, 4),
+    f('intensity', 'Intensidad', 0, 1, 0.6, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform sampler2D u_hist0;
+uniform sampler2D u_hist1;
+uniform sampler2D u_hist2;
+uniform sampler2D u_hist3;
+uniform float u_histCount;
+uniform int p_frames;
+uniform float p_intensity;
+void main() {
+  vec3 cur = texture(u_currentTexture, v_texCoord).rgb;
+  // taps: ventana pedida (tope 5 = actual + 4 de historia). Cada toma
+  // válida pesa igual — promedio honesto tipo tmix.
+  int taps = clamp(p_frames, 2, 5);
+  vec3 acc = cur;
+  float wsum = 0.0;
+  vec3 h0 = texture(u_hist0, v_texCoord).rgb;
+  float w0 = p_intensity * step(0.5, u_histCount) * step(1.5, float(taps));
+  acc += w0 * h0; wsum += w0;
+  vec3 h1 = texture(u_hist1, v_texCoord).rgb;
+  float w1 = p_intensity * step(1.5, u_histCount) * step(2.5, float(taps));
+  acc += w1 * h1; wsum += w1;
+  vec3 h2 = texture(u_hist2, v_texCoord).rgb;
+  float w2 = p_intensity * step(2.5, u_histCount) * step(3.5, float(taps));
+  acc += w2 * h2; wsum += w2;
+  vec3 h3 = texture(u_hist3, v_texCoord).rgb;
+  float w3 = p_intensity * step(3.5, u_histCount) * step(4.5, float(taps));
+  acc += w3 * h3; wsum += w3;
+  fragColor = vec4(acc / max(1.0, 1.0 + wsum), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['tmix=frames={frames}'],
+    fidelity: 'approximate',
+    note: 'tmix promedia N frames con peso uniforme; el preview promedia hasta 5 tomas reales (actual + 4 de historia) con el mismo peso.',
+  },
+});
+
+// Denoise temporal sobre historia real: el renderer guarda los últimos 4
+// frames fuente (`u_hist0..3`, orden cronológico, `u_histCount` válidos) y
+// el shader promedia cada pixel ponderando cada toma por su similitud con
+// el actual — ruido promedia en zonas estáticas, movimiento se preserva.
+// Es la componente temporal de la reducción de ruido del export (nlmeans:
+// el FFmpeg bundled no trae hqdn3d), mucho más cerca que el
+// blur de 2 tomas anterior; sigue sin umbrales adaptativos ni estimación
+// de sigma, así que es `approximate`, no sample-exacta. En clips estátices
+// o pausados (historia idéntica) es no-op por diseño.
+const temporalDenoise = v({
+  id: 'denoise.temporal',
+  name: 'Reducción de ruido (tiempo)',
+  category: 'blur',
+  order: 26,
+  description:
+    'Promedia los últimos 4 frames sólo donde la imagen no se movió: baja el ruido sin borrar el movimiento.',
+  keywords: ['denoise', 'ruido', 'noise', 'temporal', 'hqdn3d', 'limpieza'],
+  params: [
+    f('strength', 'Intensidad', 0, 1, 0.6, { step: 0.01 }),
+    f('tolerance', 'Tolerancia', 0, 1, 0.35, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform sampler2D u_hist0;
+uniform sampler2D u_hist1;
+uniform sampler2D u_hist2;
+uniform sampler2D u_hist3;
+uniform float u_histCount;
+uniform float p_strength;
+uniform float p_tolerance;
+void main() {
+  vec3 cur = texture(u_currentTexture, v_texCoord).rgb;
+  // k: a mayor tolerancia, más caído el peso (zonas casi iguales promedian
+  // menos — conservador). agree≈1 cuando el frame coincide con el actual.
+  float k = mix(18.0, 4.0, p_tolerance);
+  vec3 acc = cur;
+  float wsum = 0.0;
+  // Los 4 taps se escriben explícitos (GLSL ES no permite indexar samplers
+  // con índice dinámico). El paso i+0.5 <= count deja fuera los slots que
+  // aún no tienen historia válida.
+  vec3 h0 = texture(u_hist0, v_texCoord).rgb;
+  float w0 = p_strength * exp(-distance(cur, h0) * k) * step(0.5, u_histCount);
+  acc += w0 * h0; wsum += w0;
+  vec3 h1 = texture(u_hist1, v_texCoord).rgb;
+  float w1 = p_strength * exp(-distance(cur, h1) * k) * step(1.5, u_histCount);
+  acc += w1 * h1; wsum += w1;
+  vec3 h2 = texture(u_hist2, v_texCoord).rgb;
+  float w2 = p_strength * exp(-distance(cur, h2) * k) * step(2.5, u_histCount);
+  acc += w2 * h2; wsum += w2;
+  vec3 h3 = texture(u_hist3, v_texCoord).rgb;
+  float w3 = p_strength * exp(-distance(cur, h3) * k) * step(3.5, u_histCount);
+  acc += w3 * h3; wsum += w3;
+  fragColor = vec4(acc / (1.0 + wsum), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['nlmeans=s=4:p=7:r=15'],
+    fidelity: 'approximate',
+    note: 'nlmeans suaviza ruido espacial preservando bordes (hqdn3d no está en el FFmpeg bundled); el preview promedia 4 tomas ponderadas sólo en zonas estáticas.',
+  },
+});
+
+// Debanding: gradfun difumina los escalones de las gradientes (cielos,
+// paredes lisas) agregando dithering; el shader lo aproxima con un blur
+// suave ligero — el dithering real no se puede previsualizar en GLSL ES.
+const deband = v({
+  id: 'blur.deband',
+  name: 'Desbanding',
+  category: 'blur',
+  order: 27,
+  description: 'Suaviza las bandas de color en gradientes lisos (cielos, fondos) con dithering.',
+  keywords: ['deband', 'banding', 'bandas', 'gradiente', 'dither', 'suavizado'],
+  params: [
+    f('strength', 'Intensidad', 1, 16, 4, { step: 0.5 }),
+    f('radius', 'Radio', 4, 32, 16, { step: 1 }),
+  ],
+  passes: [
+    pass(`uniform float p_strength;
+uniform float p_radius;
+void main() {
+  vec2 px = p_radius / u_resolution;
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  vec3 blur = (
+    texture(u_currentTexture, v_texCoord + vec2(px.x, 0.0)).rgb +
+    texture(u_currentTexture, v_texCoord - vec2(px.x, 0.0)).rgb +
+    texture(u_currentTexture, v_texCoord + vec2(0.0, px.y)).rgb +
+    texture(u_currentTexture, v_texCoord - vec2(0.0, px.y)).rgb
+  ) * 0.25;
+  float k = clamp(p_strength / 16.0, 0.0, 1.0);
+  fragColor = vec4(mix(c, blur, k * 0.35), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['gradfun=strength={strength}:radius={radius}'],
+    fidelity: 'approximate',
+    note: 'gradfun aplica dithering ordenado real; el preview sólo difumina las bandas con un blur direccional.',
+  },
+});
+
+// Bilateral espacial: suaviza ruido sin cruzar bordes — la alternativa
+// ligera a nlmeans cuando el material tiene detalle fino. El shader hace
+// un bilateral de 4 tomas (peso por distancia de color); el export usa el
+// filtro bilateral real con sigmaS/sigmaR.
+const bilateral = v({
+  id: 'blur.bilateral',
+  name: 'Suavizado por bordes',
+  category: 'blur',
+  order: 29,
+  description: 'Reduce ruido y textura conservando los bordes nítidos. Para piel, producto y material fino.',
+  keywords: ['bilateral', 'bordes', 'edge', 'suavizado', 'denoise', 'piel'],
+  params: [
+    f('sigma', 'Alcance', 1, 10, 4, { step: 0.5 }),
+    f('range', 'Rango', 0.05, 0.5, 0.15, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform float p_sigma;
+uniform float p_range;
+void main() {
+  vec2 px = vec2(p_sigma / u_resolution.x, p_sigma / u_resolution.y);
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  float rs = max(0.001, p_range * 8.0);
+  vec3 acc = c;
+  float wsum = 1.0;
+  vec2 dirs[4];
+  dirs[0] = vec2(px.x, 0.0); dirs[1] = vec2(-px.x, 0.0);
+  dirs[2] = vec2(0.0, px.y); dirs[3] = vec2(0.0, -px.y);
+  for (int i = 0; i < 4; i++) {
+    vec3 n = texture(u_currentTexture, v_texCoord + dirs[i]).rgb;
+    float w = exp(-distance(c, n) / rs);
+    acc += w * n;
+    wsum += w;
+  }
+  fragColor = vec4(acc / wsum, 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['bilateral=sigmaS={sigma}:sigmaR={range}:planes=7'],
+    fidelity: 'approximate',
+    note: 'El filtro bilateral real promedia una ventana mayor; el shader usa 4 tomas con peso por distancia de color.',
+  },
+});
+
+// Deinterlace: bwdif reconstruye frames progresivos desde material
+// entrelazado (vídeo viejo, captura de captura). El preview no puede
+// detectar el entrelazado, así que aproxima con un fundido vertical
+// suave entre líneas vecinas — el efecto real lo hace el export.
+const deinterlace = v({
+  id: 'blur.deinterlace',
+  name: 'Deinterlace',
+  category: 'blur',
+  order: 28,
+  description: 'Convierte video entrelazado (dientes de sierra en movimiento) en progresivo.',
+  keywords: ['deinterlace', 'interlaced', 'entrelazado', 'bwdif', 'combing', 'tele'],
+  params: [],
+  passes: [
+    pass(`void main() {
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  vec2 px = vec2(0.0, 1.0 / u_resolution.y);
+  vec3 v = (texture(u_currentTexture, v_texCoord + px).rgb +
+            texture(u_currentTexture, v_texCoord - px).rgb) * 0.5;
+  fragColor = vec4(mix(c, v, 0.5), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['bwdif=mode=send_frame:parity=auto'],
+    fidelity: 'approximate',
+    note: 'El preview siempre aplica el fundido suave; el export de-interlaza de verdad sólo si el material está marcado.',
   },
 });
 
@@ -1013,9 +1309,9 @@ void main() {
 }`),
   ],
   ffmpeg: {
-    chain: ['smartblur=lr=3:ls=-0.6:lt=8'],
+    chain: ['bilateral=sigmaS=3:sigmaR=0.5:planes=7'],
     fidelity: 'approximate',
-    note: 'smartblur suaviza bordes; no acumula por planos de color.',
+    note: 'bilateral suaviza conservando bordes (smartblur no está en el FFmpeg bundled); no acumula por planos de color.',
   },
 });
 
@@ -1055,6 +1351,50 @@ void main() {
       '[%A%b][%A%mask]blend=all_mode=multiply',
     fidelity: 'approximate',
     note: 'El contorno se multiplica sobre el original; el color del trazo queda fijo en negro.',
+  },
+});
+
+// Grabado a líneas cruzadas (crosshatch): papel + tinta donde la densidad
+// sigue la oscuridad del original. El shader mezcla hacia papel con dos
+// peines diagonales; el export calcula el mismo patrón en `geq` sobre la
+// luma y fija croma neutro (128) para el resultado blanco y negro.
+const CROSSHATCH_TONE = 'clip(1-lum(X,Y)/255,0,1)';
+const CROSSHATCH_HATCH =
+  `min(abs(sin(((X+0.5)/W+(Y+0.5)/H)*{count}*3.14159265)),` +
+  `abs(sin(((X+0.5)/W-(Y+0.5)/H)*{count}*3.14159265)))`;
+const CROSSHATCH_LUM =
+  `clip(242*(1-${CROSSHATCH_TONE}*(0.4+0.6*${CROSSHATCH_HATCH})*{intensity}),0,255)`;
+
+const crosshatch = v({
+  id: 'stylize.crosshatch',
+  name: 'Trama cruzada',
+  category: 'stylize',
+  order: 85,
+  description: 'Conversión a grabado: papel blanco con líneas de tinta cuya densidad sigue los tonos.',
+  keywords: ['crosshatch', 'grabado', 'trama', 'tinta', 'engraving', 'linea'],
+  params: [
+    i('count', 'Densidad', 10, 200, 60),
+    f('intensity', 'Intensidad', 0, 1, 0.7, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform float p_count;
+uniform float p_intensity;
+void main() {
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  float l = ek_luma(c);
+  float d1 = (v_texCoord.x + v_texCoord.y) * p_count;
+  float d2 = (v_texCoord.x - v_texCoord.y) * p_count;
+  float hatch = min(abs(sin(d1 * 3.14159265)), abs(sin(d2 * 3.14159265)));
+  float ink = (1.0 - l) * (0.4 + 0.6 * hatch);
+  fragColor = vec4(vec3(0.95) * (1.0 - ink * p_intensity), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: [
+      `geq=lum='${CROSSHATCH_LUM}':cb='128':cr='128'`,
+    ],
+    fidelity: 'approximate',
+    note: 'El resultado es grabado B/N sobre papel; el shader usa el mismo modelo (densidad = oscuridad × trama).',
   },
 });
 
@@ -1255,6 +1595,36 @@ void main() {
   },
 });
 
+const snow = v({
+  id: 'glitch.snow',
+  name: 'Estática',
+  category: 'glitch',
+  order: 70,
+  description: 'Nieve de televisión: motas blancas que cambian en cada frame, como una señal sin imagen.',
+  keywords: ['snow', 'estatica', 'nieve', 'tv', 'static', 'ruido'],
+  params: [
+    f('amount', 'Intensidad', 0, 100, 50, { step: 1 }),
+    f('size', 'Tamaño de grano', 1, 16, 3, { step: 1, unit: 'px' }),
+  ],
+  passes: [
+    pass(`uniform float p_amount;
+uniform float p_size;
+void main() {
+  vec3 base = texture(u_currentTexture, v_texCoord).rgb;
+  vec2 cell = floor(v_texCoord * u_resolution / max(1.0, p_size));
+  float n = ek_frame_noise(cell);
+  float density = p_amount / 100.0 * 0.9;
+  float speck = step(1.0 - density, n);
+  fragColor = vec4(mix(base, vec3(speck), speck * density * 0.95), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['noise=alls={amount}:allf=t+u'],
+    fidelity: 'approximate',
+    note: 'El filtro noise genera estática uniforme gaussiana por canal; el shader dibuja motas blancas por celda con densidad controlada.',
+  },
+});
+
 // Tomás del glitch.wave en export: el shader desplaza uv.x por fila con
 // `sin(uv.y*freq*TAU + t*speed)*amp`; geq evalúa una expresión por píxel y
 // `r/g/b(x,y)` remuestrean la entrada en el píxel desplazado. `format=gbrp`
@@ -1339,7 +1709,7 @@ void main() {
       'rgbashift=rh=4:bh=-4',
       'noise=alls=16:allf=t+u',
       'drawgrid=w=iw:h=3:t=1:c=black@0.2',
-      'eq=saturation=0.85:contrast=1.05',
+      eqCompat({ saturation: '0.85', contrast: '1.05' }),
     ],
     fidelity: 'approximate',
     note: 'La banda de tracking y el desgarro no se reproducen en FFmpeg.',
@@ -1430,7 +1800,7 @@ void main() {
       'colorbalance=rs=0.06:gs=0.01:bs=-0.05',
       'noise=alls=22:allf=t',
       'vignette=PI/4.5',
-      'eq=saturation=0.9:contrast=1.08',
+      eqCompat({ saturation: '0.9', contrast: '1.08' }),
     ],
     fidelity: 'approximate',
     note: 'El parpadeo y el bamboleo de compuerta son temporales y no se reproducen.',
@@ -1506,6 +1876,118 @@ void main() {
   },
 });
 
+// Parpadeo de proyector: el shader mezcla una senoide de `speed` Hz con un
+// componente irregular por frame; el export reproduce sólo la parte
+// determinista con dos armónicos en geq (T = segundos del frame).
+const FLICKER_GEQ_LUM =
+  `clip(lum(X,Y)*(1+({amount})*(0.6*sin(T*{speed}*6.28318530718)` +
+  `+0.4*sin(T*{speed}*6.28318530718*2.7+1.3))),0,255)`;
+
+const flicker = v({
+  id: 'retro.flicker',
+  name: 'Parpadeo',
+  category: 'retro',
+  order: 70,
+  description: 'Parpadeo irregular de proyector de cine viejo: ideal para look vintage y FOUND footage.',
+  keywords: ['flicker', 'parpadeo', 'cine', 'proyector', 'vintage', 'found footage'],
+  params: [
+    f('amount', 'Intensidad', 0, 0.5, 0.15, { step: 0.01 }),
+    f('speed', 'Velocidad', 1, 24, 12, { step: 0.5, unit: 'Hz' }),
+  ],
+  passes: [
+    pass(`uniform float p_amount;
+uniform float p_speed;
+void main() {
+  float t = u_time * p_speed * 6.28318530718;
+  float wave = 0.6 * sin(t) + 0.4 * sin(t * 2.7 + 1.3);
+  float jitter = (ek_noise(vec2(u_time * p_speed * 13.7, 4.2)) - 0.5) * 0.8;
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  fragColor = vec4(c * (1.0 + p_amount * (wave + jitter)), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: [`geq=lum='${FLICKER_GEQ_LUM}':cb='cb(X,Y)':cr='cr(X,Y)'`],
+    fidelity: 'approximate',
+    note: 'El shader suma un jitter irregular por frame; el export queda con los dos armónicos deterministas (T en segundos).',
+  },
+});
+
+// Polvo y rayaduras de película: el shader dibuja líneas verticales
+// brillantes en columnas pseudoaleatorias por frame + motas; el export
+// combina `noise` (polvo) con un `geq` que suma líneas en columnas con
+// hash determinista por frame (`N` = número de frame de entrada).
+// `random(X+N*7919)` da un hash por (columna, frame): líneas que aparecen
+// y desaparecen, como las rayaduras reales de una copia de película.
+const DUST_GEQ_LUM =
+  `clip(lum(X,Y)+if(gt(random(X+N*7919),0.996),{scratches}*170,0),0,255)`;
+
+const dust = v({
+  id: 'retro.dust',
+  name: 'Polvo y rayas',
+  category: 'retro',
+  order: 80,
+  description: 'Artefactos de película vieja: polvo, motas y rayaduras verticales que cambian en cada frame.',
+  keywords: ['dust', 'polvo', 'rayas', 'rayaduras', 'film', 'pelicula', 'scratches'],
+  params: [
+    f('scratches', 'Rayaduras', 0, 1, 0.4, { step: 0.01 }),
+    f('dust', 'Polvo', 0, 100, 30, { step: 1 }),
+  ],
+  passes: [
+    pass(`uniform float p_scratches;
+uniform float p_dust;
+void main() {
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  float col = floor(v_texCoord.x * u_resolution.x);
+  float scratch = step(0.994, ek_frame_noise(vec2(col * 13.7, 3.1))) * p_scratches;
+  c += vec3(scratch * 0.65);
+  vec2 cell = floor(v_texCoord * u_resolution / 2.0);
+  float mote = step(0.985, ek_frame_noise(cell)) * (p_dust / 100.0);
+  c = mix(c, vec3(0.85, 0.8, 0.7), mote * 0.6);
+  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: [
+      'noise=alls={dust}:allf=t+u',
+      `geq=lum='${DUST_GEQ_LUM}':cb='cb(X,Y)':cr='cr(X,Y)'`,
+    ],
+    fidelity: 'approximate',
+    note: 'El polvo usa el ruido uniforme del filtro noise (multicanal) y las rayas un hash por columna; el shader dibuja motas cálidas.',
+  },
+});
+
+// Bleach bypass: look de post-proceso químico que salta la etapa de color —
+// desatura fuerte, contraste alto y dominancia plateada. El tinte cálido/
+// frío del preview no tiene equivalente simple en la cadena, así que el
+// export escala saturación y contraste con `amount` vía lutyuv.
+const bleach = v({
+  id: 'retro.bleach',
+  name: 'Bleach bypass',
+  category: 'retro',
+  order: 90,
+  description: 'Efecto de laboratorio fotográfico: colores lavados a plata, contraste alto, look épico.',
+  keywords: ['bleach', 'bypass', 'blanqueo', 'film', 'plateado', 'desaturado'],
+  params: [f('amount', 'Intensidad', 0, 1, 0.7, { step: 0.01 })],
+  passes: [
+    pass(`uniform float p_amount;
+void main() {
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  float l = ek_luma(c);
+  vec3 g = vec3(l * vec3(1.06, 1.0, 0.9));
+  c = mix(c, g, p_amount * 0.75);
+  c = (c - 0.5) * (1.0 + p_amount * 0.2) + 0.5;
+  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: [
+      eqCompat({ saturation: '0.1+{amount}*0.5', contrast: '1.0+{amount}*0.15' }),
+    ],
+    fidelity: 'approximate',
+    note: 'El export reproduce la desaturación y el contraste; el tinte plateado cálido del shader no se exporta.',
+  },
+});
+
 // ─────────────────────────────────────────────────────────── Impacto ──
 
 const shake = v({
@@ -1564,7 +2046,7 @@ void main() {
 }`),
   ],
   ffmpeg: {
-    chain: ["eq=brightness=0.3:enable='lt(mod(t*{rate},1),{duty})'"],
+    chain: [eqCompat({ brightness: '0.3', enable: 'lt(mod(t*{rate},1),{duty})' })],
     fidelity: 'approximate',
     note: 'El pulso se aplica como corrimiento de brillo, no como escala.',
   },
@@ -1609,34 +2091,99 @@ const trail = v({
   name: 'Estela',
   category: 'impact',
   order: 40,
-  description: 'Arrastra frames anteriores sobre el actual. Motion trail de toda la vida.',
+  description: 'Arrastra los últimos frames reales sobre el actual. Motion trail de verdad.',
   keywords: ['trail', 'estela', 'motion', 'retention'],
   params: [
     i('frames', 'Frames', 2, 12, 5),
     f('intensity', 'Intensidad', 0, 1, 0.6, { step: 0.01 }),
   ],
   passes: [
-    pass(`uniform float p_intensity;
+    // Estela temporal real: mezcla el frame actual con los hasta 4 frames
+    // fuente anteriores (`u_hist0..3`, cronológicos). `frames` estira la
+    // cola de decaimiento (tope honesto en 5 porque la historia guarda 4);
+    // `intensity` escala todos los pesos. Reemplaza al smear espacial
+    // anterior — ahora es el mismo concepto que tmix del export.
+    pass(`uniform sampler2D u_hist0;
+uniform sampler2D u_hist1;
+uniform sampler2D u_hist2;
+uniform sampler2D u_hist3;
+uniform float u_histCount;
+uniform float p_intensity;
 uniform int p_frames;
 void main() {
-  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
-  vec2 dir = vec2(p_intensity * 0.02, 0.0);
-  int taps = clamp(p_frames, 2, 12);
-  vec3 sum = c;
-  float weight = 1.0;
-  for (int i = 1; i < 12; i++) {
-    if (i >= taps) break;
-    float decay = 1.0 - float(i) / float(taps);
-    sum += ek_sample(v_texCoord - dir * float(i)) * decay;
-    weight += decay;
-  }
-  fragColor = vec4(sum / max(1.0, weight), 1.0);
+  vec3 cur = texture(u_currentTexture, v_texCoord).rgb;
+  // span: la cola de la estela. frames>5 no agrega tomas (historia=4) pero
+  // sí afloja el decaimiento — se documenta en la nota del manifiesto.
+  float span = clamp(float(p_frames), 2.0, 5.0);
+  vec3 acc = cur;
+  float wsum = 0.0;
+  vec3 h0 = texture(u_hist0, v_texCoord).rgb;
+  float w0 = p_intensity * (1.0 - 1.0 / span) * step(0.5, u_histCount);
+  acc += w0 * h0; wsum += w0;
+  vec3 h1 = texture(u_hist1, v_texCoord).rgb;
+  float w1 = p_intensity * (1.0 - 2.0 / span) * step(1.5, u_histCount);
+  acc += w1 * h1; wsum += w1;
+  vec3 h2 = texture(u_hist2, v_texCoord).rgb;
+  float w2 = p_intensity * (1.0 - 3.0 / span) * step(2.5, u_histCount);
+  acc += w2 * h2; wsum += w2;
+  vec3 h3 = texture(u_hist3, v_texCoord).rgb;
+  float w3 = p_intensity * (1.0 - 4.0 / span) * step(3.5, u_histCount);
+  acc += w3 * h3; wsum += w3;
+  fragColor = vec4(acc / max(1.0, 1.0 + wsum), 1.0);
 }`),
   ],
   ffmpeg: {
     chain: ['tmix=frames={frames}:weights=1'],
     fidelity: 'approximate',
-    note: 'El shader aproxima la estela en el espacio; tmix la acumula en el tiempo.',
+    note: 'tmix promedia N frames con peso 1; el preview mezcla hasta 4 tomas reales con decaimiento lineal (historia=4).',
+  },
+});
+
+// Líneas de velocidad radiales (look anime/manga de impacto): el shader
+// dibuja `count` rayos desde el centro con caída por distancia y
+// parpadeo temporal; el export reproduce el patrón en el plano de luma
+// con `geq` (`atan2`/`hypot`/`pow`/`abs` — coordenadas normalizadas por
+// alto para que el abanico sea isotrópico).
+const SPEED_NX = '((X+0.5)/W-0.5)';
+const SPEED_NY = '((Y+0.5)/H-0.5)';
+const SPEED_ANG = `atan2(${SPEED_NY},${SPEED_NX}*(W/H))`;
+const SPEED_DIST = `hypot(${SPEED_NY},${SPEED_NX}*(W/H))`;
+const SPEED_LINES = `pow(abs(sin(${SPEED_ANG}*{count}*0.5)),6)`;
+const SPEED_MASK =
+  `clip(({reach}-${SPEED_DIST})/({reach}*0.45),0,1)*clip((${SPEED_DIST}-0.03)/0.12,0,1)`;
+const SPEED_LUM = `clip(lum(X,Y)+{intensity}*200*${SPEED_LINES}*${SPEED_MASK},0,255)`;
+
+const speedLines = v({
+  id: 'impact.speed_lines',
+  name: 'Líneas de velocidad',
+  category: 'impact',
+  order: 50,
+  description: 'Líneas radiales blancas desde el centro: el golpe visual de los impactos anime y manga.',
+  keywords: ['speed', 'lines', 'velocidad', 'radial', 'anime', 'manga', 'impacto'],
+  params: [
+    i('count', 'Líneas', 8, 64, 24),
+    f('intensity', 'Intensidad', 0, 1, 0.6, { step: 0.01 }),
+    f('reach', 'Alcance', 0.4, 1.5, 1.0, { step: 0.05 }),
+  ],
+  passes: [
+    pass(`uniform float p_count;
+uniform float p_intensity;
+uniform float p_reach;
+void main() {
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  vec2 d = (v_texCoord - 0.5) * vec2(ek_aspect(), 1.0);
+  float r = length(d) / max(0.001, 0.5 * ek_aspect());
+  float ang = atan(d.y, d.x);
+  float lines = pow(abs(sin(ang * p_count * 0.5)), 6.0);
+  float mask = smoothstep(p_reach, p_reach * 0.55, r) * smoothstep(0.02, 0.12, r);
+  float flick = 0.7 + 0.3 * sin(u_time * 24.0 + ang * 2.0);
+  fragColor = vec4(c + vec3(lines * mask * flick * p_intensity * 0.8), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: [`geq=lum='${SPEED_LUM}':cb='cb(X,Y)':cr='cr(X,Y)'`],
+    fidelity: 'approximate',
+    note: 'El export suma las líneas sólo al plano de luma (streaks blanquecinos); el shader las suma en RGB con parpadeo temporal.',
   },
 });
 
@@ -1674,6 +2221,80 @@ void main() {
     chain: ['chromakey=color={key}:similarity={similarity}:blend={smoothness}'],
     fidelity: 'approximate',
     note: 'chromakey trabaja en YUV; la supresión de derrame se omite.',
+  },
+});
+
+// Clave por luminancia: recorta fondos blancos/negros por brillo, no por
+// color. El shader hace smoothstep sobre la luma; el export usa `geq` con
+// plano alpha en yuva420p — la rampa del export es lineal (aproximación
+// del smoothstep cúbico del shader).
+const luma = v({
+  id: 'keying.luma',
+  name: 'Clave por brillo',
+  category: 'keying',
+  order: 20,
+  description: 'Quita un fondo por luminancia (blanco o negro) con banda de transición suave.',
+  keywords: ['luma', 'key', 'clave', 'blanco', 'negro', 'fondo', 'luminancia'],
+  params: [
+    f('level', 'Umbral', 0.4, 1, 0.85, { step: 0.01 }),
+    f('softness', 'Suavizado', 0, 0.4, 0.1, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform float p_level;
+uniform float p_softness;
+void main() {
+  vec4 src = texture(u_currentTexture, v_texCoord);
+  float l = ek_luma(src.rgb);
+  float a = 1.0 - smoothstep(p_level - p_softness, p_level + p_softness, l);
+  fragColor = vec4(src.rgb, src.a * a);
+}`),
+  ],
+  ffmpeg: {
+    chain: [
+      `format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='clip(({level}+{softness}-lum(X,Y)/255)/({softness}*2+0.001)*255,0,255)'`,
+    ],
+    fidelity: 'approximate',
+    note: 'Clave sólo por luma alta (fondos claros); la rampa es lineal, no la smoothstep del shader.',
+  },
+});
+
+// Refino de matte: erosionar (choke) o dilatar la máscara alfa un pixel
+// por vecindad en cruz. En export se hace con geq sobre el plano alpha en
+// yuva420p (`alpha(X,Y)` lee el alfa de entrada); `choke` positivo dilata,
+// negativo erosiona, cero deja la máscara intacta.
+const REFINE_DILATE =
+  'max(max(alpha(X-1,Y),alpha(X+1,Y)),max(alpha(X,Y-1),alpha(X,Y+1)))';
+const REFINE_ERODE =
+  'min(min(alpha(X-1,Y),alpha(X+1,Y)),min(alpha(X,Y-1),alpha(X,Y+1)))';
+const refine = v({
+  id: 'keying.refine',
+  name: 'Refinar máscara',
+  category: 'keying',
+  order: 30,
+  description: 'Engrosa o adelgaza la máscara de croma/luma un pixel: limpia bordes duros del recorte.',
+  keywords: ['refine', 'matte', 'choke', 'mascara', 'borde', 'keying', 'alpha'],
+  params: [f('choke', 'Expansión', -1, 1, 0, { step: 0.05 })],
+  passes: [
+    pass(`uniform float p_choke;
+void main() {
+  vec2 px = 1.0 / u_resolution;
+  vec4 c = texture(u_currentTexture, v_texCoord);
+  float n0 = texture(u_currentTexture, v_texCoord + vec2(px.x, 0.0)).a;
+  float n1 = texture(u_currentTexture, v_texCoord - vec2(px.x, 0.0)).a;
+  float n2 = texture(u_currentTexture, v_texCoord + vec2(0.0, px.y)).a;
+  float n3 = texture(u_currentTexture, v_texCoord - vec2(0.0, px.y)).a;
+  float lo = min(min(n0, n1), min(n2, n3));
+  float hi = max(max(n0, n1), max(n2, n3));
+  float a = p_choke > 0.0 ? hi : p_choke < 0.0 ? lo : c.a;
+  fragColor = vec4(c.rgb, a);
+}`),
+  ],
+  ffmpeg: {
+    chain: [
+      `format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(eq({choke},0),alpha(X,Y),if(gt({choke},0),${REFINE_DILATE},${REFINE_ERODE}))'`,
+    ],
+    fidelity: 'approximate',
+    note: 'Un pixel por lado en cruz (no 3x3 completo); el signo de choke decide dilatar o erosionar.',
   },
 });
 
@@ -1813,6 +2434,373 @@ void main() {
   },
 });
 
+const lensCorrect = v({
+  id: 'lens.correct',
+  name: 'Corrección de lente',
+  category: 'distort',
+  order: 40,
+  description:
+    'Distorsión radial cuadrática (barril/almohadilla) con centro configurable. Es la misma familia que el lenscorrection del clip.',
+  keywords: ['lente', 'lens', 'barril', 'almohadilla', 'distorsion', 'lenscorrection'],
+  params: [
+    f('k1', 'K1', -1, 1, 0, { step: 0.005 }),
+    f('k2', 'K2', -1, 1, 0, { step: 0.005 }),
+    f('cx', 'Centro X', 0, 1, 0.5, { step: 0.01 }),
+    f('cy', 'Centro Y', 0, 1, 0.5, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform float p_k1;
+uniform float p_k2;
+uniform float p_cx;
+uniform float p_cy;
+void main() {
+  // Mismo modelo que distort.fisheye pero con centro propio y término k2.
+  vec2 d = (v_texCoord - vec2(p_cx, p_cy)) * vec2(ek_aspect(), 1.0);
+  float r2 = dot(d, d);
+  float factor = 1.0 + p_k1 * r2 + p_k2 * r2 * r2;
+  vec2 distorted = d * factor;
+  vec2 uv = distorted / vec2(ek_aspect(), 1.0) + vec2(p_cx, p_cy);
+  fragColor = vec4(ek_sample(uv), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['lenscorrection=k1={k1}:k2={k2}:cx={cx}:cy={cy}:i=bilinear'],
+    fidelity: 'approximate',
+    note: 'El shader aplica el polinomio radial directo; FFmpeg lo invierte. Con k1/k2 chicos la diferencia es leve.',
+  },
+});
+
+const emboss = v({
+  id: 'stylize.emboss',
+  name: 'Relieve',
+  category: 'stylize',
+  order: 45,
+  description: 'Bisel direccional: bordes en bajo relieve sobre fondo neutro, estilo moneda o piedra.',
+  keywords: ['emboss', 'relieve', 'bisel', 'grabado'],
+  params: [
+    f('amount', 'Intensidad', 0, 4, 1, { step: 0.01 }),
+    f('angle', 'Dirección', -180, 180, 45, { step: 1, unit: '°' }),
+  ],
+  passes: [
+    pass(`uniform float p_amount;
+uniform float p_angle;
+void main() {
+  vec2 dir = vec2(cos(radians(p_angle)), sin(radians(p_angle)));
+  vec2 u = dir / u_resolution;
+  vec2 v = vec2(-dir.y, dir.x) / u_resolution;
+  float l00 = ek_luma(ek_sample(v_texCoord - u - v));
+  float l10 = ek_luma(ek_sample(v_texCoord - u));
+  float l20 = ek_luma(ek_sample(v_texCoord + u - v));
+  float l01 = ek_luma(ek_sample(v_texCoord - v));
+  float l21 = ek_luma(ek_sample(v_texCoord + v));
+  float l02 = ek_luma(ek_sample(v_texCoord - u + v));
+  float l12 = ek_luma(ek_sample(v_texCoord + u + v));
+  float l22 = ek_luma(ek_sample(v_texCoord + u + v));
+  // Sobel a lo largo de la dirección de luz (u) y perpendicular (v).
+  float gx = -l00 - 2.0 * l10 - l20 + l02 + 2.0 * l12 + l22;
+  float gy = -l00 - 2.0 * l01 - l02 + l20 + 2.0 * l21 + l22;
+  float light = gx * dir.x + gy * dir.y;
+  fragColor = vec4(vec3(clamp(0.5 + light * p_amount * 0.125, 0.0, 1.0)), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ["convolution=0m='0 -1 -2 -1 1 1 2 1 0':1m='0 -1 -2 -1 1 1 2 1 0':2m='0 -1 -2 -1 1 1 2 1 0':0bias=0.5:1bias=0.5:2bias=0.5"],
+    fidelity: 'approximate',
+    note: 'El kernel de FFmpeg es fijo (luz desde arriba-izquierda); el shader permite rotar la dirección.',
+  },
+});
+
+const matrix = v({
+  id: 'color.matrix',
+  name: 'Matrix',
+  category: 'color',
+  order: 45,
+  description: 'Look digital verdoso de las películas Matrix: tinte verde sobre la imagen.',
+  keywords: ['matrix', 'verde', 'digital', 'look'],
+  params: [
+    f('tint', 'Tinte', 0, 1, 0.7, { step: 0.01 }),
+    f('contrast', 'Contraste', 0.5, 2, 1.15, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform float p_tint;
+uniform float p_contrast;
+void main() {
+  vec3 c = ek_sample(v_texCoord);
+  vec3 green = vec3(c.r * 0.35, c.g * 1.25, c.b * 0.55);
+  c = mix(c, green, p_tint * 0.75);
+  fragColor = vec4((c - 0.5) * p_contrast + 0.5, 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['colorchannelmixer=rr=0.4:gg=1.1:bb=0.5:gr=0:gb=0:br=0:bg=0:rg=0:rb=0', eqCompat({ contrast: '{contrast}' })],
+    fidelity: 'approximate',
+    note: 'FFmpeg aplica una matriz de canales fija + contraste; el shader mezcla el tinte por píxel.',
+  },
+});
+
+const faded = v({
+  id: 'color.faded',
+  name: 'Mate / desvaído',
+  category: 'color',
+  order: 46,
+  description: 'Look cinematográfico lavando negros y bajando contraste, como película vencida.',
+  keywords: ['faded', 'mate', 'vintage', 'lavado', 'cine'],
+  params: [
+    f('lift', 'Elevación de negros', 0, 0.25, 0.08, { step: 0.005 }),
+    f('contrast', 'Contraste', 0.4, 1.2, 0.85, { step: 0.01 }),
+    f('saturation', 'Saturación', 0, 1.5, 0.9, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform float p_lift;
+uniform float p_contrast;
+uniform float p_saturation;
+void main() {
+  vec3 c = ek_sample(v_texCoord);
+  c = ek_saturate(c, p_saturation);
+  fragColor = vec4((c - 0.5) * p_contrast + 0.5 + p_lift, 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: [eqCompat({ contrast: '{contrast}', brightness: '{lift}', saturation: '{saturation}' })],
+    fidelity: 'approximate',
+    note: 'El brillo de la receta sube todo el histograma; el shader añade lift sólo a los negros.',
+  },
+});
+
+const bulge = v({
+  id: 'distort.bulge',
+  name: 'Abombado',
+  category: 'distort',
+  order: 45,
+  description: 'Abomba (positivo) o pellizca (negativo) el centro de la imagen, como una lente de aumento.',
+  keywords: ['bulge', 'abombado', 'pincel', 'lente', 'zoom'],
+  params: [
+    f('strength', 'Fuerza', -1, 1, 0.4, { step: 0.01 }),
+    f('radius', 'Radio', 0.1, 1, 0.6, { step: 0.01 }),
+    v2('center', 'Centro', 0, 1, [0.5, 0.5]),
+  ],
+  passes: [
+    pass(`uniform float p_strength;
+uniform float p_radius;
+uniform vec2 p_center;
+void main() {
+  vec2 d = (v_texCoord - p_center) * vec2(ek_aspect(), 1.0);
+  float dist = length(d);
+  float falloff = 1.0 - smoothstep(0.0, p_radius, dist);
+  vec2 distorted = d * (1.0 + p_strength * falloff);
+  vec2 uv = distorted / vec2(ek_aspect(), 1.0) + p_center;
+  fragColor = vec4(ek_sample(uv), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['lenscorrection=k1={strength}:k2=0:i=bilinear'],
+    fidelity: 'approximate',
+    note: 'lenscorrection aplica su propio modelo de barril/almohadilla sobre todo el cuadro; el shader limita el efecto al radio elegido.',
+  },
+});
+
+// Umbral en B/N: el shader hace smoothstep sobre luminancia; la receta
+// lutyuv reproduce la rampa con la misma forma (t*t*(3-2*t)) y fija los
+// planos de croma en 128 para que el resultado sea gris real, no una
+// imagen en color con menos detalle.
+const THRESHOLD_T = `clip((val-{level}*255)/({softness}*510)+0.5,0,1)`;
+const THRESHOLD_Y = `clip(${THRESHOLD_T}*${THRESHOLD_T}*(3-2*${THRESHOLD_T})*255,0,255)`;
+
+const threshold = v({
+  id: 'stylize.threshold',
+  name: 'Umbral B/N',
+  category: 'stylize',
+  order: 90,
+  description: 'Corte binario de la imagen en blanco y negro: look de grabado, manga o documental duro.',
+  keywords: ['threshold', 'umbral', 'blanco y negro', 'binario', 'grabado'],
+  params: [
+    f('level', 'Umbral', 0, 1, 0.5, { step: 0.01 }),
+    f('softness', 'Suavidad', 0.01, 0.5, 0.06, { step: 0.005 }),
+  ],
+  passes: [
+    pass(`uniform float p_level;
+uniform float p_softness;
+void main() {
+  float l = ek_luma(texture(u_currentTexture, v_texCoord).rgb);
+  float t = smoothstep(p_level - p_softness, p_level + p_softness, l);
+  fragColor = vec4(vec3(t), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: [`lutyuv=y='${THRESHOLD_Y}':u='128':v='128'`],
+    fidelity: 'approximate',
+    note: 'La rampa es la misma cubic smoothstep, pero el plano Y de FFmpeg usa luma BT.601 y el shader Rec.709.',
+  },
+});
+
+const cinemaBars = v({
+  id: 'stylize.cinema_bars',
+  name: 'Barras de cine',
+  category: 'stylize',
+  order: 95,
+  description: 'Enmarca el cuadro con bandas negras arriba y abajo, formato cinemascope sin recortar.',
+  keywords: ['letterbox', 'barras', 'cine', 'cinemascope', 'formato'],
+  params: [f('bar', 'Altura', 0, 0.35, 0.12, { step: 0.005 })],
+  passes: [
+    pass(`uniform float p_bar;
+void main() {
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  float inside = step(p_bar, v_texCoord.y) * step(v_texCoord.y, 1.0 - p_bar);
+  fragColor = vec4(c * inside, 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: [
+      `drawbox=x=0:y=0:w=iw:h='{bar}*ih':color=black:t=fill`,
+      `drawbox=x=0:y='ih-{bar}*ih':w=iw:h='{bar}*ih':color=black:t=fill`,
+    ],
+    fidelity: 'exact',
+  },
+});
+
+// Curvas de color: el enum replica los 11 presets del filtro `curves` de
+// FFmpeg (0=none … 10=vintage) así `{preset}` sustituye el índice directo.
+// El shader aproxima cada familia con operaciones tonales simples.
+const curves = v({
+  id: 'color.curves',
+  name: 'Curvas',
+  category: 'color',
+  order: 95,
+  description: 'Once curvas tonales estilo etalonaje: vintage, cruce de película, contrastes y negativos.',
+  keywords: ['curvas', 'curves', 'etalonaje', 'vintage', 'color', 'preset'],
+  params: [
+    en('preset', 'Curva', [
+      'Ninguna',
+      'Negativo color',
+      'Procesado cruzado',
+      'Más oscuro',
+      'Más contraste',
+      'Más claro',
+      'Contraste lineal',
+      'Contraste medio',
+      'Negativo B/N',
+      'Contraste fuerte',
+      'Vintage',
+    ], 0),
+  ],
+  passes: [
+    pass(`uniform float p_preset;
+void main() {
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  float l = ek_luma(c);
+  float sc = l * l * (3.0 - 2.0 * l);
+  int p = int(p_preset + 0.5);
+  if (p == 1) {
+    c = 1.0 - c;
+    c = mix(c, vec3(dot(c, vec3(0.299, 0.587, 0.114))), 0.12);
+    c = mix(c, vec3(l), 0.08);
+  } else if (p == 2) {
+    c *= vec3(1.06, 1.0, 0.9);
+    c = mix(vec3(l), c, 1.15);
+    c = (c - 0.5) * 1.1 + 0.5;
+  } else if (p == 3) {
+    c *= vec3(0.9, 0.88, 0.86);
+    c = c * c * 0.85;
+  } else if (p == 4 || p == 6 || p == 7 || p == 9) {
+    float k = p == 9 ? 2.4 : p == 4 ? 1.5 : p == 7 ? 1.8 : 1.15;
+    c = mix(c, sc, k * 0.45);
+    c = (c - 0.5) * (1.0 + k * 0.18) + 0.5;
+  } else if (p == 5) {
+    c = 1.0 - (1.0 - c) * 0.88;
+  } else if (p == 8) {
+    c = vec3(1.0 - l);
+  } else if (p == 10) {
+    c = mix(vec3(l * 0.92 + 0.07), c * vec3(1.04, 0.99, 0.88), 0.55);
+    c = (c - 0.5) * 0.9 + 0.5;
+  }
+  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['curves=preset={preset}'],
+    fidelity: 'approximate',
+    note: 'El export aplica la curva real del preset de FFmpeg; el shader aproxima cada familia con operaciones tonales simples.',
+  },
+});
+
+// Balance de color por rangos: colorbalance de FFmpeg mueve R/G/B en
+// sombras, medios y luceros por separado — el control de etalonaje que
+// usa todo colorista. El shader pondera cada offset por una máscara de
+// luminancia suave (sombras/medios/luceros).
+const balance = v({
+  id: 'color.balance',
+  name: 'Balance de color',
+  category: 'color',
+  order: 96,
+  description: 'Ajusta rojo, verde y azul por separado en sombras, medios y luceros.',
+  keywords: ['balance', 'color', 'sombras', 'medios', 'luceros', 'etalonaje', 'split'],
+  params: [
+    f('rs', 'Sombras R', -1, 1, 0, { step: 0.01, group: 'Sombras' }),
+    f('gs', 'Sombras G', -1, 1, 0, { step: 0.01, group: 'Sombras' }),
+    f('bs', 'Sombras B', -1, 1, 0, { step: 0.01, group: 'Sombras' }),
+    f('rm', 'Medios R', -1, 1, 0, { step: 0.01, group: 'Medios' }),
+    f('gm', 'Medios G', -1, 1, 0, { step: 0.01, group: 'Medios' }),
+    f('bm', 'Medios B', -1, 1, 0, { step: 0.01, group: 'Medios' }),
+    f('rh', 'Luceros R', -1, 1, 0, { step: 0.01, group: 'Luceros' }),
+    f('gh', 'Luceros G', -1, 1, 0, { step: 0.01, group: 'Luceros' }),
+    f('bh', 'Luceros B', -1, 1, 0, { step: 0.01, group: 'Luceros' }),
+  ],
+  passes: [
+    pass(`uniform float p_rs; uniform float p_gs; uniform float p_bs;
+uniform float p_rm; uniform float p_gm; uniform float p_bm;
+uniform float p_rh; uniform float p_gh; uniform float p_bh;
+void main() {
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  float l = ek_luma(c);
+  float sh = 1.0 - smoothstep(0.0, 0.5, l);
+  float hi = smoothstep(0.5, 1.0, l);
+  float mid = max(0.0, 1.0 - sh - hi);
+  c.r += p_rs * sh + p_rm * mid + p_rh * hi;
+  c.g += p_gs * sh + p_gm * mid + p_gh * hi;
+  c.b += p_bs * sh + p_bm * mid + p_bh * hi;
+  fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: [
+      'colorbalance=rs={rs}:gs={gs}:bs={bs}:rm={rm}:gm={gm}:bm={bm}:rh={rh}:gh={gh}:bh={bh}',
+    ],
+    fidelity: 'approximate',
+    note: 'Las máscaras de rango difieren: FFmpeg usa curvas de luminancia propias; el shader pondera con smoothstep.',
+  },
+});
+
+// Ganancia por canal: colorchannelmixer con las ganancias diagonales
+// (rr/gg/bb) — el ajuste más simple para empujar o contener un canal.
+// El shader multiplica en RGB; el filtro trabaja sobre la matriz YUV.
+const mixer = v({
+  id: 'color.mixer',
+  name: 'Ganancia por canal',
+  category: 'color',
+  order: 97,
+  description: 'Amplifica o atenúa el rojo, verde y azul por separado, sin tocar la matiz.',
+  keywords: ['mixer', 'canales', 'channel', 'rgb', 'ganancia', 'color'],
+  params: [
+    f('red', 'Rojo', 0, 2, 1, { step: 0.01 }),
+    f('green', 'Verde', 0, 2, 1, { step: 0.01 }),
+    f('blue', 'Azul', 0, 2, 1, { step: 0.01 }),
+  ],
+  passes: [
+    pass(`uniform float p_red;
+uniform float p_green;
+uniform float p_blue;
+void main() {
+  vec3 c = texture(u_currentTexture, v_texCoord).rgb;
+  fragColor = vec4(c * vec3(p_red, p_green, p_blue), 1.0);
+}`),
+  ],
+  ffmpeg: {
+    chain: ['colorchannelmixer=rr={red}:gg={green}:bb={blue}'],
+    fidelity: 'approximate',
+    note: 'El filtro opera sobre la matriz YUV (no es multiplicación RGB pura); el shader multiplica canal a canal.',
+  },
+});
+
 export const VIDEO_EFFECTS: readonly EffectManifest[] = [
   exposure,
   contrast,
@@ -1829,8 +2817,10 @@ export const VIDEO_EFFECTS: readonly EffectManifest[] = [
   vignette,
   leak,
   flare,
+  rays,
   gaussian,
   motionBlur,
+  temporalBlur,
   zoomBlur,
   tiltShift,
   sharpen,
@@ -1847,6 +2837,7 @@ export const VIDEO_EFFECTS: readonly EffectManifest[] = [
   digitalGlitch,
   kaleidoscope,
   mirror,
+  snow,
   wave,
   vhs,
   sepia,
@@ -1854,12 +2845,33 @@ export const VIDEO_EFFECTS: readonly EffectManifest[] = [
   super8,
   grain,
   crt,
+  flicker,
+  dust,
+  bleach,
   shake,
   strobe,
   zoomPulse,
   trail,
+  speedLines,
   chroma,
+  luma,
+  refine,
   ripple,
   twirl,
   fisheye,
+  lensCorrect,
+  temporalDenoise,
+  deband,
+  bilateral,
+  deinterlace,
+  emboss,
+  matrix,
+  faded,
+  bulge,
+  threshold,
+  cinemaBars,
+  crosshatch,
+  curves,
+  balance,
+  mixer,
 ];

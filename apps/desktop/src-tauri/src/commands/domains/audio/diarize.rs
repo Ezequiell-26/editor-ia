@@ -303,7 +303,15 @@ pub async fn diarize_audio(
     }
     let (_, ffprobe, _) = resolve_tools(&settings);
     if let Some(ffprobe) = ffprobe {
-        if let Ok(measure) = probe_file(&ffprobe, &source, MediaKind::Audio) {
+        let ffprobe = ffprobe.clone();
+        let source_probe = source.clone();
+        let measure = tauri::async_runtime::spawn_blocking(move || {
+            probe_file(&ffprobe, &source_probe, MediaKind::Audio)
+        })
+        .await
+        .ok()
+        .and_then(Result::ok);
+        if let Some(measure) = measure {
             if measure
                 .duration_seconds
                 .is_some_and(|duration| duration > MAX_DIARIZE_SECONDS)

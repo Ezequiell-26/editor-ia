@@ -8,8 +8,8 @@
 //! Este módulo es puro: presets → cadena de efectos configurada. La
 //! orquestación FFmpeg (decode → bloques → WAV) queda en el comando.
 
-use filmcraft_audio_dsp::{create_effect, AudioEffect};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
+use filmcraft_audio_dsp::{create_effect, AudioEffect};
 
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const CHANNELS: usize = 2;

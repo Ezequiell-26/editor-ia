@@ -77,6 +77,36 @@ describe('maskClipPath · expand', () => {
     const withoutExpand = maskClipPath({ ...poly, expand: undefined });
     expect(withExpand).toBe(withoutExpand);
   });
+
+  it('polygon escala los puntos alrededor del centro del bbox (paridad con masks.rs)', () => {
+    // Triángulo con bbox centrado en (0.5, 0.5): width=height=2 duplica la
+    // extensión → puntos en (0,0), (1,0), (0.5,1) pasan a (-0.5,-0.5) clampeado,
+    // (1.5,-0.5) clampeado y (0.5,1.5) clampeado a 100%.
+    const poly: ClipMask = {
+      shape: 'polygon',
+      x: 0,
+      y: 0,
+      width: 2,
+      height: 2,
+      feather: 0,
+      invert: false,
+      points: [
+        { x: 0.25, y: 0.25 },
+        { x: 0.75, y: 0.25 },
+        { x: 0.5, y: 0.75 },
+      ],
+    };
+    const path = maskClipPath(poly);
+    // bbox center (0.5,0.5); escala 2 → (0.25→0), (0.75→1), (0.75→1.25→100%).
+    expect(path).toContain('0% 0%');
+    expect(path).toContain('100% 0%');
+    expect(path).toContain('50% 100%');
+    // Y con escala 1 (identidad) los puntos quedan en su posición original.
+    const identity = maskClipPath({ ...poly, width: 1, height: 1 });
+    expect(identity).toContain('25% 25%');
+    expect(identity).toContain('75% 25%');
+    expect(identity).toContain('50% 75%');
+  });
 });
 
 describe('maskStrokeSvg · trazo de máscara', () => {

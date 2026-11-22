@@ -81,9 +81,9 @@ fn run_timed(
     if timed.timed_out {
         return Err(ProjectError::message(ProjectErrorCode::Io, timeout_error));
     }
-    timed.into_output().ok_or_else(|| {
-        ProjectError::message(ProjectErrorCode::Io, timeout_error)
-    })
+    timed
+        .into_output()
+        .ok_or_else(|| ProjectError::message(ProjectErrorCode::Io, timeout_error))
 }
 
 impl MediaRunner for SystemMediaRunner {

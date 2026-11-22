@@ -658,6 +658,130 @@ const reflexo = t({
 }`,
 });
 
+// Barrido suavizado: la frontera se mueve con easing smoothstep en vez
+// de lineal (equivalente visual de los `smooth*` de xfade).
+const smoothWipe = (
+  id: string,
+  name: string,
+  axis: 'x' | 'y',
+  invert: boolean,
+  xfade: string,
+  order: number,
+) =>
+  t({
+    id,
+    name,
+    order,
+    description: 'Barrido con movimiento suavizado: la frontera acelera y frena.',
+    keywords: ['smooth', 'suave', 'barrido', 'wipe'],
+    params: [f('softness', 'Borde', 0, 0.2, 0.01, 0.005)],
+    xfade,
+    shader: `uniform float p_softness;
+void main() {
+  vec4 a = texture(u_fromTexture, v_texCoord);
+  vec4 b = texture(u_toTexture, v_texCoord);
+  float p = clamp(u_progress, 0.0, 1.0);
+  p = p * p * (3.0 - 2.0 * p);
+  float coord = ${axis === 'x' ? 'v_texCoord.x' : 'v_texCoord.y'};
+  ${invert ? 'coord = 1.0 - coord;' : ''}
+  float edge = smoothstep(p - p_softness - 0.001, p + p_softness + 0.001, coord);
+  fragColor = mix(b, a, edge);
+}`,
+  });
+
+// Barrido diagonal: la frontera es la recta que une dos esquinas
+// opuestas; `coordExpr` la parametriza (0 en la esquina de origen,
+// 2 en la opuesta).
+const diagWipe = (
+  id: string,
+  name: string,
+  coordExpr: string,
+  xfade: string,
+  order: number,
+) =>
+  t({
+    id,
+    name,
+    order,
+    description: 'Barrido en diagonal de esquina a esquina.',
+    keywords: ['diagonal', 'diag', 'barrido'],
+    params: [f('softness', 'Borde', 0, 0.2, 0.01, 0.005)],
+    xfade,
+    shader: `uniform float p_softness;
+void main() {
+  vec4 a = texture(u_fromTexture, v_texCoord);
+  vec4 b = texture(u_toTexture, v_texCoord);
+  float p = clamp(u_progress, 0.0, 1.0);
+  float coord = ${coordExpr};
+  float edge = smoothstep(p * 2.0 - p_softness - 0.001, p * 2.0 + p_softness + 0.001, coord);
+  fragColor = mix(b, a, edge);
+}`,
+  });
+
+// Tiras: la imagen entrante aparece en bandas escalonadas (cada tira
+// arranca un poco después que la anterior). `axis` elige si las bandas
+// son horizontales (recorrido vertical interno) o verticales.
+const sliceWipe = (
+  id: string,
+  name: string,
+  axis: 'x' | 'y',
+  slices: number,
+  flip: boolean,
+  xfade: string,
+  order: number,
+) =>
+  t({
+    id,
+    name,
+    order,
+    description: 'El clip entrante aparece en tiras escalonadas.',
+    keywords: ['slice', 'tiras', 'bandas', 'escalonado'],
+    params: [f('softness', 'Borde', 0, 0.2, 0.01, 0.005)],
+    xfade,
+    shader: `uniform float p_softness;
+void main() {
+  vec4 a = texture(u_fromTexture, v_texCoord);
+  vec4 b = texture(u_toTexture, v_texCoord);
+  float p = clamp(u_progress, 0.0, 1.0);
+  const float N = ${slices.toFixed(1)};
+  float along = ${axis === 'x' ? 'v_texCoord.y' : 'v_texCoord.x'};
+  float across = ${axis === 'x' ? 'v_texCoord.x' : 'v_texCoord.y'};
+  float idx = floor(along * N);
+  ${flip ? 'idx = (N - 1.0) - idx;' : ''}
+  float local = fract(along * N);
+  // Cada banda revela con barrido a lo largo de across, arrancando
+  // escalonada: el frente global es p*(N+1) - idx.
+  float front = clamp(p * (N + 1.0) - idx, 0.0, N + 1.0);
+  float edge = smoothstep(front - p_softness - 0.001, front + p_softness + 0.001, across * (N + 1.0));
+  fragColor = mix(b, a, edge);
+}`,
+  });
+
+// Apertura vertical: una banda horizontal crece desde el centro hacia
+// arriba y abajo (equivalente de `vertopen`/`vertclose` de xfade).
+const vertBar = (id: string, name: string, open: boolean, xfade: string, order: number) =>
+  t({
+    id,
+    name,
+    order,
+    description: open
+      ? 'Una franja horizontal se abre desde el centro hacia los bordes.'
+      : 'El clip entrante se divide desde el centro hacia arriba y abajo.',
+    keywords: ['vert', 'vertical', 'apertura', 'banda'],
+    params: [f('softness', 'Borde', 0, 0.2, 0.01, 0.005)],
+    xfade,
+    shader: `uniform float p_softness;
+void main() {
+  vec4 a = texture(u_fromTexture, v_texCoord);
+  vec4 b = texture(u_toTexture, v_texCoord);
+  float p = clamp(u_progress, 0.0, 1.0);
+  float limit = ${open ? 'p' : '1.0 - p'};
+  float d = abs(v_texCoord.y - 0.5) * 2.0;
+  float edge = smoothstep(limit + p_softness + 0.001, limit - p_softness - 0.001, d);
+  fragColor = mix(b, a, edge);
+}`,
+  });
+
 export const TRANSITIONS: readonly EffectManifest[] = [
   crossfade,
   dipBlack,
@@ -666,6 +790,10 @@ export const TRANSITIONS: readonly EffectManifest[] = [
   wipe('wipe-right', 'Barrido a la derecha', 'x', true, 'wiperight', 41),
   wipe('wipe-up', 'Barrido hacia arriba', 'y', true, 'wipeup', 42),
   wipe('wipe-down', 'Barrido hacia abajo', 'y', false, 'wipedown', 43),
+  smoothWipe('smooth-left', 'Barrido suave a la izquierda', 'x', false, 'smoothleft', 44),
+  smoothWipe('smooth-right', 'Barrido suave a la derecha', 'x', true, 'smoothright', 45),
+  smoothWipe('smooth-up', 'Barrido suave hacia arriba', 'y', true, 'smoothup', 46),
+  smoothWipe('smooth-down', 'Barrido suave hacia abajo', 'y', false, 'smoothdown', 47),
   slide('slide-left', 'Deslizar a la izquierda', -1, 0, 'slideleft', 50),
   slide('slide-right', 'Deslizar a la derecha', 1, 0, 'slideright', 51),
   slide('slide-up', 'Deslizar hacia arriba', 0, -1, 'slideup', 52),
@@ -682,6 +810,12 @@ export const TRANSITIONS: readonly EffectManifest[] = [
   triangulos,
   persiana,
   reflexo,
+  vertBar('vert-open', 'Apertura vertical', true, 'vertopen', 72),
+  vertBar('vert-close', 'Cierre vertical', false, 'vertclose', 73),
+  diagWipe('diag-tl', 'Diagonal sup. izq.', 'v_texCoord.x + v_texCoord.y', 'diagtl', 75),
+  diagWipe('diag-tr', 'Diagonal sup. der.', '(1.0 - v_texCoord.x) + v_texCoord.y', 'diagtr', 76),
+  diagWipe('diag-bl', 'Diagonal inf. izq.', 'v_texCoord.x + (1.0 - v_texCoord.y)', 'diagbl', 77),
+  diagWipe('diag-br', 'Diagonal inf. der.', '2.0 - v_texCoord.x - v_texCoord.y', 'diagbr', 78),
   radial,
   pixelize,
   dissolve,
@@ -689,6 +823,10 @@ export const TRANSITIONS: readonly EffectManifest[] = [
   lumaFade,
   squeeze('squeeze-h', 'Compresión horizontal', true, 'squeezeh', 150),
   squeeze('squeeze-v', 'Compresión vertical', false, 'squeezev', 151),
+  sliceWipe('slice-h', 'Tiras horizontales', 'x', 8, false, 'hlslice', 152),
+  sliceWipe('slice-h2', 'Tiras horizontales inversas', 'x', 8, true, 'hrslice', 153),
+  sliceWipe('slice-v', 'Tiras verticales', 'y', 8, false, 'vuslice', 154),
+  sliceWipe('slice-v2', 'Tiras verticales inversas', 'y', 8, true, 'vdslice', 155),
   glitchBlocks,
   rgbDisplace,
 ];

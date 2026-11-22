@@ -35,7 +35,12 @@ pub async fn sample_asset_color(
             "el archivo del muestreo no está en disco",
         ));
     }
-    let mut command = std::process::Command::new(&ffmpeg);
+    // AUD-129 (resto del dominio media): el muestreo lanza FFmpeg; va a
+    // spawn_blocking.
+    let ffmpeg_path = ffmpeg.clone();
+    let source_path = source.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+    let mut command = std::process::Command::new(&ffmpeg_path);
     command
         .arg("-hide_banner")
         .arg("-loglevel")
@@ -43,7 +48,7 @@ pub async fn sample_asset_color(
         .arg("-ss")
         .arg(format!("{seconds:.6}"))
         .arg("-i")
-        .arg(&source)
+        .arg(&source_path)
         .args([
             "-frames:v",
             "1",
@@ -85,6 +90,14 @@ pub async fn sample_asset_color(
         g: (sums[1] as f64 / count * 10.0).round() / 10.0,
         b: (sums[2] as f64 / count * 10.0).round() / 10.0,
     })
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "el muestreo de color se interrumpió antes de terminar",
+        )
+    })?
 }
 
 #[derive(Serialize)]
@@ -126,17 +139,23 @@ pub async fn create_video_proxy(
     // mejor H.264 de software que el binario declare (el bundle LGPL no
     // trae libx264). Es material de vista previa: la velocidad pesa más
     // que la máxima calidad.
-    let detected = crate::render::ffmpeg::detect_hardware_cached(&ffmpeg);
+    // AUD-129 (resto del dominio media): detección de hardware + encode
+    // del proxy + probe final van a spawn_blocking.
+    let ffmpeg_path = ffmpeg.clone();
+    let ffprobe_path = ffprobe.clone();
+    let source_path = source.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+    let detected = crate::render::ffmpeg::detect_hardware_cached(&ffmpeg_path);
     let encoder = detected
         .h264
         .as_deref()
         .or(detected.h264_software.as_deref());
-    let mut command = std::process::Command::new(&ffmpeg);
+    let mut command = std::process::Command::new(&ffmpeg_path);
     command
         .arg("-hide_banner")
         .arg("-y")
         .arg("-i")
-        .arg(&source)
+        .arg(&source_path)
         .args(["-map", "0:v:0", "-map", "0:a?"])
         .args([
             "-vf",
@@ -179,7 +198,7 @@ pub async fn create_video_proxy(
             &format!("FFmpeg no pudo crear el proxy: {tail}"),
         ));
     }
-    let measure = probe_file(&ffprobe, &target, MediaKind::Video)?;
+    let measure = probe_file(&ffprobe_path, &target, MediaKind::Video)?;
     let width = measure.width.unwrap_or(0);
     let height = measure.height.unwrap_or(0);
     if width == 0 || height == 0 {
@@ -198,6 +217,14 @@ pub async fn create_video_proxy(
         height,
         bytes,
     })
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la creación del proxy se interrumpió antes de terminar",
+        )
+    })?
 }
 
 #[tauri::command]
@@ -230,13 +257,20 @@ pub async fn extract_freeze_frame(
             "el video del frame ya no está en disco",
         ));
     }
+    // AUD-129 (resto del dominio media): extracción del frame + import
+    // (que prueba con ffprobe) van a spawn_blocking.
+    let ffmpeg_path = ffmpeg.clone();
+    let ffprobe_path = ffprobe.clone();
+    let source_path = source.clone();
+    let root_path = session.root.clone();
+    tauri::async_runtime::spawn_blocking(move || {
     let temp = std::env::temp_dir().join(format!("freeze-{}.png", uuid::Uuid::new_v4()));
-    let mut command = std::process::Command::new(&ffmpeg);
+    let mut command = std::process::Command::new(&ffmpeg_path);
     command
         .arg("-hide_banner")
         .arg("-y")
         .arg("-i")
-        .arg(&source)
+        .arg(&source_path)
         .arg("-ss")
         .arg(format!("{seconds:.6}"))
         .arg("-frames:v")
@@ -271,12 +305,20 @@ pub async fn extract_freeze_frame(
         ));
     }
     let imported = import_file(
-        &session.root,
+        &root_path,
         &temp,
-        &ffprobe,
+        &ffprobe_path,
         fps_num.max(1),
         fps_den.max(1),
     );
     let _ = std::fs::remove_file(&temp);
     imported
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la extracción del frame se interrumpió antes de terminar",
+        )
+    })?
 }

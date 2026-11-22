@@ -7,12 +7,14 @@ import {
   type ColorGradeLayer,
   type GradeCurvePoint,
   type GradePanelState,
+  type ClipEffects,
   type HdrWheels,
   type WheelXY,
 } from '@editor-ia/project-schema';
+import { updateClip } from '../../../state/project-actions';
 import { Icon } from '../../../components/Icon';
 import { ColorStudio } from '../../color/ColorStudio';
-import { createBuiltinLooks, deleteGradePreset, loadGradePresets, saveGradePreset, type GradePreset } from '../../color/grade-presets';
+import { createBuiltinLooks, deleteGradePreset, loadGradePresets, saveGradePreset, type GradePreset } from '../../../state/grade-presets';
 import { useClipGrade, type ClipGradeApi } from '../../color/useClipGrade';
 import { wheelValueFromXY, xyFromWheelValue } from '../../color/wheel-math';
 import { GradeCurveEditor } from '../../color/GradeCurves';
@@ -167,7 +169,7 @@ function Section({
   readonly open: boolean;
   readonly children: ReactNode;
   readonly onToggle?: () => void;
-  readonly badge?: string;
+  readonly badge?: string | undefined;
 }) {
   return (
     <section className={`fp-section${open ? '' : ' is-collapsed'}`}>
@@ -779,6 +781,127 @@ function PalettePanel({ clipId }: { readonly clipId: string }) {
   );
 }
 
+/* ── LUT 3D (.cube) y perfil de cámara ──────────────────────────────────
+   `effects.lutFile`/`cameraProfile` se proyectan al preview WebGL y al export
+   FFmpeg. Antes sólo existían en la sección legada «Color avanzado» del
+   inspector clásico, inalcanzable desde esta pestaña; acá quedan editables
+   con el mismo store, así preview, undo y autosave siguen funcionando. */
+
+const CAMERA_PROFILE_OPTIONS: readonly { id: string; label: string }[] = [
+  { id: '', label: 'Sin perfil (rec.709)' },
+  { id: 'vlog709', label: 'Panasonic V-Log → Rec.709' },
+  { id: 'slog3709', label: 'Sony S-Log3 / S-Gamut3.Cine → Rec.709' },
+  { id: 'slog3cinema', label: 'Sony S-Log3 cine (más cine)' },
+  { id: 'nlog709', label: 'Nikon N-Log → Rec.709' },
+  { id: 'nlogcinema', label: 'Nikon N-Log cine (más cine)' },
+  { id: 'gplog709', label: 'GoPro GP-Log → Rec.709' },
+  { id: 'dlog709', label: 'DJI D-Log → Rec.709' },
+  { id: 'clog3709', label: 'Canon C-Log3 / Cinema Gamut → Rec.709' },
+];
+
+function LutFilePanel({ clipId }: { readonly clipId: string }) {
+  const store = useProjectStore();
+  const clip = store.state.project?.timeline.clips.find((item) => item.id === clipId);
+  const [open, setOpen] = useState(true);
+  const effects: ClipEffects = clip && 'effects' in clip ? clip.effects ?? {} : {};
+  if (!clip) return null;
+
+  const importCube = (): void => {
+    void (async () => {
+      try {
+        const lut = await store.service.importLut();
+        if (!lut) return;
+        store.update((current) =>
+          updateClip(current, clipId, { effects: { ...effects, lutFile: lut.path } }),
+        );
+        store.setNotice(`LUT importado: ${lut.name}`);
+      } catch (error) {
+        store.setNotice(error instanceof Error ? error.message : 'no se pudo importar el LUT');
+      }
+    })();
+  };
+
+  return (
+    <Section
+      title="LUT 3D (.cube)"
+      open={open}
+      onToggle={() => setOpen((value) => !value)}
+      badge={effects.lutFile || effects.cameraProfile ? 'ON' : undefined}
+    >
+      <div className="fp-lut-head">
+        <span className="fp-lut-name" title={effects.lutFile ?? ''}>
+          {effects.lutFile ? effects.lutFile.split(/[\\/]/).pop() : 'Sin LUT .cube aplicado'}
+        </span>
+        <button type="button" className="fp-link" onClick={importCube}>Cargar .cube</button>
+        {effects.lutFile ? (
+          <button
+            type="button"
+            className="fp-link"
+            onClick={() =>
+              store.update((current) =>
+                updateClip(current, clipId, {
+                  effects: { ...effects, lutFile: undefined, lutIntensity: undefined },
+                }),
+              )
+            }
+          >
+            Quitar LUT
+          </button>
+        ) : null}
+      </div>
+      {effects.lutFile ? (
+        <div className="fp-slider-row">
+          <label className="fp-slider-label" htmlFor="fp-lut-intensity">Intensidad</label>
+          <input
+            id="fp-lut-intensity"
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round((effects.lutIntensity ?? 1) * 100)}
+            aria-label="Intensidad LUT"
+            onChange={(event) =>
+              store.update((current) =>
+                updateClip(current, clipId, {
+                  effects: { ...effects, lutIntensity: Number(event.target.value) / 100 },
+                }),
+              )
+            }
+          />
+          <output>{Math.round((effects.lutIntensity ?? 1) * 100)} %</output>
+          <span />
+        </div>
+      ) : null}
+      <div className="fp-white-row">
+        <span>Perfil de cámara</span>
+        <select
+          aria-label="Perfil de cámara (log → Rec.709)"
+          value={effects.cameraProfile ?? ''}
+          onChange={(event) =>
+            store.update((current) =>
+              updateClip(current, clipId, {
+                effects: {
+                  ...effects,
+                  cameraProfile: event.target.value
+                    ? (event.target.value as NonNullable<ClipEffects['cameraProfile']>)
+                    : undefined,
+                },
+              }),
+            )
+          }
+        >
+          {CAMERA_PROFILE_OPTIONS.map((option) => (
+            <option key={option.id} value={option.id}>{option.label}</option>
+          ))}
+        </select>
+        <span />
+      </div>
+      <p className="fine-print">
+        El .cube se copia a `media/luts` del proyecto y la preview lo aplica en vivo; el look global del proyecto se muestra por capa, una aproximación del post-composite del MP4.
+      </p>
+    </Section>
+  );
+}
+
 /* ── Orquestador ──────────────────────────────────────────────────────── */
 
 export function ColorPropertiesPanel({
@@ -823,6 +946,9 @@ export function ColorPropertiesPanel({
           </button>
         ) : null}
 
+        {mode === 'color' && (subTab === 'basic' || subTab === 'all') ? (
+          <LutFilePanel clipId={clipId} />
+        ) : null}
         {subTab === 'layers' ? <LayersPanel ctx={ctx} /> : null}
         {subTab === 'basic' ? <BasicPanel ctx={ctx} /> : null}
         {subTab === 'hsl' ? <HslPanel ctx={ctx} /> : null}

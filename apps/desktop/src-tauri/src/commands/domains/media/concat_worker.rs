@@ -76,7 +76,10 @@ pub fn concat_worker_cancel_render() -> bool {
 /// (`<config_dir>/mcp-audit.jsonl`), parseadas y re-sanitizadas. `limit`
 /// default 50, tope 500. Archivo inexistente → cola vacía.
 #[tauri::command]
-pub fn mcp_audit_tail(state: State<'_, AppState>, limit: Option<usize>) -> Result<AuditTail, ProjectError> {
+pub fn mcp_audit_tail(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<AuditTail, ProjectError> {
     mcp_audit::tail(
         &state.config_dir.join("mcp-audit.jsonl"),
         limit.unwrap_or(50),

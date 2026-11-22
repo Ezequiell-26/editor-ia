@@ -68,3 +68,13 @@ export interface SubtitlePipelineResult {
   readonly simulated?: boolean;
   readonly burned?: boolean;
 }
+
+/** Resultado de inspección de un archivo de subtítulos (7 formatos). */
+export interface SubtitleInspectResult {
+  readonly format: string;
+  readonly formatName: string;
+  readonly cueCount: number;
+  readonly durationSeconds: number;
+  readonly warnings: readonly string[];
+  readonly preview: ReadonlyArray<readonly [number, number, string]>;
+}

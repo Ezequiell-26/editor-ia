@@ -7,7 +7,6 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Read};
-use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,6 +27,7 @@ use crate::state::AppState;
 
 include!("downloader/control.rs");
 include!("downloader/engine.rs");
+include!("downloader/guard_proxy.rs");
 include!("downloader/probe.rs");
 include!("downloader/media_filters.rs");
 include!("downloader/pipeline.rs");

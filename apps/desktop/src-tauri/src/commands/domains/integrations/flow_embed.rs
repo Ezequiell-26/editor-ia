@@ -122,23 +122,20 @@ pub async fn web_session_open(
     let build_name = name.clone();
     let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
     app.run_on_main_thread(move || {
-        let result = WebviewWindowBuilder::new(
-            &app_for_build,
-            &label,
-            WebviewUrl::External(parsed),
-        )
-        .title(title)
-        .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
-        .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
-        .resizable(true)
-        .center()
-        .theme(Some(tauri::Theme::Dark))
-        // CDP en localhost para que Playwright/agentes controlen la página.
-        .additional_browser_args(&format!("--remote-debugging-port={port}"))
-        .data_directory(session_data_dir(&build_name))
-        .build()
-        .map(|_| ())
-        .map_err(|error| error.to_string());
+        let result =
+            WebviewWindowBuilder::new(&app_for_build, &label, WebviewUrl::External(parsed))
+                .title(title)
+                .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
+                .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
+                .resizable(true)
+                .center()
+                .theme(Some(tauri::Theme::Dark))
+                // CDP en localhost para que Playwright/agentes controlen la página.
+                .additional_browser_args(&format!("--remote-debugging-port={port}"))
+                .data_directory(session_data_dir(&build_name))
+                .build()
+                .map(|_| ())
+                .map_err(|error| error.to_string());
         let _ = tx.send(result);
     })
     .map_err(|error| {
@@ -149,23 +146,34 @@ pub async fn web_session_open(
         )
     })?;
 
-    match rx.recv_timeout(Duration::from_secs(30)) {
-        Ok(Ok(())) => Ok(web_sessions_status(app)),
+    // La espera del build de la ventana puede tardar hasta 30 s: va a
+    // spawn_blocking para no ocupar un worker del runtime (AUD-129).
+    let app_for_wait = app.clone();
+    let name_for_wait = name.clone();
+    tauri::async_runtime::spawn_blocking(move || match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(Ok(())) => Ok(web_sessions_status(app_for_wait)),
         Ok(Err(error)) => {
-            unregister_slot(&name);
+            unregister_slot(&name_for_wait);
             Err(ProjectError::message(
                 ProjectErrorCode::Io,
                 format!("no se pudo abrir la sesión web: {error}").as_str(),
             ))
         }
         Err(_) => {
-            unregister_slot(&name);
+            unregister_slot(&name_for_wait);
             Err(ProjectError::message(
                 ProjectErrorCode::ProviderUnavailable,
                 "el hilo de ventanas no respondió al abrir la sesión web",
             ))
         }
-    }
+    })
+    .await
+    .map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudo esperar la apertura de la ventana: {error}").as_str(),
+        )
+    })?
 }
 
 /// Cierra una sesión web (`slot`, por defecto "flow").

@@ -160,7 +160,7 @@ describe('Proyectos · relink de medios', () => {
     });
     const relink = vi.spyOn(service, 'relinkAsset');
 
-    fireEvent.click(await screen.findByRole('button', { name: /Relink…/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Reconectar…/ }));
 
     await waitFor(() =>
       expect(relink).toHaveBeenCalledWith(VIDEO_ID, 'C:\\elegido\\faltante.mp4'),
@@ -214,7 +214,7 @@ describe('Proyectos · relink de medios', () => {
       });
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: /Relink…/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Reconectar…/ }));
 
     expect(await screen.findByText(/no coincide con el original/i)).toBeTruthy();
     expect(screen.getByTestId('video-path').textContent).toBe('media/faltante.mp4');

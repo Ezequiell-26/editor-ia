@@ -165,6 +165,16 @@ fn stream_url_is_never_serialized() {
 }
 
 #[test]
+fn stream_url_validation_accepts_rtmp_and_rejects_others() {
+    assert!(validate_stream_url("rtmp://host/app/CLAVE-12345678").is_ok());
+    assert!(validate_stream_url("rtmps://host/app/CLAVE-12345678").is_ok());
+    assert!(validate_stream_url("rtmp://host:1935/live").is_ok());
+    assert!(validate_stream_url("https://host/app/key").is_err());
+    assert!(validate_stream_url("rtmp://").is_ok()); // ffmpeg rechaza el resto
+    assert!(validate_stream_url(&format!("rtmp://h/{}", "a".repeat(2050))).is_err());
+}
+
+#[test]
 fn save_upsert_delete_round_trip_on_disk() {
     let dir = std::env::temp_dir().join(format!("editoria-obs-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();

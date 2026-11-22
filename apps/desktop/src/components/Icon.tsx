@@ -47,6 +47,7 @@ export type IconName =
   | 'hand'
   | 'film'
   | 'audio'
+  | 'mic'
   | 'check'
   | 'fit'
   | 'layers'
@@ -370,6 +371,12 @@ const paths: Record<IconName, ReactNode> = {
     </>
   ),
   audio: <path d="M4 10v4M8 6v12M12 8v8M16 5v14M20 10v4" />,
+  mic: (
+    <>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M9 21h6" />
+    </>
+  ),
   check: <path d="m4.5 12 5 5L20 6" />,
   fit: <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />,
   layers: (
@@ -597,6 +604,11 @@ const paths: Record<IconName, ReactNode> = {
     </>
   ),
 };
+
+/** Type guard para iconos que llegan como `string` libre (catálogos, items). */
+export function isIconName(name: string | undefined): name is IconName {
+  return name !== undefined && name in paths;
+}
 
 export function Icon({
   name,

@@ -15,7 +15,12 @@ interface AssetFolderTreeProps {
   readonly folders: FolderStructure[];
   readonly onFolderClick: (path: string) => void;
   readonly selectedFolder: string | null;
-  readonly onCreateFolder: () => void;
+  /**
+   * Callback opcional para crear carpetas. Las carpetas se derivan de
+   * `asset.bin` (no existe una entidad carpeta persistida), así que la UI
+   * sólo muestra el botón cuando el padre puede ofrecer un alta real.
+   */
+  readonly onCreateFolder?: () => void;
 }
 
 /**
@@ -91,15 +96,17 @@ export function AssetFolderTree({
     <div className="asset-folder-tree">
       <div className="folder-tree-header">
         <h3>Carpetas</h3>
-        <button
-          type="button"
-          className="small icon-only"
-          onClick={onCreateFolder}
-          title="Nueva carpeta"
-          aria-label="Crear nueva carpeta"
-        >
-          <Icon name="plus" size={14} />
-        </button>
+        {onCreateFolder ? (
+          <button
+            type="button"
+            className="small icon-only"
+            onClick={onCreateFolder}
+            title="Nueva carpeta"
+            aria-label="Crear nueva carpeta"
+          >
+            <Icon name="plus" size={14} />
+          </button>
+        ) : null}
       </div>
       <div className="folder-tree-list">
         {folders.map((folder) => renderFolder(folder, 0))}

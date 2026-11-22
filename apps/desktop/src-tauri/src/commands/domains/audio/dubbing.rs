@@ -75,6 +75,8 @@ struct DubSegment {
     end: f64,
     wav: PathBuf,
     duration: f64,
+    /// Canales del WAV medidos por ffprobe (`None` = sin dato).
+    channels: Option<u32>,
 }
 
 include!("dubbing/validation.rs");
@@ -143,15 +145,17 @@ mod tests {
                 end: 2.5,
                 wav: PathBuf::from("a.wav"),
                 duration: 1.2,
+                channels: Some(1),
             },
             DubSegment {
                 start: 3.0,
                 end: 4.0,
                 wav: PathBuf::from("b.wav"),
                 duration: 2.0,
+                channels: Some(2),
             },
         ];
-        let (filter, warnings) = build_dub_filter(&segments, 5.0, None);
+        let (filter, warnings) = build_dub_filter(&segments, 5.0, None, None);
         assert!(filter.contains("anullsrc"));
         assert!(filter.contains("adelay=500|500"));
         assert!(filter.contains("adelay=3000|3000"));
@@ -159,10 +163,23 @@ mod tests {
         assert!(filter.contains("alimiter=limit=0.95"));
         assert!(filter.contains("amix=inputs=3"));
         assert_eq!(warnings.len(), 1);
-        let (with_bed, _) = build_dub_filter(&segments, 5.0, Some(0.15));
-        assert!(with_bed.contains("[0:a]"));
+        // La voz SAPI suele salir mono: upmix unity-gain con `pan` antes
+        // del `aformat` (la ley de rematrix de ffmpeg bajaría 3 dB).
+        assert!(
+            filter.contains("[1:a]pan=stereo|c0=c0|c1=c0,aformat="),
+            "{filter}"
+        );
+        assert!(!filter.contains("[2:a]pan="), "{filter}");
+        let (with_bed, _) = build_dub_filter(&segments, 5.0, Some(0.15), Some(1));
+        assert!(
+            with_bed.contains("[0:a]pan=stereo|c0=c0|c1=c0,aformat="),
+            "{with_bed}"
+        );
         assert!(with_bed.contains("[bed]"));
         assert!(with_bed.contains("amix=inputs=4"));
+        // Lecho estéreo: sin pan, ruta aformat directa.
+        let (stereo_bed, _) = build_dub_filter(&segments, 5.0, Some(0.15), Some(2));
+        assert!(!stereo_bed.contains("[0:a]pan="), "{stereo_bed}");
     }
 
     #[test]
@@ -182,7 +199,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("editoria-dub-probe-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let first = unique_output(&dir, "clip", "es");
-        assert_eq!(first.file_name().unwrap().to_str().unwrap(), "clip-dub-es.mp4");
+        assert_eq!(
+            first.file_name().unwrap().to_str().unwrap(),
+            "clip-dub-es.mp4"
+        );
         std::fs::write(&first, b"x").unwrap();
         let second = unique_output(&dir, "clip", "es");
         assert_eq!(

@@ -210,6 +210,25 @@ fn number(value: &Value, key: &str) -> Option<u64> {
     field(value, key).and_then(Value::as_u64)
 }
 
+/// `Number.isSafeInteger` del frontend: los enteros temporales del
+/// documento tienen que representarse exactos como f64 en JS. Un valor
+/// por encima de 2^53-1 no se puede "tragar" como ausente — se reporta
+/// como issue para que el documento se rechace (residual de AUD-123:
+/// el esquema TS no declara máximos por campo, pero el entero seguro
+/// es el límite universal del round-trip Rust→JS).
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+fn issue_if_unsafe_integer(issues: &mut Vec<ProjectIssue>, holder: &Value, key: &str, path: &str) {
+    if let Some(value) = number(holder, key) {
+        if value > MAX_SAFE_INTEGER {
+            issues.push(ProjectIssue {
+                path: path.to_owned(),
+                message: "el entero excede el rango seguro de JavaScript (2^53-1)".to_owned(),
+            });
+        }
+    }
+}
+
 fn items<'a>(value: &'a Value, key: &str) -> Vec<&'a Value> {
     field(value, key)
         .and_then(Value::as_array)
@@ -460,6 +479,14 @@ fn envelope_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
         }),
         "las dimensiones y la tasa de cuadros deben ser enteros positivos acotados",
     );
+    for (key, path) in [("schemaVersion", "schemaVersion"), ("revision", "revision")] {
+        issue_if_unsafe_integer(issues, document, key, path);
+    }
+    if let Some(rate) = video.and_then(|video| field(video, "frameRate")) {
+        for key in ["num", "den"] {
+            issue_if_unsafe_integer(issues, rate, key, &format!("video.frameRate.{}", key));
+        }
+    }
 }
 
 fn collection_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
@@ -573,6 +600,35 @@ fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
                         }
                     }
                 }
+                let clip_path = format!("timeline.clips[{}]", index);
+                issue_if_unsafe_integer(
+                    issues,
+                    clip,
+                    "durationFrames",
+                    &format!("{}.durationFrames", clip_path),
+                );
+                issue_if_unsafe_integer(
+                    issues,
+                    source,
+                    "outFrame",
+                    &format!("{}.source.outFrame", clip_path),
+                );
+                issue_if_unsafe_integer(
+                    issues,
+                    source,
+                    "inFrame",
+                    &format!("{}.source.inFrame", clip_path),
+                );
+                if let Some(speed) = field(clip, "speed") {
+                    for key in ["num", "den"] {
+                        issue_if_unsafe_integer(
+                            issues,
+                            speed,
+                            key,
+                            &format!("{}.speed.{}", clip_path, key),
+                        );
+                    }
+                }
                 let duration = number(clip, "durationFrames");
                 let window = match (
                     number(source, "outFrame"),
@@ -588,14 +644,26 @@ fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
                     let speed = field(clip, "speed");
                     let num = speed.and_then(|value| number(value, "num")).unwrap_or(1);
                     let den = speed.and_then(|value| number(value, "den")).unwrap_or(1);
-                    if duration != 0 && den != 0 && duration * num != window * den {
-                        issues.push(ProjectIssue {
+                    // AUD-123: ambos productos en u64 sin protección — un
+                    // documento externo con valores extremos envolvía el
+                    // producto y la identidad podía "cerrar" por accidente.
+                    let left = duration.checked_mul(num);
+                    let right = window.checked_mul(den);
+                    match (left, right) {
+                        (Some(left), Some(right)) if duration != 0 && den != 0 && left != right => {
+                            issues.push(ProjectIssue {
+                                path: format!("timeline.clips[{}].durationFrames", index),
+                                message: format!(
+                                    "la identidad de timing no cierra: {} x {} != {} x {}",
+                                    duration, num, window, den
+                                ),
+                            });
+                        }
+                        (None, _) | (_, None) => issues.push(ProjectIssue {
                             path: format!("timeline.clips[{}].durationFrames", index),
-                            message: format!(
-                                "la identidad de timing no cierra: {} x {} != {} x {}",
-                                duration, num, window, den
-                            ),
-                        });
+                            message: "la identidad de timing desborda el rango seguro".to_owned(),
+                        }),
+                        _ => {}
                     }
                 }
             }
@@ -657,9 +725,23 @@ fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
     // asset/graphic resolubles y que no sobresalgan de la duracion del compound.
     let mut all_clip_ids = clip_ids.clone();
     for (compound_index, compound) in compounds.iter().enumerate() {
+        let compound_path = format!("compounds[{}]", compound_index);
+        issue_if_unsafe_integer(
+            issues,
+            compound,
+            "durationFrames",
+            &format!("{}.durationFrames", compound_path),
+        );
         let compound_duration = number(compound, "durationFrames");
         for (clip_index, inner) in items(compound, "clips").iter().enumerate() {
             let base = format!("compounds[{}].clips[{}]", compound_index, clip_index);
+            issue_if_unsafe_integer(issues, inner, "startFrame", &format!("{}.startFrame", base));
+            issue_if_unsafe_integer(
+                issues,
+                inner,
+                "durationFrames",
+                &format!("{}.durationFrames", base),
+            );
             match text(inner, "id") {
                 None => issues.push(ProjectIssue {
                     path: format!("{}.id", base),

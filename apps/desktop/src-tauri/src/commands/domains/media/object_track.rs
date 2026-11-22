@@ -7,10 +7,10 @@
 
 use tauri::State;
 
+use crate::media::object_track::validate_rect;
 pub use crate::media::object_track::{
     ObjectTrackRect, ObjectTrackRequest, ObjectTrackResult, ObjectTrackSample,
 };
-use crate::media::object_track::validate_rect;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 

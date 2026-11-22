@@ -165,3 +165,201 @@
 .ia-col-abrir:hover {
   background: color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
+/* ── «Modo IA» del editor ────────────────────────────────────────────────
+   Vista reducida de la pantalla de edición: preview + timeline a la
+   izquierda y la columna del asistente ocupando toda la altura a la derecha
+   (la misma pieza `.ia-coluna` del layout «Edición», que hospeda al
+   AssistantDock por portal). Biblioteca, inspector y divisor manuales no se
+   renderizan — el modo es una vista, no un bloqueo.
+
+   Especificidad alta a propósito: la capa de referencia
+   (alaukcut-reference.css) fija la grilla del timeline con `!important` y
+   carga después; `.alaukcut-chrome.alaukcut` + `.ai-mode` la superan en
+   ambas pieles (referencia y «Vista completa»). */
+:root .app-shell .editor-workspace.alaukcut-chrome.alaukcut > .editor-grid.ai-mode {
+  grid-template-columns: minmax(0, 1fr) 1px var(--ia-width, 340px) !important;
+}
+
+:root .app-shell .editor-workspace.alaukcut-chrome.alaukcut > .editor-grid.ai-mode > .preview-panel {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+
+:root .app-shell .editor-workspace.alaukcut-chrome.alaukcut > .editor-grid.ai-mode > .timeline-panel {
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+}
+
+/* El divisor de la columna IA conserva su trabajo en las dos pieles: la
+   referencia lo anula (width:0 + pointer-events:none) para su splitter de
+   0 px; acá es un divisor real de 1 px. */
+:root .app-shell .editor-workspace.alaukcut-chrome.alaukcut > .editor-grid.ai-mode > .editor-splitter-ia {
+  grid-column: 2 !important;
+  grid-row: 1 / -1 !important;
+  width: 1px !important;
+  min-width: 1px !important;
+  border: 0 !important;
+  pointer-events: auto !important;
+}
+
+:root .app-shell .editor-workspace.alaukcut-chrome.alaukcut > .editor-grid.ai-mode > .ia-coluna {
+  grid-column: 3 !important;
+  grid-row: 1 / -1 !important;
+}
+
+/* Misma pieza visual que la columna IA del layout «Edición»: la regla base
+   de `.ia-coluna` vive scoped a `.layout-edicion`, así que el modo IA
+   repite sus propiedades estructurales (el contenido —`.ia-col-topo`,
+   `.ia-col-corpo`, hint y portal del asistente— ya es global). */
+.app-shell .editor-grid.ai-mode .ia-coluna {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+/* Respaldo para superficies sin la clase `alaukcut` (p. ej. tests o una
+   piel que no aplica la referencia): mismas pistas, menor especificidad. */
+:root .app-shell .editor-grid.ai-mode {
+  grid-template-columns: minmax(0, 1fr) 1px var(--ia-width, 340px) !important;
+}
+
+.app-shell .editor-grid.ai-mode > .preview-panel {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+
+.app-shell .editor-grid.ai-mode > .timeline-panel {
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+}
+
+.app-shell .editor-grid.ai-mode > .editor-splitter-ia {
+  grid-column: 2 !important;
+  grid-row: 1 / -1 !important;
+}
+
+.app-shell .editor-grid.ai-mode > .ia-coluna {
+  grid-column: 3 !important;
+  grid-row: 1 / -1 !important;
+}
+
+/* Superficie IA-only sin proyecto: el escenario queda limpio (sin botones
+   manuales) y el chat acoplado ocupa la columna derecha desde el inicio. */
+:root .app-shell .editor-grid.ai-mode.ai-only-empty:not(.layout-shorts):not(.layout-edicion) {
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+
+:root[data-theme='dark'] .app-shell .editor-grid.ai-mode.ai-only-empty:not(.layout-shorts):not(.layout-edicion) {
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+
+.ai-only-empty-stage {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 32px;
+  text-align: center;
+}
+
+.ai-only-empty-stage h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.ai-only-empty-stage p {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+/* Puerta visible a las herramientas NO de edición en el shell IA-only. */
+.topbar-ai-tools {
+  position: relative;
+}
+
+.topbar-ai-tools-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-1);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.topbar-ai-tools-btn:hover,
+.topbar-ai-tools-btn[aria-expanded='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.ai-tools-drawer {
+  position: fixed;
+  top: 48px;
+  right: 12px;
+  z-index: 80;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(72vh, 720px);
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-raised);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+}
+
+.ai-tools-group + .ai-tools-group {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.ai-tools-group-label {
+  display: block;
+  padding: 2px 8px 6px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ai-tools-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ai-tools-item:hover,
+.ai-tools-item:focus-visible {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  outline: none;
+}
+.ai-tools-item small {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.3;
+}
+

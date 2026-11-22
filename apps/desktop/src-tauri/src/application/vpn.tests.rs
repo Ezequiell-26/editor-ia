@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn parsea_array_y_objeto_unico() {
-    let array = r#"[{"name":"Casa","server":"vpn.ejemplo.com","tunnel":"IKEv2","status":"Disconnected"}]"#;
+    let array =
+        r#"[{"name":"Casa","server":"vpn.ejemplo.com","tunnel":"IKEv2","status":"Disconnected"}]"#;
     let list = parse_vpn_connections(array);
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].name, "Casa");
@@ -10,8 +11,7 @@ fn parsea_array_y_objeto_unico() {
     assert_eq!(list[0].tunnel_type, "IKEv2");
     assert_eq!(list[0].status, "Disconnected");
 
-    let single =
-        r#"{"name":"Oficina","server":"10.0.0.1","tunnel":"L2tp","status":"Connected"}"#;
+    let single = r#"{"name":"Oficina","server":"10.0.0.1","tunnel":"L2tp","status":"Connected"}"#;
     let list = parse_vpn_connections(single);
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].status, "Connected");
@@ -27,8 +27,7 @@ fn tolera_vacio_null_y_basura() {
 
 #[test]
 fn descarta_entradas_sin_nombre() {
-    let json =
-        r#"[{"name":"","server":"x"},{"server":"y"},{"name":"Ok","status":"Disconnected"}]"#;
+    let json = r#"[{"name":"","server":"x"},{"server":"y"},{"name":"Ok","status":"Disconnected"}]"#;
     let list = parse_vpn_connections(json);
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].name, "Ok");

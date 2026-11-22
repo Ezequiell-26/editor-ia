@@ -151,10 +151,7 @@ async fn run_isolation(
     // AUD-008: deadline generoso (3 h) — Demucs en CPU sobre material largo
     // puede tardar mucho, pero un proceso colgado no puede bloquear el comando.
     let timed = tauri::async_runtime::spawn_blocking(move || {
-        crate::commands::output_with_timeout(
-            &mut command,
-            std::time::Duration::from_secs(3 * 3600),
-        )
+        crate::commands::output_with_timeout(&mut command, std::time::Duration::from_secs(3 * 3600))
     })
     .await
     .map_err(|error| {
@@ -374,7 +371,15 @@ pub async fn prepare_voice_isolation(
     let settings = state.settings_snapshot()?;
     let (_, ffprobe, _) = resolve_tools(&settings);
     if let Some(ffprobe) = ffprobe {
-        if let Some(seconds) = probe_duration_seconds(&ffprobe, &source) {
+        let ffprobe = ffprobe.clone();
+        let source_probe = source.clone();
+        let seconds = tauri::async_runtime::spawn_blocking(move || {
+            probe_duration_seconds(&ffprobe, &source_probe)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(seconds) = seconds {
             if seconds > MAX_ISOLATION_SECONDS {
                 return Err(ProjectError::message(
                     ProjectErrorCode::InvalidProject,

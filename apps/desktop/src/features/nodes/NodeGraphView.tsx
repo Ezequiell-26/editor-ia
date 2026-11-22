@@ -32,8 +32,8 @@ import {
   type GraphNodeData,
   type NodeGraph,
   type NodeKind,
-} from './graph-model';
-import { readStoredGraphs, upsertStoredGraph, type StoredGraph } from './graph-store';
+} from '../../state/graph-model';
+import { readStoredGraphs, upsertStoredGraph, type StoredGraph } from '../../state/graph-store';
 
 export interface NodeGraphViewProps {
   readonly onNavigate: (view: ViewId) => void;

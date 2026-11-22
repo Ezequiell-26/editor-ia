@@ -18,7 +18,7 @@ use crate::commands::hide_console;
 use crate::commands::system::resolve_tools;
 use crate::media::import_file;
 use crate::media::lottie::{
-    frame_path, invalid, sequence_dir, validate_sequence, MAX_BATCH, MAX_FRAME_BYTES, MAX_FRAMES,
+    frame_path, invalid, sequence_dir, validate_sequence, MAX_BATCH, MAX_FRAMES, MAX_FRAME_BYTES,
     PNG_SIGNATURE,
 };
 use crate::projects::service::{ProjectError, ProjectErrorCode};
@@ -233,23 +233,34 @@ async fn alpha_frames_to_asset_impl(
         }
     }
     let webm = std::env::temp_dir().join(format!("olyvia-lottie-{token}.webm"));
-    let encoded = encode_sequence(
-        &ffmpeg,
-        &dir,
-        &webm,
-        spec.frame_count,
-        spec.fps_num,
-        spec.fps_den,
-    );
-    if let Err(error) = encoded {
+    // AUD-129 (resto del dominio media): la codificación VP9 de la
+    // secuencia (hasta 3600 frames) y el probe de importación son
+    // bloqueantes; van a spawn_blocking.
+    let ffmpeg_path = ffmpeg.clone();
+    let ffprobe_path = ffprobe.clone();
+    let root_path = session.root.clone();
+    let encoded = tauri::async_runtime::spawn_blocking(move || {
+        let encoded = encode_sequence(
+            &ffmpeg_path,
+            &dir,
+            &webm,
+            spec.frame_count,
+            spec.fps_num,
+            spec.fps_den,
+        );
+        if let Err(error) = encoded {
+            let _ = fs::remove_dir_all(&dir);
+            let _ = fs::remove_file(&webm);
+            return Err(error);
+        }
+        let result = build_asset(&root_path, &webm, &ffprobe_path, &spec);
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_file(&webm);
-        return Err(error);
-    }
-    let result = build_asset(&session.root, &webm, &ffprobe, &spec);
-    let _ = fs::remove_dir_all(&dir);
-    let _ = fs::remove_file(&webm);
-    result
+        result
+    })
+    .await
+    .map_err(|_| failure("la conversión de la secuencia se interrumpió"))?;
+    encoded
 }
 
 /// Codifica los frames escritos para `token` y devuelve el asset ya importado.

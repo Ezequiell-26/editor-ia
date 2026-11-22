@@ -43,6 +43,13 @@ pub async fn list_audio_tracks(
     let url = validate_url(&url)?;
     let engine = resolve_engine(&state.config_dir)?;
     tauri::async_runtime::spawn_blocking(move || {
+        // DNS síncrono dentro del hilo bloqueante: un dominio que resuelve a
+        // IP local/privada se rechaza antes de invocar yt-dlp.
+        let parsed = reqwest::Url::parse(&url)
+            .map_err(|_| invalid_error("La URL no es válida."))?;
+        ensure_public_resolution(&parsed)?;
+        let guard_proxy = GuardProxy::start()
+            .map_err(|message| provider_error(format!("proxy de guardia: {message}")))?;
         let mut command = Command::new(&engine);
         command
             .args([
@@ -50,6 +57,8 @@ pub async fn list_audio_tracks(
                 "--ignore-config",
                 "--dump-single-json",
                 "--skip-download",
+                "--proxy",
+                guard_proxy.proxy_url().as_str(),
             ])
             .arg(&url)
             .stdin(Stdio::null())
@@ -86,6 +95,11 @@ pub async fn list_playlist_entries(
     let engine = resolve_engine(&state.config_dir)?;
     let limit = limit.unwrap_or(500).clamp(1, 1000);
     tauri::async_runtime::spawn_blocking(move || {
+        let parsed = reqwest::Url::parse(&url)
+            .map_err(|_| invalid_error("La URL no es válida."))?;
+        ensure_public_resolution(&parsed)?;
+        let guard_proxy = GuardProxy::start()
+            .map_err(|message| provider_error(format!("proxy de guardia: {message}")))?;
         let mut command = Command::new(&engine);
         command
             .args([
@@ -96,6 +110,8 @@ pub async fn list_playlist_entries(
                 "--skip-download",
                 "--playlist-end",
                 &limit.to_string(),
+                "--proxy",
+                guard_proxy.proxy_url().as_str(),
             ])
             .arg(&url)
             .stdin(Stdio::null())
@@ -130,6 +146,9 @@ fn fetch_sponsor_segments(
 ) -> Result<Vec<SponsorSegment>, ProjectError> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(10))
+        // AUD-032: el host es fijo pero un redirect no lo es — cada salto
+        // revalida esquema/host/IP/DNS como en el resto del downloader.
+        .redirect(ssrf_redirect_policy())
         .build()
         .map_err(|_| provider_error("No se pudo iniciar la consulta a SponsorBlock."))?;
     let categories_json = serde_json::to_string(categories).unwrap_or_else(|_| "[]".to_owned());

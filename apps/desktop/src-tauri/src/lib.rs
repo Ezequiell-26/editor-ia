@@ -320,6 +320,17 @@ pub fn run() {
                     }
                 }
 
+                // AUD-129 residual: `yt-dlp --version` cuesta ~500 ms y se
+                // paga en el primer comando del downloader. Se precalienta
+                // el cache de `engine_version` en un hilo aparte durante el
+                // arranque; si el motor no está, el Err se descarta.
+                {
+                    let config_dir = app.state::<state::AppState>().config_dir.clone();
+                    std::thread::spawn(move || {
+                        let _ = commands::downloader::resolve_engine(&config_dir);
+                    });
+                }
+
                 // Hilo de progreso del splash: avance realista y visible estilo DaVinci NLE
                 // durante la ventana de arranque (MIN_SPLASH_MS = 4000ms)
                 let splash_handle = handle.clone();
@@ -377,7 +388,8 @@ pub fn run() {
                             // flow_embed_open es async (salta al main thread
                             // para crear la ventana): se ejecuta en el runtime.
                             tauri::async_runtime::spawn(async move {
-                                let result = commands::flow_embed::flow_embed_open(inner, url).await;
+                                let result =
+                                    commands::flow_embed::flow_embed_open(inner, url).await;
                                 let _ = std::fs::write(&marker, format!("{result:?}"));
                             });
                         });

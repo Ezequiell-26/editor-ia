@@ -131,4 +131,108 @@ describe('clipPreviewStack · stack WebGL en el monitor', () => {
     } as never;
     expect(clipPreviewStack(c, audition)).toBeNull();
   });
+
+  it('lensCorrection sin stack sintetiza la instancia lens.correct', () => {
+    const c = clip({
+      id: 'c6',
+      effects: { lensCorrection: { k1: 0.12, k2: -0.03, cx: 0.5, cy: 0.5 } },
+    });
+    const stack = clipPreviewStack(c, null);
+    expect(stack).toHaveLength(1);
+    expect(stack?.[0]?.effectId).toBe('lens.correct');
+    expect(stack?.[0]?.params.k1).toBe(0.12);
+    expect(stack?.[0]?.params.k2).toBe(-0.03);
+  });
+
+  it('lensCorrection en cero no agrega nada', () => {
+    const c = clip({
+      id: 'c7',
+      effects: { lensCorrection: { k1: 0, k2: 0 } },
+    });
+    expect(clipPreviewStack(c, null)).toBeNull();
+  });
+
+  it('conserva el stack del clip y agrega lens.correct al final', () => {
+    const c = clip({
+      id: 'c8',
+      effects: {
+        stack: [instance],
+        lensCorrection: { k1: -0.08, k2: 0.01 },
+      },
+    });
+    const stack = clipPreviewStack(c, null);
+    expect(stack).toHaveLength(2);
+    expect(stack?.[0]?.id).toBe('fx-1');
+    expect(stack?.[1]?.effectId).toBe('lens.correct');
+    expect(stack?.[1]?.params.cx).toBe(0.5);
+  });
+
+  it('motionBlur sintetiza blur.temporal al inicio del stack', () => {
+    const c = clip({
+      id: 'c9',
+      effects: {
+        stack: [instance],
+        motionBlur: { frames: 6, intensity: 0.8 },
+      },
+    });
+    const stack = clipPreviewStack(c, null);
+    expect(stack).toHaveLength(2);
+    expect(stack?.[0]?.effectId).toBe('blur.temporal');
+    expect(stack?.[0]?.params.frames).toBe(6);
+    expect(stack?.[0]?.params.intensity).toBe(0.8);
+    expect(stack?.[1]?.id).toBe('fx-1');
+  });
+
+  it('motionBlur sin stack igual activa el canvas WebGL', () => {
+    const c = clip({
+      id: 'c10',
+      effects: { motionBlur: { frames: 4, intensity: 0.5 } },
+    });
+    const stack = clipPreviewStack(c, null);
+    expect(stack).toHaveLength(1);
+    expect(stack?.[0]?.effectId).toBe('blur.temporal');
+  });
+
+  it('motionBlur y lensCorrection conviven: temporal primero, lens al final', () => {
+    const c = clip({
+      id: 'c11',
+      effects: {
+        motionBlur: { frames: 3, intensity: 0.4 },
+        lensCorrection: { k1: 0.1, k2: 0 },
+      },
+    });
+    const stack = clipPreviewStack(c, null);
+    expect(stack).toHaveLength(2);
+    expect(stack?.[0]?.effectId).toBe('blur.temporal');
+    expect(stack?.[1]?.effectId).toBe('lens.correct');
+  });
+
+  it('denoise sintetiza denoise.temporal y activa el canvas WebGL', () => {
+    const c = clip({ id: 'c12', effects: { denoise: 0.7 } });
+    const stack = clipPreviewStack(c, null);
+    expect(stack).toHaveLength(1);
+    expect(stack?.[0]?.effectId).toBe('denoise.temporal');
+    expect(stack?.[0]?.params.strength).toBe(0.7);
+  });
+
+  it('denoise ~0 no sintetiza nada y sin stack devuelve null', () => {
+    const c = clip({ id: 'c13', effects: { denoise: 0.0005 } });
+    expect(clipPreviewStack(c, null)).toBeNull();
+  });
+
+  it('denoise + motionBlur: denoise primero, blur.temporal después', () => {
+    const c = clip({
+      id: 'c14',
+      effects: {
+        denoise: 0.5,
+        motionBlur: { frames: 4, intensity: 0.5 },
+        stack: [instance],
+      },
+    });
+    const stack = clipPreviewStack(c, null);
+    expect(stack).toHaveLength(3);
+    expect(stack?.[0]?.effectId).toBe('denoise.temporal');
+    expect(stack?.[1]?.effectId).toBe('blur.temporal');
+    expect(stack?.[2]?.id).toBe('fx-1');
+  });
 });

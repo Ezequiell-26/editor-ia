@@ -47,7 +47,9 @@ function nav(label: string): void {
 async function createProject(): Promise<void> {
   nav('Proyectos');
   // «Proyectos» es un panel lazy dentro del editor: hay que esperarlo.
-  const input = await within(screen.getByRole('main')).findByRole('textbox', { name: /nombre/i });
+  // El chunk se transforma on-demand en vitest; 1s (default de findBy*) no
+  // alcanza de forma estable, igual que el waitFor de abajo.
+  const input = await within(screen.getByRole('main')).findByRole('textbox', { name: /nombre/i }, { timeout: 10_000 });
   fireEvent.change(input, { target: { value: 'Lottie QA' } });
   fireEvent.click(await screen.findByRole('button', { name: /Crear y elegir ubicación/i }));
   await waitFor(
@@ -68,6 +70,8 @@ afterEach(() => {
 });
 
 describe('panel Lottie', () => {
+  // El primer test paga la transformación on-demand de los chunks lazy
+  // (Proyectos + Motion) dentro de vitest; 5s no alcanza de forma estable.
   it('rechaza un archivo que no es un Lottie y no muestra la salida', async () => {
     render(<App service={createFakeService()} />);
     await createProject();
@@ -80,7 +84,7 @@ describe('panel Lottie', () => {
     });
     expect(await screen.findByText(/no declara capas/i, {}, { timeout: 8000 })).toBeTruthy();
     expect(screen.queryByTestId('lottie-preview')).toBeNull();
-  });
+  }, 20_000);
 
   it('muestra el plan de salida y exige derechos antes de convertir', async () => {
     render(<App service={createFakeService()} />);

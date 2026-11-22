@@ -1,4 +1,4 @@
-import type { AssetFileInfo, CopiedMedia, CreateProjectRequest, DuplicateAssetGroup, FsDeleteResult, FsFileContent, FsListing, FsWriteResult, ImportOutcome, MediaFolderListing, MediaSearchResult, MissingAssetInfo, OpenedProject, ProjectVersionInfo, QualityGateReport, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from '../projects';
+import type { AssetFileInfo, CopiedMedia, CreateProjectRequest, DuplicateAssetGroup, FsDeleteResult, FsFileContent, FsListing, FsWriteResult, ImportOutcome, MediaColorProbe, MediaFolderListing, MediaSearchResult, MissingAssetInfo, OpenedProject, ProjectVersionInfo, QualityGateReport, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from '../projects';
 import type { MatchMediaPlanResult } from '../media';
 import type { ProjectDocument } from '@editor-ia/project-schema';
 
@@ -30,6 +30,19 @@ importMediaPaths(input: {
     provider?: string;
   }): Promise<ImportOutcome>;
 
+/**
+   * Importa audio binario (voz grabada con el micrófono en el webview) que
+   * llega en base64 porque la webview no toca el filesystem. Pasa por el
+   * mismo pipeline que una importación de archivo (copia a `media/`,
+   * ffprobe, sha256). Requiere el proyecto abierto en la sesión nativa.
+   */
+  importMediaBytes(input: {
+    fileName: string;
+    dataBase64: string;
+    fpsNum: number;
+    fpsDen: number;
+  }): Promise<ImportOutcome>;
+
 listMediaFolder(input: {
     folder: string;
     root?: string;
@@ -42,6 +55,9 @@ listMediaFolder(input: {
     kind?: 'image' | 'audio' | 'video';
     root?: string;
   }): Promise<MediaSearchResult>;
+
+/** Metadatos de color de un video (espacio/transfer/primarias, HDR, cameraProfile sugerido). */
+  mediaProbeColor(path: string): Promise<MediaColorProbe>;
 
 /** Lista el contenido de una carpeta de la PC (carpetas primero, sin recursión). */
   listDirectory(path: string): Promise<FsListing>;

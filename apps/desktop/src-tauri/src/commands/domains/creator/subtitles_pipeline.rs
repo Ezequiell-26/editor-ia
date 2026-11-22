@@ -107,8 +107,7 @@ pub async fn subtitles_pipeline(
     let model = validate_model(&request.model)?;
     let native_id = native_model_id(&model);
     let models_dir = crate::vendor_concat::whisper_models_dir(&state.config_dir);
-    let native_supported =
-        native_id.is_some() && ffmpeg_opt.is_some() && ffprobe_opt.is_some();
+    let native_supported = native_id.is_some() && ffmpeg_opt.is_some() && ffprobe_opt.is_some();
     let engines = engine_plan(native_supported, status.python.is_some());
     if engines.is_empty() {
         return Err(ProjectError::message(
@@ -128,11 +127,9 @@ pub async fn subtitles_pipeline(
     for engine in engines {
         match engine {
             TranscriptionEngine::Native => {
-                let (Some(ffmpeg), Some(ffprobe), Some(model_id)) = (
-                    ffmpeg_opt.clone(),
-                    ffprobe_opt.clone(),
-                    native_id,
-                ) else {
+                let (Some(ffmpeg), Some(ffprobe), Some(model_id)) =
+                    (ffmpeg_opt.clone(), ffprobe_opt.clone(), native_id)
+                else {
                     continue;
                 };
                 let language_opt = if language.eq_ignore_ascii_case("auto") {
@@ -156,12 +153,10 @@ pub async fn subtitles_pipeline(
                         transcription = Some(result);
                         break;
                     }
-                    NativeRun::Skip => native_failures.push(
-                        "el motor nativo no cubre archivos de más de 30 min".to_owned(),
-                    ),
+                    NativeRun::Skip => native_failures
+                        .push("el motor nativo no cubre archivos de más de 30 min".to_owned()),
                     NativeRun::Failed(error) => {
-                        native_failures
-                            .push(format!("motor nativo (whisper.cpp): {error}"));
+                        native_failures.push(format!("motor nativo (whisper.cpp): {error}"));
                     }
                     NativeRun::TimedOut => {
                         return Err(ProjectError::message(
@@ -327,13 +322,12 @@ pub async fn subtitles_pipeline(
     // es un proceso externo; no bloquea el runtime async).
     let input_probe = input.clone();
     let ffprobe_probe = ffprobe.clone();
-    let (w, h) = tokio::task::spawn_blocking(move || {
-        probe_size(ffprobe_probe.as_ref(), &input_probe)
-    })
-    .await
-    .ok()
-    .flatten()
-    .unwrap_or((1920, 1080));
+    let (w, h) =
+        tokio::task::spawn_blocking(move || probe_size(ffprobe_probe.as_ref(), &input_probe))
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or((1920, 1080));
     let ass = cues_to_ass(&cues, w, h);
     if let Some(parent) = ass_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {

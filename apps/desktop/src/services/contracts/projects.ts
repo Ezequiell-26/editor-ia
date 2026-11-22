@@ -231,3 +231,16 @@ export interface PickedSubtitleFile {
   readonly name: string;
   readonly text: string;
 }
+
+export interface MediaColorProbe {
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly pixFmt: string | null;
+  readonly colorSpace: string | null;
+  readonly colorTransfer: string | null;
+  readonly colorPrimaries: string | null;
+  readonly hdr: 'pq' | 'hlg' | 'sdr' | 'desconocido';
+  readonly wideGamut: boolean;
+  readonly cameraProfiles: readonly string[];
+  readonly suggestion: 'hdr-pq' | 'hdr-hlg' | 'posible-log' | null;
+}

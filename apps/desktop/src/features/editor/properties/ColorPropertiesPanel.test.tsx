@@ -6,7 +6,7 @@ import { ProjectProvider, useProjectStore } from '../../../state/project-store';
 import { addAsset, addClipFromAsset } from '../../../state/project-actions';
 import { createFakeService, readyAsset } from '../../../test/fake-service';
 import { compileGrade, gradeFilterId } from '../../color/color-engine';
-import { GRADE_PRESETS_KEY } from '../../color/grade-presets';
+import { GRADE_PRESETS_KEY } from '../../../state/grade-presets';
 import { ColorPropertiesPanel, type PropertiesMode } from './ColorPropertiesPanel';
 
 const NOW = '2026-11-07T00:00:00.000Z';
@@ -63,6 +63,8 @@ function StoreProbe({ clipId }: { readonly clipId: string }) {
       data-look={layer?.lookId ?? 'none'}
       data-wheel-x={layer?.hdrWheels?.black.x ?? 'none'}
       data-keyed={(layer?.keyed ?? []).join(',')}
+      data-lut-file={effects?.lutFile ?? 'none'}
+      data-camera-profile={effects?.cameraProfile ?? 'none'}
       data-effects={JSON.stringify(projection)}
     />
   );
@@ -142,6 +144,24 @@ describe('ColorPropertiesPanel · capturas 118 / 127', () => {
     const raw = window.localStorage.getItem(GRADE_PRESETS_KEY) ?? '';
     expect(raw).toContain('Personalizado');
     expect(screen.getAllByRole('status').map((el) => el.textContent).join(' ')).toMatch(/guardado/i);
+  });
+
+  it('LUT 3D: el perfil de cámara persiste en effects del clip', () => {
+    renderPanel('color', 'basic');
+    const probe = screen.getByTestId('probe');
+    expect(probe.getAttribute('data-camera-profile')).toBe('none');
+    expect(screen.getByText('Sin LUT .cube aplicado')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Perfil de cámara (log → Rec.709)'), {
+      target: { value: 'vlog709' },
+    });
+    expect(probe.getAttribute('data-camera-profile')).toBe('vlog709');
+  });
+
+  it('LUT 3D: no se ofrece en el modo Máscara de color', () => {
+    renderPanel('mask', 'basic');
+    expect(screen.queryByText('Sin LUT .cube aplicado')).toBeNull();
+    expect(screen.queryByLabelText('Perfil de cámara (log → Rec.709)')).toBeNull();
   });
 
   it('Paleta: muestra la paleta medida del archivo fuente del clip', async () => {

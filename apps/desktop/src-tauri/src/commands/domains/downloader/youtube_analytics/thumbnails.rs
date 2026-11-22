@@ -1,7 +1,22 @@
 fn download_thumbnail(url: &str) -> Option<ThumbnailStats> {
+    // AUD-032 residual: la URL viene del JSON de yt-dlp (dato externo, no
+    // controlado por la app). Sólo se aceptan thumbnails de YouTube — un
+    // extractor comprometido o una respuesta manipulada no puede convertir
+    // esta fetch en un SSRF hacia una IP interna.
+    let parsed = reqwest::Url::parse(url).ok()?;
+    let host = parsed
+        .host_str()?
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if parsed.scheme() != "https"
+        || !(host == "ytimg.com" || host.ends_with(".ytimg.com"))
+    {
+        return None;
+    }
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(15))
         .user_agent("Olyvia/0.1 channel-analyzer")
+        .redirect(crate::commands::downloader::ssrf_redirect_policy())
         .build()
         .ok()?;
     for candidate in [url.to_owned(), url.replace("maxresdefault", "hqdefault")] {

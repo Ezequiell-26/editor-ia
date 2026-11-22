@@ -1,4 +1,4 @@
-import type { AlphaFramesRequest, AlphaSequenceRequest, BackgroundProgress, BackgroundRemoval, BackgroundRemovalRequest, BestFrameRequest, BestThumbnailFrame, CompressAnyRequest, CompressRequest, ConcatWorkerEnvelope, ConcatWorkerEvent, ConcatWorkerStatus, ConversionRequest, ConversionTarget, DenoiseProgress, DenoiseRequest, DenoiseResult, EdlRequest, EdlResult, EnhanceOptions, FileConversionRequest, FcpxmlRequest, FcpxmlResult, ImageContent, LookLutRequest, LookLutResult, MediaAnalysis, MediaProbe, OtioRequest, OtioResult, PreviewFrameRequest, PreviewFrameResult, ProxyCleanupResult, ProxyInfo, ProxyProgressEvent, ProxyQuality, ProxyStatus, SampledColor, SceneDetection, ScopeFrameResult, SfxItem, SharpenProgress, SharpenRequest, SharpenResult, StabilizationAnalysis, ThumbnailExportRequest, ThumbnailExportResult, TimelineImportRequest, TimelineImportResult, UpscaleProgress, UpscaleResult, UpscaleVideoResult, VisualAudit, VisualCatalog } from '../media';
+import type { AlphaFramesRequest, AlphaSequenceRequest, BackgroundProgress, BackgroundRemoval, BackgroundRemovalRequest, BestFrameRequest, BestThumbnailFrame, CompressAnyRequest, CompressRequest, ConcatWorkerEnvelope, ConcatWorkerEvent, ConcatWorkerStatus, ConversionRequest, ConversionTarget, DenoiseProgress, DenoiseRequest, DenoiseResult, EdlRequest, EdlResult, EnhanceOptions, FileConversionRequest, FcpxmlRequest, FcpxmlResult, InterchangeExportResult, ImageContent, LookLutRequest, LookLutResult, LutProbeResult, MediaAnalysis, MediaProbe, OtioRequest, OtioResult, PreviewFrameRequest, PreviewFrameResult, ProxyCleanupResult, ProxyInfo, ProxyProgressEvent, ProxyQuality, ProxyStatus, SampledColor, SceneDetection, ScopeFrameResult, SfxItem, SharpenProgress, SharpenRequest, SharpenResult, StabilizationAnalysis, ThumbnailExportRequest, ThumbnailExportResult, TimelineImportRequest, TimelineImportResult, UpscaleProgress, UpscaleResult, UpscaleVideoResult, VisualAudit, VisualCatalog, TextFontFamily, TextRenderRequest, TextRenderResult } from '../media'
 import type { PickedSubtitleFile } from '../projects';
 import type { BatchConversionItem, CompressProgress, ConversionResult, ConvertProgress, LosslessResult } from '../render';
 import type { CapabilityInfo, EncoderPreference, ModelInfo } from '../providers';
@@ -16,7 +16,7 @@ analyzeImages(assetIds: readonly string[]): Promise<ImageContent[]>;
    */
   analyzeMediaFrames(assetIds: readonly string[]): Promise<ImageContent[]>;
 
-importLut(): Promise<{ readonly path: string; readonly name: string } | null>;
+importLut(path?: string): Promise<{ readonly path: string; readonly name: string } | null>;
 
 chooseSubtitleFile(): Promise<PickedSubtitleFile | null>;
 
@@ -82,6 +82,18 @@ analyzeMedia(
     silenceDb?: number,
     minSilenceSeconds?: number,
     includeSamples?: boolean,
+  ): Promise<MediaAnalysis>;
+
+/**
+ * QC de un archivo suelto del disco (p. ej. un MP4 recién exportado): corre
+ * las mismas pasadas de detección que `analyzeMedia` — escenas, silencios,
+ * negros, congelados y loudness — sin exigir proyecto abierto.
+ */
+qcMediaFile(
+    path: string,
+    sceneThreshold?: number,
+    silenceDb?: number,
+    minSilenceSeconds?: number,
   ): Promise<MediaAnalysis>;
 
 convertMedia(request: ConversionRequest): Promise<ConversionResult>;
@@ -226,11 +238,17 @@ analyzeScopesFrame(request: { readonly path: string }): Promise<ScopeFrameResult
 
 exportLookLut(request: LookLutRequest): Promise<LookLutResult>;
 
+/** Inspecciona una LUT .cube/.3dl sin aplicarla (formato, grilla, dominio). */
+  lutProbe(path: string): Promise<LutProbeResult>;
+
 exportEdl(request: EdlRequest): Promise<EdlResult>;
 
 exportOtio(request: OtioRequest): Promise<OtioResult>;
 
 exportFcpxml(request: FcpxmlRequest): Promise<FcpxmlResult>;
+
+/** Exporta la timeline a AAF/OMF/FCP7XML/FCPXML/EDL/OTIO (filmcraft-interchange). */
+exportTimelineInterchange(request: { readonly project: unknown; readonly output: string; readonly format?: string }): Promise<InterchangeExportResult>;
 
 importTimeline(request: TimelineImportRequest): Promise<TimelineImportResult>;
 
@@ -276,4 +294,10 @@ onConcatWorkerEvent(handler: (event: ConcatWorkerEvent) => void): Promise<Unlist
  * vivo. Devuelve `false` si no había worker leyendo stdin.
  */
 concatWorkerCancelRender(): Promise<boolean>;
+  /** Familias de fuentes del motor de texto (bundled + sistema). */
+  textFontsList(): Promise<readonly TextFontFamily[]>;
+
+  /** Renderiza texto a PNG (preview verificable por la IA). */
+  textRenderPreview(request: TextRenderRequest): Promise<TextRenderResult>;
+
 }

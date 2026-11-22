@@ -68,7 +68,7 @@ pub(crate) fn probe_output(
             "-v",
             "error",
             "-show_entries",
-            "stream=codec_type,width,height,duration:format=duration",
+            "stream=codec_type,width,height,duration,channels,sample_rate:format=duration",
             "-of",
             "json",
         ])
@@ -178,6 +178,24 @@ pub(crate) fn verify_probe_payload(
                 ));
             }
         }
+    }
+    // El plan fuerza `-ac`/`-ar` a la salida: si el contenedor declara otra
+    // cantidad de canales o sample rate, la entrega no cumple el perfil.
+    let audio_channels = audio["channels"].as_u64();
+    if audio_channels != Some(plan.audio_channels as u64) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "los canales del audio exportado no coinciden con el perfil",
+        ));
+    }
+    let audio_rate = audio["sample_rate"]
+        .as_str()
+        .and_then(|text| text.parse::<u64>().ok());
+    if audio_rate != Some(plan.audio_sample_rate as u64) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "la frecuencia de muestreo del audio exportado no coincide con el perfil",
+        ));
     }
     Ok((duration, width, height))
 }

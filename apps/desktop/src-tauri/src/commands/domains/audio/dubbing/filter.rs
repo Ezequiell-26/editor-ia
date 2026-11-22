@@ -5,6 +5,7 @@ fn build_dub_filter(
     segments: &[DubSegment],
     end_seconds: f64,
     bed_volume: Option<f64>,
+    bed_channels: Option<u32>,
 ) -> (String, Vec<String>) {
     let mut parts = vec![format!(
         "anullsrc=channel_layout=stereo:sample_rate=48000:duration={end_seconds:.3}[base]"
@@ -14,13 +15,26 @@ fn build_dub_filter(
         .filter(|volume| volume.is_finite() && *volume > 0.0)
         .map(|volume| volume.clamp(0.0, 1.0));
     if let Some(volume) = bed {
+        // `aformat` mono→estéreo aplica la ley de rematrix (−3,01 dB/canal):
+        // el upmix mono se hace con `pan` a ganancia unitaria, igual que en
+        // `audio_filter` y `stitch_filtergraph`.
+        let upmix = if bed_channels == Some(1) {
+            "pan=stereo|c0=c0|c1=c0,"
+        } else {
+            ""
+        };
         parts.push(format!(
-            "[0:a]aformat=channel_layouts=stereo:sample_rates=48000,volume={volume:.3}[bed]"
+            "[0:a]{upmix}aformat=channel_layouts=stereo:sample_rates=48000,volume={volume:.3}[bed]"
         ));
     }
     for (index, segment) in segments.iter().enumerate() {
         let window = (segment.end - segment.start).max(0.2);
-        let mut chain = String::from("aformat=channel_layouts=stereo:sample_rates=48000");
+        let upmix = if segment.channels == Some(1) {
+            "pan=stereo|c0=c0|c1=c0,"
+        } else {
+            ""
+        };
+        let mut chain = format!("{upmix}aformat=channel_layouts=stereo:sample_rates=48000");
         let mut duration = segment.duration;
         if duration > window * 1.02 {
             let tempo = (duration / window).clamp(1.01, 1.35);

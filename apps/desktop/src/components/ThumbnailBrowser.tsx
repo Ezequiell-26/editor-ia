@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Icon } from './Icon';
+import { Icon, isIconName } from './Icon';
 
 export interface ThumbnailItem {
   readonly id: string;
@@ -143,7 +143,7 @@ function ThumbnailCard({ item, isSelected, onClick, onDoubleClick }: ThumbnailCa
           />
         ) : (
           <div className="thumbnail-placeholder">
-            <Icon name={item.icon as any || 'assets'} size={28} />
+            <Icon name={isIconName(item.icon) ? item.icon : 'assets'} size={28} />
           </div>
         )}
         {item.duration !== undefined && (

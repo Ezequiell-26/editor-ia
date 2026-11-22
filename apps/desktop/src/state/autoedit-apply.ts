@@ -1,0 +1,173 @@
+import type { Asset, ClipTransition, ProjectDocument } from '@editor-ia/project-schema';
+import type { MediaAnalysis } from '../services/project-service';
+import {
+  addCaptionCueWindows,
+  addClipFromAsset,
+  addTrack,
+  cloneProject,
+  setTransformKeyframe,
+  totalFrames,
+  touch,
+  updateAudioMix,
+  updateClip,
+} from './project-actions';
+import type { AutoEditTransition, AutoEditVariant } from './autoedit-engine';
+
+export interface ApplyAutoEditOptions {
+  /** Reemplaza los clips actuales en vez de agregar la variante al final. */
+  readonly replace: boolean;
+  /** High-pass, denoise, compressor y gain según la medición de loudness. */
+  readonly improveAudio: boolean;
+  /** Agrega los subtítulos disponibles (si la variante los tiene). */
+  readonly addCaptions: boolean;
+  /** Transición de entrada entre cortes. */
+  readonly transition?: AutoEditTransition;
+  /** Intensidad del zoom, 0–100. 0 deja los cortes quietos. */
+  readonly zoom?: number;
+}
+
+export interface ApplyAutoEditResult {
+  readonly project: ProjectDocument;
+  readonly clipCount: number;
+  readonly captionCount: number;
+}
+
+function transitionFor(
+  kind: AutoEditTransition,
+  style: AutoEditVariant['style'],
+): ClipTransition | null {
+  if (kind === 'none') return null;
+  if (kind === 'fade') return { type: 'fade-black', frames: style === 'impact' ? 8 : 12 };
+  return { type: 'dissolve', frames: style === 'impact' ? 5 : 8 };
+}
+
+/**
+ * Convierte una variante del editor automático en clips reales de la timeline.
+ *
+ * Cada corte puede venir de un video distinto: el montaje toma el asset que
+ * declara el corte. Los clips conservan el material original, se pueden
+ * recortar, mover y deshacer; no se exporta nada hasta que se pida.
+ */
+export function applyAutoEditVariant(
+  project: ProjectDocument,
+  assets: readonly Asset[] | Asset,
+  variant: AutoEditVariant,
+  analysis: MediaAnalysis | null,
+  options: ApplyAutoEditOptions,
+): ApplyAutoEditResult {
+  const pool = Array.isArray(assets) ? assets : [assets as Asset];
+  if (pool.length === 0) throw new Error('no hay material para montar');
+  const fallback = pool[0]!;
+  const byId = new Map(pool.map((asset) => [asset.id, asset] as const));
+  const missing = new Set(
+    variant.cuts.map((cut) => cut.assetId).filter((id) => !byId.has(id)),
+  );
+  if (missing.size > 0) {
+    throw new Error(
+      `la variante usa ${missing.size} material(es) que ya no están en el proyecto; volvé a medir`,
+    );
+  }
+  const fps = project.video.frameRate.num / Math.max(1, project.video.frameRate.den);
+  const transition = transitionFor(options.transition ?? 'dissolve', variant.style);
+  const zoomStrength = Math.max(0, Math.min(100, options.zoom ?? 40));
+
+  let next = cloneProject(project);
+  const offset = options.replace ? 0 : totalFrames(next);
+  if (options.replace) {
+    next.timeline.clips = [];
+    next.timeline.tracks = next.timeline.tracks.filter((track) => track.kind === 'caption');
+    next.captions.cues = [];
+    touch(next);
+  }
+  const track = addTrack(next, 'video', `Auto · ${variant.name}`);
+  const trackId = track.trackId;
+  next = track.project;
+  const loudness = analysis?.loudness?.integratedLufs ?? null;
+  const gainDb =
+    options.improveAudio && loudness !== null
+      ? Math.max(-6, Math.min(6, Math.round((-14 - loudness) * 10) / 10))
+      : 0;
+  let cursor = offset;
+  let clipCount = 0;
+  for (const [index, cut] of variant.cuts.entries()) {
+    const asset = byId.get(cut.assetId) ?? fallback;
+    const mediaFrames =
+      'media' in asset && asset.media && 'durationFrames' in asset.media
+        ? asset.media.durationFrames
+        : undefined;
+    if (!mediaFrames) {
+      throw new Error(`el material “${asset.label}” no declara duración medida`);
+    }
+    const inFrame = Math.max(0, Math.min(mediaFrames - 1, Math.round(cut.startSeconds * fps)));
+    const outFrame = Math.max(
+      inFrame + 1,
+      Math.min(mediaFrames, Math.round(cut.endSeconds * fps)),
+    );
+    const added = addClipFromAsset(next, asset, {
+      trackId,
+      atFrame: cursor,
+      inFrame,
+      outFrame,
+    });
+    next = added.project;
+    clipCount += 1;
+    next = updateClip(next, added.clipId, {
+      label: `${variant.name} · ${String(index + 1).padStart(2, '0')}`,
+      ...(index > 0 && transition ? { transitionIn: transition } : {}),
+    });
+    if (cut.zoom && zoomStrength > 0) {
+      const last = outFrame - inFrame - 1;
+      const peak = 1 + 0.06 + (zoomStrength / 100) * 0.16;
+      const settle = Math.min(last, Math.max(6, Math.round(fps * 0.4)));
+      next = setTransformKeyframe(next, added.clipId, 0, { scale: peak, opacity: 1 });
+      next = setTransformKeyframe(next, added.clipId, settle, { scale: 1, opacity: 1 });
+      if (last > settle + 4) {
+        next = setTransformKeyframe(next, added.clipId, last, { scale: 1.04, opacity: 1 });
+      }
+    }
+    if (options.improveAudio) {
+      next = updateClip(next, added.clipId, {
+        audio: {
+          highPassHz: 80,
+          lowPassHz: 16_000,
+          denoise: 0.12,
+          compressor: true,
+          deesser: true,
+          eqMidDb: 1.5,
+          gainDb,
+        },
+      });
+    }
+    cursor += outFrame - inFrame;
+  }
+  if (options.improveAudio) {
+    // El gain por clip se calcula con la medición de la primera fuente; con
+    // fuentes mezcladas la suma puede pasar de 0 dBFS. loudnorm + limiter en
+    // la entrega garantizan el objetivo real (-14 LUFS / TP -1) medido en el
+    // archivo exportado.
+    next = updateAudioMix(next, {
+      loudnessTarget: {
+        platform: next.video.height > next.video.width ? 'shorts' : 'youtube',
+        integratedLufs: -14,
+        truePeakDb: -1,
+        toleranceDb: 1,
+      },
+      masterLimiter: true,
+    });
+  }
+  let captionCount = 0;
+  if (options.addCaptions && variant.captions.length > 0) {
+    const result = addCaptionCueWindows(
+      next,
+      variant.captions.map((caption) => ({
+        text: caption.text,
+        startFrame: offset + Math.round(caption.startSeconds * fps),
+        endFrame: offset + Math.round(caption.endSeconds * fps),
+      })),
+      { replaceTrack: options.replace },
+    );
+    next = result.project;
+    captionCount = result.added;
+  }
+  return { project: next, clipCount, captionCount };
+}

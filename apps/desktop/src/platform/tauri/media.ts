@@ -1,10 +1,10 @@
 import type { DesktopService } from "../../services/contracts";
 import type { NativeCall } from './shared';
 import * as shared from './shared';
-import type { BackgroundProgress, BackgroundRemoval, BatchConversionItem, BestThumbnailFrame, CapabilityInfo, CompressProgress, ConcatWorkerEnvelope, ConcatWorkerEvent, ConcatWorkerStatus, ConversionResult, ConvertProgress, DenoiseProgress, DenoiseResult, EdlResult, ExtractedSubtitles, FcpxmlResult, LookLutResult, LosslessResult, MediaAnalysis, MediaProbe, ModelInfo, OtioResult, PreviewFrameResult, ProxyCleanupResult, ProxyProgressEvent, ProxyStatus, SceneDetection, ScopeFrameResult, SfxItem, SharpenProgress, SharpenResult, StabilizationAnalysis, ThumbnailExportResult, TimelineImportResult, ToolResult, UpscaleProgress, UpscaleResult, UpscaleVideoResult, VisualAudit, VisualCatalog } from "../../services/contracts";
+import type { BackgroundProgress, BackgroundRemoval, BatchConversionItem, BestThumbnailFrame, CapabilityInfo, CompressProgress, ConcatWorkerEnvelope, ConcatWorkerEvent, ConcatWorkerStatus, ConversionResult, ConvertProgress, DenoiseProgress, DenoiseResult, EdlResult, ExtractedSubtitles, FcpxmlResult, LookLutResult, LosslessResult, LutProbeResult, MediaAnalysis, MediaProbe, ModelInfo, OtioResult, PreviewFrameResult, ProxyCleanupResult, ProxyProgressEvent, ProxyStatus, SceneDetection, ScopeFrameResult, SfxItem, SharpenProgress, SharpenResult, StabilizationAnalysis, ThumbnailExportResult, TimelineImportResult, ToolResult, UpscaleProgress, UpscaleResult, UpscaleVideoResult, VisualAudit, VisualCatalog } from "../../services/contracts";
 import { listen } from "@tauri-apps/api/event";
 
-export function createMediaService(call: NativeCall): Pick<DesktopService, 'analyzeImages' | 'analyzeMediaFrames' | 'importLut' | 'chooseImageFile' | 'chooseVideoFile' | 'chooseAudioFile' | 'sfxLibrary' | 'probeMediaFile' | 'compressAnyFile' | 'onCompressProgress' | 'measureVmaf' | 'listModels' | 'downloadModel' | 'deleteModel' | 'listCapabilities' | 'listVisualCatalog' | 'auditVisuals' | 'removeBackground' | 'removeBackgroundAsset' | 'onBackgroundProgress' | 'writeAlphaFrames' | 'alphaFramesToAsset' | 'discardAlphaFrames' | 'upscaleImage' | 'upscaleVideo' | 'onUpscaleProgress' | 'denoiseMedia' | 'onDenoiseProgress' | 'sharpenMedia' | 'onSharpenProgress' | 'saveThumbnail' | 'pickThumbnailFrames' | 'renderPreviewFrame' | 'analyzeScopesFrame' | 'exportLookLut' | 'exportEdl' | 'exportOtio' | 'exportFcpxml' | 'importTimeline' | 'chooseSubtitleFile' | 'chooseTimelineFile' | 'extractFreezeFrame' | 'createVideoProxy' | 'proxyStatus' | 'ensureProxy' | 'cancelProxy' | 'applyProxyToAsset' | 'cleanupProxies' | 'onProxyProgress' | 'sampleAssetColor' | 'mediaThumbnail' | 'detectScenes' | 'analyzeStabilization' | 'analyzeMedia' | 'convertMedia' | 'convertFile' | 'convertMediaBatch' | 'compressMedia' | 'mergeVideos' | 'trimVideo' | 'watermarkVideo' | 'setMetadata' | 'extractSubtitles' | 'remux' | 'writeChapters' | 'extractAudio' | 'onConvertProgress' | 'concatWorkerStatus' | 'concatWorkerRequest' | 'onConcatWorkerEvent' | 'concatWorkerCancelRender'> {
+export function createMediaService(call: NativeCall): Pick<DesktopService, 'analyzeImages' | 'analyzeMediaFrames' | 'importLut' | 'chooseImageFile' | 'chooseVideoFile' | 'chooseAudioFile' | 'sfxLibrary' | 'probeMediaFile' | 'compressAnyFile' | 'onCompressProgress' | 'measureVmaf' | 'listModels' | 'downloadModel' | 'deleteModel' | 'listCapabilities' | 'listVisualCatalog' | 'auditVisuals' | 'removeBackground' | 'removeBackgroundAsset' | 'onBackgroundProgress' | 'writeAlphaFrames' | 'alphaFramesToAsset' | 'discardAlphaFrames' | 'upscaleImage' | 'upscaleVideo' | 'onUpscaleProgress' | 'denoiseMedia' | 'onDenoiseProgress' | 'sharpenMedia' | 'onSharpenProgress' | 'saveThumbnail' | 'pickThumbnailFrames' | 'renderPreviewFrame' | 'analyzeScopesFrame' | 'exportLookLut' | 'lutProbe' | 'exportEdl' | 'exportOtio' | 'exportFcpxml' | 'exportTimelineInterchange' | 'importTimeline' | 'chooseSubtitleFile' | 'chooseTimelineFile' | 'extractFreezeFrame' | 'createVideoProxy' | 'proxyStatus' | 'ensureProxy' | 'cancelProxy' | 'applyProxyToAsset' | 'cleanupProxies' | 'onProxyProgress' | 'sampleAssetColor' | 'mediaThumbnail' | 'detectScenes' | 'analyzeStabilization' | 'analyzeMedia' | 'qcMediaFile' | 'convertMedia' | 'convertFile' | 'convertMediaBatch' | 'compressMedia' | 'mergeVideos' | 'trimVideo' | 'watermarkVideo' | 'setMetadata' | 'extractSubtitles' | 'remux' | 'writeChapters' | 'extractAudio' | 'onConvertProgress' | 'concatWorkerStatus' | 'concatWorkerRequest' | 'onConcatWorkerEvent' | 'concatWorkerCancelRender' | 'textFontsList' | 'textRenderPreview'> {
   return {
     async analyzeImages(assetIds) {
       if (assetIds.length === 0) return [];
@@ -20,8 +20,10 @@ export function createMediaService(call: NativeCall): Pick<DesktopService, 'anal
       });
       return shared.mapImageContents(raw);
     },
-    async importLut() {
-      const raw = await call(shared.PROJECT_COMMANDS.importLut);
+    async importLut(path) {
+      const raw = await call(shared.PROJECT_COMMANDS.importLut, {
+        path: path ?? null,
+      });
       if (!raw || typeof raw !== 'object') return null;
       const record = raw as { path?: unknown; name?: unknown };
       if (typeof record.path !== 'string' || !record.path) return null;
@@ -185,6 +187,11 @@ export function createMediaService(call: NativeCall): Pick<DesktopService, 'anal
         request,
       })) as ScopeFrameResult;
     },
+    async lutProbe(path) {
+      return (await call(shared.PROJECT_COMMANDS.lutProbe, {
+        path,
+      })) as LutProbeResult;
+    },
     async exportLookLut(request) {
       return (await call(shared.PROJECT_COMMANDS.exportLookLut, {
         request,
@@ -204,6 +211,11 @@ export function createMediaService(call: NativeCall): Pick<DesktopService, 'anal
       return (await call(shared.PROJECT_COMMANDS.exportFcpxml, {
         request,
       })) as FcpxmlResult;
+    },
+    async exportTimelineInterchange(request) {
+      return (await call(shared.PROJECT_COMMANDS.exportTimelineInterchange, {
+        request,
+      })) as import('../../services/contracts/media').InterchangeExportResult;
     },
     async importTimeline(request) {
       return (await call(shared.PROJECT_COMMANDS.importTimeline, {
@@ -321,6 +333,14 @@ export function createMediaService(call: NativeCall): Pick<DesktopService, 'anal
         silenceDb: silenceDb ?? null,
         minSilenceSeconds: minSilenceSeconds ?? null,
         includeSamples: includeSamples ?? null,
+      })) as MediaAnalysis;
+    },
+    async qcMediaFile(path, sceneThreshold, silenceDb, minSilenceSeconds) {
+      return (await call(shared.PROJECT_COMMANDS.qcMediaFile, {
+        path,
+        sceneThreshold: sceneThreshold ?? null,
+        silenceDb: silenceDb ?? null,
+        minSilenceSeconds: minSilenceSeconds ?? null,
       })) as MediaAnalysis;
     },
     async convertMedia(request) {
@@ -443,6 +463,12 @@ export function createMediaService(call: NativeCall): Pick<DesktopService, 'anal
     },
     async concatWorkerCancelRender() {
       return (await call(shared.PROJECT_COMMANDS.concatWorkerCancelRender)) as boolean;
+    },
+    async textFontsList() {
+      return (await call(shared.PROJECT_COMMANDS.textFontsList)) as readonly import('../../services/contracts/media').TextFontFamily[];
+    },
+    async textRenderPreview(request) {
+      return (await call(shared.PROJECT_COMMANDS.textRenderPreview, { request })) as import('../../services/contracts/media').TextRenderResult;
     },
   };
 }

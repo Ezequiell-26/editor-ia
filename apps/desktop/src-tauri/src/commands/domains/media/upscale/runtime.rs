@@ -60,7 +60,7 @@ pub struct UpscaleResult {
 
 /// Agranda una imagen ×4 con Real-ESRGAN local.
 #[tauri::command]
-pub fn upscale_image(
+pub async fn upscale_image(
     state: State<'_, AppState>,
     input_path: String,
     output_path: Option<String>,
@@ -82,26 +82,6 @@ pub fn upscale_image(
             "la imagen a agrandar no está en disco",
         ));
     }
-
-    let image = image::open(&input).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "no se pudo leer la imagen: ¿es un formato soportado?",
-        )
-    })?;
-    let (width, height) = image.dimensions();
-    if width > MAX_INPUT_SIDE || height > MAX_INPUT_SIDE {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            format!(
-                "por memoria, el upscale local acepta hasta {MAX_INPUT_SIDE}×{MAX_INPUT_SIDE}; esta imagen mide {width}×{height}"
-            )
-            .as_str(),
-        ));
-    }
-
-    let output = run_realesrgan(&model_path, &image)?;
-
     let destination = match output_path {
         Some(path) if !path.trim().is_empty() => {
             crate::application::fs::validate_user_write_path(&path)?
@@ -116,24 +96,52 @@ pub fn upscale_image(
                 .with_extension("png")
         }
     };
-    image::save_buffer_with_format(
-        &destination,
-        output.as_raw(),
-        output.width(),
-        output.height(),
-        image::ExtendedColorType::Rgba8,
-        image::ImageFormat::Png,
-    )
-    .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el upscale"))?;
 
-    let tiles = (width as u64).div_ceil(TILE as u64)
-        * (height as u64).div_ceil(TILE as u64);
-    Ok(UpscaleResult {
-        path: destination.to_string_lossy().into_owned(),
-        input_width: width,
-        input_height: height,
-        output_width: output.width(),
-        output_height: output.height(),
-        tiles,
+    // Decodificar + inferencia ONNX ×4 + encode PNG puede tardar
+    // segundos: un comando sync correría en el main thread (AUD-129).
+    tauri::async_runtime::spawn_blocking(move || -> Result<UpscaleResult, ProjectError> {
+        let image = image::open(&input).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "no se pudo leer la imagen: ¿es un formato soportado?",
+            )
+        })?;
+        let (width, height) = image.dimensions();
+        if width > MAX_INPUT_SIDE || height > MAX_INPUT_SIDE {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                format!(
+                    "por memoria, el upscale local acepta hasta {MAX_INPUT_SIDE}×{MAX_INPUT_SIDE}; esta imagen mide {width}×{height}"
+                )
+                .as_str(),
+            ));
+        }
+
+        let output = run_realesrgan(&model_path, &image)?;
+
+        image::save_buffer_with_format(
+            &destination,
+            output.as_raw(),
+            output.width(),
+            output.height(),
+            image::ExtendedColorType::Rgba8,
+            image::ImageFormat::Png,
+        )
+        .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el upscale"))?;
+
+        let tiles = (width as u64).div_ceil(TILE as u64)
+            * (height as u64).div_ceil(TILE as u64);
+        Ok(UpscaleResult {
+            path: destination.to_string_lossy().into_owned(),
+            input_width: width,
+            input_height: height,
+            output_width: output.width(),
+            output_height: output.height(),
+            tiles,
+        })
     })
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "el upscale se interrumpió")
+    })?
 }

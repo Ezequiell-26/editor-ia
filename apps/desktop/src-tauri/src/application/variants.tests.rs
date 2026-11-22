@@ -11,6 +11,15 @@ fn safe_stem_normaliza_nombres() {
 #[test]
 fn variant_file_name_siempre_termina_en_json() {
     assert_eq!(variant_file_name("promo"), "promo.editoria.json");
+    // Nombre que ya trae la extensión completa: se conserva, no se duplica.
+    assert_eq!(
+        variant_file_name("promo.editoria.json"),
+        "promo.editoria.json"
+    );
+    assert_eq!(
+        variant_file_name("Mi Corte.editoria.json"),
+        "mi-corte.editoria.json"
+    );
     // `safe_stem` convierte '.' en '-', así que el sufijo `.editoria` nunca
     // llega literal: el nombre saneado termina en "-editoria" y se le agrega
     // la extensión completa (comportamiento preexistente, preservado).
@@ -19,7 +28,10 @@ fn variant_file_name_siempre_termina_en_json() {
         "promo-editoria.editoria.json"
     );
     assert_eq!(variant_file_name("promo.json"), "promo-json.editoria.json");
-    assert_eq!(variant_file_name("Mi Corte.mp4"), "mi-corte-mp4.editoria.json");
+    assert_eq!(
+        variant_file_name("Mi Corte.mp4"),
+        "mi-corte-mp4.editoria.json"
+    );
 }
 
 #[test]
@@ -53,11 +65,7 @@ fn copy_media_files_aplica_politica_a_fuentes_y_destino() {
     std::fs::write(&source, b"video").unwrap();
 
     // Una fuente relativa se rechaza: la política de `fs_*` exige absoluta.
-    assert!(copy_media_files(
-        &entrega.to_string_lossy(),
-        &["clip.mp4".to_owned()]
-    )
-    .is_err());
+    assert!(copy_media_files(&entrega.to_string_lossy(), &["clip.mp4".to_owned()]).is_err());
     // Una fuente dentro de una carpeta de credenciales también.
     let ssh = root.join(".ssh");
     std::fs::create_dir_all(&ssh).unwrap();
@@ -69,12 +77,9 @@ fn copy_media_files_aplica_politica_a_fuentes_y_destino() {
     )
     .is_err());
     // Y la carpeta de entrega no puede vivir dentro de `.ssh`.
-    assert!(write_project_document(
-        &ssh.to_string_lossy(),
-        "proyecto",
-        &serde_json::json!({})
-    )
-    .is_err());
+    assert!(
+        write_project_document(&ssh.to_string_lossy(), "proyecto", &serde_json::json!({})).is_err()
+    );
 
     // El camino feliz sigue copiando el archivo real.
     let copied = copy_media_files(
@@ -151,7 +156,9 @@ fn mirror_assets_rechaza_destino_del_mismo_tamano_pero_distinto_contenido() {
 
     // Mismo tamaño Y mismo contenido → reutilización verificada por hash.
     std::fs::write(new_root.join("media/a.mp4"), b"AAAA").unwrap();
-    let copied = mirror_assets(&project, &source_root, &new_root).expect("debió reutilizar");
+    let copied = mirror_assets(&project, &source_root, &new_root)
+        .expect("debió reutilizar")
+        .0;
     assert_eq!(copied, 0);
     let _ = std::fs::remove_dir_all(&root);
 }

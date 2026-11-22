@@ -4,6 +4,7 @@ import { AUDIO_EFFECTS } from './catalog/audio.ts';
 import { compileAudioInstance, compileAudioStack, compileInstance, compileStack } from './ffmpeg.ts';
 import { createInstance } from './stack.ts';
 import { createRegistry, effectRegistry } from './index.ts';
+import { eqCompat } from './catalog/eq.ts';
 
 function paramUniforms(manifest: (typeof ALL_EFFECTS)[number]): string[] {
   const names = new Set<string>();
@@ -265,6 +266,67 @@ describe('compilación a FFmpeg', () => {
     expect(graph.template).not.toMatch(/\{[a-zA-Z0-9_]/);
   });
 
+  it('ninguna receta de video emite el filtro eq (eliminado en FFmpeg 9)', () => {
+    for (const manifest of ALL_EFFECTS) {
+      if (manifest.kind !== 'video') continue;
+      const sources = [
+        ...(manifest.ffmpeg?.chain ?? []),
+        ...(manifest.ffmpeg?.graph ? [manifest.ffmpeg.graph] : []),
+      ];
+      for (const source of sources) {
+        // `geq=` no cuenta: el `eq=` va precedido de `g`, no de un borde.
+        expect(source, manifest.id).not.toMatch(/(^|[;,\]])\s*eq=/);
+      }
+    }
+  });
+
+  it('eqCompat traduce eq a lutyuv por plano, como eq_compat.rs', () => {
+    // Sólo luminancia: brillo sin tocar croma.
+    const bright = eqCompat({ brightness: '{exposure}' });
+    expect(bright).toContain("y='clip(");
+    expect(bright).not.toContain("u='");
+    expect(bright).not.toContain("v='");
+    // Sólo saturación: croma sin tocar luminancia.
+    const sat = eqCompat({ saturation: '{saturation}' });
+    expect(sat).toContain("u='clip(");
+    expect(sat).toContain("v='clip(");
+    expect(sat).not.toContain("y='");
+    // Gamma: potencia por canal de luminancia.
+    const gam = eqCompat({ gamma: '{gamma}' });
+    expect(gam).toContain('pow(');
+    expect(gam).toContain('1/({gamma})');
+    // Expresiones con placeholders conservan precedencia por los paréntesis.
+    const vib = eqCompat({ saturation: '1+0.5*{amount}' });
+    expect(vib).toContain('(1+0.5*{amount})');
+    // enable sobrevive como opción de timeline.
+    const strobe = eqCompat({ brightness: '0.3', enable: 'lt(mod(t*{rate},1),{duty})' });
+    expect(strobe).toContain(":enable='lt(mod(t*{rate},1),{duty})'");
+    // Todo identidad: filtro neutro válido.
+    expect(eqCompat({})).toBe("lutyuv=y='val'");
+  });
+
+  it('toda receta de video usa filtros presentes en el FFmpeg bundled', () => {
+    // Verificado contra `ffmpeg -filters` del runtime empaquetado (build LGPL
+    // de FFmpeg 9): hqdn3d y smartblur no existen ahí y fueron reemplazados
+    // por nlmeans y bilateral.
+    for (const manifest of ALL_EFFECTS) {
+      if (manifest.kind !== 'video') continue;
+      const sources = [
+        ...(manifest.ffmpeg?.chain ?? []),
+        ...(manifest.ffmpeg?.graph ? [manifest.ffmpeg.graph] : []),
+      ];
+      for (const source of sources) {
+        for (const segment of source.split(/[;,\[\]]/)) {
+          const trimmed = segment.trim();
+          if (!trimmed) continue;
+          const name = trimmed.split('=')[0]?.trim() ?? '';
+          if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) continue;
+          expect(VIDEO_FILTERS.has(name), `${manifest.id}: filtro desconocido ${name}`).toBe(true);
+        }
+      }
+    }
+  });
+
   it('un efecto apagado no llega al render', () => {
     const manifest = effectRegistry.get('color.exposure');
     expect(manifest).toBeTruthy();
@@ -276,28 +338,76 @@ describe('compilación a FFmpeg', () => {
   });
 });
 
+/** Filtros de video que el FFmpeg empaquetado tiene de verdad (verificado con -filters). */
+const VIDEO_FILTERS = new Set([
+  'blend',
+  'bilateral',
+  'bwdif',
+  'chromakey',
+  'colorbalance',
+  'colorchannelmixer',
+  'colorlevels',
+  'colortemperature',
+  'convolution',
+  'crop',
+  'curves',
+  'drawbox',
+  'drawgrid',
+  'edgedetect',
+  'elbg',
+  'format',
+  'gblur',
+  'geq',
+  'gradfun',
+  'hflip',
+  'hstack',
+  'hue',
+  'lenscorrection',
+  'lutyuv',
+  'negate',
+  'nlmeans',
+  'noise',
+  'overlay',
+  'pixelize',
+  'rgbashift',
+  'scale',
+  'split',
+  'tmix',
+  'unsharp',
+  'vignette',
+]);
+
 /** Filtros de audio que el FFmpeg empaquetado tiene de verdad (verificado con -filters). */
 const AUDIO_FILTERS = new Set([
   'acompressor',
   'acrusher',
   'aecho',
   'aexciter',
+  'afftdn',
   'agate',
   'alimiter',
+  'aloop',
   'aphaser',
   'apulsator',
   'aresample',
+  'areverse',
   'asetrate',
+  'asoftclip',
   'atempo',
   'bass',
   'chorus',
   'deesser',
+  'dialoguenhance',
   'dynaudnorm',
   'equalizer',
   'extrastereo',
   'flanger',
   'highpass',
+  'haas',
+  'loudnorm',
   'lowpass',
+  'pan',
+  'speechnorm',
   'tremolo',
   'treble',
   'vibrato',
@@ -305,8 +415,8 @@ const AUDIO_FILTERS = new Set([
 ]);
 
 describe('catálogo de audio', () => {
-  it('cubre las cinco familias con 30 efectos', () => {
-    expect(AUDIO_EFFECTS).toHaveLength(30);
+  it('cubre las cinco familias con 43 efectos', () => {
+    expect(AUDIO_EFFECTS).toHaveLength(43);
     const families = new Set(AUDIO_EFFECTS.map((manifest) => manifest.category));
     expect([...families].sort()).toEqual(['space', 'texture', 'transmission', 'utility', 'voice']);
     for (const family of families) {

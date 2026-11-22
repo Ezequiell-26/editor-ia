@@ -37,9 +37,21 @@ fn watermark_filter_rejects_unknown_positions() {
 #[test]
 fn merge_args_concat_all_inputs() {
     let inputs = vec![
-        PathBuf::from("a.mp4"),
-        PathBuf::from("b.mp4"),
-        PathBuf::from("c.mp4"),
+        MergeInput {
+            path: PathBuf::from("a.mp4"),
+            has_audio: true,
+            duration_seconds: 10.0,
+        },
+        MergeInput {
+            path: PathBuf::from("b.mp4"),
+            has_audio: true,
+            duration_seconds: 10.0,
+        },
+        MergeInput {
+            path: PathBuf::from("c.mp4"),
+            has_audio: true,
+            duration_seconds: 10.0,
+        },
     ];
     // El codec lo resuelve la capa de comandos (el bundle LGPL no trae
     // libx264): acá llega ya armado, p.ej. libopenh264 con bitrate.
@@ -52,11 +64,38 @@ fn merge_args_concat_all_inputs() {
     let args = merge_video_args(&inputs, &codec);
     let joined = args.join(" ");
     assert!(joined.contains("concat=n=3:v=1:a=1"));
-    assert!(joined.contains("[0:v:0][0:a:0][1:v:0][1:a:0][2:v:0][2:a:0]"));
+    assert!(joined.contains("[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1"));
+    assert!(joined.contains("aformat=sample_rates=48000:channel_layouts=stereo"));
+    assert!(!joined.contains("anullsrc"));
     assert!(joined.contains("-map [outv]"));
     assert!(joined.contains("libopenh264"));
     assert!(!joined.contains("libx264"));
     assert!(!joined.contains("-y"), "la salida la agrega el comando");
+}
+
+#[test]
+fn merge_args_synthesizes_silence_for_audio_less_inputs() {
+    // AUD-130: un input sin pista de audio recibe un `anullsrc` lavfi con
+    // su duración y el concat usa ese índice para el segmento.
+    let inputs = vec![
+        MergeInput {
+            path: PathBuf::from("a.mp4"),
+            has_audio: true,
+            duration_seconds: 10.0,
+        },
+        MergeInput {
+            path: PathBuf::from("mute.mp4"),
+            has_audio: false,
+            duration_seconds: 4.5,
+        },
+    ];
+    let args = merge_video_args(&inputs, &[]);
+    let joined = args.join(" ");
+    // El segundo input (index 2 = 2 archivos + 1 lavfi) se usa como audio.
+    assert!(joined.contains("-f lavfi"));
+    assert!(joined.contains("anullsrc=r=48000:cl=stereo"));
+    assert!(joined.contains("[2:a:0]aformat"));
+    assert!(joined.contains("[v0][a0][v1][a1]concat=n=2:v=1:a=1"));
 }
 
 #[test]

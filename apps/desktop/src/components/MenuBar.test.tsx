@@ -5,6 +5,7 @@ import { AppearanceProvider } from '../state/AppearanceProvider';
 import { ProjectProvider } from '../state/project-store';
 import { createFakeService } from '../test/fake-service';
 import { MenuBar } from './MenuBar';
+import { getAiMode, setAiMode } from '../state/ai-mode';
 
 function renderMenuBar() {
   render(
@@ -124,6 +125,19 @@ describe('MenuBar · teclado del menubar', () => {
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  setAiMode(false);
+});
+
+describe('MenuBar · modo IA', () => {
+  it('Ver → Modo IA alterna la vista persistida del editor', async () => {
+    renderMenuBar();
+    expect(getAiMode()).toBe(false);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ver' }));
+    const item = await screen.findByRole('menuitemcheckbox', { name: /Modo IA/ });
+    fireEvent.click(item);
+    expect(getAiMode()).toBe(true);
+    expect(window.localStorage.getItem('editoria.ai-mode.v1')).toBe('1');
+  });
 });
 
 describe('MenuBar · trampa de foco en los modales', () => {

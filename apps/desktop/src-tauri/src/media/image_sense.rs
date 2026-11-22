@@ -261,7 +261,11 @@ fn temperature_of(dominant_hue: f64, concentration: f64, warm_bias: f64) -> &'st
 /// Mide el contenido visual de una imagen (o de un cuadro PNG extraído de
 /// un video). `model_path` habilita la detección de rostros SeetaFace;
 /// sin modelo se reporta el warning en vez de fallar.
-pub fn measure(asset_id: &str, path: &Path, model_path: Option<&Path>) -> Result<ImageContent, String> {
+pub fn measure(
+    asset_id: &str,
+    path: &Path,
+    model_path: Option<&Path>,
+) -> Result<ImageContent, String> {
     let decoded =
         image::open(path).map_err(|error| format!("no se pudo leer la imagen: {error}"))?;
     let (width, height) = decoded.dimensions();

@@ -40,7 +40,7 @@ import {
   useLookAudition,
 } from '../../state/look-audition';
 import { TITLE_TEMPLATES, type TitleTemplate } from '../../state/title-templates';
-import { COLOR_LOOKS } from './color-looks';
+import { COLOR_LOOKS } from '../../state/color-looks';
 import { useProjectStore } from '../../state/project-store';
 import {
   openClipInspectorTab,

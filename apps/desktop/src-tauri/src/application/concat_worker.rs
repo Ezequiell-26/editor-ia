@@ -22,19 +22,11 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::ports::concat_worker::{
-    ConcatWorkerBackend, ConcatWorkerCancel, ConcatWorkerSession,
-};
+use crate::ports::concat_worker::{ConcatWorkerBackend, ConcatWorkerCancel, ConcatWorkerSession};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 
 /// Ops que el worker implementa hoy (`apps/concat-worker/src/protocol.rs`).
-pub const WORKER_OPS: &[&str] = &[
-    "ping",
-    "probe",
-    "decode_frame",
-    "render_export",
-    "shutdown",
-];
+pub const WORKER_OPS: &[&str] = &["ping", "probe", "decode_frame", "render_export", "shutdown"];
 
 /// Default y techo del timeout por request. `probe`/`decode_frame` sobre
 /// archivos grandes pueden tardar; el techo evita esperas eternas (a
@@ -190,7 +182,10 @@ pub fn build_request(op: &str, params: &Value) -> Result<Value, ProjectError> {
             }
         }
         "render_export" => {
-            if request["output"].as_str().is_none_or(|p| p.trim().is_empty()) {
+            if request["output"]
+                .as_str()
+                .is_none_or(|p| p.trim().is_empty())
+            {
                 return Err(ProjectError::message(
                     ProjectErrorCode::InvalidProject,
                     "render_export necesita `output` (archivo de destino)",
@@ -198,9 +193,9 @@ pub fn build_request(op: &str, params: &Value) -> Result<Value, ProjectError> {
             }
             let clips_ok = request["clips"].as_array().is_some_and(|clips| {
                 !clips.is_empty()
-                    && clips.iter().all(|clip| {
-                        clip["path"].as_str().is_some_and(|p| !p.trim().is_empty())
-                    })
+                    && clips
+                        .iter()
+                        .all(|clip| clip["path"].as_str().is_some_and(|p| !p.trim().is_empty()))
             });
             if !clips_ok {
                 return Err(ProjectError::message(
@@ -213,11 +208,11 @@ pub fn build_request(op: &str, params: &Value) -> Result<Value, ProjectError> {
             // ventanas disjuntas, speed > 0); acá sólo se exige la forma.
             for clip in request["clips"].as_array().into_iter().flatten() {
                 if let Some(transition) = clip.get("transition") {
-                    let has = |key: &str| {
-                        transition.get(key).is_some_and(|v| !v.is_null())
-                    };
+                    let has = |key: &str| transition.get(key).is_some_and(|v| !v.is_null());
                     let ok = transition.is_object()
-                        && transition["type"].as_str().is_some_and(|t| !t.trim().is_empty())
+                        && transition["type"]
+                            .as_str()
+                            .is_some_and(|t| !t.trim().is_empty())
                         && !(has("duration") && has("frames"));
                     if !ok {
                         return Err(ProjectError::message(
@@ -246,9 +241,7 @@ pub fn build_request(op: &str, params: &Value) -> Result<Value, ProjectError> {
                                 point.is_object()
                                     && point["at"].is_number()
                                     && point["speed"].is_number()
-                                    && point
-                                        .get("slope")
-                                        .is_none_or(|slope| slope.is_number())
+                                    && point.get("slope").is_none_or(|slope| slope.is_number())
                             })
                     });
                     if !ok {
@@ -277,7 +270,10 @@ pub fn build_request(op: &str, params: &Value) -> Result<Value, ProjectError> {
 
 fn clamp_timeout(timeout_ms: Option<u64>) -> Duration {
     match timeout_ms {
-        Some(ms) => Duration::from_millis(ms.clamp(MIN_TIMEOUT.as_millis() as u64, MAX_TIMEOUT.as_millis() as u64)),
+        Some(ms) => Duration::from_millis(ms.clamp(
+            MIN_TIMEOUT.as_millis() as u64,
+            MAX_TIMEOUT.as_millis() as u64,
+        )),
         None => DEFAULT_TIMEOUT,
     }
 }

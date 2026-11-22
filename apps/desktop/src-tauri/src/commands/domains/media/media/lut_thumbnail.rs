@@ -11,20 +11,37 @@ pub struct LutImported {
 pub async fn import_lut(
     app: AppHandle,
     state: State<'_, AppState>,
+    path: Option<String>,
 ) -> Result<Option<LutImported>, ProjectError> {
     let session = state.require_session()?;
-    let Some(picked) = app
-        .dialog()
-        .file()
-        .set_title("Importar LUT .cube")
-        .add_filter("LUT 3D", &["cube"])
-        .blocking_pick_file()
-    else {
-        return Ok(None);
+    // Con `path` la IA (o un script) fija el archivo directamente; sin él se
+    // mantiene el diálogo nativo para el uso interactivo.
+    let source = match path {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() || trimmed.len() > 32_768 {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    "la ruta del LUT no es válida",
+                ));
+            }
+            std::path::PathBuf::from(trimmed)
+        }
+        None => {
+            let Some(picked) = app
+                .dialog()
+                .file()
+                .set_title("Importar LUT .cube")
+                .add_filter("LUT 3D", &["cube"])
+                .blocking_pick_file()
+            else {
+                return Ok(None);
+            };
+            picked.into_path().map_err(|_| {
+                ProjectError::message(ProjectErrorCode::Io, "no se pudo usar la ruta elegida")
+            })?
+        }
     };
-    let source = picked.into_path().map_err(|_| {
-        ProjectError::message(ProjectErrorCode::Io, "no se pudo usar la ruta elegida")
-    })?;
     let metadata = std::fs::metadata(&source).map_err(|_| {
         ProjectError::message(ProjectErrorCode::NotFound, "el LUT ya no está en esa ruta")
     })?;
@@ -120,7 +137,20 @@ pub async fn media_thumbnail(
         }
     }
 
-    let data_url = thumbnail_data_url(&ffmpeg, &source, is_image, time_seconds)?;
+    let data_url = {
+        let ffmpeg = ffmpeg.clone();
+        let source = source.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            thumbnail_data_url(&ffmpeg, &source, is_image, time_seconds)
+        })
+        .await
+        .map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo generar la miniatura: {error}").as_str(),
+            )
+        })??
+    };
     if let Ok(mut cache) = state.thumbnails.lock() {
         cache.insert(cache_key, data_url.clone());
     }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { NAV_VIEWS, type ViewId } from '../../app/navigation';
 import { useAiColumnElement } from '../../state/ai-column';
+import { aiMemoryContext } from '../../state/ai-memory';
 import { Icon } from '../../components/Icon';
 import { SafeText } from '../../components/SafeText';
 import { AiBrandMark } from '../../components/AiBrandMark';
@@ -24,6 +25,7 @@ import {
 import { parseProject } from '@editor-ia/project-schema';
 import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import { DOWNLOAD_DIR_KEY } from '../../state/download-prefs';
+import { suggestAiProjectName } from '../../state/ai-mode';
 import {
   ASSISTANT_TOKEN_BUDGET_CHANGED_EVENT,
   estimateConversationTokens,
@@ -80,6 +82,19 @@ import { PetCompanion, type PetMood } from './PetCompanion';
 import { executeMcpTool, type McpToolContext } from '../../state/mcp-tools';
 import { MCP_TOOL_BY_NAME, MCP_TOOLS } from '../../state/mcp-catalog';
 import { validateMcpToolArguments } from '../../state/mcp-validation';
+import {
+  FACTORY_JOB_MANAGER,
+  MCP_ORCHESTRATOR_JOBS_UPDATED,
+} from '../../state/mcp-orchestrator-jobs';
+import type { OrchestratorJob } from '../../state/orchestrator';
+import {
+  AssistantProcessPanel,
+  classifyActionSummary,
+  jobToProcessItem,
+  processActionLabel,
+  type ProcessItem,
+  type ProcessItemStatus,
+} from './AssistantProcessPanel';
 
 interface ChatEntry {
   readonly role: 'user' | 'assistant';
@@ -89,7 +104,7 @@ interface ChatEntry {
 const GREETING: ChatEntry = {
   role: 'assistant',
   text:
-    'Hola, soy Olyvia. Puedo controlar la app, montar una carpeta de Descargas con fotos y audio, resumir el proyecto o crear un gráfico. Probá «usar la carpeta video 1 de descargas» o «abrir editor».',
+    'Hola, soy Olyvia. Decime qué querés hacer y lo hago: crear o abrir un proyecto, importar material, cortar, ordenar, subtitular, aplicar efectos o exportar. Probá «abrir proyecto», «nuevo proyecto Mi video» o «limpiá el video».',
 };
 
 function audioDurationFrames(asset: Asset): number {
@@ -176,12 +191,17 @@ function motionProps(
 export function AssistantDock({
   activeId,
   onSelect,
+  docked = false,
 }: {
   readonly activeId: ViewId;
   readonly onSelect: (view: ViewId) => void;
+  /** Superficie IA-only: el chat vive en la columna derecha y no se cierra. */
+  readonly docked?: boolean;
 }) {
   const store = useProjectStore();
-  const [open, setOpen] = useState(false);
+  const storeRef = useRef(store);
+  storeRef.current = store;
+  const [open, setOpen] = useState(docked);
   // Layout «Edición»: si el editor montó su columna de IA, el panel se
   // hospeda ahí por portal (paridad `.ia-coluna` de AlaukCut) y vuelve a
   // flotar como popover al salir del layout — la conversación no se remonta.
@@ -216,6 +236,15 @@ export function AssistantDock({
   // AUD-090: los comandos del puente (plugins/skills) se serializan — cada
   // evento espera a que termine el anterior antes de tocar la timeline.
   const commandQueueRef = useRef<Promise<void>>(Promise.resolve());
+  // Panel «Proceso»: trabajos del orquestador de fábrica (persistentes, avisan
+  // con MCP_ORCHESTRATOR_JOBS_UPDATED) + acciones del chat de esta sesión.
+  const [factoryJobs, setFactoryJobs] = useState<readonly OrchestratorJob[]>(() =>
+    FACTORY_JOB_MANAGER.list(20),
+  );
+  const [processActivity, setProcessActivity] = useState<readonly ProcessItem[]>([]);
+  const processSeqRef = useRef(0);
+  const runningActivityRef = useRef<string | null>(null);
+  const waitingActivityRef = useRef<string | null>(null);
 
   useEffect(
     () => () => {
@@ -438,8 +467,128 @@ export function AssistantDock({
     return () => window.removeEventListener('olyvia:assistant-open', openAssistant);
   }, []);
 
+  // En la superficie IA-only el asistente es una pieza del layout: aunque una
+  // superficie vieja pidiera cerrarlo, vuelve a estar disponible al instante.
+  useEffect(() => {
+    if (docked) setOpen(true);
+  }, [docked]);
+
+  useEffect(() => {
+    const refresh = (): void => setFactoryJobs(FACTORY_JOB_MANAGER.list(20));
+    window.addEventListener(MCP_ORCHESTRATOR_JOBS_UPDATED, refresh);
+    return () => window.removeEventListener(MCP_ORCHESTRATOR_JOBS_UPDATED, refresh);
+  }, []);
+
   function append(entry: ChatEntry): void {
     setMessages((current) => [...current, entry].slice(-24));
+  }
+
+  function nextProcessId(): string {
+    processSeqRef.current += 1;
+    return `act-${processSeqRef.current}`;
+  }
+
+  function pushProcessItem(item: ProcessItem): string {
+    setProcessActivity((current) => [...current, item].slice(-40));
+    return item.id;
+  }
+
+  function patchProcessItem(id: string, patch: Partial<ProcessItem>): void {
+    setProcessActivity((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+  }
+
+  /** Registra un ítem terminal sin acción asociada (p.ej. error de validación). */
+  function noteProcess(
+    status: ProcessItemStatus,
+    title: string,
+    detail?: string,
+  ): void {
+    pushProcessItem({
+      id: nextProcessId(),
+      at: Date.now(),
+      status,
+      title,
+      ...(detail ? { detail } : {}),
+    });
+  }
+
+  /**
+   * Envuelve una acción del pipeline (edición, montaje, MCP, fábrica) y la
+   * registra en el panel «Proceso»: running → ok/error/waiting según el
+   * resumen real que devolvió. Las acciones de transporte/UI no se registran.
+   */
+  async function trackProcessItem<T>(
+    action: AssistantAction | OperatorAction,
+    run: () => Promise<T>,
+    resolve: (value: T) => { status: ProcessItemStatus; detail?: string },
+  ): Promise<T> {
+    const label = processActionLabel(action);
+    if (!label) return run();
+    const id = pushProcessItem({
+      id: nextProcessId(),
+      at: Date.now(),
+      status: 'running',
+      title: label.title,
+      ...(label.detail ? { detail: label.detail } : {}),
+    });
+    runningActivityRef.current = id;
+    try {
+      const value = await run();
+      const outcome = resolve(value);
+      patchProcessItem(id, {
+        status: outcome.status,
+        ...(outcome.detail ? { detail: outcome.detail } : {}),
+      });
+      if (outcome.status === 'waiting') waitingActivityRef.current = id;
+      return value;
+    } catch (cause) {
+      patchProcessItem(id, {
+        status: 'error',
+        detail:
+          cause instanceof Error ? cause.message.slice(0, 200) : 'La acción falló.',
+      });
+      throw cause;
+    } finally {
+      if (runningActivityRef.current === id) runningActivityRef.current = null;
+    }
+  }
+
+  function trackOperator(
+    action: Exclude<OperatorAction, { kind: 'unknown' }>,
+    run: () => Promise<string>,
+  ): Promise<string> {
+    // El resumen completo ya quedó en el chat: el panel muestra sólo el
+    // detalle del label (alcance, velocidad, herramienta) y el estado real.
+    return trackProcessItem(action, run, (reply) => ({
+      status: classifyActionSummary(reply),
+    }));
+  }
+
+  function trackAssistantAction(
+    action: AssistantAction,
+    run: () => Promise<string | null>,
+  ): Promise<string | null> {
+    return trackProcessItem(action, run, (summary) => ({
+      status: classifyActionSummary(summary),
+    }));
+  }
+
+  /** busyLabel + detalle vivo del paso en curso dentro del panel. */
+  function setStepLabel(label: string): void {
+    setBusyLabel(label);
+    const id = runningActivityRef.current;
+    if (id) patchProcessItem(id, { detail: label });
+  }
+
+  /** La persona canceló una confirmación pendiente: el ítem queda cancelado. */
+  function cancelWaitingProcess(): void {
+    const id = waitingActivityRef.current;
+    waitingActivityRef.current = null;
+    if (id) {
+      patchProcessItem(id, { status: 'cancelled', detail: 'Cancelado por vos.' });
+    }
   }
 
   function navigate(view: string, label?: string): string {
@@ -447,6 +596,30 @@ export function AssistantDock({
     if (!target) return 'No conozco esa vista.';
     onSelect(target.id);
     return `Abriendo ${label ?? target.label}.`;
+  }
+
+  /**
+   * Importar medios y autosave necesitan un proyecto con sesión en disco.
+   * La superficie IA arranca con un documento en memoria; lo materializamos
+   * acá si todavía no llegó el bootstrap, sin diálogo nativo.
+   */
+  async function ensureDiskProject(): Promise<boolean> {
+    if (storeRef.current.state.opened) return true;
+    const created = await store.createProject({
+      name: suggestAiProjectName(),
+      width: 1920,
+      height: 1080,
+      fpsNum: 30,
+      fpsDen: 1,
+    });
+    if (!created) {
+      store.setNotice('No pude crear el proyecto en disco; la operación necesita un archivo.');
+      return false;
+    }
+    for (let attempt = 0; attempt < 50 && !storeRef.current.state.opened; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return Boolean(storeRef.current.state.opened);
   }
 
   /**
@@ -473,27 +646,11 @@ export function AssistantDock({
     if (listing.files.length === 0) {
       return `No encontré imágenes, audio o video en «${name}».`;
     }
-    let target = store.getProject();
-    if (!target) {
-      const projectName = isAbsolute
-        ? name.split(/[\\/]/).filter(Boolean).pop() || 'Proyecto'
-        : name;
-      const created = await store.createProject({
-        name: projectName,
-        width: 1920,
-        height: 1080,
-        fpsNum: 30,
-        fpsDen: 1,
-      });
-      if (!created) return 'No pude crear el proyecto para montar la carpeta.';
-      // El store publica el proyecto en el próximo render; se espera sin
-      // bloquear la UI y se aborta si no aparece.
-      for (let attempt = 0; attempt < 50 && !target; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        target = store.getProject();
-      }
-      if (!target) return 'El proyecto se está abriendo; probá de nuevo en un segundo.';
+    if (!(await ensureDiskProject())) {
+      return 'No pude crear el proyecto en disco para importar los medios.';
     }
+    const target = store.getProject();
+    if (!target) return 'El proyecto se está abriendo; probá de nuevo en un segundo.';
     const rate = target.video.frameRate;
     let outcome;
     try {
@@ -539,7 +696,7 @@ export function AssistantDock({
       const saved = assetsApplied ? await store.saveNow() : false;
       if (saved) {
         try {
-          setBusyLabel('Transcribiendo la voz…');
+          setStepLabel('Transcribiendo la voz…');
           const transcript = await store.service.transcribeAsset(voice.id);
           const plan = buildNarrationPlan(transcript.segments);
           if (plan.sentences.length > 0) {
@@ -549,7 +706,7 @@ export function AssistantDock({
             //    montaje sigue funcionando con el orden de archivos.
             let contents: ImageContent[] = [];
             try {
-              setBusyLabel('Mirando el contenido de las imágenes…');
+              setStepLabel('Mirando el contenido de las imágenes…');
               contents = await store.service.analyzeImages(images.map((image) => image.id));
             } catch {
               contents = [];
@@ -572,7 +729,7 @@ export function AssistantDock({
 
             // 3. La IA decide con las descripciones delante, no con el nombre.
             try {
-              setBusyLabel('Pensando el montaje con la IA…');
+              setStepLabel('Pensando el montaje con la IA…');
               const match = await store.service.matchMediaPlan({
                 sentences: sentenceTexts,
                 images: images.map((image) => image.label),
@@ -615,7 +772,7 @@ export function AssistantDock({
               liveProject !== null &&
               neededAssets.every((id) => liveProject.assets.some((asset) => asset.id === id));
             const live = liveHasAssets ? liveProject : prepared;
-            setBusyLabel('Montando imágenes, voz y subtítulos…');
+            setStepLabel('Montando imágenes, voz y subtítulos…');
             const built = buildNarrationTimeline(
               live,
               {
@@ -1224,10 +1381,13 @@ export function AssistantDock({
    * sale a `<raíz del proyecto>\entregas`, igual que desde el menú.
    */
   async function autoPilot(): Promise<string> {
-    const project = store.state.project;
-    const opened = store.state.opened;
-    if (!project) return 'Abrí o creá un proyecto para usar el piloto automático.';
-    if (!opened) return 'Guardá el proyecto antes de usar el piloto automático.';
+    if (!storeRef.current.state.project) return 'Abrí o creá un proyecto para usar el piloto automático.';
+    if (!(await ensureDiskProject())) {
+      return 'No pude crear el proyecto en disco; el piloto necesita un archivo.';
+    }
+    const project = storeRef.current.state.project;
+    const opened = storeRef.current.state.opened;
+    if (!project || !opened) return 'El proyecto se está abriendo; probá de nuevo en un segundo.';
     const saved = await store.saveNow();
     if (!saved) return 'No pude guardar el proyecto: el piloto necesita el archivo en disco.';
     const report = await runAutoPilot({
@@ -1319,7 +1479,7 @@ export function AssistantDock({
     if (action.kind === 'unknown') {
       return 'No reconocí ese comando. Probá «cortá los silencios», «limpiá el video», «piloto automático» o «subtitulá el clip».';
     }
-    return executeOperator(action);
+    return trackOperator(action, () => executeOperator(action));
   }
 
   /** Arranca el servidor MCP y devuelve la configuración para el cliente. */
@@ -1381,6 +1541,13 @@ export function AssistantDock({
         return `Brief «${action.topic}» enviado a Fábrica.`;
       case 'new_project':
         return createProjectNamed(action.name);
+      case 'open_project': {
+        const ok = await store.openProject();
+        if (ok) onSelect('editor');
+        return ok
+          ? 'Proyecto abierto en el editor. Ya podés pedirme cortes, efectos o la exportación.'
+          : 'No se abrió ningún proyecto.';
+      }
       case 'import_file':
         return importFileFromDisk(action.path);
       case 'download_url':
@@ -1501,21 +1668,35 @@ export function AssistantDock({
     const pending = pendingMcpCall;
     setPendingMcpCall(null);
     if (!pending) return;
+    const waitingId = waitingActivityRef.current;
+    waitingActivityRef.current = null;
     const definition = MCP_TOOL_BY_NAME.get(pending.tool);
     if (!definition) {
+      if (waitingId) {
+        patchProcessItem(waitingId, { status: 'error', detail: undefined });
+      }
       append({ role: 'assistant', text: `La herramienta MCP «${pending.tool}» ya no existe en el catálogo.` });
       return;
+    }
+    if (waitingId) {
+      patchProcessItem(waitingId, { status: 'running', detail: 'Ejecutando…' });
     }
     setBusy(true);
     setError(null);
     try {
       const result = await executeMcpTool(pending.tool, pending.arguments, mcpContext());
+      if (waitingId) {
+        patchProcessItem(waitingId, { status: 'ok', detail: undefined });
+      }
       append({
         role: 'assistant',
         text: `${definition.annotations?.title ?? pending.tool}: ${compactMcpResult(result)}`,
       });
       flashReply();
     } catch (cause) {
+      if (waitingId) {
+        patchProcessItem(waitingId, { status: 'error', detail: undefined });
+      }
       append({
         role: 'assistant',
         text: cause instanceof Error ? `No se pudo ejecutar ${pending.tool}: ${cause.message}` : `No se pudo ejecutar ${pending.tool}.`,
@@ -1694,7 +1875,7 @@ export function AssistantDock({
       const longRunning = local.kind === 'media_folder';
       if (longRunning) setBusy(true);
       try {
-        const reply = await executeOperator(local);
+        const reply = await trackOperator(local, () => executeOperator(local));
         append({ role: 'assistant', text: reply });
       } catch (cause) {
         append({
@@ -1725,15 +1906,21 @@ export function AssistantDock({
             brain: brainBrief(planEdits(store.state.project, { intent: assistantIntent() })),
           }
         : { view: activeId };
+      const memory = aiMemoryContext();
       const context = {
         ...projectContext,
-        // El proveedor recibe las definiciones JSON Schema exactas; la IA
-        // puede elegir una herramienta real y la app valida antes de invocarla.
-        mcpTools: MCP_TOOLS.map(({ name, description, inputSchema, annotations }) => {
+        // Memoria persistente de la IA: notas que el usuario o el propio
+        // agente guardaron y que sobreviven sesiones.
+        ...(memory ? { memory } : {}),
+        // Índice compacto: con 400+ herramientas el schema completo no entra
+        // en el presupuesto del prompt (~200 KB por mensaje). El modelo ve
+        // nombre + descripción breve + marcas de riesgo de TODAS y pide el
+        // JSON Schema exacto con `mcp_tool_schema` antes de invocar.
+        mcpTools: MCP_TOOLS.map(({ name, description, annotations }) => {
           // h compacta las anotaciones: r=read-only, d=destructive, o=open-world.
           // El prompt Rust define la semántica; no se pierden señales de riesgo.
           const compactDescription = description
-            .slice(0, 220)
+            .slice(0, 160)
             .replace(/^S\u00f3lo lectura\.\s*/u, '')
             .replace(/^Modifica el proyecto \(se puede deshacer con undo\)\.\s*/u, '');
           const hints = [
@@ -1744,7 +1931,6 @@ export function AssistantDock({
           return {
             name,
             description: compactDescription,
-            inputSchema,
             ...(hints ? { h: hints } : {}),
           };
         }),
@@ -1775,13 +1961,26 @@ export function AssistantDock({
             validateMcpToolArguments(action.tool, action.arguments);
             if (definition) {
               setPendingMcpCall({ tool: action.tool, arguments: action.arguments });
+              waitingActivityRef.current = pushProcessItem({
+                id: nextProcessId(),
+                at: Date.now(),
+                status: 'waiting',
+                title: `MCP: ${definition.annotations?.title ?? action.tool}`,
+                detail: 'Esperando tu autorización para ejecutarla.',
+              });
               summaries.push(
                 `«${definition.annotations?.title ?? action.tool}» necesita confirmación por su nivel de riesgo. Detuve el resto del plan hasta que autorices o canceles esta herramienta.`,
               );
             } else {
+              noteProcess('error', `MCP: ${action.tool}`, 'Herramienta desconocida en el catálogo.');
               summaries.push(`Herramienta MCP desconocida: «${action.tool}».`);
             }
           } catch (cause) {
+            noteProcess(
+              'error',
+              `MCP: ${action.tool}`,
+              'Los argumentos no pasaron la validación del catálogo.',
+            );
             summaries.push(
               cause instanceof Error ? `No ejecuté ${action.tool}: ${cause.message}` : `No ejecuté ${action.tool}.`,
             );
@@ -1789,7 +1988,7 @@ export function AssistantDock({
           break;
         }
 
-        const summary = await runAssistantAction(action);
+        const summary = await trackAssistantAction(action, () => runAssistantAction(action));
         if (summary) summaries.push(summary);
 
         // El borrado abre una confirmación. No se ejecuta ninguna acción que
@@ -1834,10 +2033,25 @@ export function AssistantDock({
     const target = pendingDelete;
     setPendingDelete(null);
     if (!target) return;
+    const waitingId = waitingActivityRef.current;
+    waitingActivityRef.current = null;
+    if (waitingId) {
+      patchProcessItem(waitingId, { status: 'running', detail: 'Ejecutando…' });
+    }
     try {
-      append({ role: 'assistant', text: await deleteSelection() });
+      const reply = await deleteSelection();
+      if (waitingId) {
+        patchProcessItem(waitingId, {
+          status: classifyActionSummary(reply),
+          detail: undefined,
+        });
+      }
+      append({ role: 'assistant', text: reply });
       flashReply();
     } catch (cause) {
+      if (waitingId) {
+        patchProcessItem(waitingId, { status: 'error', detail: undefined });
+      }
       append({
         role: 'assistant',
         text: cause instanceof Error ? cause.message : 'No pude borrar la selección.',
@@ -1850,6 +2064,44 @@ export function AssistantDock({
     setError(null);
     setProviderTest(null);
     setProviderTestFailure(null);
+  }
+
+  // Lista cronológica del panel «Proceso»: trabajos del orquestador (fuente
+  // persistente y compartida con MCP/Autopiloto) + acciones del chat.
+  const processItems = useMemo<readonly ProcessItem[]>(() => {
+    const items = [...factoryJobs.map(jobToProcessItem), ...processActivity];
+    return items.sort((a, b) => a.at - b.at).slice(-40);
+  }, [factoryJobs, processActivity]);
+
+  const factoryJobActive = factoryJobs.some(
+    (job) => job.status === 'queued' || job.status === 'running',
+  );
+  // Reintentar usa el mismo camino que AutopilotPanel: FACTORY_JOB_MANAGER.start
+  // con el servicio y el proyecto abierto como base de medios.
+  const canRetryJobs = !factoryJobActive && store.state.project !== null;
+
+  function retryFactoryJob(job: OrchestratorJob): void {
+    const project = store.state.project;
+    if (!project) {
+      setError('Abrí o creá un proyecto para reintentar el trabajo de fábrica.');
+      return;
+    }
+    try {
+      FACTORY_JOB_MANAGER.start(
+        job,
+        {
+          service: store.service,
+          baseProject: project,
+          onUpdate: () => {},
+        },
+        job.projectPath && job.profileId ? { stage: 'render' } : undefined,
+        'ui',
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : 'No se pudo reintentar el trabajo.',
+      );
+    }
   }
 
   return (
@@ -1876,14 +2128,16 @@ export function AssistantDock({
                 </span>
               </div>
             </div>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Cerrar asistente"
-              onClick={toggleOpen}
-            >
-              <Icon name="close" size={15} />
-            </button>
+            {!docked ? (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Cerrar asistente"
+                onClick={toggleOpen}
+              >
+                <Icon name="close" size={15} />
+              </button>
+            ) : null}
           </header>
 
           <div className="assistant-model-bar">
@@ -1948,6 +2202,12 @@ export function AssistantDock({
               )
             ) : null}
           </div>
+
+          <AssistantProcessPanel
+            items={processItems}
+            canRetryJobs={canRetryJobs}
+            onRetryJob={retryFactoryJob}
+          />
 
           {error ? (
             <div className="assistant-error-recovery">
@@ -2014,7 +2274,10 @@ export function AssistantDock({
                   type="button"
                   className="ghost"
                   disabled={busy}
-                  onClick={() => setPendingMcpCall(null)}
+                  onClick={() => {
+                    cancelWaitingProcess();
+                    setPendingMcpCall(null);
+                  }}
                 >
                   No, cancelar
                 </button>
@@ -2038,7 +2301,10 @@ export function AssistantDock({
                 <button
                   type="button"
                   className="ghost"
-                  onClick={() => setPendingDelete(null)}
+                  onClick={() => {
+                    cancelWaitingProcess();
+                    setPendingDelete(null);
+                  }}
                 >
                   No, cancelar
                 </button>
@@ -2144,18 +2410,20 @@ export function AssistantDock({
         </AssistantPanelPortal>
       ) : null}
 
-      <button
-        type="button"
-        className="assistant-launcher"
-        data-tour="ai-dock"
-        aria-label={open ? 'Cerrar asistente Olyvia' : 'Abrir asistente Olyvia'}
-        aria-expanded={open}
-        aria-controls="olyvia-assistant-panel"
-        title="Olyvia Assistant"
-        onClick={toggleOpen}
-      >
-        <Icon name={open ? 'close' : 'chat'} size={20} />
-      </button>
+      {!docked ? (
+        <button
+          type="button"
+          className="assistant-launcher"
+          data-tour="ai-dock"
+          aria-label={open ? 'Cerrar asistente Olyvia' : 'Abrir asistente Olyvia'}
+          aria-expanded={open}
+          aria-controls="olyvia-assistant-panel"
+          title="Olyvia Assistant"
+          onClick={toggleOpen}
+        >
+          <Icon name={open ? 'close' : 'chat'} size={20} />
+        </button>
+      ) : null}
     </>
   );
 }

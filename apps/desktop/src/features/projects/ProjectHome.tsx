@@ -648,7 +648,10 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
             aria-label="URL para descargar"
             onChange={(event) => setDownloadUrl(event.target.value)}
           />
-          <button type="submit" className="primary" disabled={!downloadUrl.trim()}>
+          {/* Secundario: el primario de la vista es «Abrir editor»/«Crear y
+              elegir ubicación…»; dos CTAs primary a la vez confundían la
+              jerarquía (auditoría UX). */}
+          <button type="submit" className="secondary" disabled={!downloadUrl.trim()}>
             Descargar
           </button>
         </form>
@@ -730,7 +733,7 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
             <Icon name="projects" size={20} />
           </span>
           <strong>No hay proyectos abiertos</strong>
-          <p>Creá uno abajo con nombre, formato y fps, o abrí un archivo .olyvia existente.</p>
+          <p>Creá uno abajo con nombre, formato y fps, o abrí un archivo .editoria.json existente.</p>
         </div>
       )}
 
@@ -817,7 +820,7 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
                           onClick={() => void relinkOne(asset)}
                           title="Elegir el archivo que reemplaza a este medio"
                         >
-                          Relink…
+                          Reconectar…
                         </button>
                       </span>
                     </li>
@@ -844,7 +847,7 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
               </div>
               <p className="fine-print">
                 El proxy, si existe, sólo se usa para previsualizar: el archivo original sigue
-                faltando. Relink valida el archivo elegido por nombre y tamaño (o hash cuando el
+                faltando. Reconectar valida el archivo elegido por nombre y tamaño (o hash cuando el
                 backend lo calcula) y nunca borra medios del disco.
               </p>
             </>
@@ -1233,7 +1236,15 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
                     type="button"
                     className="icon-button"
                     aria-label={`Quitar ${recent.name} de recientes`}
-                    onClick={() => setRecents(forgetRecent(recent.path))}
+                    onClick={() => {
+                      // Mismo aviso que en el launcher: quitar de recientes no
+                      // borra el archivo, pero no hay deshacer.
+                      const confirmed = window.confirm(
+                        `Se quita «${recent.name}» de los recientes; ` +
+                          'el archivo del proyecto no se borra del disco. ¿Continuar?',
+                      );
+                      if (confirmed) setRecents(forgetRecent(recent.path));
+                    }}
                   >
                     ×
                   </button>

@@ -81,11 +81,34 @@ export function VfxView({ onNavigate }: VfxViewProps) {
   const translateX = sampled.x ?? polygon?.x ?? 0;
   const translateY = sampled.y ?? polygon?.y ?? 0;
   const points = polygon?.points ?? [];
+  const scaleX = sampled.width ?? polygon?.width ?? 1;
+  const scaleY = sampled.height ?? polygon?.height ?? 1;
+  const rotationDeg = sampled.rotationDeg ?? polygon?.rotationDeg ?? 0;
+  // Paridad con `maskPolygon` del preview y `masks.rs`: width/height
+  // escalan alrededor del centro del bbox y rotationDeg rota en sentido
+  // horario con corrección de aspecto, antes del offset x/y.
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const bboxCX = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0;
+  const bboxCY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0;
+  const maskAspect =
+    project && project.video.height > 0
+      ? project.video.width / project.video.height
+      : 1;
+  const safeAspect = Math.abs(maskAspect) > 0.01 ? maskAspect : 1;
+  const radians = (rotationDeg * Math.PI) / 180;
+  const cosR = Math.cos(radians);
+  const sinR = Math.sin(radians);
   const polygonPoints = points;
-  const overlayPoints = points.map((point) => ({
-    x: point.x + translateX,
-    y: point.y + translateY,
-  }));
+  const overlayPoints = points.map((point) => {
+    const dx = (point.x - bboxCX) * scaleX;
+    const dy = (point.y - bboxCY) * scaleY;
+    const dyx = dy / safeAspect;
+    return {
+      x: bboxCX + cosR * dx - sinR * dyx + translateX,
+      y: bboxCY + (sinR * dx + cosR * dyx) * safeAspect + translateY,
+    };
+  });
   const effects: ClipEffects =
     clip && 'effects' in clip
       ? ((clip as Clip & { effects?: ClipEffects }).effects ?? {})
@@ -236,12 +259,31 @@ export function VfxView({ onNavigate }: VfxViewProps) {
     patchMask({ ...polygon, points: [...polygonPoints, point] });
   }
 
+  // Inversa de la transformación de `overlayPoints` (escala → rotación
+  // horaria con aspecto → offset): el puntero llega en coordenadas de
+  // pantalla y hay que guardarlo en el espacio raw del polígono.
+  function rawFromOverlay(point: MaskPoint): MaskPoint {
+    const sx = Math.abs(scaleX) > 0.001 ? scaleX : 1;
+    const sy = Math.abs(scaleY) > 0.001 ? scaleY : 1;
+    // overlay = pivot + Rot·((raw − pivot)·scale) + translate
+    // ⇒ raw = pivot + Rot⁻¹(overlay − translate − pivot)/scale
+    const rx = point.x - translateX - bboxCX;
+    const ry = point.y - translateY - bboxCY;
+    const ryx = ry / safeAspect;
+    const dx = cosR * rx + sinR * ryx;
+    const dyx = -sinR * rx + cosR * ryx;
+    return {
+      x: clamp01(bboxCX + dx / sx),
+      y: clamp01(bboxCY + dyx * safeAspect / sy),
+    };
+  }
+
   function pointFromEvent(event: PointerEvent<SVGSVGElement>): MaskPoint {
     const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      x: clamp01((event.clientX - rect.left) / rect.width - translateX),
-      y: clamp01((event.clientY - rect.top) / rect.height - translateY),
-    };
+    return rawFromOverlay({
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.height,
+    });
   }
 
   function startDrag(index: number): void {

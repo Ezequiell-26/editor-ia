@@ -490,24 +490,42 @@
   gap: 6px;
 }
 
+/* El botón mide 24×24 px (target mínimo WCAG 2.5.8); el punto visible de
+ * 8 px se dibuja con ::before para no cambiar la geometria de la fila. */
 .tour-dot {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.tour-dot::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  left: 8px;
   width: 8px;
   height: 8px;
   border-radius: 999px;
   background: #334155;
-  border: none;
-  padding: 0;
-  cursor: pointer;
   transition: all 0.2s ease;
 }
 
-.tour-dot.active {
+.tour-dot.active::before {
+  top: 8px;
+  left: 1px;
   width: 22px;
+  height: 8px;
   background: #7dd3c0;
   box-shadow: 0 0 8px rgba(125, 211, 192, 0.6);
 }
 
-.tour-dot:hover:not(.active) {
+.tour-dot:hover:not(.active)::before {
   background: #64748b;
 }
 

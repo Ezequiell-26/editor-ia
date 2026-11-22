@@ -36,7 +36,7 @@ pub mod wav;
 mod download;
 
 pub use download::supply;
-pub use transcribe::{Segment, Transcriber, TranscriberStatus, TranscribeRequest};
+pub use transcribe::{Segment, TranscribeRequest, Transcriber, TranscriberStatus};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

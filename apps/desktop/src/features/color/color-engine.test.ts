@@ -409,34 +409,37 @@ describe('clipChromaKeySpec', () => {
     expect(clipChromaKeySpec({ ...key, spill: 0.0005 }, 'k1')!.primitives).toHaveLength(4);
   });
 
-  it('con spill verde agrega la cadena de supresión y cierra con arithmetic', () => {
+  it('con spill verde agrega UNA feColorMatrix de supresión', () => {
     const spec = clipChromaKeySpec({ ...key, spill: 0.6 }, 'k1')!;
-    expect(spec.primitives).toHaveLength(14);
+    expect(spec.primitives).toHaveLength(5);
     const last = spec.primitives[spec.primitives.length - 1]!;
-    expect(last.tag).toBe('feComposite');
-    expect(last.attrs.operator).toBe('arithmetic');
+    expect(last.tag).toBe('feColorMatrix');
     expect(last.attrs.in).toBe('chroma-keyed');
-    expect(last.attrs.k2).toBe(1);
-    expect(last.attrs.k3).toBe(1);
-    // El delta entra por el canal G (fila 1) leyendo el excess del canal R.
-    const delta = spec.primitives.find((p) => p.attrs.result === 'spill-delta')!;
-    const rows = String(delta.attrs.values).split(' ').map(Number);
-    // values son 4 filas de 5: la fila G es indices 5..9.
-    expect(rows[5]).toBeCloseTo(-0.6, 3);
-    expect(rows[6]).toBe(0);
-    expect(rows[9]).toBe(0);
+    expect(last.attrs.result).toBe('chroma-spilled');
+    // values = 4 filas de 5 [r,g,b,a,const]. Canal G (fila 1):
+    // G' = 0.3·R + 0.4·G + 0.3·B  (avg en vez de max — ver color-engine).
+    const rows = String(last.attrs.values).split(' ').map(Number);
+    expect(rows[5]).toBeCloseTo(0.3, 3); // R
+    expect(rows[6]).toBeCloseTo(0.4, 3); // G (1 - spill)
+    expect(rows[7]).toBeCloseTo(0.3, 3); // B
+    // Filas R y B identidad, A copia el alpha de entrada.
+    expect(rows[0]).toBe(1);
+    expect(rows[12]).toBe(1); // B row: coef G? fila B indices 10..14 → [0,0,1,0,0]
+    expect(rows[15]).toBe(0);
+    expect(rows[18]).toBe(1); // A row copia alpha
   });
 
-  it('con spill azul el delta entra por el canal B (fila 2)', () => {
+  it('con spill azul la supresión entra por el canal B (fila 2)', () => {
     const spec = clipChromaKeySpec(
       { color: '#0000ff', similarity: 0.3, blend: 0.1, spill: 0.5 },
       'k1',
     )!;
-    const delta = spec.primitives.find((p) => p.attrs.result === 'spill-delta')!;
-    const rows = String(delta.attrs.values).split(' ').map(Number);
-    // Fila B = indices 10..14; coeficiente -0.5 en la posición R (índice 10).
-    expect(rows[10]).toBeCloseTo(-0.5, 3);
-    expect(rows[11]).toBe(0);
+    const last = spec.primitives[spec.primitives.length - 1]!;
+    const rows = String(last.attrs.values).split(' ').map(Number);
+    // Fila B = indices 10..14: B' = 0.25·R + 0.25·G + 0.5·B.
+    expect(rows[10]).toBeCloseTo(0.25, 3);
+    expect(rows[11]).toBeCloseTo(0.25, 3);
+    expect(rows[12]).toBeCloseTo(0.5, 3);
   });
 
   it('spill sobre color que no es pantalla no agrega primitivas', () => {

@@ -23,8 +23,12 @@ import {
  * aproximación ya documentada de `clipPreviewStack` (los filtros CSS se
  * aplican sobre el canvas, no sobre la textura cruda).
  *
- * No cubre: LUT del `project.look` global ni la de clips de ajuste (el
+ * No cubre: la LUT del `project.look` global ni la de clips de ajuste (el
  * export la aplica gateada por ventana sobre la imagen inferior completa).
+ * El look se resuelve dentro del hook (ver `lookLutRequests`) y llega a las
+ * capas de medio (video/imagen); el texto y las formas del preview son DOM
+ * y no pasan por el renderer WebGL — gap documentado frente al export,
+ * que la aplica sobre el frame ya compuesto con todo incluido.
  */
 
 export type PreviewLutRequest =
@@ -55,6 +59,20 @@ export function clipPreviewLuts(
     }
   }
   return requests;
+}
+
+/**
+ * LUT del `project.look` global. El export la aplica sobre el frame ya
+ * compuesto (`plan/range.rs`); la preview la evalúa por capa después de las
+ * LUTs del clip — misma familia de aproximación que `clipPreviewStack`.
+ * Sólo `lutFile`: el export no lee `cameraProfile` del look.
+ */
+export function lookLutRequests(look: ClipEffects | undefined): PreviewLutRequest[] {
+  const lutFile = typeof look?.lutFile === 'string' ? look.lutFile.trim() : '';
+  if (!lutFile) return [];
+  const intensity = look?.lutIntensity ?? 1;
+  if (intensity <= 0.001) return [];
+  return [{ kind: 'file', path: lutFile, intensity }];
 }
 
 function sourceToInput(source: Lut3DSource, intensity: number): Lut3DInput {
@@ -90,10 +108,12 @@ const EMPTY_INPUTS: Lut3DInput[] = [];
 export function usePreviewLuts(requests: readonly PreviewLutRequest[]): Lut3DInput[] {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
-  const requestsKey = JSON.stringify(requests);
+  const look = store.state.project?.look;
+  const lookRequests = lookLutRequests(look);
+  const requestsKey = JSON.stringify([...requests, ...lookRequests]);
   const [inputs, setInputs] = useState<Lut3DInput[]>(EMPTY_INPUTS);
-  const requestsRef = useRef(requests);
-  requestsRef.current = requests;
+  const requestsRef = useRef<readonly PreviewLutRequest[]>([]);
+  requestsRef.current = [...requests, ...lookRequests];
 
   useEffect(() => {
     const list = requestsRef.current;

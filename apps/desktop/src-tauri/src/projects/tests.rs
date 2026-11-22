@@ -522,6 +522,54 @@ fn la_identidad_de_timing_se_exige_con_enteros_exactos() {
 }
 
 #[test]
+fn la_identidad_de_timing_rechaza_desborde_u64() {
+    // AUD-123: durationFrames x speed.num desbordaba u64 sin checked_mul —
+    // el wrap podía hacer "cerrar" una identidad falsa o paniquear.
+    let dir = TempDir::new("timing-overflow");
+    let mut overflowed = valid_project();
+    overflowed["timeline"]["clips"][0]["durationFrames"] = json!(u64::MAX);
+    overflowed["timeline"]["clips"][0]["speed"] = json!({ "num": 2, "den": 1 });
+    let error = save_project(&dir.file("overflow.editoria.json"), &overflowed)
+        .expect_err("un producto que desborda u64 debe rechazarse");
+    assert!(
+        issue_paths(&error)
+            .iter()
+            .any(|path| path.contains("durationFrames")),
+        "la incidencia debe señalar durationFrames: {:?}",
+        issue_paths(&error)
+    );
+}
+
+#[test]
+fn los_enteros_fuera_del_rango_seguro_de_js_se_rechazan() {
+    // Residual de AUD-123: `number()` aceptaba hasta u64::MAX, pero por
+    // encima de Number.isSafeInteger (2^53-1) el frontend no puede
+    // representar el valor con fidelidad — se rechaza como issue.
+    let dir = TempDir::new("timing-safe-int");
+    let mut unsafe_value = valid_project();
+    unsafe_value["timeline"]["clips"][0]["durationFrames"] = json!(9_007_199_254_740_992u64);
+    let error = save_project(&dir.file("unsafe.editoria.json"), &unsafe_value)
+        .expect_err("un entero fuera de safe-integer debe rechazarse");
+    assert!(
+        issue_paths(&error)
+            .iter()
+            .any(|path| path.contains("durationFrames")),
+        "la incidencia debe señalar durationFrames: {:?}",
+        issue_paths(&error)
+    );
+
+    // El borde exacto (2^53-1) sigue siendo válido si cierra la identidad:
+    // 9007199254740991 no es múltiplo razonable de window; se usa un campo
+    // que no participa de la identidad — `revision` — para probar el tope.
+    let mut at_limit = valid_project();
+    at_limit["revision"] = json!(9_007_199_254_740_991u64);
+    assert!(
+        save_project(&dir.file("limit.editoria.json"), &at_limit).is_ok(),
+        "2^53-1 es el mayor entero seguro de JS y debe aceptarse"
+    );
+}
+
+#[test]
 fn crea_entrega_nativa_para_formato_y_fps_personalizados() {
     let dir = TempDir::new("custom-format");
     let path = dir.file("custom.editoria.json");
@@ -690,32 +738,31 @@ fn un_asset_ready_exige_hash_media_y_licencia_resuelta() {
     rejected_with(&sin_media, "assets[0].media");
 
     let mut licencia_desconocida = valid_project();
-    licencia_desconocida["assets"][0]["rights"]["license"]["commercialUse"] =
-        json!("unknown");
-    rejected_with(&licencia_desconocida, "assets[0].rights.license.commercialUse");
+    licencia_desconocida["assets"][0]["rights"]["license"]["commercialUse"] = json!("unknown");
+    rejected_with(
+        &licencia_desconocida,
+        "assets[0].rights.license.commercialUse",
+    );
 
     // Un asset ready completo y nuevo tambien pasa: una fuente local.
     let dir = TempDir::new("asset-ready");
     let mut project = valid_project();
-    project["assets"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({
-            "id": ghost_id(),
-            "label": "Grafico listo",
-            "kind": "image",
-            "source": { "type": "local", "path": "media/logo.png" },
-            "status": "ready",
-            "integrity": {
-                "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-                "bytes": 1024
-            },
-            "rights": {
-                "license": { "id": "own-work", "commercialUse": "allowed" },
-                "provenance": { "origin": "user-imported", "acquiredAt": "2026-10-18T10:00:00Z" }
-            },
-            "media": { "width": 512, "height": 512 }
-        }));
+    project["assets"].as_array_mut().unwrap().push(json!({
+        "id": ghost_id(),
+        "label": "Grafico listo",
+        "kind": "image",
+        "source": { "type": "local", "path": "media/logo.png" },
+        "status": "ready",
+        "integrity": {
+            "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "bytes": 1024
+        },
+        "rights": {
+            "license": { "id": "own-work", "commercialUse": "allowed" },
+            "provenance": { "origin": "user-imported", "acquiredAt": "2026-10-18T10:00:00Z" }
+        },
+        "media": { "width": 512, "height": 512 }
+    }));
     assert!(
         save_project(&dir.file("assets.editoria.json"), &project).is_ok(),
         "un asset ready con hash, media y licencia debe aceptarse"

@@ -12,9 +12,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::State;
 
-use crate::application::variants::{
-    self, CopiedMedia, VariantWritten,
-};
+use crate::application::variants::{self, CopiedMedia, VariantWritten};
 use crate::commands::system::resolve_tools;
 use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{self, build_plan, parse_profile, BuildPlanInput};
@@ -207,35 +205,46 @@ pub async fn render_project_variant(
             "el render de la variante se interrumpió",
         )
     })?;
-    let verification = match rendered {
-        Ok(verification) => verification,
-        Err(error) => {
+    // Publicar el MP4 (copy de GBs) y limpiar el temporal del render:
+    // fuera del runtime async (AUD-129).
+    tauri::async_runtime::spawn_blocking(move || -> Result<VariantRendered, ProjectError> {
+        let verification = match rendered {
+            Ok(verification) => verification,
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&temp_dir);
+                return Err(error);
+            }
+        };
+        if final_output.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
-            return Err(error);
+            return Err(ProjectError::message(
+                ProjectErrorCode::AlreadyExists,
+                "el MP4 de la variante apareció durante el render; no se sobrescribió",
+            ));
         }
-    };
-    if final_output.exists() {
+        std::fs::copy(&render_output, &final_output).map_err(|_| {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "el render pasó la verificación pero no se pudo publicar el MP4 de la variante",
+            )
+        })?;
         let _ = std::fs::remove_dir_all(&temp_dir);
-        return Err(ProjectError::message(
-            ProjectErrorCode::AlreadyExists,
-            "el MP4 de la variante apareció durante el render; no se sobrescribió",
-        ));
-    }
-    std::fs::copy(&render_output, &final_output).map_err(|_| {
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "el render pasó la verificación pero no se pudo publicar el MP4 de la variante",
-        )
-    })?;
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    Ok(VariantRendered {
-        path: final_output.to_string_lossy().into_owned(),
-        bytes: verification.output_bytes,
-        duration_seconds: verification.duration_seconds,
-        width: verification.width,
-        height: verification.height,
+        Ok(VariantRendered {
+            path: final_output.to_string_lossy().into_owned(),
+            bytes: verification.output_bytes,
+            duration_seconds: verification.duration_seconds,
+            width: verification.width,
+            height: verification.height,
+        })
     })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "la publicación de la variante se interrumpió",
+        )
+    })?
 }
 
 /// Copia material externo dentro de una carpeta de entrega.
@@ -244,11 +253,17 @@ pub async fn render_project_variant(
 /// proyecto. El render resuelve las rutas **dentro** de la raíz del proyecto,
 /// así que primero se copian a `media/` y el proyecto apunta a la ruta relativa.
 #[tauri::command]
-pub fn copy_media_into(
+pub async fn copy_media_into(
     directory: String,
     paths: Vec<String>,
 ) -> Result<Vec<CopiedMedia>, ProjectError> {
-    variants::copy_media_files(&directory, &paths)
+    // Copia + sha256 de cada archivo (GBs posibles): fuera del main
+    // thread (AUD-129).
+    tauri::async_runtime::spawn_blocking(move || variants::copy_media_files(&directory, &paths))
+        .await
+        .map_err(|_| {
+            ProjectError::message(ProjectErrorCode::Io, "la copia de material se interrumpió")
+        })?
 }
 
 /// Escribe un proyecto en una carpeta **sin** exigir una sesión abierta.
@@ -257,10 +272,19 @@ pub fn copy_media_into(
 /// cola por carpeta el material ya está copiado al lado del proyecto, así que
 /// sólo hace falta validar y escribir.
 #[tauri::command]
-pub fn write_project_file(
+pub async fn write_project_file(
     directory: String,
     file_name: String,
     project: Value,
 ) -> Result<VariantWritten, ProjectError> {
-    variants::write_project_document(&directory, &file_name, &project)
+    tauri::async_runtime::spawn_blocking(move || {
+        variants::write_project_document(&directory, &file_name, &project)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la escritura del proyecto se interrumpió",
+        )
+    })?
 }

@@ -72,6 +72,27 @@ describe('estabilización de video', () => {
     expect(empty.success).toBe(false);
   });
 
+  it('acepta previewProxy opcional y lo conserva en el roundtrip', () => {
+    const withProxy = stabilization({
+      previewProxy: 'media/stabilizers/abc-preview.mp4',
+    });
+    expect(ClipStabilizationSchema.safeParse(withProxy).success).toBe(true);
+    const parsed = ClipSchema.safeParse(
+      videoClip({ stabilization: withProxy }),
+    );
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.kind === 'video') {
+      expect(parsed.data.stabilization?.previewProxy).toBe(
+        'media/stabilizers/abc-preview.mp4',
+      );
+    }
+    for (const previewProxy of ['', 'x'.repeat(501)]) {
+      expect(
+        ClipStabilizationSchema.safeParse(stabilization({ previewProxy })).success,
+      ).toBe(false);
+    }
+  });
+
   it('rechaza claves desconocidas y clips que no son video', () => {
     const unknown = ClipStabilizationSchema.safeParse(
       stabilization({ extra: true }),

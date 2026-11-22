@@ -2487,6 +2487,39 @@
   color: var(--color-text);
   font-size: var(--text-lg);
 }
+/* Botón Start del monitor: una puerta visible para revisar el resultado de
+   la edición sin depender de la barra de transporte. Sólo aparece cuando hay
+   clips y la reproducción está detenida. */
+.preview-start {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 92px;
+  padding: 14px 18px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 65%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 18%, rgba(7, 10, 14, 0.82));
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.preview-start:hover {
+  background: color-mix(in srgb, var(--color-accent) 32%, rgba(7, 10, 14, 0.86));
+}
+.preview-start:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
 .preview-caption {
   position: absolute;
   left: 6%;
@@ -3296,7 +3329,18 @@
   background: var(--color-panel-3);
   cursor: pointer;
   position: relative;
-  overflow: hidden;
+  /* WCAG 2.5.8: el gesto horizontal es nuestro (drag del slider); el
+     scroll vertical de la página sigue permitido. */
+  touch-action: pan-y;
+}
+/* Área de impacto invisible: la pista visual son 5 px pero el objetivo
+   real crece a ~21 px de alto con un pseudo-elemento transparente.
+   `overflow` ya quedó en `visible` más abajo para el knob, así que el
+   área extra recibe puntero y teclado como parte del slider. */
+.transport-scrub::after {
+  content: '';
+  position: absolute;
+  inset: -8px 0;
 }
 .transport-scrub::before {
   content: '';
@@ -3870,4 +3914,92 @@
   .editor-grid.editor-mode-active {
     --mode-monitor-width: 280px;
   }
+}
+
+/* Teleprompter · guion con scroll automático para narrar/locutar.
+   Vive en el entry del editor (modo del workspace); usa los tokens del tema
+   para contraste alto: línea activa en texto pleno, leídas atenuadas. */
+.teleprompter-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+.teleprompter-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.teleprompter-script textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+}
+.teleprompter-stage {
+  flex: 1;
+  min-height: 320px;
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+  overflow: hidden;
+}
+.teleprompter-lines {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  position: relative;
+  padding: 16% 10%;
+  text-align: center;
+  outline: none;
+}
+.teleprompter-lines:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+}
+.teleprompter-lines p {
+  margin: 0 0 0.55em;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+.teleprompter-lines p.read {
+  opacity: 0.45;
+}
+.teleprompter-lines p.active {
+  color: var(--color-text);
+  font-weight: 650;
+}
+.teleprompter-stage.nowrap .teleprompter-lines p {
+  white-space: nowrap;
+}
+.teleprompter-empty {
+  color: var(--color-text-faint) !important;
+  font-style: italic;
+}
+.teleprompter-wpm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.teleprompter-wpm input {
+  width: 64px;
+}
+.teleprompter-font {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.teleprompter-hint {
+  margin: 0;
+}
+.teleprompter-hint kbd {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
 }

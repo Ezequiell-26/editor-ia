@@ -32,6 +32,7 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   sharpen: 'sharpen',
   thumbnails: 'thumbnails',
   localization: 'globe',
+  teleprompter: 'text',
   'ai-hub': 'ai-hub',
   motion: 'motion',
   visuals: 'filters',

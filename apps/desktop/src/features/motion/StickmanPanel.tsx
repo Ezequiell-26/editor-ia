@@ -7,7 +7,7 @@ import { StickmanRigEditor } from './StickmanRigEditor';
 import { STAND_POSE, type StickmanKeyframe } from './stickman-rig';
 
 const ACTIONS = ['idle', 'walk', 'run', 'wave', 'jump', 'custom'] as const;
-const PARTICLES = ['none', 'confetti', 'snow', 'sparks', 'bounce'] as const;
+const PARTICLES = ['none', 'confetti', 'snow', 'sparks', 'bounce', 'tumble'] as const;
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'no se pudo renderizar el stickman';
@@ -40,6 +40,7 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
   const [particleCount, setParticleCount] = useState(300);
   const [particleGravity, setParticleGravity] = useState(900);
   const [particleBounce, setParticleBounce] = useState(0.72);
+  const [particleSpin, setParticleSpin] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<StickmanRenderResult | null>(null);
@@ -74,9 +75,10 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
                 kind: particles,
                 count: particleCount,
                 colorHex: particleColor,
-                ...(particles === 'bounce'
+                ...(particles === 'bounce' || particles === 'tumble'
                   ? { gravity: particleGravity, bounce: particleBounce }
                   : {}),
+                ...(particles === 'tumble' ? { spin: particleSpin } : {}),
               },
             }
           : {}),
@@ -208,7 +210,7 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
                 onChange={(e) => setParticleColor(e.target.value)}
               />
             </label>
-            {particles === 'bounce' ? (
+            {particles === 'bounce' || particles === 'tumble' ? (
               <>
                 <label className="field">
                   <span>Gravedad (px/s²)</span>
@@ -236,6 +238,21 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
                   />
                 </label>
               </>
+            ) : null}
+            {particles === 'tumble' ? (
+              <label className="field">
+                <span>Giro (−8 a 8)</span>
+                <input
+                  type="number"
+                  min={-8}
+                  max={8}
+                  step={0.5}
+                  value={particleSpin}
+                  onChange={(e) =>
+                    setParticleSpin(Math.min(8, Math.max(-8, Number(e.target.value) || 0)))
+                  }
+                />
+              </label>
             ) : null}
           </>
         ) : null}

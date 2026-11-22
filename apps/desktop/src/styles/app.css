@@ -3081,31 +3081,14 @@ textarea {
   color: color-mix(in srgb, var(--color-warning) 45%, var(--color-text));
 }
 
-.flag {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 9px;
-  line-height: 1;
-}
-
-.flag.active {
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
-  border-color: var(--color-accent);
-}
-
 .lane-hint {
   position: absolute;
   left: 10px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--color-empty);
-  font-size: 10px;
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
   pointer-events: none;
 }
 
@@ -3113,13 +3096,16 @@ textarea {
   position: absolute;
   top: 6px;
   bottom: 6px;
-  border-radius: 6px;
+  border-radius: 5px;
   border: 1px solid color-mix(in srgb, var(--color-video) 55%, var(--color-border));
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--color-video) 42%, var(--color-panel-2)),
     color-mix(in srgb, var(--color-video) 28%, var(--color-bg))
   );
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--color-text) 12%, transparent) inset,
+    0 2px 6px rgba(0, 0, 0, 0.28);
   overflow: hidden;
   cursor: grab;
   user-select: none;
@@ -3154,10 +3140,28 @@ textarea {
 
 .timeline-clip.kind-audio {
   border-color: color-mix(in srgb, var(--color-audio) 80%, var(--color-bg));
-  background: repeating-linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-audio) 45%, var(--color-panel-2)) 0 8px,
-    color-mix(in srgb, var(--color-audio) 35%, var(--color-panel-2)) 8px 16px
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-audio) 45%, var(--color-panel-2)),
+    color-mix(in srgb, var(--color-audio) 30%, var(--color-bg))
+  );
+}
+
+.timeline-clip.kind-narration {
+  border-color: color-mix(in srgb, var(--color-narration) 80%, var(--color-bg));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-narration) 45%, var(--color-panel-2)),
+    color-mix(in srgb, var(--color-narration) 30%, var(--color-bg))
+  );
+}
+
+.timeline-clip.kind-graphic {
+  border-color: color-mix(in srgb, var(--color-graphic) 80%, var(--color-bg));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-graphic) 45%, var(--color-panel-2)),
+    color-mix(in srgb, var(--color-graphic) 30%, var(--color-bg))
   );
 }
 
@@ -3181,10 +3185,12 @@ textarea {
 
 .timeline-clip.selected {
   border-color: var(--color-accent);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
   box-shadow:
-    0 0 0 1px var(--color-accent),
-    0 0 16px color-mix(in srgb, var(--color-accent) 25%, transparent);
-  z-index: 3;
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 60%, transparent),
+    0 0 20px color-mix(in srgb, var(--color-accent) 24%, transparent);
+  z-index: 4;
 }
 
 .timeline-clip.locked {
@@ -3214,10 +3220,10 @@ textarea {
   position: relative;
   z-index: 1;
   display: block;
-  padding: 0 7px;
-  color: color-mix(in srgb, var(--color-text) 68%, transparent);
+  padding: 0 7px 4px;
+  color: color-mix(in srgb, var(--color-text) 62%, transparent);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 7.5px;
   white-space: nowrap;
   pointer-events: none;
 }
@@ -3263,6 +3269,8 @@ textarea {
 
 .caption-cue.selected {
   border-color: var(--color-accent);
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
   box-shadow: 0 0 0 1px var(--color-accent);
 }
 
@@ -4302,131 +4310,8 @@ label.field > span,
   font-weight: 650;
 }
 
-.track-kind.kind-video {
-  color: color-mix(in srgb, var(--color-video) 45%, var(--color-text));
-}
-
-.track-kind.kind-image {
-  color: color-mix(in srgb, var(--color-image) 45%, var(--color-text));
-}
-
-.track-kind.kind-audio,
-.track-kind.kind-narration {
-  color: color-mix(in srgb, var(--color-audio) 45%, var(--color-text));
-}
-
-.track-kind.kind-caption {
-  color: color-mix(in srgb, var(--color-caption) 45%, var(--color-text));
-}
-
-.track-kind.kind-graphic {
-  color: color-mix(in srgb, var(--color-graphic) 45%, var(--color-text));
-}
-
-.track-kind.kind-adjustment {
-  color: color-mix(in srgb, var(--color-warning) 45%, var(--color-text));
-}
-
 .timeline-row:nth-child(even) .track-lane {
   background-color: var(--color-bg);
-}
-
-.lane-hint {
-  color: var(--color-empty);
-  font-size: 8.5px;
-  letter-spacing: 0.06em;
-}
-
-.timeline-clip {
-  border-radius: 5px;
-  border-width: 1px;
-  box-shadow:
-    0 1px 0 color-mix(in srgb, var(--color-text) 12%, transparent) inset,
-    0 2px 6px rgba(0, 0, 0, 0.28);
-}
-
-.timeline-clip.kind-video {
-  border-color: color-mix(in srgb, var(--color-video) 80%, var(--color-bg));
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--color-video) 45%, var(--color-panel-2)),
-    color-mix(in srgb, var(--color-video) 30%, var(--color-bg))
-  );
-}
-
-.timeline-clip.kind-image {
-  border-color: color-mix(in srgb, var(--color-image) 80%, var(--color-bg));
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--color-image) 45%, var(--color-panel-2)),
-    color-mix(in srgb, var(--color-image) 30%, var(--color-bg))
-  );
-}
-
-.timeline-clip.kind-audio {
-  border-color: color-mix(in srgb, var(--color-audio) 80%, var(--color-bg));
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--color-audio) 45%, var(--color-panel-2)),
-    color-mix(in srgb, var(--color-audio) 30%, var(--color-bg))
-  );
-}
-
-.timeline-clip.kind-narration {
-  border-color: color-mix(in srgb, var(--color-narration) 80%, var(--color-bg));
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--color-narration) 45%, var(--color-panel-2)),
-    color-mix(in srgb, var(--color-narration) 30%, var(--color-bg))
-  );
-}
-
-.timeline-clip.kind-graphic {
-  border-color: color-mix(in srgb, var(--color-graphic) 80%, var(--color-bg));
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--color-graphic) 45%, var(--color-panel-2)),
-    color-mix(in srgb, var(--color-graphic) 30%, var(--color-bg))
-  );
-}
-
-.timeline-clip.kind-adjustment {
-  border-color: color-mix(in srgb, var(--color-warning) 80%, var(--color-bg));
-  background: repeating-linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-warning) 35%, var(--color-panel-2)) 0 8px,
-    color-mix(in srgb, var(--color-warning) 28%, var(--color-panel-2)) 8px 16px
-  );
-}
-
-.timeline-clip.kind-freeze {
-  border-color: color-mix(in srgb, var(--color-warning) 72%, var(--color-bg));
-  background: repeating-linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--color-warning) 30%, var(--color-panel-2)) 0 8px,
-    color-mix(in srgb, var(--color-warning) 24%, var(--color-panel-2)) 8px 16px
-  );
-}
-
-.timeline-clip.selected {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-accent) 60%, transparent),
-    0 0 20px color-mix(in srgb, var(--color-accent) 24%, transparent);
-  z-index: 4;
-}
-
-.clip-window {
-  padding: 0 7px 4px;
-  color: color-mix(in srgb, var(--color-text) 62%, transparent);
-  font-family: var(--font-mono);
-  font-size: 7.5px;
-}
-
-.caption-cue.selected {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
 }
 
 .playhead-grip {
@@ -4638,14 +4523,29 @@ label.field > span,
   white-space: nowrap;
 }
 
+/* Flags de pista: el botón visible queda en 20 px pero el ::after extiende
+   el área clickeable/foco a 24×24 px (hit-area mínima accesible) sin tocar
+   el layout denso de la cabecera de pista. Regla única: antes estaba
+   duplicada más arriba (18→20 px). */
 .flag {
+  position: relative;
   width: 20px;
   height: 20px;
   display: grid;
   place-items: center;
-  border-color: transparent;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
   background: transparent;
   color: var(--color-text-muted);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.flag::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
 }
 
 .flag:hover:not(:disabled) {

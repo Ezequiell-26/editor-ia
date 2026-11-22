@@ -8,7 +8,7 @@ pub struct BackgroundRemoval {
 
 /// Quita el fondo de una imagen y guarda un PNG con canal alfa.
 #[tauri::command]
-pub fn remove_background(
+pub async fn remove_background(
     state: State<'_, AppState>,
     input_path: String,
     output_path: Option<String>,
@@ -21,17 +21,6 @@ pub fn remove_background(
             "la imagen a procesar no está en disco",
         ));
     }
-
-    let image = image::open(&input).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "no se pudo leer la imagen: ¿es un formato soportado?",
-        )
-    })?;
-
-    let mask = run_u2netp(&model_path, &image)?;
-    let output = composite_with_alpha(&image, &mask);
-
     let destination = match output_path {
         Some(path) if !path.trim().is_empty() => {
             crate::application::fs::validate_user_write_path(&path)?
@@ -46,21 +35,37 @@ pub fn remove_background(
                 .with_extension("png")
         }
     };
-    image::save_buffer_with_format(
-        &destination,
-        output.as_raw(),
-        output.width(),
-        output.height(),
-        image::ExtendedColorType::Rgba8,
-        image::ImageFormat::Png,
-    )
-    .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el recorte"))?;
 
-    Ok(BackgroundRemoval {
-        path: destination.to_string_lossy().into_owned(),
-        width: output.width(),
-        height: output.height(),
+    // Inferencia ONNX (u2netp) + decode/encode de imagen: segundos de CPU
+    // que un comando sync correría en el main thread (AUD-129).
+    tauri::async_runtime::spawn_blocking(move || -> Result<BackgroundRemoval, ProjectError> {
+        let image = image::open(&input).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "no se pudo leer la imagen: ¿es un formato soportado?",
+            )
+        })?;
+        let mask = run_u2netp(&model_path, &image)?;
+        let output = composite_with_alpha(&image, &mask);
+        image::save_buffer_with_format(
+            &destination,
+            output.as_raw(),
+            output.width(),
+            output.height(),
+            image::ExtendedColorType::Rgba8,
+            image::ImageFormat::Png,
+        )
+        .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el recorte"))?;
+        Ok(BackgroundRemoval {
+            path: destination.to_string_lossy().into_owned(),
+            width: output.width(),
+            height: output.height(),
+        })
     })
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "la eliminación de fondo se interrumpió")
+    })?
 }
 
 /// Abre una sesión de u2netp reutilizable. El video la conserva durante todos

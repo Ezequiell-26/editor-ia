@@ -115,7 +115,10 @@ fn detail_selection_mixes_popular_and_newest_without_duplicates() {
     let ids: Vec<&str> = selected.iter().map(|v| v.id.as_str()).collect();
     assert_eq!(selected.len(), 4);
     assert_eq!(ids[0], "bbbbbbb0002", "el más visto va primero");
-    assert!(ids.contains(&"aaaaaaa0001"), "los más nuevos entran a la muestra");
+    assert!(
+        ids.contains(&"aaaaaaa0001"),
+        "los más nuevos entran a la muestra"
+    );
     let unique: HashSet<&&str> = ids.iter().collect();
     assert_eq!(unique.len(), ids.len(), "sin duplicados");
 }

@@ -345,7 +345,8 @@
   --shell-min-h: 640px;
 
   /* Controles y datos */
-  --ctl-h-xs: 22px;
+  /* Mínimo de target interactivo: 24 px (WCAG 2.5.8). */
+  --ctl-h-xs: 24px;
   --ctl-h-sm: 24px;
   --ctl-h-md: 28px;
   --ctl-h-lg: 32px;

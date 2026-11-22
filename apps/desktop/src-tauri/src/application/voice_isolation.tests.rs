@@ -49,8 +49,8 @@ fn cached_outcome_requires_marker_match() {
     };
     write_marker(&dir, "asset-1", &source, "medium", "htdemucs", &outcome);
 
-    let cached = cached_outcome(&dir, "asset-1", &source, "medium", "htdemucs")
-        .expect("stem cacheado");
+    let cached =
+        cached_outcome(&dir, "asset-1", &source, "medium", "htdemucs").expect("stem cacheado");
     assert!(cached.cached);
     assert_eq!(cached.duration_seconds, 12.5);
 

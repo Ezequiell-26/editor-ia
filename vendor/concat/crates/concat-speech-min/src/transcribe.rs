@@ -870,7 +870,9 @@ impl Transcriber {
         let cancel = job.cancel_handle();
         let model_path = model_file(models_dir, model_id)?;
         if !model_path.is_file() {
-            return Err(format!("model {model_id} is not downloaded - download it first"));
+            return Err(format!(
+                "model {model_id} is not downloaded - download it first"
+            ));
         }
         if samples.is_empty() {
             return Err("nothing to transcribe: the clip has no audio".to_owned());
@@ -904,7 +906,9 @@ impl Transcriber {
     ) -> Result<Vec<Segment>, String> {
         let model_path = model_file(models_dir, model_id)?;
         if !model_path.is_file() {
-            return Err(format!("model {model_id} is not downloaded - download it first"));
+            return Err(format!(
+                "model {model_id} is not downloaded - download it first"
+            ));
         }
         let asked = asked_language(language.as_deref())?;
         // Before anything of ggml's runs - Silero's context below included.
@@ -1626,15 +1630,16 @@ mod accuracy {
             Err(_) => match std::env::var("CONCAT_WER_DATA") {
                 Ok(root) => std::path::Path::new(&root).join("whisper-models"),
                 Err(_) => {
-                    eprintln!("WHISPER_MODELS_DIR or CONCAT_WER_DATA not set; nothing to transcribe");
+                    eprintln!(
+                        "WHISPER_MODELS_DIR or CONCAT_WER_DATA not set; nothing to transcribe"
+                    );
                     return;
                 }
             },
         };
         // The whole file, decoded once: every recipe hears the same samples.
-        let samples =
-            crate::wav::decode_window(std::path::Path::new(&audio), 0.0, 3600.0)
-                .expect("the WAV decodes");
+        let samples = crate::wav::decode_window(std::path::Path::new(&audio), 0.0, 3600.0)
+            .expect("the WAV decodes");
         let models = std::env::var("CONCAT_WER_MODELS").unwrap_or("base,small".to_owned());
         let language = std::env::var("CONCAT_WER_LANGUAGE").ok();
         let mut devices = vec![true];

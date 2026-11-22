@@ -258,9 +258,7 @@ impl ProjectStageExecutor {
             // drawtext); con `pattern:`/`gradient:`/`texture:` el de
             // patrones lavfi. `graphic` produce el mismo PNG compuesto.
             // Otros `image`/`graphic` siguen el camino normal de adquisición.
-            if req.kind == StudioResourceKind::Image
-                || req.kind == StudioResourceKind::Graphic
-            {
+            if req.kind == StudioResourceKind::Image || req.kind == StudioResourceKind::Graphic {
                 match self.acquire_title_cards(ctx, req, &plan.id) {
                     Ok(Some(entries)) => {
                         acquired.extend(entries);

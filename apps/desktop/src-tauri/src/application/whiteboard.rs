@@ -69,10 +69,14 @@ pub fn validate_quality(quality: Option<&str>) -> Result<&'static str, ProjectEr
 pub fn validate_duration(seconds: Option<f64>) -> Result<f64, ProjectError> {
     let seconds = seconds.unwrap_or(8.0);
     if !seconds.is_finite() || seconds <= 0.0 {
-        return Err(invalid("la duración debe ser un número finito mayor que cero"));
+        return Err(invalid(
+            "la duración debe ser un número finito mayor que cero",
+        ));
     }
     if seconds > MAX_SCENE_SECONDS {
-        return Err(invalid("la duración no puede superar 60 minutos por escena"));
+        return Err(invalid(
+            "la duración no puede superar 60 minutos por escena",
+        ));
     }
     Ok(seconds)
 }

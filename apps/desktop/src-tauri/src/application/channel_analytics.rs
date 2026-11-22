@@ -479,7 +479,10 @@ pub fn sentiment(comment: &str) -> i32 {
     score
 }
 
-pub fn analyze_comments(comments: &[RawComment], comment_video_titles: &[String]) -> CommentAnalysis {
+pub fn analyze_comments(
+    comments: &[RawComment],
+    comment_video_titles: &[String],
+) -> CommentAnalysis {
     if comments.is_empty() {
         return CommentAnalysis::default();
     }
@@ -839,10 +842,7 @@ pub struct ChannelSampleStats {
 
 /// Calcula las métricas puras del canal a partir de detalles y videos ya
 /// puntuados. `dates` son los timestamps de subida de los detalles.
-pub fn compute_channel_stats(
-    details: &[RawVideo],
-    videos: &[ChannelVideo],
-) -> ChannelSampleStats {
+pub fn compute_channel_stats(details: &[RawVideo], videos: &[ChannelVideo]) -> ChannelSampleStats {
     let median_views = median(videos.iter().map(|video| video.views as f64).collect());
     let median_duration = median(videos.iter().map(|video| video.duration_seconds).collect());
     let median_views_per_day = median(videos.iter().map(|video| video.views_per_day).collect());

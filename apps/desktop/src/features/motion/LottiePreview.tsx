@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LottieDocument } from './lottie';
+import type { LottieDocument } from '../../state/lottie';
 
 /**
  * Preview real con el mismo motor que usa la conversión. El damero del fondo

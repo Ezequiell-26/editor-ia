@@ -1,15 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
-import {
-  MAX_ASSET_BIN_LENGTH,
-  MAX_ASSET_TAG_LENGTH,
-  MAX_ASSET_TAGS,
-} from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import { SafeText } from '../../components/SafeText';
 import { ViewToolbar } from '../../components/ViewToolbar';
-import { useThumbnail } from '../../hooks/useThumbnail';
 import { useFileDrop } from '../../hooks/useFileDrop';
 import { assetBins, filterAssets, type AssetKindFilter } from '../../state/asset-organization';
 import {
@@ -28,12 +22,7 @@ import {
   framesToSeconds,
   fpsOf,
   markAssetReady,
-  relinkAsset,
-  removeAsset,
   setAssetProxy,
-  toggleAssetFavorite,
-  updateAssetLabel,
-  updateAssetMetadata,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { buildStoryboard } from '../../state/storyboard';
@@ -45,311 +34,11 @@ interface AssetsPanelProps {
   readonly onNavigate: (id: ViewId) => void;
 }
 
-function kindLabel(kind: Asset['kind']): string {
-  switch (kind) {
-    case 'video':
-      return 'Video';
-    case 'image':
-      return 'Imagen';
-    case 'audio':
-      return 'Audio';
-    case 'font':
-      return 'Fuente';
-    case 'text':
-      return 'Texto';
-  }
-}
-
-function statusLabel(status: Asset['status']): string {
-  return { ready: 'listo', unverified: 'sin verificar', missing: 'faltante', failed: 'fallido' }[
-    status
-  ];
-}
-
 function formatProxyBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} kB`;
   return `${bytes} B`;
-}
-
-function mediaSummary(asset: Asset): string {
-  if (asset.kind === 'video' && asset.media) {
-    return `${asset.media.width}×${asset.media.height} · ${asset.media.durationFrames} frames`;
-  }
-  if (asset.kind === 'image' && asset.media) {
-    return `${asset.media.width}×${asset.media.height}`;
-  }
-  if (asset.kind === 'audio' && asset.media) {
-    return `${asset.media.sampleRate} Hz · ${asset.media.channels} canales · ${asset.media.durationFrames} frames`;
-  }
-  return 'sin medición';
-}
-
-function AssetCard({
-  asset,
-  root,
-  onUse,
-}: {
-  readonly asset: Asset;
-  readonly root: string;
-  readonly onUse: (asset: Asset, narration: boolean) => void;
-}) {
-  const store = useProjectStore();
-  const project = store.state.project;
-  const thumbnail = useThumbnail(store.service, asset, root);
-  const [editing, setEditing] = useState(false);
-  const [label, setLabel] = useState(asset.label);
-  const [metaOpen, setMetaOpen] = useState(false);
-  const [binDraft, setBinDraft] = useState(asset.bin ?? '');
-  const [tagsDraft, setTagsDraft] = useState((asset.tags ?? []).join(', '));
-  const [relinkBusy, setRelinkBusy] = useState(false);
-  const inUse = project?.timeline.clips.some(
-    (clip) => clip.source.type === 'asset' && clip.source.assetId === asset.id,
-  );
-  const selected = store.state.selection.kind === 'asset' && store.state.selection.id === asset.id;
-  const canMount = asset.status === 'ready' && (asset.kind === 'video' || asset.kind === 'image' || asset.kind === 'audio');
-  const relinkable = asset.kind === 'video' || asset.kind === 'image' || asset.kind === 'audio';
-
-  async function reconectar(): Promise<void> {
-    if (!project || relinkBusy || !relinkable) return;
-    const title = `Reconectar ${asset.label}`;
-    setRelinkBusy(true);
-    try {
-      const path =
-        asset.kind === 'video'
-          ? await store.service.chooseVideoFile(title)
-          : asset.kind === 'image'
-            ? await store.service.chooseImageFile(title)
-            : await store.service.chooseAudioFile(title);
-      if (!path) return;
-      const outcome = await store.service.importMediaPaths({
-        paths: [path],
-        fpsNum: project.video.frameRate.num,
-        fpsDen: project.video.frameRate.den,
-        confirmRights: true,
-      });
-      const imported = outcome.assets[0];
-      if (!imported) {
-        store.setNotice(outcome.warnings[0] ?? 'no se pudo leer el archivo elegido');
-        return;
-      }
-      store.update((current) => relinkAsset(current, asset.id, imported), {
-        notice: `Material reconectado: ${asset.label}. Los clips mantienen su lugar.`,
-      });
-    } catch (error) {
-      store.setNotice(
-        error instanceof Error ? error.message : 'no se pudo reconectar el material',
-      );
-    } finally {
-      setRelinkBusy(false);
-    }
-  }
-
-  return (
-    <article
-      className={selected ? 'asset-card selected' : 'asset-card'}
-      onClick={() => store.setSelection({ kind: 'asset', id: asset.id })}
-    >
-      <div className="asset-thumb">
-        {thumbnail ? (
-          <img src={thumbnail} alt="" />
-        ) : (
-          <span className={`asset-kind kind-${asset.kind}`}>{kindLabel(asset.kind)}</span>
-        )}
-        <span className={`asset-status status-${asset.status}`}>{statusLabel(asset.status)}</span>
-        <button
-          type="button"
-          className={asset.favorite ? 'asset-fav active' : 'asset-fav'}
-          aria-pressed={asset.favorite ?? false}
-          aria-label={
-            asset.favorite
-              ? `Quitar ${asset.label} de favoritos`
-              : `Marcar ${asset.label} como favorito`
-          }
-          title={asset.favorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
-          onClick={(event) => {
-            event.stopPropagation();
-            store.update((current) => toggleAssetFavorite(current, asset.id));
-          }}
-        >
-          <Icon name="star" size={13} />
-        </button>
-      </div>
-      <div className="asset-body">
-        {editing ? (
-          <form
-            className="inline-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!project) return;
-              const ok = store.update((current) => updateAssetLabel(current, asset.id, label));
-              if (ok) setEditing(false);
-            }}
-          >
-            <input
-              value={label}
-              autoFocus
-              onChange={(event) => setLabel(event.target.value)}
-              onBlur={() => setEditing(false)}
-              aria-label="Nombre del material"
-            />
-          </form>
-        ) : (
-          <button
-            type="button"
-            className="asset-title"
-            onClick={() => {
-              setLabel(asset.label);
-              setEditing(true);
-            }}
-            title="Editar nombre"
-          >
-            {asset.label}
-          </button>
-        )}
-        <p className="asset-meta">
-          {kindLabel(asset.kind)} · {mediaSummary(asset)}
-        </p>
-        <p className="asset-meta">
-          Licencia: {asset.rights.license.id} · {asset.rights.license.commercialUse} ·{' '}
-          {asset.integrity ? `${Math.round(asset.integrity.bytes / 1024)} KB` : 'sin hash'}
-        </p>
-        <p className="asset-meta">
-          Bin: {asset.bin ?? 'Sin bin'}{' '}
-          {asset.tags?.length ? `· ${asset.tags.join(' · ')}` : '· sin etiquetas'}
-        </p>
-        {relinkable ? (
-          <div className="actions compact" onClick={(event) => event.stopPropagation()}>
-            <button
-              type="button"
-              className="small ghost"
-              disabled={relinkBusy}
-              title="Elegí otro archivo para este material; conserva nombre, licencia y clips"
-              onClick={() => void reconectar()}
-            >
-              {relinkBusy ? 'Reconectando…' : 'Reconectar archivo…'}
-            </button>
-          </div>
-        ) : null}
-        {asset.status !== 'ready' ? (
-          <div className="rights-actions" onClick={(event) => event.stopPropagation()}>
-            <span>Sin derechos confirmados</span>
-            <button
-              type="button"
-              className="small"
-              onClick={() => {
-                if (!project) return;
-                store.update((current) => markAssetReady(current, asset.id, 'allowed'), {
-                  notice: `Derechos declarados para ${asset.label}.`,
-                });
-              }}
-            >
-              Uso permitido
-            </button>
-            <button
-              type="button"
-              className="small"
-              onClick={() => {
-                if (!project) return;
-                store.update((current) => markAssetReady(current, asset.id, 'requires-attribution'), {
-                  notice: `Derechos declarados con atribución para ${asset.label}.`,
-                });
-              }}
-            >
-              Requiere atribución
-            </button>
-          </div>
-        ) : (
-          <div className="actions compact" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="small" disabled={!canMount} onClick={() => onUse(asset, false)}>
-              Montar
-            </button>
-            {asset.kind === 'audio' ? (
-              <button type="button" className="small" onClick={() => onUse(asset, true)}>
-                Como narración
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="small ghost"
-              onClick={() => {
-                setBinDraft(asset.bin ?? '');
-                setTagsDraft((asset.tags ?? []).join(', '));
-                setMetaOpen((value) => !value);
-              }}
-            >
-              Metadatos
-            </button>
-            <button
-              type="button"
-              className="small danger-ghost"
-              disabled={Boolean(inUse)}
-              title={inUse ? 'Está en uso en la timeline' : 'Quitar de la biblioteca'}
-              onClick={() => {
-                if (!project) return;
-                store.update((current) => removeAsset(current, asset.id));
-              }}
-            >
-              Quitar
-            </button>
-          </div>
-        )}
-        {metaOpen ? (
-          <form
-            className="asset-meta-form"
-            onClick={(event) => event.stopPropagation()}
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!project) return;
-              const ok = store.update((current) =>
-                updateAssetMetadata(current, asset.id, {
-                  bin: binDraft,
-                  tags: tagsDraft.split(','),
-                }),
-              );
-              if (ok) setMetaOpen(false);
-            }}
-          >
-            <label className="field">
-              <span>Bin</span>
-              <input
-                value={binDraft}
-                maxLength={MAX_ASSET_BIN_LENGTH}
-                placeholder="Sin bin"
-                onChange={(event) => setBinDraft(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              <span>Etiquetas (separadas por coma)</span>
-              <input
-                value={tagsDraft}
-                maxLength={MAX_ASSET_TAGS * (MAX_ASSET_TAG_LENGTH + 2)}
-                placeholder="b-roll, entrevista…"
-                onChange={(event) => setTagsDraft(event.target.value)}
-              />
-            </label>
-            <div className="actions compact">
-              <button type="submit" className="small primary">
-                Guardar
-              </button>
-              <button
-                type="button"
-                className="small ghost"
-                onClick={() => setMetaOpen(false)}
-              >
-                Cancelar
-              </button>
-            </div>
-            <p className="fine-print">
-              Hasta {MAX_ASSET_TAGS} etiquetas de {MAX_ASSET_TAG_LENGTH} caracteres.
-            </p>
-          </form>
-        ) : null}
-        {inUse ? <p className="fine-print">En uso en la timeline.</p> : null}
-      </div>
-    </article>
-  );
 }
 
 export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
@@ -815,6 +504,13 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
         {bins.length > 0 ? <span className="view-count">{bins.length} carpetas</span> : null}
       </ViewToolbar>
 
+      {!store.service.available ? (
+        <p className="notice notice-warning" role="status">
+          {store.service.unavailableReason ??
+            'El servicio nativo no está disponible en esta sesión; la importación y los proxies no funcionan en este modo.'}
+        </p>
+      ) : null}
+
       <div className="import-bar">
         <label className="check">
           <input
@@ -939,7 +635,8 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
             aria-label="Buscar en la biblioteca de medios"
             onChange={(event) => setAssetQuery(event.target.value)}
           />
-        </label>        <label className="field inline library-filter">
+        </label>
+        <label className="field inline library-filter">
           <span>Tipo</span>
           <select
             value={assetFilter}
@@ -1000,29 +697,12 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
               folders={folderHierarchy}
               onFolderClick={setSelectedFolder}
               selectedFolder={selectedFolder}
-              onCreateFolder={() => {
-                const folderName = prompt('Nombre de la nueva carpeta:');
-                if (folderName) {
-                  store.setNotice(`Carpeta "${folderName}" creada. Usa metadatos de asset para asignar bins.`);
-                }
-              }}
             />
           </aside>
 
           {/* Área principal con thumbnails */}
           <div className="assets-main">
             <div className="assets-main-header">
-              <div className="assets-search-bar">
-                <Icon name="search" size={14} className="assets-search-icon" />
-                <input
-                  type="search"
-                  value={assetQuery}
-                  placeholder="Buscar medios..."
-                  aria-label="Buscar medios por nombre, etiqueta o bin"
-                  title="Buscar medios por nombre, etiqueta o bin"
-                  onChange={(event) => setAssetQuery(event.target.value)}
-                />
-              </div>
               <div className="assets-view-modes">
                 <button
                   type="button"

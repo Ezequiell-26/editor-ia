@@ -267,17 +267,20 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       const toSave = projectWithIoRange(captured, snapshot.ioRange);
       const opened = await service.saveProject(toSave);
       const pendingChanges = editVersionRef.current !== version;
-      // Guardado completado: esa versi├│n ya vive en disco. Se cancela de una
-      // vez la escritura pendiente de la instant├ínea y se limpia el registro
-      // (las ediciones nuevas, si las hay, volver├ín a agendarla).
-      persistedVersionRef.current = version;
-      recoveryWriter.cancel();
-      clearRecoverySnapshot();
+      // AUD-068: si el proyecto en pantalla ya no es el capturado, este
+      // guardado pertenece a la sesión anterior: no se toca su
+      // recuperación ni el opened visible (path/root/label son del
+      // proyecto guardado, no del que se muestra).
+      const stillCurrent = stateRef.current.project === captured;
+      if (stillCurrent) {
+        persistedVersionRef.current = version;
+        recoveryWriter.cancel();
+        clearRecoverySnapshot();
+      }
       setState((current) => {
         if (current.project !== captured) {
           return {
             ...current,
-            opened: current.opened ? { ...current.opened, path: opened.path, root: opened.root, label: opened.label } : opened,
             phase: 'dirty',
             notice: 'Guardado anterior completado; hay cambios nuevos pendientes.',
             lastSavedAt: new Date().toISOString(),
@@ -316,11 +319,14 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
         setState((current) => ({ ...current, phase: current.project === captured ? 'dirty' : current.phase }));
         return false;
       }
-      // Guardado completado: la versi├│n capturada vive en disco; la escritura
-      // pendiente de la instant├ínea deja de tener sentido.
-      persistedVersionRef.current = version;
-      recoveryWriter.cancel();
-      clearRecoverySnapshot();
+      // AUD-068: igual que en saveNow — la cancelación de recuperación
+      // y la marca de persistido sólo aplican al proyecto capturado.
+      const stillCurrent = stateRef.current.project === captured;
+      if (stillCurrent) {
+        persistedVersionRef.current = version;
+        recoveryWriter.cancel();
+        clearRecoverySnapshot();
+      }
       setState((current) => ({
         ...current,
         opened:

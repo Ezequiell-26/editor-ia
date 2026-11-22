@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { useEffect, type ComponentProps, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
-import { ProjectProvider } from '../../state/project-store';
+import { ProjectProvider, useProjectStore } from '../../state/project-store';
 import {
   addAsset,
   addClipFromAsset,
@@ -48,8 +49,31 @@ if (typeof window.PointerEvent === 'undefined') {
   });
 }
 
+let latestState: ReturnType<typeof useProjectStore>['state'] | null = null;
+
+function StoreProbe(): null {
+  const store = useProjectStore();
+  useEffect(() => {
+    latestState = store.state;
+  }, [store.state]);
+  return null;
+}
+
+/** Selecciona el primer clip al montar (las acciones de inspector/menú la exigen). */
+function SelectFirstClipOnMount(): null {
+  const store = useProjectStore();
+  useEffect(() => {
+    const clip = store.state.project?.timeline.clips[0];
+    if (clip) store.setSelection({ kind: 'clip', id: clip.id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
 function renderTimeline(
   prepare?: (project: ProjectDocument) => ProjectDocument,
+  timelineProps?: ComponentProps<typeof Timeline>,
+  extra?: ReactNode,
 ) {
   const base = ensureDelivery(createEmptyProject('Timeline', NOW));
   const asset = readyAsset();
@@ -65,9 +89,12 @@ function renderTimeline(
     path: 'C:\\tester\\timeline.editoria.json',
     root: 'C:\\tester',
   };
+  latestState = null;
   const view = render(
     <ProjectProvider service={service} initial={{ project, opened }}>
-      <Timeline />
+      <Timeline {...timelineProps} />
+      <StoreProbe />
+      {extra}
     </ProjectProvider>,
   );
   const surface = view.container.querySelector('.timeline-surface');
@@ -857,5 +884,127 @@ describe('Timeline · herramientas slip/slide/roll', () => {
       const moved = clipAtLeft(container, 108 * PX);
       expect(moved.querySelector('.clip-window')?.textContent).toContain('in 108');
     });
+  });
+});
+
+describe('Timeline · menú «Más herramientas» y acciones de clip', () => {
+  it('separa el audio del clip de video desde el menú contextual', async () => {
+    const { container } = renderTimeline();
+    const clip = container.querySelector('.timeline-clip');
+    if (!(clip instanceof HTMLElement)) throw new Error('se esperaba un clip');
+
+    fireEvent.contextMenu(clip, { clientX: 200, clientY: 100 });
+    const separate = await screen.findByRole('menuitem', { name: /Separar audio/i });
+    expect((separate as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(separate);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('.timeline-clip').length).toBe(2);
+    });
+    await waitFor(() => {
+      expect(latestState?.notice).toContain('Audio separado');
+    });
+  });
+
+  it('agrupa el clip en un compuesto desde el menú contextual', async () => {
+    const { container } = renderTimeline();
+    const clip = container.querySelector('.timeline-clip');
+    if (!(clip instanceof HTMLElement)) throw new Error('se esperaba un clip');
+
+    fireEvent.contextMenu(clip, { clientX: 200, clientY: 100 });
+    const compound = await screen.findByRole('menuitem', { name: /Crear clip compuesto/i });
+    fireEvent.click(compound);
+
+    await waitFor(() => {
+      expect(latestState?.project?.timeline.clips[0]?.kind).toBe('compound');
+    });
+    expect(latestState?.notice).toContain('Compuesto creado');
+  });
+
+  it('«Detección de silencio» abre la pestaña Audio del inspector', async () => {
+    const onRequestInspectorTab = vi.fn();
+    renderTimeline(
+      undefined,
+      { onRequestInspectorTab },
+      <SelectFirstClipOnMount />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Más herramientas' }));
+    const item = await screen.findByRole('menuitem', { name: /Detección de silencio/i });
+    expect((item as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(item);
+
+    expect(onRequestInspectorTab).toHaveBeenCalledWith('audio', undefined);
+  });
+
+  it('«Detección de ritmo» abre la subpestaña Ritmo del inspector', async () => {
+    const onRequestInspectorTab = vi.fn();
+    renderTimeline(
+      undefined,
+      { onRequestInspectorTab },
+      <SelectFirstClipOnMount />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Más herramientas' }));
+    const item = await screen.findByRole('menuitem', { name: /Detección de ritmo/i });
+    fireEvent.click(item);
+
+    expect(onRequestInspectorTab).toHaveBeenCalledWith('audio', 'custom');
+  });
+
+  it('«Edición por texto» navega a la vista Texto', async () => {
+    const onNavigate = vi.fn();
+    renderTimeline(undefined, { onNavigate });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Más herramientas' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Edición por texto/i }));
+
+    expect(onNavigate).toHaveBeenCalledWith('text-edit');
+  });
+
+  it('«Sugerencias de edición inteligente» cambia al modo Cerebro', async () => {
+    const onSwitchEditorMode = vi.fn();
+    const { container } = renderTimeline(
+      undefined,
+      { onSwitchEditorMode },
+    );
+    const clip = container.querySelector('.timeline-clip');
+    if (!(clip instanceof HTMLElement)) throw new Error('se esperaba un clip');
+
+    fireEvent.contextMenu(clip, { clientX: 200, clientY: 100 });
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: /Sugerencias de edición inteligente/i }),
+    );
+
+    expect(onSwitchEditorMode).toHaveBeenCalledWith('brain');
+  });
+
+  it('«Traducción con IA» navega a Localización', async () => {
+    const onNavigate = vi.fn();
+    const { container } = renderTimeline(undefined, { onNavigate });
+    const clip = container.querySelector('.timeline-clip');
+    if (!(clip instanceof HTMLElement)) throw new Error('se esperaba un clip');
+
+    fireEvent.contextMenu(clip, { clientX: 200, clientY: 100 });
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Traducción con IA/i }));
+
+    expect(onNavigate).toHaveBeenCalledWith('localization');
+  });
+
+  it('ya no lista herramientas sin implementación como pendientes', async () => {
+    renderTimeline();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Más herramientas' }));
+    await screen.findByRole('menuitem', { name: /Edición por texto/i });
+    for (const gone of [
+      'Imagen a video',
+      'Extensión con IA',
+      'Extensión de audio',
+      'Editar Dispositivos',
+      'Eliminador de objetos con IA',
+    ]) {
+      expect(screen.queryByRole('menuitem', { name: gone })).toBeNull();
+    }
+    expect(screen.queryByText('Pendiente')).toBeNull();
   });
 });

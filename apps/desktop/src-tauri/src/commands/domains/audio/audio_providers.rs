@@ -326,14 +326,29 @@ pub(crate) async fn synthesize_elevenlabs(
         )
     })?;
 
-    let measure = match probe_file(&ffprobe, &output, MediaKind::Audio) {
-        Ok(measure) => measure,
-        Err(error) => {
-            let _ = std::fs::remove_file(&output);
-            return Err(error);
-        }
+    let (measure, sha256, byte_count) = {
+        let ffprobe = ffprobe.clone();
+        let output_probe = output.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            match probe_file(&ffprobe, &output_probe, MediaKind::Audio) {
+                Ok(measure) => {
+                    let (sha256, byte_count) = sha256_file(&output_probe)?;
+                    Ok((measure, sha256, byte_count))
+                }
+                Err(error) => {
+                    let _ = std::fs::remove_file(&output_probe);
+                    Err(error)
+                }
+            }
+        })
+        .await
+        .map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo medir el audio generado: {error}").as_str(),
+            )
+        })??
     };
-    let (sha256, byte_count) = sha256_file(&output)?;
     let relative = format!(
         "media/{}",
         output
@@ -387,5 +402,3 @@ pub(crate) async fn synthesize_elevenlabs(
         provider: "elevenlabs".to_owned(),
     })
 }
-
-

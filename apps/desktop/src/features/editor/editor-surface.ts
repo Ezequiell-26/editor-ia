@@ -4,7 +4,7 @@ import type { EditorModeId } from '../../app/view-routing';
  * UN SOLO EDITOR · superficie visual del workspace.
  *
  * `alaukcut-chrome` activa la barra superior, el pie y la paleta de la
- * referencia (`minimal-editor.css` §9/§10) en TODOS los modos: cambiar de
+ * referencia (`alauk-chrome.css`) en TODOS los modos: cambiar de
  * herramienta no puede cambiar la identidad visual del editor.
  *
  * `alaukcut` activa además la geometría de tres columnas medida en las

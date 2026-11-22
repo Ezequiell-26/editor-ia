@@ -1,4 +1,4 @@
-import type { PointerEvent } from 'react';
+import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import { Icon } from '../../components/Icon';
 import { formatTimecode, splitClip } from '../../state/project-actions';
 import { useProjectPlayback, useProjectStore } from '../../state/project-store';
@@ -23,17 +23,52 @@ export function Transport() {
   const playing = playback.playing;
   const reverse = playback.direction < 0;
   const progress = total > 0 ? Math.max(0, Math.min(100, (playhead / total) * 100)) : 0;
+  // Drag real del slider: con setPointerCapture los pointermove llegan al
+  // elemento aunque el puntero salga de la pista de 5 px.
+  const scrubDragging = useRef(false);
+  // PageUp/PageDown saltan ~5 s (convención NLE), acotado al final.
+  const pageStep = Math.max(1, Math.round(fps * 5));
 
   function scrub(next: number): void {
     store.setPlaying(false);
     store.setPlayhead(Math.max(0, Math.min(total, next)));
   }
 
-  function scrubAt(event: PointerEvent<HTMLDivElement>): void {
+  function scrubAt(event: PointerEvent<HTMLElement>): void {
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width <= 0 || total <= 0) return;
     const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
     scrub(Math.round(ratio * total));
+  }
+
+  function handleScrubKeyDown(event: KeyboardEvent<HTMLElement>): void {
+    // stopPropagation: el listener global de flechas del editor también
+    // mueve el playhead; sin esto el slider respondería dos veces.
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      event.stopPropagation();
+      scrub(playhead - 1);
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      event.stopPropagation();
+      scrub(playhead + 1);
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      event.stopPropagation();
+      scrub(0);
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      event.stopPropagation();
+      scrub(total);
+    } else if (event.key === 'PageUp') {
+      event.preventDefault();
+      event.stopPropagation();
+      scrub(playhead - pageStep);
+    } else if (event.key === 'PageDown') {
+      event.preventDefault();
+      event.stopPropagation();
+      scrub(playhead + pageStep);
+    }
   }
 
   function handleSplit(): void {
@@ -179,11 +214,29 @@ export function Transport() {
           aria-valuemax={Math.max(0, total)}
           aria-valuenow={Math.max(0, Math.min(total, playhead))}
           tabIndex={0}
-          onPointerDown={scrubAt}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft') scrub(playhead - 1);
-            if (event.key === 'ArrowRight') scrub(playhead + 1);
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            scrubDragging.current = true;
+            // jsdom no implementa setPointerCapture: el drag sigue
+            // funcionando porque los pointermove burbujean al slider.
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+            scrubAt(event);
           }}
+          onPointerMove={(event) => {
+            if (!scrubDragging.current) return;
+            scrubAt(event);
+          }}
+          onPointerUp={() => {
+            scrubDragging.current = false;
+          }}
+          onPointerCancel={() => {
+            scrubDragging.current = false;
+          }}
+          onLostPointerCapture={() => {
+            scrubDragging.current = false;
+          }}
+          onKeyDown={handleScrubKeyDown}
         >
           <span style={{ width: `${progress}%` }} />
           <span

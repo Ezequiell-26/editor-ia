@@ -35,6 +35,9 @@ export type ShortcutId =
   | 'edit.deselect'
   | 'edit.copyAttributes'
   | 'edit.pasteAttributes'
+  // «Modo IA» del editor (vista reducida + asistente):
+  // alterna state/ai-mode desde cualquier superficie.
+  | 'view.aiMode'
   | 'playback.playPause'
   // Atajos "pro" (paridad CapCut / DaVinci / Premiere): sólo acciones que ya
   // existen en la app. Detalle por área, estado de cableado y pendientes en
@@ -115,6 +118,7 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'edit.deselect': 'Deseleccionar todo',
   'edit.copyAttributes': 'Copiar atributos del clip seleccionado',
   'edit.pasteAttributes': 'Pegar atributos en el clip seleccionado',
+  'view.aiMode': 'Alternar modo IA (sólo preview, timeline y asistente)',
   'playback.playPause': 'Reproducir / Pausar',
   'playback.shuttleForward': 'Shuttle: reproducir hacia adelante',
   'playback.shuttleReverse': 'Shuttle: reproducir hacia atrás',
@@ -188,6 +192,7 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'edit.deselect': 'Editar',
   'edit.copyAttributes': 'Editar',
   'edit.pasteAttributes': 'Editar',
+  'view.aiMode': 'General',
   'playback.playPause': 'Reproducción',
   'playback.shuttleForward': 'Reproducción',
   'playback.shuttleReverse': 'Reproducción',
@@ -264,6 +269,8 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   // keyframes.
   'edit.copyAttributes': 'Alt+C',
   'edit.pasteAttributes': 'Alt+V',
+  // Ctrl+Shift+I: libre en el registro (los Ctrl+Shift usados son Z/S/R/K).
+  'view.aiMode': 'Ctrl+Shift+I',
   'playback.playPause': 'Space',
   // Shuttle: L reproduce hacia adelante, J hacia atrás (dirección en el
   // motor desde 2026-11-08), K pausa. La dirección queda activa hasta el
@@ -374,7 +381,9 @@ export function saveShortcuts(map: ShortcutMap): void {
   } catch {
     // sin almacenamiento: los atajos viven solo en la sesión
   }
-  window.dispatchEvent(new CustomEvent(SHORTCUTS_CHANGED_EVENT, { detail: { ...map } }));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(SHORTCUTS_CHANGED_EVENT, { detail: { ...map } }));
+  }
 }
 
 /** Overrides actuales: sólo los bindings que difieren del default de fábrica. */

@@ -47,12 +47,11 @@ pub(crate) use profile::{encoder_names, software_encoder};
 pub use profile::{parse_profile, Profile, RenderPlan, RenderProgress, RenderVerification};
 pub(super) use visual::{
     adjustment_filters, animation_overlay_terms, animation_transform_graph,
-    apply_lut_to_chain_gated,
-    audio_stack_keyframe_instances, audio_stack_segment_plan, blend_mode_name,
-    build_audio_stack_graphs, curve_mean, has_audio_stream, hex_color, keyframe_expression,
+    apply_lut_to_chain_gated, audio_stack_keyframe_instances, audio_stack_segment_plan,
+    blend_mode_name, build_audio_stack_graphs, curve_mean, hex_color, keyframe_expression,
     offset_expression, overlay_x_expression, overlay_y_expression, parse_speed_curve,
-    perspective_filter, project_look_filters, resolve_stabilization, sanitize_filter_number,
-    seconds, text_mask_font, with_stabilization, TrackPanAutomation,
+    perspective_filter, probe_audio_stream, project_look_filters, resolve_stabilization,
+    sanitize_filter_number, seconds, text_mask_font, with_stabilization, TrackPanAutomation,
 };
 pub(crate) use visual::{
     alpha_video_decoder, apply_audio_effect_stack, apply_effect_stack, apply_effect_stack_animated,
@@ -71,9 +70,9 @@ pub(super) use execution::{effective_min_output_bytes, verify_probe_payload};
 #[cfg(test)]
 pub(crate) use plan::expand_compounds_con_pistas;
 #[cfg(test)]
-pub(crate) use visual::visual_filter;
-#[cfg(test)]
 pub(super) use profile::choose_encoder;
+#[cfg(test)]
+pub(crate) use visual::visual_filter;
 #[cfg(test)]
 pub(super) use visual::{
     cubic_bezier_progress, curve_knots, curve_optical_flow_fps, curve_setpts,

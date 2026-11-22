@@ -39,9 +39,7 @@ fn register_slot_resuelve_colisiones_con_puerto_libre() {
     // Dos slots que hashean al mismo puerto: el segundo debe recibir otro.
     let no_free = || None;
     // Busca un par que colisione dentro del rango.
-    let slots: Vec<String> = (0..200)
-        .map(|i| format!("slot-{i}"))
-        .collect();
+    let slots: Vec<String> = (0..200).map(|i| format!("slot-{i}")).collect();
     let mut collision = None;
     'outer: for (i, a) in slots.iter().enumerate() {
         for b in slots.iter().skip(i + 1) {

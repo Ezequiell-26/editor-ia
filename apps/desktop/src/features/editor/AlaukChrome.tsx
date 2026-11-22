@@ -3,7 +3,9 @@ import type { ViewId } from '../../app/navigation';
 import type { EditorModeId } from '../../app/view-routing';
 import { Icon } from '../../components/Icon';
 import { WindowControls } from '../../components/WindowControls';
+import { UtilityToolsMenu } from '../../components/UtilityToolsMenu';
 import { useProjectClips, useProjectStore } from '../../state/project-store';
+import { setAiMode, useAiMode, useAiOnly } from '../../state/ai-mode';
 
 /**
  * UN SOLO EDITOR · chrome visual AlaukCut de `EditorWorkspace` en TODOS los
@@ -60,6 +62,32 @@ function useEditorSkin(): { readonly fullChrome: boolean; readonly toggle: () =>
   return { fullChrome, toggle: () => setFullChrome((value) => !value) };
 }
 
+/** Toggle «Modo IA»: vista reducida a preview + timeline + asistente.
+ *  Persiste en state/ai-mode; aria-pressed expone el estado activo. */
+function AiModeToggle() {
+  const aiOnly = useAiOnly();
+  const aiMode = useAiMode();
+  // Con la superficie IA-only no hay modo que alternar: el editor ya es la
+  // vista reducida y el asistente está siempre acoplado.
+  if (aiOnly) return null;
+  return (
+    <button
+      type="button"
+      className={`alauk-text-btn${aiMode ? ' active' : ''}`}
+      aria-pressed={aiMode}
+      aria-label={aiMode ? 'Desactivar modo IA' : 'Activar modo IA'}
+      title={
+        aiMode
+          ? 'Modo IA activo: sólo preview, timeline y asistente (Ctrl+Shift+I)'
+          : 'Modo IA: oculta las herramientas manuales y deja preview, timeline y el asistente (Ctrl+Shift+I)'
+      }
+      onClick={() => setAiMode(!aiMode)}
+    >
+      <Icon name="ai-hub" size={12} /> Modo IA
+    </button>
+  );
+}
+
 function useSaveState(): string {
   const store = useProjectStore();
   const phase = store.state.phase;
@@ -67,13 +95,13 @@ function useSaveState(): string {
   return useMemo(() => {
     switch (phase) {
       case 'saved':
-        return `✓ Salvo automáticamente: ${new Date(lastSavedAt ?? Date.now()).toLocaleTimeString('pt-BR')}`;
+        return `✓ Guardado automático: ${new Date(lastSavedAt ?? Date.now()).toLocaleTimeString('es-ES')}`;
       case 'saving':
-        return 'Salvando…';
+        return 'Guardando…';
       case 'dirty':
-        return 'Alterações não salvas';
+        return 'Cambios sin guardar';
       case 'failed':
-        return 'Falha ao salvar';
+        return 'Error al guardar';
       default:
         return '';
     }
@@ -103,26 +131,34 @@ export const AlaukTopBar = memo(function AlaukTopBar({
   const project = store.state.project;
   const saveState = useSaveState();
   const skin = useEditorSkin();
+  const aiOnly = useAiOnly();
 
   return (
     <div className="alauk-topbar" role="toolbar" aria-label="Barra del editor">
+      {!aiOnly ? (
       <div className="alauk-topbar-left">
         <button
           type="button"
           className="alauk-projects-btn"
           onClick={() => onNavigate('projects')}
-          title="Volver a projetos"
+          title="Volver a Proyectos"
         >
-          <Icon name="folder" size={11} /> Projetos
+          <Icon name="folder" size={11} /> Proyectos
         </button>
-        {saveState ? <span className="alauk-save-state">{saveState}</span> : null}
+        {/* El estado de guardado vive en el pie (AlaukFooter); la topbar
+            sólo lo repite cuando hay error, que es lo único que exige
+            atención inmediata. */}
+        {store.state.phase === 'failed' && saveState ? (
+          <span className="alauk-save-state">{saveState}</span>
+        ) : null}
       </div>
+      ) : null}
       <span className="alauk-topbar-project">{project?.name ?? ''}</span>
       <div className="alauk-topbar-right">
-        {/* Acciones globales que vivían en la topbar del AppShell: al ser
-            ésa la única barra visible en modo timeline, sus funciones
-            esenciales (deshacer/rehacer/guardar/buscar/ajustes/ventana)
-            se conservan acá — ninguna queda huérfana. */}
+        {!aiOnly ? (
+        <>
+        {/* Acciones globales de la topbar: con el editor IA-only el chat las
+            cubre todas, así que no se renderizan botones manuales. */}
         <button
           type="button"
           className="alauk-icon-btn"
@@ -176,12 +212,13 @@ export const AlaukTopBar = memo(function AlaukTopBar({
         ) : null}
         {onAutoEdit ? (
           <button type="button" className="alauk-text-btn" onClick={onAutoEdit} title="Análisis y montaje automático">
-            <Icon name="sparkles" size={12} /> Edição automática
+            <Icon name="sparkles" size={12} /> Edición automática
           </button>
         ) : null}
+        <AiModeToggle />
         {onOpenShortcuts ? (
-          <button type="button" className="alauk-text-btn" onClick={onOpenShortcuts} title="Atalhos de teclado">
-            <Icon name="keyboard" size={12} /> Atalhos
+          <button type="button" className="alauk-text-btn" onClick={onOpenShortcuts} title="Atajos de teclado">
+            <Icon name="keyboard" size={12} /> Atajos
           </button>
         ) : null}
         <button
@@ -217,6 +254,9 @@ export const AlaukTopBar = memo(function AlaukTopBar({
         >
           <Icon name="settings" size={13} />
         </button>
+        </>
+        ) : null}
+        {aiOnly ? <UtilityToolsMenu onSelect={onNavigate} /> : null}
         <WindowControls />
       </div>
     </div>

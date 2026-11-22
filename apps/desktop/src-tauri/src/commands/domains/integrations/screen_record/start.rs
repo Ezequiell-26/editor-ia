@@ -78,11 +78,8 @@ pub async fn screen_record_start(
         .filter(|u| !u.is_empty())
         .map(|u| u.to_owned());
     if let Some(url) = stream_url.as_deref() {
-        if !(url.starts_with("rtmp://") || url.starts_with("rtmps://")) || url.len() > 2048 {
-            return Err(invalid(
-                "streamUrl debe ser una URL rtmp:// o rtmps:// válida",
-            ));
-        }
+        crate::application::obs_scenes::validate_stream_url(url)
+            .map_err(|_| invalid("streamUrl debe ser una URL rtmp:// o rtmps:// válida"))?;
     }
     // Codificador estilo OBS: auto = x264 (compatible siempre); nvenc/qsv/amf
     // usan el hardware y liberan CPU en PCs con GPU dedicada.
@@ -222,38 +219,9 @@ pub async fn screen_record_start(
     };
     let single_map = format!("{}:v", webcam_idx.or(screen_idx).unwrap_or(0));
 
-    let to_args = |items: &[&str]| {
-        items.iter().map(|s| s.to_string()).collect::<Vec<String>>()
-    };
-    let video_codec: Vec<String> = match encoder.as_str() {
-        "nvenc" => to_args(&[
-            "-c:v",
-            "h264_nvenc",
-            "-preset",
-            "p4",
-            "-cq",
-            "23",
-            "-pix_fmt",
-            "yuv420p",
-        ]),
-        "qsv" => to_args(&[
-            "-c:v",
-            "h264_qsv",
-            "-global_quality",
-            "23",
-            "-pix_fmt",
-            "yuv420p",
-        ]),
-        "amf" => to_args(&[
-            "-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23",
-        ]),
-        "mf" => to_args(&["-c:v", "h264_mf", "-rate_control", "quality"]),
-        // "x264" = mejor H.264 de software disponible: el bundle LGPL no
-        // incluye libx264 y pedirlo fijo mataba ffmpeg tras el arranque.
-        _ => h264_software_video_args(&ffmpeg, 23).map_err(|e| {
-            ProjectError::message(ProjectErrorCode::ProviderUnavailable, e.as_str())
-        })?,
-    };
+    let video_codec: Vec<String> = h264_encoder_video_args(&ffmpeg, &encoder, 23).map_err(|e| {
+        ProjectError::message(ProjectErrorCode::ProviderUnavailable, e.as_str())
+    })?;
 
     fn push_output(
         command: &mut Command,
@@ -336,7 +304,8 @@ pub async fn screen_record_start(
 
     // Verificar que el proceso siga vivo tras el arranque (dispositivo dshow
     // inexistente o gdigrab bloqueado mueren en los primeros segundos).
-    std::thread::sleep(Duration::from_millis(1200));
+    // La espera es async: `thread::sleep` congelaría el runtime (AUD-129).
+    tokio::time::sleep(Duration::from_millis(1200)).await;
     match spawned.try_wait() {
         Ok(Some(status)) => {
             let stderr = spawned
@@ -448,17 +417,25 @@ pub async fn screen_record_start(
     }
 }
 
+/// Medición real del MP4 generado con ffprobe.
+#[derive(Debug, Default, Clone, Copy)]
+struct ProbeOutput {
+    duration: Option<f64>,
+    width: Option<u32>,
+    height: Option<u32>,
+    has_audio: Option<bool>,
+    /// Canales de la pista de audio (`None` = sin dato o sin audio).
+    channels: Option<u32>,
+}
+
 /// Medición real del MP4 generado con ffprobe (duración, resolución, audio).
-fn probe_output(
-    ffprobe: &std::path::Path,
-    output: &std::path::Path,
-) -> (Option<f64>, Option<u32>, Option<u32>, Option<bool>) {
+fn probe_output(ffprobe: &std::path::Path, output: &std::path::Path) -> ProbeOutput {
     let probed = Command::new(ffprobe)
         .args([
             "-v",
             "error",
             "-show_entries",
-            "format=duration:stream=codec_type,width,height",
+            "format=duration:stream=codec_type,width,height,channels",
             "-of",
             "json",
             &output.to_string_lossy(),
@@ -468,15 +445,15 @@ fn probe_output(
         .stderr(Stdio::null())
         .output();
     let Ok(out) = probed else {
-        return (None, None, None, None);
+        return ProbeOutput::default();
     };
     if !out.status.success() {
-        return (None, None, None, None);
+        return ProbeOutput::default();
     }
     let text = String::from_utf8_lossy(&out.stdout);
     let json: serde_json::Value = match serde_json::from_str(&text) {
         Ok(v) => v,
-        Err(_) => return (None, None, None, None),
+        Err(_) => return ProbeOutput::default(),
     };
     let duration = json["format"]["duration"]
         .as_str()
@@ -485,15 +462,27 @@ fn probe_output(
     let mut width = None;
     let mut height = None;
     let mut has_audio = false;
+    let mut channels = None;
     for stream in streams.into_iter().flatten() {
         match stream["codec_type"].as_str() {
             Some("video") => {
                 width = stream["width"].as_u64().map(|v| v as u32);
                 height = stream["height"].as_u64().map(|v| v as u32);
             }
-            Some("audio") => has_audio = true,
+            Some("audio") => {
+                has_audio = true;
+                channels = stream["channels"]
+                    .as_u64()
+                    .and_then(|c| u32::try_from(c).ok());
+            }
             _ => {}
         }
     }
-    (duration, width, height, Some(has_audio))
+    ProbeOutput {
+        duration,
+        width,
+        height,
+        has_audio: Some(has_audio),
+        channels,
+    }
 }

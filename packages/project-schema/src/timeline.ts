@@ -864,6 +864,8 @@ export const ClipStabilizationSchema = z
     transformFile: z.string().min(1).max(500),
     inFrame: FrameSchema,
     outFrame: FrameSchema,
+    /** MP4 horneado con `vidstabtransform` para la preview; el export lo ignora. */
+    previewProxy: z.string().min(1).max(500).optional(),
   })
   .strict()
   .superRefine((value, ctx) => {

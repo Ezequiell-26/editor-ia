@@ -242,6 +242,8 @@ pub struct RenderPlan {
     pub width: u32,
     pub height: u32,
     pub fps: f64,
+    pub audio_sample_rate: u32,
+    pub audio_channels: u32,
     pub profile_name: String,
 }
 
@@ -419,10 +421,7 @@ pub(crate) fn pixel_format_for(
     // ProRes 4:2:2/4:4:4 10-bit: `prores_ks` no acepta yuv420p ni yuv444p de
     // 8 bits. Si el perfil no declara el formato nativo se rechaza acá en vez
     // de llegar al encoder y fallar a mitad del render.
-    if video_codec == "prores"
-        && requested != "yuv422p10le"
-        && requested != "yuva444p10le"
-    {
+    if video_codec == "prores" && requested != "yuv422p10le" && requested != "yuva444p10le" {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
             "ProRes emite 4:2:2 u 4:4:4 10-bit: el perfil debe declarar pixelFormat yuv422p10le o yuva444p10le",
@@ -626,10 +625,7 @@ pub(crate) fn software_video_args(encoder: &str, profile: &Profile) -> Vec<Strin
                 _ => 3,
             }
         };
-        args.extend([
-            "-profile:v".into(),
-            profile_level.to_string(),
-        ]);
+        args.extend(["-profile:v".into(), profile_level.to_string()]);
     } else {
         // h264_mf/libopenh264/av1_mf no aceptan CRF: sólo bitrate.
         if let Some(bps) = bps {

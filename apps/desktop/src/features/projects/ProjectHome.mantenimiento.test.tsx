@@ -102,7 +102,7 @@ describe('Proyectos · medios del proyecto (detección honesta)', () => {
     expect(card.textContent).not.toContain('Placa presente');
 
     // Acciones reales del contrato: relink individual y por carpeta.
-    expect(screen.getByRole('button', { name: /Relink…/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Reconectar…/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Buscar carpeta…/ })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Volver a comprobar/i }));

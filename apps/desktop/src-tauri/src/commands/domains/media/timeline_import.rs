@@ -33,8 +33,11 @@ pub async fn choose_timeline_file(app: AppHandle) -> Result<Option<String>, Proj
     let Some(picked) = app
         .dialog()
         .file()
-        .set_title("Importar timeline EDL, OTIO o FCPXML")
-        .add_filter("Intercambio de timeline", &["edl", "otio", "fcpxml", "xml"])
+        .set_title("Importar timeline EDL, OTIO, FCPXML, FCP7, AAF u OMF")
+        .add_filter(
+            "Intercambio de timeline",
+            &["edl", "otio", "fcpxml", "xml", "aaf", "omf", "omfi"],
+        )
         .blocking_pick_file()
     else {
         return Ok(None);

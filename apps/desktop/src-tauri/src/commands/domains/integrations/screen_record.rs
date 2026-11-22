@@ -52,6 +52,7 @@ struct Recording {
 /// y lanzaban dos ffmpeg (el segundo pisaba `RECORDING` y quedaba
 /// inalcanzable para `stop`), y un `start` podía colarse en la ventana en
 /// que `stop` ya había tomado el `Child` pero ffmpeg seguía escribiendo.
+#[allow(clippy::large_enum_variant)]
 enum RecordState {
     Idle,
     /// `start` en curso: ffmpeg todavía no se lanzó o está verificando su
@@ -205,6 +206,8 @@ include!("screen_record/state.rs");
 include!("screen_record/devices.rs");
 include!("screen_record/list_devices.rs");
 include!("screen_record/start.rs");
+include!("screen_record/transition.rs");
+include!("screen_record/switch.rs");
 include!("screen_record/stop.rs");
 include!("screen_record/preview.rs");
 include!("screen_record/snapshot.rs");

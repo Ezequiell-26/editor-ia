@@ -291,3 +291,88 @@ export interface NativeWhisperStatus {
   readonly busy: boolean;
   readonly download: NativeWhisperDownloadState;
 }
+
+/** Parámetro de una etapa de efectos DSP (valor crudo; el backend clampea al rango). */
+export interface AudioEffectParam {
+  readonly param: string;
+  readonly value: number;
+}
+
+/** Etapa de la cadena: id del registry filmcraft + parámetros por id. */
+export interface AudioEffectStep {
+  readonly effect: string;
+  readonly params?: readonly AudioEffectParam[];
+}
+
+export interface AudioEffectParamInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly min: number;
+  readonly max: number;
+  readonly default: number;
+  readonly unit: string;
+  readonly logScale: boolean;
+  readonly choices: readonly string[];
+}
+
+export interface AudioEffectInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly category: string;
+  readonly params: readonly AudioEffectParamInfo[];
+}
+
+export interface AudioFileLoudness {
+  readonly integratedLufs: number;
+  readonly loudnessRangeLu: number;
+  readonly maxMomentaryLufs: number;
+  readonly maxShortTermLufs: number;
+  readonly samplePeakDbfs: number;
+  readonly truePeakDbtp: number;
+  readonly durationSeconds: number;
+}
+
+export interface AudioSyncOffset {
+  readonly lagSamples: number;
+  readonly lagSeconds: number;
+  readonly lagFineSeconds: number;
+  readonly confidence: number;
+  readonly distinct: number;
+  readonly inverted: boolean;
+  readonly reliable: boolean;
+}
+
+export interface AudioLoudnessNormalizeResult {
+  readonly output: string;
+  readonly measuredLufs: number;
+  readonly targetLufs: number;
+  readonly gainDb: number;
+}
+
+/** Análisis rítmico (motor Remix de filmcraft): BPM, beats en segundos. */
+/** Voz TTS built-in (formant, sin descarga). */
+export interface TtsVoiceInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly language: string;
+  readonly gender: string;
+  readonly engine: string;
+  readonly description: string;
+  readonly license: string;
+}
+
+export interface AudioRemixAnalysis {
+  readonly durationSeconds: number;
+  readonly bpm: number;
+  readonly beatCount: number;
+  readonly beatsSeconds: readonly number[];
+}
+
+/** Plan de sidechain ducking: regiones de voz + keyframes de ganancia (dB). */
+export interface AudioDuckPlan {
+  readonly durationSeconds: number;
+  readonly regions: ReadonlyArray<readonly [number, number]>;
+  readonly keyframes: ReadonlyArray<readonly [number, number]>;
+  readonly envelopeDb: readonly number[];
+  readonly thresholdDb: number;
+}

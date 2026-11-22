@@ -1,3 +1,11 @@
+// La lógica anti-SSRF vive en `application::net_guard` (compartida con
+// los proveedores remotos del studio). Acá quedan los wrappers que la
+// traducen a `ProjectError` con los mensajes del dominio downloader.
+
+fn check_url_parts(parsed: &reqwest::Url) -> Result<(), ProjectError> {
+    crate::application::net_guard::check_url_parts(parsed).map_err(invalid_error)
+}
+
 pub(crate) fn validate_url(raw: &str) -> Result<String, ProjectError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > MAX_URL_LENGTH {
@@ -6,42 +14,32 @@ pub(crate) fn validate_url(raw: &str) -> Result<String, ProjectError> {
     let parsed = reqwest::Url::parse(trimmed).map_err(|_| {
         invalid_error("La URL no es válida. Tiene que empezar con http:// o https://.")
     })?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return Err(invalid_error("Sólo se aceptan URLs http o https."));
-    }
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| invalid_error("La URL no tiene un host válido."))?
-        .trim_end_matches('.')
-        .to_ascii_lowercase();
-    if host.is_empty() {
-        return Err(invalid_error("La URL no tiene un host válido."));
-    }
-    if host == "localhost" || host.ends_with(".local") || host.ends_with(".internal") {
-        return Err(invalid_error("No se permiten direcciones locales."));
-    }
-    if let Ok(ip) = host.trim_matches(['[', ']']).parse::<IpAddr>() {
-        let private = match ip {
-            IpAddr::V4(value) => {
-                value.is_private()
-                    || value.is_loopback()
-                    || value.is_link_local()
-                    || value.is_unspecified()
-            }
-            IpAddr::V6(value) => {
-                value.is_loopback()
-                    || value.is_unspecified()
-                    || value.is_unique_local()
-                    || value.is_unicast_link_local()
-            }
-        };
-        if private {
-            return Err(invalid_error(
-                "No se permiten direcciones privadas ni locales.",
-            ));
-        }
-    }
+    check_url_parts(&parsed)?;
     Ok(parsed.to_string())
+}
+
+/// DNS de una URL ya validada: si el nombre resuelve a CUALQUIER IP
+/// prohibida se rechaza, y también cuando no resuelve (fail-closed: si el
+/// DNS falla, la descarga iba a fallar igual). Es una resolución síncrona:
+/// usar sólo en contextos bloqueantes (spawn_blocking/hilos dedicados).
+pub(crate) fn ensure_public_resolution(url: &reqwest::Url) -> Result<(), ProjectError> {
+    crate::application::net_guard::ensure_public_resolution(url).map_err(invalid_error)
+}
+
+/// Reglas completas para contextos bloqueantes: sintaxis + IP literal + DNS.
+pub(crate) fn validate_url_network(raw: &str) -> Result<String, ProjectError> {
+    let validated = validate_url(raw)?;
+    let parsed = reqwest::Url::parse(&validated)
+        .map_err(|_| invalid_error("La URL no es válida."))?;
+    ensure_public_resolution(&parsed)?;
+    Ok(validated)
+}
+
+/// Anti-SSRF para clientes reqwest que siguen redirects: cada salto vuelve
+/// a pasar las mismas reglas (esquema, host, IP literal y DNS) sobre la
+/// URL de destino, así un 302 a una IP interna no bypasea la validación.
+pub(crate) fn ssrf_redirect_policy() -> reqwest::redirect::Policy {
+    crate::application::net_guard::ssrf_redirect_policy()
 }
 
 fn validate_cookies_file(raw: Option<&str>) -> Result<Option<PathBuf>, ProjectError> {
@@ -405,6 +403,14 @@ pub(crate) fn probe_with_engine(
     cookies_browser: Option<&str>,
 ) -> Result<DownloadProbe, ProjectError> {
     let parsed = reqwest::Url::parse(url).map_err(|_| invalid_error("La URL no es válida."))?;
+    // El análisis corre en spawn_blocking/hilo dedicado: el DNS síncrono no
+    // bloquea el runtime. yt-dlp después resuelve por su cuenta — residual
+    // documentado: no se puede fijar la IP de conexión del subproceso.
+    ensure_public_resolution(&parsed)?;
+    // Mismo cierre AUD-032 que la descarga: el probe también resuelve URLs
+    // del extractor por su cuenta; el proxy local valida cada destino.
+    let guard_proxy = GuardProxy::start()
+        .map_err(|message| provider_error(format!("proxy de guardia: {message}")))?;
     let mut command = Command::new(engine);
     command.args([
         "--dump-single-json",
@@ -416,6 +422,8 @@ pub(crate) fn probe_with_engine(
         "2",
         "--playlist-end",
         "13",
+        "--proxy",
+        guard_proxy.proxy_url().as_str(),
     ]);
     if is_youtube_host(&parsed) {
         command.arg("--no-playlist");

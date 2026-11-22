@@ -11,7 +11,7 @@ import {
   transcriptToRanges,
   videoDurationFrames,
   type TextEditBuild,
-} from './text-edit';
+} from '../../state/text-edit';
 
 function clock(seconds: number): string {
   const safe = Math.max(0, seconds);

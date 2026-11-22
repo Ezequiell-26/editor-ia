@@ -115,7 +115,6 @@ lines.push('');
 lines.push('pub fn find(id: &str) -> Option<&\'static Recipe> {');
 lines.push('    RECIPES.iter().find(|recipe| recipe.id == id)');
 lines.push('}');
-lines.push('');
 
 writeFileSync(TARGET, `${lines.join('\n')}\n`, 'utf8');
 process.stdout.write(

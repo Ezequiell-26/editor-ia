@@ -28,8 +28,7 @@ pub use crate::render::ffmpeg::{detect_hardware, hardware_h264, HardwareEncoders
 
 // DTOs, clamp de buckets, parser de ffprobe y reductor min/max: `media::peaks`.
 pub use crate::media::peaks::{
-    clamp_buckets, parse_audio_probe, AudioPeaks, PeakPair, PeakReducer, MAX_BUCKETS,
-    MIN_BUCKETS,
+    clamp_buckets, parse_audio_probe, AudioPeaks, PeakPair, PeakReducer, MAX_BUCKETS, MIN_BUCKETS,
 };
 
 /// Resuelve el asset y valida que tenga audio posible.
@@ -104,8 +103,8 @@ pub(crate) fn probe_audio(ffprobe: &Path, source: &Path) -> Result<(f64, f64), P
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     crate::commands::hide_console(&mut command);
-    let timed = crate::commands::output_with_timeout(&mut command, AUDIO_PROBE_TIMEOUT)
-        .map_err(|_| {
+    let timed =
+        crate::commands::output_with_timeout(&mut command, AUDIO_PROBE_TIMEOUT).map_err(|_| {
             ProjectError::message(
                 ProjectErrorCode::Io,
                 "no se pudo iniciar FFprobe para leer el audio",
@@ -134,9 +133,7 @@ fn peaks_decode_timeout(duration_seconds: f64) -> Duration {
     const FACTOR: f64 = 10.0;
     const FLOOR_SECS: f64 = 120.0;
     const CEILING_SECS: f64 = 2.0 * 3600.0;
-    Duration::from_secs_f64(
-        (duration_seconds.max(0.0) * FACTOR).clamp(FLOOR_SECS, CEILING_SECS),
-    )
+    Duration::from_secs_f64((duration_seconds.max(0.0) * FACTOR).clamp(FLOOR_SECS, CEILING_SECS))
 }
 
 /// Decodifica el audio a PCM mono f32 y lo reduce a `buckets` pares min/max.
@@ -282,19 +279,34 @@ pub async fn audio_peaks(
         ));
     };
     let (_kind, source) = resolve_audio_asset(&session, &asset_id)?;
-    let (duration, rate) = probe_audio(&ffprobe, &source)?;
-    let peaks = decode_peaks(&ffmpeg, &source, buckets, duration, rate)?;
-    if peaks.is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::RenderFailed,
-            "este material no tiene audio que mostrar",
-        ));
-    }
+    // AUD-129 (resto del dominio): probe + decodificación completa de la
+    // onda pueden tardar; van a spawn_blocking como el resto de FFmpeg.
+    let ffmpeg_path = ffmpeg.clone();
+    let ffprobe_path = ffprobe.clone();
+    let source_path = source.clone();
+    let peaks = tauri::async_runtime::spawn_blocking(move || {
+        let (duration, rate) = probe_audio(&ffprobe_path, &source_path)?;
+        let peaks = decode_peaks(&ffmpeg_path, &source_path, buckets, duration, rate)?;
+        if peaks.is_empty() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                "este material no tiene audio que mostrar",
+            ));
+        }
+        Ok::<(f64, Vec<PeakPair>), ProjectError>((duration, peaks))
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la lectura de la onda se interrumpió antes de terminar",
+        )
+    })??;
     Ok(AudioPeaks {
         asset_id,
-        duration_seconds: duration,
+        duration_seconds: peaks.0,
         buckets,
-        peaks,
+        peaks: peaks.1,
     })
 }
 
@@ -328,19 +340,34 @@ pub async fn audio_peaks_path(
             "el archivo no existe",
         ));
     }
-    let (duration, rate) = probe_audio(&ffprobe, &source)?;
-    let peaks = decode_peaks(&ffmpeg, &source, buckets, duration, rate)?;
-    if peaks.is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::RenderFailed,
-            "este material no tiene audio que mostrar",
-        ));
-    }
+    // AUD-129 (resto del dominio): misma decodificación que `audio_peaks`,
+    // también fuera del runtime async.
+    let ffmpeg_path = ffmpeg.clone();
+    let ffprobe_path = ffprobe.clone();
+    let source_path = source.clone();
+    let peaks = tauri::async_runtime::spawn_blocking(move || {
+        let (duration, rate) = probe_audio(&ffprobe_path, &source_path)?;
+        let peaks = decode_peaks(&ffmpeg_path, &source_path, buckets, duration, rate)?;
+        if peaks.is_empty() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                "este material no tiene audio que mostrar",
+            ));
+        }
+        Ok::<(f64, Vec<PeakPair>), ProjectError>((duration, peaks))
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la lectura de la onda se interrumpió antes de terminar",
+        )
+    })??;
     Ok(AudioPeaks {
         asset_id: source.to_string_lossy().to_string(),
-        duration_seconds: duration,
+        duration_seconds: peaks.0,
         buckets,
-        peaks,
+        peaks: peaks.1,
     })
 }
 
@@ -372,7 +399,18 @@ pub async fn hardware_encoders(
             checked: false,
         });
     };
-    Ok(crate::render::ffmpeg::detect_hardware_cached(&ffmpeg))
+    // La primera detección lanza FFmpeg/FFprobe; va a spawn_blocking.
+    let ffmpeg_path = ffmpeg.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::render::ffmpeg::detect_hardware_cached(&ffmpeg_path)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la detección de hardware se interrumpió antes de terminar",
+        )
+    })
 }
 
 #[cfg(test)]

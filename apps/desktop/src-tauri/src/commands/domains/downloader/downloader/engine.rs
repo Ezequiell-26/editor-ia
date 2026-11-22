@@ -64,7 +64,44 @@ pub(crate) fn ensure_bundled_engine(config_dir: &Path) {
     let _ = std::fs::copy(&bundled, &managed);
 }
 
+/// `yt-dlp --version` es un PyInstaller: cientos de ms por llamada, y
+/// `resolve_engine`/`status_from_config` lo pagan en cada comando del
+/// downloader. Se memoiza por firma del archivo (tamaño + mtime):
+/// reinstalar o actualizar cambia la firma y fuerza re-probe. Las rutas
+/// que no son archivo (p.ej. `yt-dlp` resuelto por PATH) no tienen firma
+/// estable y no se cachean.
+type EngineVersionSignature = (u64, Option<std::time::SystemTime>);
+type EngineVersionCache =
+    Mutex<HashMap<PathBuf, (EngineVersionSignature, Option<String>)>>;
+
+fn engine_version_cache() -> &'static EngineVersionCache {
+    static CACHE: OnceLock<EngineVersionCache> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn engine_version(engine: &Path) -> Option<String> {
+    let signature = std::fs::metadata(engine)
+        .ok()
+        .map(|meta| (meta.len(), meta.modified().ok()));
+    let Some((len, modified)) = signature else {
+        return engine_version_probe(engine);
+    };
+    let signature = (len, modified);
+    if let Ok(guard) = engine_version_cache().lock() {
+        if let Some((cached_signature, version)) = guard.get(engine) {
+            if *cached_signature == signature {
+                return version.clone();
+            }
+        }
+    }
+    let version = engine_version_probe(engine);
+    if let Ok(mut guard) = engine_version_cache().lock() {
+        guard.insert(engine.to_path_buf(), (signature, version.clone()));
+    }
+    version
+}
+
+fn engine_version_probe(engine: &Path) -> Option<String> {
     let mut command = Command::new(engine);
     command
         .arg("--version")
@@ -305,23 +342,31 @@ pub async fn install_downloader(
         ));
     }
     let tools_dir = config_dir.join("tools");
-    std::fs::create_dir_all(&tools_dir)
-        .map_err(|_| io_error("No se pudo crear la carpeta de herramientas."))?;
-    let target = managed_engine_path(&config_dir);
-    let temporary = tools_dir.join("yt-dlp.exe.download");
-    std::fs::write(&temporary, &exe)
-        .map_err(|_| io_error("No se pudo escribir el motor descargado."))?;
-    if target.exists() {
-        let _ = std::fs::remove_file(&target);
-    }
-    std::fs::rename(&temporary, &target)
-        .map_err(|_| io_error("No se pudo instalar el motor descargado."))?;
-    if engine_version(&target).is_none() {
-        let _ = std::fs::remove_file(&target);
-        return Err(provider_error(
-            "El motor se descargó pero no respondió a --version; se descartó.",
-        ));
-    }
+    // Escribir el binario (~decenas de MB) + engine_version lanza el
+    // exe: fuera del runtime async (AUD-129).
+    let config_dir_for_install = config_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), ProjectError> {
+        std::fs::create_dir_all(&tools_dir)
+            .map_err(|_| io_error("No se pudo crear la carpeta de herramientas."))?;
+        let target = managed_engine_path(&config_dir_for_install);
+        let temporary = tools_dir.join("yt-dlp.exe.download");
+        std::fs::write(&temporary, &exe)
+            .map_err(|_| io_error("No se pudo escribir el motor descargado."))?;
+        if target.exists() {
+            let _ = std::fs::remove_file(&target);
+        }
+        std::fs::rename(&temporary, &target)
+            .map_err(|_| io_error("No se pudo instalar el motor descargado."))?;
+        if engine_version(&target).is_none() {
+            let _ = std::fs::remove_file(&target);
+            return Err(provider_error(
+                "El motor se descargó pero no respondió a --version; se descartó.",
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|_| provider_error("La instalación del motor se interrumpió."))??;
     emit_progress(&app, "", "engine", None, "Motor instalado.");
     Ok(status_from_config(&config_dir))
 }

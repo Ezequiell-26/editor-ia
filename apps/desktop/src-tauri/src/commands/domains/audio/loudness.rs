@@ -115,8 +115,8 @@ pub async fn analyze_mix_loudness(
     let working_dir: PathBuf = plan.working_dir.clone();
 
     let progress_app = app.clone();
-    let handle =
-        tauri::async_runtime::spawn_blocking(move || -> Result<MixLoudnessReport, ProjectError> {
+    let handle = tauri::async_runtime::spawn_blocking(
+        move || -> Result<MixLoudnessReport, ProjectError> {
             let mut child = crate::render::ffmpeg::spawn(&ffmpeg, &plan).inspect_err(|_error| {
                 let _ = std::fs::remove_dir_all(&working_dir);
             })?;
@@ -241,7 +241,8 @@ pub async fn analyze_mix_loudness(
                 ));
             }
             build_report(meter, history, seconds, target_lufs)
-        });
+        },
+    );
     let report = match handle.await {
         Ok(result) => result,
         Err(_) => {

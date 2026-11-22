@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createEmptyProject } from '@editor-ia/project-schema';
+import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
 import { ProjectProvider, useProjectStore } from '../../state/project-store';
-import { createFakeService } from '../../test/fake-service';
+import { createFakeService, readyAsset } from '../../test/fake-service';
+import {
+  addAsset,
+  addClipFromAsset,
+  ensureDelivery,
+} from '../../state/project-actions';
 import {
   loadEditorPreferences,
   resetEditorPreferences,
@@ -12,6 +17,62 @@ import {
 import { Transport } from './Transport';
 
 const NOW = '2026-11-08T00:00:00.000Z';
+
+// jsdom no trae PointerEvent: sin el polyfill fireEvent.pointerDown/Move
+// no construye el evento que el drag del slider escucha.
+if (typeof window.PointerEvent === 'undefined') {
+  class PointerEventPolyfill extends MouseEvent {
+    readonly pointerId: number;
+
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 1;
+    }
+  }
+  Object.defineProperty(window, 'PointerEvent', {
+    value: PointerEventPolyfill,
+    configurable: true,
+  });
+  Object.defineProperty(globalThis, 'PointerEvent', {
+    value: PointerEventPolyfill,
+    configurable: true,
+  });
+}
+
+function projectWithClip(prepare?: (project: ProjectDocument) => ProjectDocument): ProjectDocument {
+  const base = ensureDelivery(createEmptyProject('Slider', NOW));
+  const asset = readyAsset();
+  const created = addClipFromAsset(addAsset(base, asset), asset, {
+    atFrame: 0,
+    durationFrames: 300,
+  }).project;
+  return prepare ? prepare(created) : created;
+}
+
+/** Slider con geometría fija (300 px = 300 frames) para el scrub por puntero. */
+function renderSlider() {
+  const project = projectWithClip();
+  const fps = project.video.frameRate.num / project.video.frameRate.den;
+  render(
+    <ProjectProvider service={createFakeService()} initial={{ project }}>
+      <Transport />
+    </ProjectProvider>,
+  );
+  const slider = screen.getByRole('slider', { name: 'Posición de reproducción' });
+  slider.getBoundingClientRect = () =>
+    ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 5,
+      width: 300,
+      height: 5,
+      toJSON: () => ({}),
+    }) as DOMRect;
+  return { slider, fps };
+}
 
 function renderTransport() {
   const project = createEmptyProject('Loop', NOW);
@@ -72,6 +133,43 @@ describe('Transport · velocidad de reproducción', () => {
     expect(
       (screen.getByLabelText('Velocidad de reproducción') as HTMLSelectElement).value,
     ).toBe('2');
+  });
+});
+
+describe('Transport · slider de transporte', () => {
+  it('tiene las teclas de slider completas: flechas, Home/End y PageUp/PageDown', () => {
+    const { slider, fps } = renderSlider();
+    const pageStep = Math.max(1, Math.round(fps * 5));
+
+    fireEvent.keyDown(slider, { key: 'ArrowRight' });
+    expect(slider.getAttribute('aria-valuenow')).toBe('1');
+    fireEvent.keyDown(slider, { key: 'ArrowLeft' });
+    expect(slider.getAttribute('aria-valuenow')).toBe('0');
+
+    fireEvent.keyDown(slider, { key: 'PageDown' });
+    expect(slider.getAttribute('aria-valuenow')).toBe(String(pageStep));
+    fireEvent.keyDown(slider, { key: 'PageUp' });
+    expect(slider.getAttribute('aria-valuenow')).toBe('0');
+
+    fireEvent.keyDown(slider, { key: 'End' });
+    expect(slider.getAttribute('aria-valuenow')).toBe('300');
+    fireEvent.keyDown(slider, { key: 'Home' });
+    expect(slider.getAttribute('aria-valuenow')).toBe('0');
+  });
+
+  it('arrastra de verdad: pointerdown + pointermove hacen scrub y pointerup lo suelta', () => {
+    const { slider } = renderSlider();
+
+    fireEvent.pointerDown(slider, { button: 0, pointerId: 1, clientX: 150 });
+    expect(slider.getAttribute('aria-valuenow')).toBe('150');
+
+    fireEvent.pointerMove(slider, { pointerId: 1, clientX: 75 });
+    expect(slider.getAttribute('aria-valuenow')).toBe('75');
+
+    fireEvent.pointerUp(slider, { pointerId: 1 });
+    // Soltado el botón, mover el puntero ya no scrubbea.
+    fireEvent.pointerMove(slider, { pointerId: 1, clientX: 10 });
+    expect(slider.getAttribute('aria-valuenow')).toBe('75');
   });
 });
 

@@ -4,6 +4,15 @@
 pub async fn screen_record_stop(
     state: State<'_, AppState>,
 ) -> Result<ScreenRecordResult, ProjectError> {
+    // Una sesión de switching OBS no se detiene por acá: sus segmentos se
+    // cierran y cosen con `obs_switch_stop` — cortar el segmento vivo por
+    // esta vía dejaría la sesión inconsistente.
+    if switch_session_active() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderRejected,
+            "hay una sesión de switching OBS activa; detenela con obs_switch_stop",
+        ));
+    }
     // AUD-094: `Active → Stopping` bajo el mismo lock — el slot queda
     // ocupado mientras ffmpeg cierra (y mientras se quema el cursor).
     let taken = take_active_for_stop();
@@ -76,10 +85,20 @@ pub async fn screen_record_stop(
             let mut bytes = output.metadata().map(|m| m.len()).ok();
             let settings = state.settings_snapshot()?;
             let (ffmpeg, ffprobe, _) = resolve_tools(&settings);
-            let (duration_secs, width, height, has_audio) = ffprobe
-                .as_ref()
-                .map(|p| probe_output(p, &output))
-                .unwrap_or((None, None, None, None));
+            let probe = match ffprobe.as_ref() {
+                Some(p) => {
+                    let ffprobe_path = p.clone();
+                    let probe_path = output.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        probe_output(&ffprobe_path, &probe_path)
+                    })
+                    .await
+                    .unwrap_or_default()
+                }
+                None => ProbeOutput::default(),
+            };
+            let (duration_secs, width, height, has_audio) =
+                (probe.duration, probe.width, probe.height, probe.has_audio);
 
             // Cursor estilizado: segundo pase ffmpeg que quema el .ass
             // generado desde las muestras. Si falla, el MP4 original queda
@@ -89,20 +108,37 @@ pub async fn screen_record_stop(
             let mut warning = None;
             if let (Some(spec), Some(ffmpeg)) = (cursor_spec.as_ref(), ffmpeg.as_ref()) {
                 if bytes.unwrap_or(0) > 0 {
-                    match burn_cursor_overlay(
-                        ffmpeg,
-                        &output,
-                        &cursor_samples,
-                        spec,
-                        duration_secs,
-                        width,
-                        height,
-                    ) {
-                        Ok(true) => {
+                    let ffmpeg = ffmpeg.clone();
+                    let output_path = output.clone();
+                    let samples = cursor_samples.clone();
+                    let spec = spec.clone();
+                    let burned = tauri::async_runtime::spawn_blocking(move || {
+                        burn_cursor_overlay(
+                            &ffmpeg,
+                            &output_path,
+                            &samples,
+                            &spec,
+                            duration_secs,
+                            width,
+                            height,
+                        )
+                    })
+                    .await
+                    .map_err(|error| {
+                        format!("no se pudo quemar el cursor: {error}")
+                    });
+                    match burned {
+                        Ok(Ok(true)) => {
                             cursor_burned = Some(true);
                             bytes = output.metadata().map(|m| m.len()).ok();
                         }
-                        Ok(false) => cursor_burned = Some(false),
+                        Ok(Ok(false)) => cursor_burned = Some(false),
+                        Ok(Err(e)) => {
+                            cursor_burned = Some(false);
+                            warning = Some(format!(
+                                "la grabación está bien pero el cursor no se pudo quemar: {e}"
+                            ));
+                        }
                         Err(e) => {
                             cursor_burned = Some(false);
                             warning = Some(format!(

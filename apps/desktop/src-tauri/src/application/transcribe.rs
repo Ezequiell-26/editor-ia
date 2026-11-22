@@ -176,10 +176,7 @@ pub fn native_model_id(model: &str) -> Option<&'static str> {
 /// fallo también dispara el fallback). `python_ready` es que el sondeo
 /// encontró un Python con faster-whisper. Sin ninguno, el comando reporta
 /// la ausencia de motor como antes.
-pub fn engine_plan(
-    native_supported: bool,
-    python_ready: bool,
-) -> Vec<TranscriptionEngine> {
+pub fn engine_plan(native_supported: bool, python_ready: bool) -> Vec<TranscriptionEngine> {
     let mut plan = Vec::with_capacity(2);
     if native_supported {
         plan.push(TranscriptionEngine::Native);
@@ -316,7 +313,11 @@ pub fn native_whisper_models(
                 size_bytes: model.size_bytes,
                 downloaded,
                 path: if downloaded {
-                    Some(dir.join(format!("ggml-{}.bin", model.id)).to_string_lossy().into_owned())
+                    Some(
+                        dir.join(format!("ggml-{}.bin", model.id))
+                            .to_string_lossy()
+                            .into_owned(),
+                    )
                 } else {
                     None
                 },

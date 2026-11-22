@@ -11,6 +11,7 @@ export type EditorModeId =
   | 'nodes'
   | 'motion'
   | 'visuals'
+  | 'teleprompter'
   | 'guide'
   // T2: mapa único de TODAS las herramientas dentro del editor.
   | 'tools'
@@ -54,6 +55,7 @@ const EDITOR_MODE_ALIASES: Readonly<Partial<Record<ViewId, EditorModeId>>> = {
   nodes: 'nodes',
   motion: 'motion',
   visuals: 'visuals',
+  teleprompter: 'teleprompter',
 };
 
 /**

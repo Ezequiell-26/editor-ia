@@ -20,19 +20,11 @@ fn allowlist_rechaza_ops_desconocidas() {
 #[test]
 fn render_export_exige_output_y_clips_con_path() {
     // Sin output.
-    assert!(build_request(
-        "render_export",
-        &json!({"clips": [{"path": "a.mp4"}]})
-    )
-    .is_err());
+    assert!(build_request("render_export", &json!({"clips": [{"path": "a.mp4"}]})).is_err());
     // Sin clips.
     assert!(build_request("render_export", &json!({"output": "o.mp4"})).is_err());
     // clips vacío o no-array.
-    assert!(build_request(
-        "render_export",
-        &json!({"output": "o.mp4", "clips": []})
-    )
-    .is_err());
+    assert!(build_request("render_export", &json!({"output": "o.mp4", "clips": []})).is_err());
     assert!(build_request(
         "render_export",
         &json!({"output": "o.mp4", "clips": "a.mp4"})
@@ -139,13 +131,11 @@ fn probe_y_decode_frame_exigen_path() {
     assert!(build_request("probe", &json!({"path": "  "})).is_err());
     assert!(build_request("probe", &json!({"path": "clip.mp4"})).is_ok());
     assert!(build_request("decode_frame", &json!({"path": "c.mp4"})).is_err());
-    assert!(
-        build_request(
-            "decode_frame",
-            &json!({"path": "c.mp4", "time": "1", "out": "f.png"})
-        )
-        .is_ok()
-    );
+    assert!(build_request(
+        "decode_frame",
+        &json!({"path": "c.mp4", "time": "1", "out": "f.png"})
+    )
+    .is_ok());
     // ping/shutdown no piden path.
     assert!(build_request("ping", &json!({})).is_ok());
     assert!(build_request("shutdown", &json!({})).is_ok());
@@ -162,7 +152,10 @@ fn timeout_se_acota_a_rango_seguro() {
 #[test]
 fn status_reporta_ops_y_disponibilidad_sin_spawn() {
     let status = status(&backend());
-    assert_eq!(status.ops, WORKER_OPS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(
+        status.ops,
+        WORKER_OPS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+    );
     // En dev el worker suele estar compilado; si no, reason lo explica.
     if status.available {
         assert!(status.path.is_some());

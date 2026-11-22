@@ -130,8 +130,7 @@ impl ContentGenerator for LocalTitleCardGenerator {
         request: &GenerationRequest,
         project_root: &Path,
     ) -> Result<GenerationResult, ProjectError> {
-        if request.kind != StudioResourceKind::Image
-            && request.kind != StudioResourceKind::Graphic
+        if request.kind != StudioResourceKind::Image && request.kind != StudioResourceKind::Graphic
         {
             return Err(ProjectError::message(
                 ProjectErrorCode::InvalidProject,

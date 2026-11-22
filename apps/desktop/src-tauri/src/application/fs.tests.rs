@@ -31,8 +31,7 @@ fn fs_list_rejects_missing_path() {
 
 #[test]
 fn fs_read_returns_text_and_marks_truncation() {
-    let file =
-        std::env::temp_dir().join(format!("olyvia-fs-read-{}.txt", uuid::Uuid::new_v4()));
+    let file = std::env::temp_dir().join(format!("olyvia-fs-read-{}.txt", uuid::Uuid::new_v4()));
     std::fs::write(&file, "hola mundo").unwrap();
     let content = fs_read(file.to_string_lossy().into_owned()).unwrap();
     assert_eq!(content.content, "hola mundo");
@@ -303,10 +302,7 @@ fn user_write_path_rechaza_sistema_credenciales_y_carpeta_de_la_app() {
     let root = std::env::temp_dir().join(format!("olyvia-userwrite-{}", uuid::Uuid::new_v4()));
     let ssh = root.join(".ssh");
     std::fs::create_dir_all(&ssh).unwrap();
-    assert!(validate_user_write_path(
-        &ssh.join("authorized_keys").to_string_lossy()
-    )
-    .is_err());
+    assert!(validate_user_write_path(&ssh.join("authorized_keys").to_string_lossy()).is_err());
     // La carpeta de datos de la app está vedada para escritura por IPC.
     if let Ok(appdata) = std::env::var("APPDATA") {
         let owned = Path::new(&appdata)

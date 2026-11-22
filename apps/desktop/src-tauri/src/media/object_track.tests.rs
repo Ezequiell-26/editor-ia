@@ -167,7 +167,7 @@ fn best_rotation_prefers_zero_on_symmetric_content() {
 fn scaled_dims_keeps_aspect_within_bounds() {
     let (w, h) = scaled_dims(1920, 1080);
     assert_eq!(w, MAX_DIM);
-    assert!(h < MAX_DIM && h >= MIN_DIM);
+    assert!((MIN_DIM..MAX_DIM).contains(&h));
     let (w2, h2) = scaled_dims(1080, 1920);
     assert_eq!(h2, MAX_DIM);
     assert!(w2 < MAX_DIM);

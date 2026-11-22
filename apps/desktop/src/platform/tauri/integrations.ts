@@ -1,10 +1,10 @@
 import type { DesktopService } from "../../services/contracts";
 import type { NativeCall } from './shared';
 import * as shared from './shared';
-import type { BrowserInstanceInfo, CaptureDevices, ExtensionInstallStatus, FlowBrowserStatus, FlowEmbedStatus, FlowGenerateResult, McpAuditTail, McpAutoconnectResult, McpCallResult, McpDetectedClient, McpProbeResult, McpServerConfig, McpServerInfo, McpSessionInfo, ObsScene, PluginInfo, ScreenRecordPreview, ScreenRecordResult, ScreenRecordStatus, StickmanRenderResult, SystemInfo, WebSessionsStatus, WhiteboardRenderResult, WhiteboardStatus } from "../../services/contracts";
+import type { BrowserInstanceInfo, CaptureDevices, ExtensionInstallStatus, FlowBrowserStatus, FlowEmbedStatus, FlowGenerateResult, McpAuditTail, McpAutoconnectResult, McpCallResult, McpDetectedClient, McpProbeResult, McpServerConfig, McpServerInfo, McpSessionInfo, ObsScene, ObsSwitchStartInput, ObsSwitchStatus, ObsTransitionInput, PluginInfo, ScreenRecordPreview, ScreenRecordResult, ScreenRecordStatus, StickmanRenderResult, SystemInfo, WebSessionsStatus, WhiteboardRenderResult, WhiteboardStatus } from "../../services/contracts";
 import { listen } from "@tauri-apps/api/event";
 
-export function createIntegrationsService(call: NativeCall): Pick<DesktopService, 'listPlugins' | 'installPlugin' | 'removePlugin' | 'setPluginEnabled' | 'getFlowProxies' | 'setFlowProxy' | 'startMcpServer' | 'mcpServerStatus' | 'mcpServerStop' | 'mcpRespond' | 'mcpDetectClients' | 'mcpAutoconnect' | 'onMcpCall' | 'extensionStatus' | 'prepareExtension' | 'notifyUser' | 'listMcpServers' | 'saveMcpServer' | 'deleteMcpServer' | 'probeMcpServer' | 'callMcpTool' | 'closeMcpSession' | 'mcpSessionStatus' | 'mcpAuditTail' | 'flowBrowserStatus' | 'flowBrowserLaunch' | 'flowBrowserStop' | 'flowEmbedStatus' | 'flowEmbedOpen' | 'flowEmbedClose' | 'flowEmbedNav' | 'flowEmbedEval' | 'webSessionsStatus' | 'webSessionOpen' | 'webSessionClose' | 'webSessionNav' | 'webSessionEval' | 'flowGenerateImage' | 'screenRecordStatus' | 'screenRecordDevices' | 'screenRecordStart' | 'screenRecordStop' | 'screenRecordSnapshot' | 'stickmanRender' | 'whiteboardStatus' | 'whiteboardGenerate' | 'browserInstanceLaunch' | 'browserInstanceClose' | 'browserInstanceList' | 'browserInstanceNavigate' | 'browserInstanceEval' | 'obsSceneList' | 'obsSceneSave' | 'obsSceneDelete' | 'obsSceneStart' | 'obsScenePreview' | 'systemInfo' | 'listSystemFonts' | 'chooseTool' | 'revealOutput' | 'openExternalUrl'> {
+export function createIntegrationsService(call: NativeCall): Pick<DesktopService, 'listPlugins' | 'installPlugin' | 'removePlugin' | 'setPluginEnabled' | 'getFlowProxies' | 'setFlowProxy' | 'startMcpServer' | 'mcpServerStatus' | 'mcpServerStop' | 'mcpRespond' | 'mcpDetectClients' | 'mcpAutoconnect' | 'onMcpCall' | 'extensionStatus' | 'prepareExtension' | 'notifyUser' | 'listMcpServers' | 'saveMcpServer' | 'deleteMcpServer' | 'probeMcpServer' | 'callMcpTool' | 'closeMcpSession' | 'mcpSessionStatus' | 'mcpAuditTail' | 'flowBrowserStatus' | 'flowBrowserLaunch' | 'flowBrowserStop' | 'flowEmbedStatus' | 'flowEmbedOpen' | 'flowEmbedClose' | 'flowEmbedNav' | 'flowEmbedEval' | 'webSessionsStatus' | 'webSessionOpen' | 'webSessionClose' | 'webSessionNav' | 'webSessionEval' | 'flowGenerateImage' | 'screenRecordStatus' | 'screenRecordDevices' | 'screenRecordStart' | 'screenRecordStop' | 'screenRecordSnapshot' | 'stickmanRender' | 'whiteboardStatus' | 'whiteboardGenerate' | 'browserInstanceLaunch' | 'browserInstanceClose' | 'browserInstanceList' | 'browserInstanceNavigate' | 'browserInstanceEval' | 'obsSceneList' | 'obsSceneSave' | 'obsSceneDelete' | 'obsSceneStart' | 'obsScenePreview' | 'obsTransitionRecord' | 'obsSwitchStart' | 'obsSwitchScene' | 'obsSwitchStop' | 'obsSwitchStatus' | 'obsSwitchPreview' | 'systemInfo' | 'listSystemFonts' | 'chooseTool' | 'revealOutput' | 'openExternalUrl'> {
   return {
     async listPlugins() {
       return (await call(shared.PROJECT_COMMANDS.listPlugins, {})) as PluginInfo[];
@@ -246,6 +246,47 @@ export function createIntegrationsService(call: NativeCall): Pick<DesktopService
     },
     async obsScenePreview(id) {
       return (await call(shared.PROJECT_COMMANDS.obsScenePreview, { id })) as ScreenRecordPreview;
+    },
+    async obsTransitionRecord(input: ObsTransitionInput) {
+      return (await call(shared.PROJECT_COMMANDS.obsTransitionRecord, {
+        fromId: input.fromId,
+        toId: input.toId,
+        outputDir: input.outputDir,
+        kind: input.kind,
+        leadSecs: input.leadSecs,
+        durationSecs: input.durationSecs,
+        tailSecs: input.tailSecs,
+        width: input.width,
+        height: input.height,
+        fps: input.fps,
+        audioDevice: input.audioDevice,
+      })) as ScreenRecordResult;
+    },
+    async obsSwitchStart(input: ObsSwitchStartInput) {
+      return (await call(shared.PROJECT_COMMANDS.obsSwitchStart, {
+        sceneId: input.sceneId,
+        outputDir: input.outputDir,
+        kind: input.kind,
+        transitionSecs: input.transitionSecs,
+        width: input.width,
+        height: input.height,
+        fps: input.fps,
+        audioDevice: input.audioDevice,
+        streamUrl: input.streamUrl,
+        encoder: input.encoder,
+      })) as ObsSwitchStatus;
+    },
+    async obsSwitchScene(sceneId: string) {
+      return (await call(shared.PROJECT_COMMANDS.obsSwitchScene, { sceneId })) as ObsSwitchStatus;
+    },
+    async obsSwitchStop() {
+      return (await call(shared.PROJECT_COMMANDS.obsSwitchStop)) as ScreenRecordResult;
+    },
+    async obsSwitchStatus() {
+      return (await call(shared.PROJECT_COMMANDS.obsSwitchStatus)) as ObsSwitchStatus;
+    },
+    async obsSwitchPreview() {
+      return (await call(shared.PROJECT_COMMANDS.obsSwitchPreview)) as ScreenRecordPreview;
     },
     async systemInfo() {
       return (await call(shared.PROJECT_COMMANDS.systemInfo)) as SystemInfo;

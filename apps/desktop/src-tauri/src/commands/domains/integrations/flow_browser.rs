@@ -247,8 +247,11 @@ pub async fn flow_browser_launch(url: Option<String>) -> Result<FlowBrowserStatu
         .await
         .unwrap_or(false);
     if !alive {
-        let _ = child.kill();
-        let _ = child.wait();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let _ = child.kill();
+            let _ = child.wait();
+        })
+        .await;
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderRejected,
             "el navegador arrancó pero el endpoint de depuración no respondió; puede haber otra instancia de Chrome usando el perfil",
@@ -264,13 +267,21 @@ pub async fn flow_browser_launch(url: Option<String>) -> Result<FlowBrowserStatu
 
 /// Cierra el navegador dedicado lanzado por la app.
 #[tauri::command]
-pub fn flow_browser_stop() -> bool {
-    let mut guard = BROWSER.lock().unwrap_or_else(|e| e.into_inner());
-    match guard.as_mut() {
-        Some(running) => {
-            let _ = running.child.kill();
-            let _ = running.child.wait();
-            *guard = None;
+pub async fn flow_browser_stop() -> bool {
+    // El child se extrae bajo lock y el kill+wait va a spawn_blocking:
+    // un comando sync correría en el main thread y `wait()` lo congelaría
+    // hasta que el navegador muera (AUD-129).
+    let child = {
+        let mut guard = BROWSER.lock().unwrap_or_else(|e| e.into_inner());
+        guard.take().map(|running| running.child)
+    };
+    match child {
+        Some(mut child) => {
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                let _ = child.kill();
+                let _ = child.wait();
+            })
+            .await;
             true
         }
         None => false,

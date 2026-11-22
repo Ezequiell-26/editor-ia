@@ -10,6 +10,7 @@ import {
   clipIsReversed,
   clipPreviewRateAtLocal,
   clipSourceFrameAtLocal,
+  clipStabilizationPreviewProxy,
 } from './clip-source-time';
 
 function videoClip(partial: Record<string, unknown> = {}): Clip {
@@ -127,6 +128,79 @@ describe('clipPreviewRateAtLocal', () => {
       source: { type: 'graphic', motionId: 'm' },
     } as Clip;
     expect(clipPreviewRateAtLocal(graphic, 0)).toBeNull();
+  });
+});
+
+describe('clipStabilizationPreviewProxy', () => {
+  const STAB = {
+    smoothing: 10,
+    transformFile: 'media/stabilizers/x.trf',
+    inFrame: 10,
+    outFrame: 70,
+    previewProxy: 'media/stabilizers/x-preview.mp4',
+  };
+
+  it('devuelve el proxy cuando la ventana coincide y no hay bloqueos', () => {
+    expect(clipStabilizationPreviewProxy(videoClip({ stabilization: STAB }))).toBe(
+      'media/stabilizers/x-preview.mp4',
+    );
+  });
+
+  it('undefined sin previewProxy, sin estabilización o en no-video', () => {
+    const { previewProxy: _omit, ...noProxy } = STAB;
+    expect(
+      clipStabilizationPreviewProxy(videoClip({ stabilization: noProxy })),
+    ).toBeUndefined();
+    expect(clipStabilizationPreviewProxy(videoClip())).toBeUndefined();
+    const image = {
+      id: 'i',
+      trackId: 'v1',
+      kind: 'image',
+      label: 'i',
+      startFrame: 0,
+      durationFrames: 30,
+      source: { type: 'asset', assetId: 'a1' },
+      stabilization: STAB,
+    } as unknown as Clip;
+    expect(clipStabilizationPreviewProxy(image)).toBeUndefined();
+  });
+
+  it('undefined si la ventana difiere del análisis (trim posterior)', () => {
+    const clip = videoClip({
+      stabilization: { ...STAB, outFrame: 80 },
+    });
+    expect(clipStabilizationPreviewProxy(clip)).toBeUndefined();
+    const sourceMoved = videoClip({
+      stabilization: STAB,
+      source: { type: 'asset', assetId: 'a1', inFrame: 0, outFrame: 60 },
+    });
+    expect(clipStabilizationPreviewProxy(sourceMoved)).toBeUndefined();
+  });
+
+  it('undefined con speed ≠1×, reverse o transitionIn (guardas del export)', () => {
+    expect(
+      clipStabilizationPreviewProxy(
+        videoClip({ stabilization: STAB, speed: { num: 2, den: 1 } }),
+      ),
+    ).toBeUndefined();
+    expect(
+      clipStabilizationPreviewProxy(videoClip({ stabilization: STAB, reverse: true })),
+    ).toBeUndefined();
+    expect(
+      clipStabilizationPreviewProxy(
+        videoClip({
+          stabilization: STAB,
+          transitionIn: { type: 'dissolve', frames: 12 },
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('speedCurve no bloquea: el proxy es fuente 1× y la curva sólo regula la tasa', () => {
+    const clip = videoClip({ stabilization: STAB, speedCurve: RAMP });
+    expect(clipStabilizationPreviewProxy(clip)).toBe(
+      'media/stabilizers/x-preview.mp4',
+    );
   });
 });
 

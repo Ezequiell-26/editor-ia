@@ -87,6 +87,8 @@ export interface StabilizationAnalysis {
   readonly smoothing: number;
   readonly inFrame: number;
   readonly outFrame: number;
+  /** MP4 horneado con `vidstabtransform` para la preview (`media/stabilizers/*-preview.mp4`). */
+  readonly previewProxy?: string;
 }
 
 export interface AnalysisRange {
@@ -515,6 +517,17 @@ export interface ScopeFrameResult {
   readonly meanCbCr: readonly [number, number];
 }
 
+/** Metadatos de una LUT .cube/.3dl inspeccionada sin aplicarla. */
+export interface LutProbeResult {
+  readonly format: string;
+  readonly title: string;
+  readonly entries: number;
+  readonly gridSize: number;
+  readonly hasShaper: boolean;
+  readonly domainMin: readonly [number, number, number];
+  readonly domainMax: readonly [number, number, number];
+}
+
 export interface PreviewFrameRequest {
   readonly project: unknown;
   readonly clipId: string;
@@ -859,4 +872,41 @@ export interface ConcatWorkerExportResult {
   /** Clips que usaron `speed_curve`. */
   readonly speed_curves?: number;
   readonly transitions: number;
+}
+
+/** Familia de fuentes del motor de texto (bundled + sistema). */
+export interface TextFontFamily {
+  readonly family: string;
+  readonly styles: readonly string[];
+}
+
+/** Request de renderizado de texto a PNG (motor filmcraft-text). */
+export interface TextRenderRequest {
+  readonly text: string;
+  readonly output: string;
+  readonly fontSize?: number;
+  readonly family?: string;
+  readonly style?: string;
+  readonly align?: 'left' | 'center' | 'right';
+  readonly wrapWidth?: number;
+  readonly leading?: number;
+  readonly canvasWidth?: number;
+  readonly canvasHeight?: number;
+  readonly color?: string;
+}
+
+/** Resultado del preview de texto. */
+export interface TextRenderResult {
+  readonly path: string;
+  readonly width: number;
+  readonly height: number;
+  readonly lines: number;
+  readonly textBounds: readonly [number, number, number, number];
+}
+
+export interface InterchangeExportResult {
+  readonly output: string;
+  readonly bytes: number;
+  readonly format: string;
+  readonly warnings: readonly string[];
 }

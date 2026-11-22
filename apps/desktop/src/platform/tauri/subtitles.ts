@@ -4,7 +4,7 @@ import * as shared from './shared';
 import type { ExportShortResult, FaceTrackResult, ObjectTrackResult, SaveLocalizedSubtitleResult, ShortProgress, SubtitlePipelineResult, TranslatedTexts } from "../../services/contracts";
 import { listen } from "@tauri-apps/api/event";
 
-export function createSubtitlesService(call: NativeCall): Pick<DesktopService, 'translateSubtitles' | 'saveLocalizedSubtitle' | 'exportShort' | 'onShortProgress' | 'analyzeFaceTrack' | 'trackObject' | 'subtitlesPipeline'> {
+export function createSubtitlesService(call: NativeCall): Pick<DesktopService, 'translateSubtitles' | 'saveLocalizedSubtitle' | 'exportShort' | 'onShortProgress' | 'analyzeFaceTrack' | 'trackObject' | 'subtitlesPipeline' | 'subtitlesInspectFile' | 'subtitlesConvertFile'> {
   return {
     async translateSubtitles(request) {
       return (await call(shared.PROJECT_COMMANDS.translateSubtitles, {
@@ -36,6 +36,12 @@ export function createSubtitlesService(call: NativeCall): Pick<DesktopService, '
     },
     async subtitlesPipeline(input) {
       return (await call(shared.PROJECT_COMMANDS.subtitlesPipeline, { request: input })) as SubtitlePipelineResult;
+    },
+    async subtitlesInspectFile(path) {
+      return (await call(shared.PROJECT_COMMANDS.subtitlesInspectFile, { path })) as import('../../services/contracts/subtitles').SubtitleInspectResult;
+    },
+    async subtitlesConvertFile(input, output) {
+      return (await call(shared.PROJECT_COMMANDS.subtitlesConvertFile, { input, output })) as string;
     },
   };
 }

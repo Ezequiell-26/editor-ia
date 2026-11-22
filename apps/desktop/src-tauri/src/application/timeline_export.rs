@@ -173,9 +173,8 @@ mod tests {
             text: &str,
         ) -> Result<(PathBuf, u64), ProjectError> {
             let path = dir.join(format!("out.{extension}"));
-            std::fs::write(&path, text).map_err(|_| {
-                ProjectError::message(ProjectErrorCode::Io, "no se pudo publicar")
-            })?;
+            std::fs::write(&path, text)
+                .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo publicar"))?;
             Ok((path, text.len() as u64))
         }
     }

@@ -69,6 +69,22 @@ export class EffectRenderer {
   private readonly vao: WebGLVertexArrayObject;
   private readonly programs = new Map<string, CompiledProgram>();
   private readonly sourceTexture: WebGLTexture;
+  // Historial de frames fuente para efectos temporales: hasta HISTORY_SIZE
+  // texturas en orden cronológico (índice 0 = más viejo, último = más
+  // reciente). `blur.temporal` usa el más reciente (`u_prevTexture`) y
+  // `denoise.temporal` pondera los 4 (`u_hist0..3` + `u_histCount`).
+  private static readonly HISTORY_SIZE = 4;
+  private readonly historyTextures: WebGLTexture[] = [];
+  private readonly historyFramebuffers: (WebGLFramebuffer | null)[] = [];
+  private historyCount = 0;
+  // Storage real de las texturas de historial: se asigna perezosa en
+  // `ensureHistoryStorage` (sólo cuando un efecto temporal las usa) y no en
+  // `uploadSource` — reservar 4×W×H×4B por renderer sin necesidad costaba
+  // ~132 MiB en 4K para el caso común sin efectos temporales (AUD-140).
+  private historyStorageWidth = 0;
+  private historyStorageHeight = 0;
+  private lastSource: TexImageSource | null = null;
+  private lastFrameIndex = -1;
   private readonly targets: WebGLTexture[];
   private readonly framebuffers: WebGLFramebuffer[];
   private readonly passthrough: CompiledProgram;
@@ -95,6 +111,23 @@ export class EffectRenderer {
     if (!gl) throw new Error('WebGL2 no está disponible en este equipo.');
     this.gl = gl;
     this.sourceTexture = this.createTexture();
+    for (let i = 0; i < EffectRenderer.HISTORY_SIZE; i += 1) {
+      const texture = this.createTexture();
+      this.historyTextures.push(texture);
+      const framebuffer = gl.createFramebuffer();
+      if (framebuffer) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+        gl.framebufferTexture2D(
+          gl.FRAMEBUFFER,
+          gl.COLOR_ATTACHMENT0,
+          gl.TEXTURE_2D,
+          texture,
+          0,
+        );
+      }
+      this.historyFramebuffers.push(framebuffer);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.targets = [this.createTexture(), this.createTexture()];
     this.framebuffers = this.targets.map((texture) => {
       const framebuffer = gl.createFramebuffer();
@@ -218,21 +251,79 @@ export class EffectRenderer {
 
   uploadSource(source: TexImageSource): void {
     const gl = this.gl;
+    // Cambio de clip/fuente: el frame previo pertenece a otro clip y no debe
+    // mezclarse (evita el ghost de un frame al entrar a un clip nuevo).
+    if (source !== this.lastSource) {
+      this.lastSource = source;
+      this.historyCount = 0;
+    }
     gl.bindTexture(gl.TEXTURE_2D, this.sourceTexture);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    // FLIP_Y: sin él la fila superior de la fuente cae en t=0, que el quad
+    // samplea en la base de pantalla → el frame se veía invertido (verificado
+    // con readPixels en Chromium: el cuadrante inferior aparecía arriba).
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     // `texSubImage2D` evita reasignar la textura en cada frame de video: sólo
     // se reserva de nuevo cuando cambia el tamaño del frame.
     const isVideo = typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement;
     const isImage = typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement;
-    const width = isVideo ? source.videoWidth : isImage ? source.naturalWidth : this.sourceWidth;
-    const height = isVideo ? source.videoHeight : isImage ? source.naturalHeight : this.sourceHeight;
+    // Canvas/ImageBitmap/OffscreenCanvas exponen width/height propios; sin
+    // este branch caían en texSubImage2D sobre una textura sin storage.
+    const intrinsic = source as { width?: number; height?: number };
+    const width = isVideo
+      ? source.videoWidth
+      : isImage
+        ? source.naturalWidth
+        : (intrinsic.width ?? this.sourceWidth);
+    const height = isVideo
+      ? source.videoHeight
+      : isImage
+        ? source.naturalHeight
+        : (intrinsic.height ?? this.sourceHeight);
     if (width !== this.sourceWidth || height !== this.sourceHeight) {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
       this.sourceWidth = width;
       this.sourceHeight = height;
+      // El historial NO se reasigna acá: su storage es perezoso
+      // (`ensureHistoryStorage`) y `historyCount = 0` ya invalida el
+      // contenido viejo; si un efecto temporal vuelve a pedirlo, el
+      // ensure detecta el cambio de tamaño y re-aloca.
+      this.historyCount = 0;
       return;
     }
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  }
+
+  /**
+   * Asigna el storage RGBA8 de las HISTORY_SIZE texturas al tamaño de la
+   * fuente, sólo cuando un efecto temporal las va a samplear. Idempotente:
+   * si el tamaño no cambió no toca la GPU. Al re-alojar invalida el
+   * historial (el contenido viejo no corresponde al nuevo tamaño).
+   */
+  private ensureHistoryStorage(): void {
+    if (
+      this.historyStorageWidth === this.sourceWidth &&
+      this.historyStorageHeight === this.sourceHeight
+    ) {
+      return;
+    }
+    const gl = this.gl;
+    for (const texture of this.historyTextures) {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA8,
+        this.sourceWidth,
+        this.sourceHeight,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        null,
+      );
+    }
+    this.historyStorageWidth = this.sourceWidth;
+    this.historyStorageHeight = this.sourceHeight;
+    this.historyCount = 0;
   }
 
   private paramValues(
@@ -379,6 +470,10 @@ export class EffectRenderer {
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+    // Chromium devuelve INVALID_OPERATION si UNPACK_FLIP_Y quedó en true
+    // (lo deja uploadSource para las texturas 2D): el flag aplica a uploads
+    // DOM y no a TypedArray, pero el driver igual lo valida.
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.texImage3D(
       gl.TEXTURE_3D,
       0,
@@ -400,7 +495,7 @@ export class EffectRenderer {
     if (this.lutProgram) return this.lutProgram;
     this.lutProgram = this.compileRaw(
       '__lut3d',
-      `uniform sampler3D u_lut;
+      `uniform highp sampler3D u_lut;
        uniform float u_lutIntensity;
        uniform vec3 u_lutDomainMin;
        uniform vec3 u_lutDomainMax;
@@ -418,10 +513,40 @@ export class EffectRenderer {
   /** Dibuja el stack completo. Sin efectos, el frame pasa tal cual. */
   render(registry: EffectRegistry, stack: EffectStack, clock: RenderClock): void {
     const gl = this.gl;
+    // Seek/salto: cualquier retroceso (aunque sea de 1 frame — el historial
+    // pasaría a contener frames del "futuro" del punto de seek) o salto de
+    // más de 4 posiciones invalida el historial: el blur temporal no debe
+    // arrastrar frames de otro momento del clip.
+    if (
+      this.lastFrameIndex >= 0 &&
+      (clock.frameIndex < this.lastFrameIndex ||
+        clock.frameIndex - this.lastFrameIndex > 4)
+    ) {
+      this.historyCount = 0;
+    }
+    this.lastFrameIndex = clock.frameIndex;
     const instances = activeInstances(stack).filter((instance) => {
       const manifest = registry.get(instance.effectId);
       return manifest?.gpu?.passes.length;
     });
+    // La copia al historial cuesta un draw por frame: sólo se paga cuando
+    // algún efecto activo declara uniforms temporales (`u_hist*`/`u_prevTexture`).
+    // Sin ellos (p.ej. clip con sólo LUT o stack espacial) el ring buffer
+    // queda vacío y no consume GPU.
+    const needsHistory = instances.some((instance) => {
+      const manifest = registry.get(instance.effectId);
+      return (
+        manifest?.gpu?.passes.some(
+          (pass) => pass.shader.includes('u_hist') || pass.shader.includes('u_prevTexture'),
+        ) ?? false
+      );
+    });
+    // Las texturas de historial se samplean como uniforms en los passes de
+    // abajo: el storage perezoso tiene que existir ANTES del primer draw,
+    // no al final cuando ya se copiaría el frame.
+    if (needsHistory && this.sourceWidth > 0 && this.sourceHeight > 0) {
+      this.ensureHistoryStorage();
+    }
 
     let input: WebGLTexture = this.sourceTexture;
     let targetIndex = 0;
@@ -487,7 +612,16 @@ export class EffectRenderer {
           targetTexture = this.targets[target] ?? null;
         }
 
-        const extra: Record<string, UniformValue> = { u_currentTexture: current };
+        const newest = this.historyTextures[this.historyCount - 1];
+        const extra: Record<string, UniformValue> = {
+          u_currentTexture: current,
+          u_prevTexture: newest ?? this.sourceTexture,
+          u_hist0: this.historyTextures[0] ?? this.sourceTexture,
+          u_hist1: this.historyTextures[1] ?? this.sourceTexture,
+          u_hist2: this.historyTextures[2] ?? this.sourceTexture,
+          u_hist3: this.historyTextures[3] ?? this.sourceTexture,
+          u_histCount: this.historyCount,
+        };
         const declared = pass.inputs ?? [];
         declared.forEach((declaration, index) => {
           const name = `u_texture${index + 1}`;
@@ -519,6 +653,43 @@ export class EffectRenderer {
       gl.bindVertexArray(this.vao);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
+
+    // Historial para efectos temporales: guarda el frame fuente de ESTE
+    // render para los próximos. sourceTexture no la tocan los passes
+    // (escriben en targets o pantalla), así que la copia es exacta. El slot
+    // se elige en orden cronológico: mientras haya lugar se agrega al final;
+    // lleno, se reusa el más viejo y el array rota para mantener el orden.
+    // En el primer frame o tras un cambio de tamaño no hay previo válido.
+    // Si ningún efecto usa el historial este frame, no se copia nada.
+    if (needsHistory && this.sourceWidth > 0 && this.sourceHeight > 0) {
+      const slot = this.historyCount < EffectRenderer.HISTORY_SIZE
+        ? this.historyCount
+        : 0;
+      const framebuffer = this.historyFramebuffers[slot];
+      const texture = this.historyTextures[slot];
+      if (framebuffer && texture) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+        gl.viewport(0, 0, this.sourceWidth, this.sourceHeight);
+        this.drawProgram(this.passthrough, new Map<string, UniformValue>([
+          ['u_currentTexture', this.sourceTexture],
+        ]));
+        gl.bindVertexArray(this.vao);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        if (this.historyCount < EffectRenderer.HISTORY_SIZE) {
+          this.historyCount += 1;
+        } else {
+          // El slot reusado era el más viejo: pasa a ser el más nuevo.
+          this.historyTextures.push(this.historyTextures.shift() as WebGLTexture);
+          this.historyFramebuffers.push(
+            this.historyFramebuffers.shift() as WebGLFramebuffer | null,
+          );
+        }
+      }
+    } else {
+      // Sin efectos temporales la historia no se alimenta: si después se
+      // activa uno, arranca limpio en vez de heredar frames viejos.
+      this.historyCount = 0;
+    }
   }
 
   /** Dibuja una transición entre dos frames ya subidos a texturas. */
@@ -536,7 +707,7 @@ export class EffectRenderer {
     const toTexture = this.targets[0];
     if (!toTexture) return;
     gl.bindTexture(gl.TEXTURE_2D, toTexture);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, to);
     const params = normalizeParams(manifest, instanceParams ?? {});
     const compiled = this.programFor(manifest, 0);
@@ -561,8 +732,11 @@ export class EffectRenderer {
     this.lutProgram = null;
     for (const texture of this.lutTextureSet) gl.deleteTexture(texture);
     this.lutTextureSet.clear();
-    for (const texture of [this.sourceTexture, ...this.targets]) gl.deleteTexture(texture);
+    for (const texture of [this.sourceTexture, ...this.historyTextures, ...this.targets]) gl.deleteTexture(texture);
     for (const framebuffer of this.framebuffers) gl.deleteFramebuffer(framebuffer);
+    for (const framebuffer of this.historyFramebuffers) {
+      if (framebuffer) gl.deleteFramebuffer(framebuffer);
+    }
     gl.deleteVertexArray(this.vao);
   }
 }

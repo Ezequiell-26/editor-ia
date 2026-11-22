@@ -34,7 +34,7 @@ const FFMPEG = join(
 const enabled = process.env.EDITOR_IA_RUN_AUDIO_TESTS === '1' && existsSync(FFMPEG);
 
 describe.skipIf(!enabled)('recetas de audio contra FFmpeg real', () => {
-  it('las 30 cadenas se ejecutan sin errores', () => {
+  it('todas las cadenas se ejecutan sin errores', () => {
     const failures: string[] = [];
     for (const manifest of AUDIO_EFFECTS) {
       const compiled = compileAudioInstance(effectRegistry, createInstance(manifest));

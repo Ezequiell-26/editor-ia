@@ -21,6 +21,7 @@ use crate::projects::service::{now_rfc3339, ProjectError, ProjectErrorCode};
 
 pub mod analysis;
 pub mod audio_scope;
+pub mod audio_tools;
 pub mod conversion;
 pub mod cursor_overlay;
 pub mod denoise;
@@ -38,6 +39,7 @@ pub mod stickman;
 pub mod subtitle_file;
 pub mod timeline_export;
 pub mod timeline_import;
+pub mod timeline_interchange;
 pub mod toolbox;
 pub mod visuals_catalog;
 pub mod voice_clone;
@@ -697,6 +699,11 @@ pub fn import_file(
                     "den": measure.frame_rate_den.unwrap_or(project_fps_den.max(1)),
                 }),
             );
+            // Canales de la pista de audio: el render los usa para el
+            // upmix mono→estéreo sin la atenuación de `aformat` (−3 dB).
+            if let Some(channels) = measure.channels {
+                media.insert("channels".into(), json!(channels));
+            }
         }
         MediaKind::Image => {
             media.insert("width".into(), json!(measure.width.unwrap_or(1)));
@@ -748,7 +755,10 @@ pub fn thumbnail_data_url(
         let seek = time_seconds
             .filter(|value| value.is_finite() && *value >= 0.0)
             .unwrap_or(1.0);
-        command.args(["-ss", &format!("{seek:.3}")]).arg("-i").arg(source);
+        command
+            .args(["-ss", &format!("{seek:.3}")])
+            .arg("-i")
+            .arg(source);
     }
     command
         .args([
@@ -785,10 +795,7 @@ pub fn thumbnail_data_url(
         ));
     }
     let output = timed.into_output().ok_or_else(|| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "FFmpeg no devolvió la miniatura",
-        )
+        ProjectError::message(ProjectErrorCode::Io, "FFmpeg no devolvió la miniatura")
     })?;
     if !output.status.success() || output.stdout.is_empty() {
         return Err(ProjectError::message(

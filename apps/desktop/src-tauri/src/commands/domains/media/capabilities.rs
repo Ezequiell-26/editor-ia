@@ -124,7 +124,11 @@ fn whisper_capability(state: &AppState) -> CapabilityInfo {
     let mut native_available = false;
     if let Some(native) = &native {
         native_available = native.engine_available;
-        let downloaded = native.models.iter().filter(|model| model.downloaded).count();
+        let downloaded = native
+            .models
+            .iter()
+            .filter(|model| model.downloaded)
+            .count();
         let total = native.models.len();
         let downloading = native.download.running;
         let detail = if downloading {
@@ -218,14 +222,14 @@ fn whiteboard_capability() -> CapabilityInfo {
             name.to_string_lossy()
         ),
         None => {
-            "Python del equipo con whiteboard-animator (el motor no viene empaquetado)"
-                .to_owned()
+            "Python del equipo con whiteboard-animator (el motor no viene empaquetado)".to_owned()
         }
     };
     CapabilityInfo {
         id: "whiteboard".to_owned(),
         label: "Animar una imagen como pizarra".to_owned(),
-        purpose: "Convierte una imagen en un video donde el contenido se dibuja trazo a trazo.".to_owned(),
+        purpose: "Convierte una imagen en un video donde el contenido se dibuja trazo a trazo."
+            .to_owned(),
         backends: vec![backend_local(
             "whiteboard-animator",
             detail,

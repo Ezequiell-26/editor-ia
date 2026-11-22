@@ -79,7 +79,9 @@ fn status() -> &'static WhiteboardStatus {
             None => WhiteboardStatus {
                 available: false,
                 python: None,
-                reason: Some(format!("no hay un Python con whiteboard-animator; {INSTALL_HINT}")),
+                reason: Some(format!(
+                    "no hay un Python con whiteboard-animator; {INSTALL_HINT}"
+                )),
             },
         }
     })
@@ -119,7 +121,12 @@ fn child_path_env(ffmpeg: Option<&Path>, ffprobe: Option<&Path>) -> Option<Strin
     if let Some(existing) = std::env::var_os("PATH") {
         paths.extend(std::env::split_paths(&existing));
     }
-    Some(std::env::join_paths(paths).ok()?.to_string_lossy().into_owned())
+    Some(
+        std::env::join_paths(paths)
+            .ok()?
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 /// Argumentos del CLI `whiteboard_animator.cli`: una imagen, salida MP4,
@@ -207,20 +214,14 @@ fn probe_video(ffprobe: Option<&Path>, video: &Path) -> (f64, u32, u32, f64) {
         .get("streams")
         .and_then(|s| s.as_array())
         .and_then(|streams| {
-            streams.iter().find(|s| {
-                s.get("codec_type").and_then(|t| t.as_str()) == Some("video")
-            })
+            streams
+                .iter()
+                .find(|s| s.get("codec_type").and_then(|t| t.as_str()) == Some("video"))
         });
     let (width, height, fps) = video_stream
         .map(|stream| {
-            let width = stream
-                .get("width")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32;
-            let height = stream
-                .get("height")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32;
+            let width = stream.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let height = stream.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
             let fps = stream
                 .get("avg_frame_rate")
                 .and_then(|v| v.as_str())
@@ -285,7 +286,14 @@ pub async fn whiteboard_generate(
     // Con narración, la duración del audio manda: más de 1 h por escena es un
     // abuso que el deadline no cubre bien (mismo criterio que voice_isolation).
     if let (Some(audio), Some(ffprobe)) = (&audio, &ffprobe) {
-        if let Some(seconds) = probe_duration_seconds(ffprobe, audio) {
+        let ffprobe = ffprobe.clone();
+        let audio = audio.clone();
+        let seconds =
+            tauri::async_runtime::spawn_blocking(move || probe_duration_seconds(&ffprobe, &audio))
+                .await
+                .ok()
+                .flatten();
+        if let Some(seconds) = seconds {
             if seconds > MAX_AUDIO_SECONDS {
                 return Err(invalid(
                     "la animación whiteboard admite hasta 60 minutos de narración por escena",
@@ -380,7 +388,18 @@ pub async fn whiteboard_generate(
         ));
     }
 
-    let (duration_seconds, width, height, fps) = probe_video(ffprobe.as_deref(), &output);
+    let (duration_seconds, width, height, fps) = {
+        let ffprobe = ffprobe.clone();
+        let output_probe = output.clone();
+        tauri::async_runtime::spawn_blocking(move || probe_video(ffprobe.as_deref(), &output_probe))
+            .await
+            .map_err(|error| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    format!("no se pudo medir el video generado: {error}").as_str(),
+                )
+            })?
+    };
     Ok(WhiteboardOutcome {
         video_path: output,
         duration_seconds,

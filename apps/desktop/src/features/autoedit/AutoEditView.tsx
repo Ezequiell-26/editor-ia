@@ -6,20 +6,22 @@ import { Icon } from '../../components/Icon';
 import type { TranscriptionResult } from '../../services/project-service';
 import { parseSubtitles } from '../../state/subtitles';
 import { useProjectStore } from '../../state/project-store';
-import { applyAutoEditVariant } from './apply-auto-edit';
+import { applyAutoEditVariant } from '../../state/autoedit-apply';
 import {
   autoEditExportSummary,
   exportAutoEditVariants,
   type AutoEditExportItem,
   type AutoEditExportReport,
-} from './auto-edit-export';
+} from '../../state/autoedit-export';
 import {
   DEFAULT_RECIPE,
   MAX_CUT_SECONDS,
   MIN_CUT_SECONDS,
   buildAutoEditVariants,
   buildSourceUsage,
+  MAX_SOURCES,
   clampRecipe,
+  energyFromPeaks,
   recipeSummary,
   reorderVariant,
   subsetVariant,
@@ -28,10 +30,8 @@ import {
   type AutoEditSourceUsage,
   type AutoEditTransition,
   type AutoEditVariant,
-} from './auto-edit';
-import { buildDirectorMessages, parseDirectorProposal, type DirectorProposal } from './ai-director';
-
-const MAX_SOURCES = 6;
+} from '../../state/autoedit-engine';
+import { buildDirectorMessages, parseDirectorProposal, type DirectorProposal } from '../../state/autoedit-director';
 
 /** Umbrales con los que se midió el material por última vez. */
 interface AnalysisParams {
@@ -152,13 +152,6 @@ function SourceUsageRow({
         </p>
       )}
     </div>
-  );
-}
-
-/** Convierte la onda medida en energía 0–1 lista para puntuar. */
-function energyFromPeaks(peaks: readonly { min: number; max: number }[]): number[] {
-  return peaks.map((peak) =>
-    Math.min(1, Math.max(Math.abs(peak.min), Math.abs(peak.max)) / 0.35),
   );
 }
 

@@ -2068,6 +2068,13 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
         }
       />
 
+      {!service.available ? (
+        <p className="notice notice-warning" role="status">
+          {service.unavailableReason ??
+            'El servicio nativo no está disponible en esta sesión; las descargas no funcionan en este modo.'}
+        </p>
+      ) : null}
+
       {!project ? (
         <div className="notice download-no-project" role="status">
           <strong>No necesitás un proyecto para descargar.</strong>
@@ -3929,7 +3936,17 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                       <button
                         type="button"
                         className="small ghost"
-                        onClick={() => setHistory([])}
+                        onClick={() => {
+                          if (
+                            history.length > 0 &&
+                            !window.confirm(
+                              `Se van a borrar ${history.length} registro(s) del historial de descargas. Los archivos ya descargados no se tocan. ¿Continuar?`,
+                            )
+                          ) {
+                            return;
+                          }
+                          setHistory([]);
+                        }}
                       >
                         Limpiar
                       </button>

@@ -35,8 +35,8 @@ fn parses_rss_and_atom_entries() {
 
 #[test]
 fn watch_folder_requires_a_directory() {
-    assert!(scan_watch_folder("Z:\\no-existe".to_owned()).is_err());
-    assert!(scan_watch_folder(String::new()).is_err());
+    assert!(tauri::async_runtime::block_on(scan_watch_folder("Z:\\no-existe".to_owned())).is_err());
+    assert!(tauri::async_runtime::block_on(scan_watch_folder(String::new())).is_err());
 }
 
 #[test]
@@ -50,7 +50,9 @@ fn watch_folder_reads_txt_lists_and_skips_empty_files() {
     .unwrap();
     std::fs::write(root.join("vacia.txt"), "sin enlaces").unwrap();
     std::fs::write(root.join("ignorar.md"), "https://example.com/tres").unwrap();
-    let files = scan_watch_folder(root.to_string_lossy().into_owned()).unwrap();
+    let files =
+        tauri::async_runtime::block_on(scan_watch_folder(root.to_string_lossy().into_owned()))
+            .unwrap();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].name, "lista.txt");
     assert_eq!(files[0].urls.len(), 2);
@@ -88,8 +90,11 @@ fn rss_live_optional() {
     if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
         return;
     }
-    let items =
-        fetch_rss_feed("https://hnrss.org/frontpage".to_owned(), Some(5)).expect("feed real");
+    let items = tauri::async_runtime::block_on(fetch_rss_feed(
+        "https://hnrss.org/frontpage".to_owned(),
+        Some(5),
+    ))
+    .expect("feed real");
     assert!(!items.is_empty());
     assert!(items.iter().all(|item| item.link.starts_with("http")));
     eprintln!("RSS real: {} entradas", items.len());

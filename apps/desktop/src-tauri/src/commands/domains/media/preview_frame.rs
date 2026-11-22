@@ -23,8 +23,7 @@ use crate::media::resolve_inside_root;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{
     alpha_video_decoder, apply_lut_to_chain, build_plan, camera_lut_path, effects_lut,
-    prepare_frame_input, visual_filter_with_format,
-    BuildPlanInput, Profile,
+    prepare_frame_input, visual_filter_with_format, BuildPlanInput, Profile,
 };
 use crate::render::motion::has_visible_graphic_clips;
 use crate::state::AppState;

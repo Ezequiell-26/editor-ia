@@ -21,6 +21,155 @@ function walk(dir, predicate, out = []) {
 
 const tsFiles = (dir) =>
   walk(dir, (p) => /\.(ts|tsx)$/.test(p) && !/\.test\.(ts|tsx)$/.test(p));
+// AUD-129: los comandos async de Tauri no pueden ejecutar procesos
+// bloqueantes (FFmpeg/FFprobe/rasdial/PowerShell…) en el runtime —
+// deben despachar a `spawn_blocking`. Regla sintáctica: dentro del
+// cuerpo de un `async fn` de commands/**, las llamadas
+// `.output()/.wait()/.wait_with_output()`, `thread::sleep()` y
+// `reqwest::blocking` que quedan fuera de un closure
+// `spawn_blocking` (span enmascarado por
+// balanceo de paréntesis) son ofensas. `.spawn()` solo no bloquea y
+// queda fuera; `tokio::time::sleep` es async y no matchea.
+
+// Blanquea comentarios, strings y chars literales para que llaves y
+// paréntesis dentro de ellos no desbalanceen el escaneo estructural.
+// Conserva longitudes y saltos de línea (las posiciones reportadas
+// siguen siendo las del archivo real).
+function sanitizeRust(source) {
+  const chars = source.split('');
+  const blank = (i) => {
+    if (chars[i] !== '\n') chars[i] = ' ';
+  };
+  let i = 0;
+  while (i < chars.length) {
+    const two = source.slice(i, i + 2);
+    if (two === '//') {
+      while (i < chars.length && source[i] !== '\n') { blank(i); i++; }
+      continue;
+    }
+    if (two === '/*') {
+      let depth = 0;
+      while (i < chars.length) {
+        if (source.slice(i, i + 2) === '/*') { depth++; blank(i); blank(i + 1); i += 2; continue; }
+        if (source.slice(i, i + 2) === '*/') { depth--; blank(i); blank(i + 1); i += 2; if (depth === 0) break; continue; }
+        blank(i); i++;
+      }
+      continue;
+    }
+    // raw string: r"..." o r#"..."# / r##"..."##
+    const raw = /^r(#+)?"/.exec(source.slice(i, i + 6));
+    if (raw && (i === 0 || /[^A-Za-z0-9_]/.test(source[i - 1]))) {
+      const hashes = raw[1] ? raw[1].length : 0;
+      const closer = '"' + '#'.repeat(hashes);
+      let j = source.indexOf(closer, i + raw[0].length);
+      j = j === -1 ? chars.length : j + closer.length;
+      for (let k = i; k < j; k++) blank(k);
+      i = j;
+      continue;
+    }
+    if (source[i] === '"') {
+      let j = i + 1;
+      while (j < chars.length) {
+        if (source[j] === '\\') { blank(j); blank(j + 1); j += 2; continue; }
+        if (source[j] === '"') { j++; break; }
+        blank(j); j++;
+      }
+      blank(i); // la comilla de apertura
+      i = j;
+      continue;
+    }
+    // char literal 'x' / '\n' / '\u{…}' — los lifetimes ('a) no matchean
+    // porque no tienen comilla de cierre cercana.
+    const chr = /^'(\\.|[^'\\])'/.exec(source.slice(i, i + 8));
+    if (chr) {
+      for (let k = i; k < i + chr[0].length; k++) blank(k);
+      i += chr[0].length;
+      continue;
+    }
+    i++;
+  }
+  return chars.join('');
+}
+
+function balancedEnd(text, openIndex, openChar, closeChar) {
+  let depth = 0;
+  for (let i = openIndex; i < text.length; i++) {
+    if (text[i] === openChar) depth++;
+    else if (text[i] === closeChar) {
+      depth--;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+function asyncBlockingOffenders(file) {
+  const text = sanitizeRust(stripCfgTest(readFileSync(file, 'utf8')));
+  const offenders = [];
+  const fnRe = /\basync\s+fn\s+(\w+)/g;
+  let match;
+  while ((match = fnRe.exec(text))) {
+    const brace = text.indexOf('{', match.index + match[0].length);
+    if (brace === -1) continue;
+    const end = balancedEnd(text, brace, '{', '}');
+    if (end === -1) continue;
+    const body = text.slice(brace, end);
+    const spans = [];
+    // spawn_blocking y thread::spawn despachan a OTRO hilo: lo que haya
+    // dentro del closure no ocupa el runtime async (AUD-129).
+    const spawnRe = /\b(?:std::)?(?:thread::)?spawn_blocking\s*\(|\b(?:std::thread|thread)::spawn\s*\(/g;
+    let spawn;
+    while ((spawn = spawnRe.exec(body))) {
+      const paren = body.indexOf('(', spawn.index + spawn[0].length - 1);
+      const parenEnd = paren === -1 ? -1 : balancedEnd(body, paren, '(', ')');
+      if (parenEnd !== -1) spans.push([paren, parenEnd]);
+    }
+    let masked = '';
+    let cursor = 0;
+    for (const [start, stop] of spans.sort((a, b) => a[0] - b[0])) {
+      if (start < cursor) continue; // span anidado dentro de otro ya enmascarado
+      masked += body.slice(cursor, start) + ' '.repeat(stop - start);
+      cursor = stop;
+    }
+    masked += body.slice(cursor);
+    const blockingRe = /(\.(?:output|wait_with_output|wait)\s*\(|thread::sleep\s*\(|reqwest::blocking|\.recv_timeout\s*\()/g;
+    let hit;
+    while ((hit = blockingRe.exec(masked))) {
+      const offset = brace + hit.index;
+      const line = text.slice(0, offset).split('\n').length;
+      offenders.push(`${match[1]}:${line} ${hit[1]}()`);
+    }
+  }
+  return offenders;
+}
+
+// AUD-129 (sync): los `#[tauri::command] pub fn` sin `async` corren en el
+// MAIN THREAD de Tauri — un proceso, un sleep o reqwest::blocking ahí
+// congela la UI directamente. Misma regla sintáctica por cuerpo de
+// función que la de async fn (un helper bloqueante invocado desde el
+// comando no la delata; límite conocido y documentado).
+function syncCommandBlockingOffenders(file) {
+  const text = sanitizeRust(stripCfgTest(readFileSync(file, 'utf8')));
+  const offenders = [];
+  const cmdRe = /#\[tauri::command\](?:\s*#\[[^\]]*\])*\s*pub\s+fn\s+(\w+)/g;
+  let match;
+  while ((match = cmdRe.exec(text))) {
+    const brace = text.indexOf('{', match.index + match[0].length);
+    if (brace === -1) continue;
+    const end = balancedEnd(text, brace, '{', '}');
+    if (end === -1) continue;
+    const body = text.slice(brace, end);
+    const blockingRe = /(\.(?:output|wait_with_output|wait)\s*\(|thread::sleep\s*\(|reqwest::blocking|\.recv_timeout\s*\()/g;
+    let hit;
+    while ((hit = blockingRe.exec(body))) {
+      const offset = brace + hit.index;
+      const line = text.slice(0, offset).split('\n').length;
+      offenders.push(`${match[1]}:${line} ${hit[1]}`);
+    }
+  }
+  return offenders;
+}
+
 const rsFiles = (dir) => walk(dir, (p) => p.endsWith('.rs') && !/\.tests\.rs$/.test(p));
 
 const TAURI_SPECIFIER = /from\s+['"]@tauri-apps\/|import\s*\(\s*['"]@tauri-apps\//;
@@ -201,18 +350,11 @@ describe('reglas de dependencias — frontend', () => {
   });
 
   // Aristas ascendentes conocidas: la dirección sancionada es
-  // features -> state/components/services; estas excepciones son deuda
-  // documentada cuyo criterio es bajar el módulo compartido a una capa
-  // inferior o inyectarlo desde el composition root (app/).
-  const KNOWN_UPWARD_EDGES = new Set([
-    // AssistantDock embebido en el shell; se elimina pasando el dock por
-    // composición desde app/ en vez de importarlo desde components/.
-    'components/AppShell.tsx -> features/assistant',
-    // Diálogos del editor (Review/History/Critic) y listas del FilmoraStates
-    // reutilizados por la barra de menú; se eliminan moviendo esos diálogos
-    // a components/ o exponiéndolos vía registry.
-    'components/MenuBar.tsx -> features/editor',
-  ]);
+  // features -> state/components/services. La lista está vacía: si aparece
+  // una arista nueva state//components/ -> features/ el test falla y hay que
+  // bajar el módulo compartido a una capa inferior o inyectarlo desde el
+  // composition root (app/).
+  const KNOWN_UPWARD_EDGES = new Set();
 
   it('state/ y components/ no importan features/ (salvo deuda documentada)', () => {
     const edges = new Set();
@@ -246,6 +388,8 @@ describe('reglas de dependencias — Rust', () => {
   const COMMANDS_EXCEPTIONS = {
     'apps/desktop/src-tauri/src/commands/domains/ai/providers.rs':
       'read_key() síncrono para el worker de streaming del asistente, que no recibe AppState; se elimina inyectando ProviderSecrets por parámetro en la cadena del stream (application/assistant).',
+    'apps/desktop/src-tauri/src/commands/domains/studio/studio_caps.rs':
+      'comando delgado que reutiliza el cómputo de capabilities del estudio (providers, fuentes, ffmpeg) que vive en infrastructure/mcp_studio.rs junto al invoker MCP; se elimina cuando esa lógica migre a application/studio.',
     'apps/desktop/src-tauri/src/commands/domains/integrations/mcp_server.rs':
       'bootstrap del servidor MCP embebido (socket, token store, invoker Tauri); es el borde de composición del listener — candidato a mover a infrastructure con un comando delgado.',
     'apps/desktop/src-tauri/src/commands/mod.rs':
@@ -264,6 +408,26 @@ describe('reglas de dependencias — Rust', () => {
     const stale = Object.keys(COMMANDS_EXCEPTIONS).filter((f) => !offenders.includes(f));
     expect(unexpected, 'Comandos -> application -> ports; la composición vive en state.rs/lib.rs').toEqual([]);
     expect(stale, 'Excepciones que ya no aplican: limpiar la lista').toEqual([]);
+  });
+
+  it('los async fn de commands/** no ejecutan procesos bloqueantes fuera de spawn_blocking (AUD-129)', () => {
+    const offenders = rsFiles(join(tauriSrc, 'commands')).flatMap((file) =>
+      asyncBlockingOffenders(file).map((hit) => `${rel(file)} :: ${hit}`),
+    );
+    expect(
+      offenders,
+      'FFmpeg/FFprobe/procesos largos, thread::sleep y reqwest::blocking van por tauri::async_runtime::spawn_blocking; llamadas bloqueantes directas en un async fn congelan el runtime',
+    ).toEqual([]);
+  });
+
+  it('los #[tauri::command] pub fn síncronos de commands/** no ejecutan procesos ni red bloqueante (AUD-129)', () => {
+    const offenders = rsFiles(join(tauriSrc, 'commands')).flatMap((file) =>
+      syncCommandBlockingOffenders(file).map((hit) => `${rel(file)} :: ${hit}`),
+    );
+    expect(
+      offenders,
+      'los comandos sync corren en el main thread de Tauri: procesos, thread::sleep y reqwest::blocking congelan la UI — convertir a pub async fn + spawn_blocking',
+    ).toEqual([]);
   });
 
   it('application/** no depende de commands, infrastructure ni Tauri', () => {

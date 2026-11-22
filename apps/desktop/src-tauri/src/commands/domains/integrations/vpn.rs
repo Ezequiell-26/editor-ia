@@ -115,7 +115,16 @@ fn powershell_json(script: &str) -> Result<String, ProjectError> {
 pub async fn vpn_list() -> Result<Vec<VpnConnection>, ProjectError> {
     #[cfg(windows)]
     {
-        let output = powershell_json(LIST_SCRIPT)?;
+        // AUD-129 (resto del barrido): PowerShell/rasdial bloquean hasta
+        // su timeout; van a spawn_blocking.
+        let output = tauri::async_runtime::spawn_blocking(|| powershell_json(LIST_SCRIPT))
+            .await
+            .map_err(|_| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    "la consulta VPN se interrumpió antes de terminar",
+                )
+            })??;
         // PowerShell puede imprimir warnings antes del JSON: tomamos desde el
         // primer '{' o '['.
         let start = output.find(['{', '[']).unwrap_or(0);
@@ -135,11 +144,17 @@ pub async fn vpn_connect(name: String) -> Result<String, ProjectError> {
     {
         let connections = vpn_list().await?;
         require_known_connection(&connections, name.trim())?;
-        let (ok, output) = run_with_timeout(
-            "rasdial",
-            &[name.trim().to_owned()],
-            Duration::from_secs(90),
-        )?;
+        let dial_name = name.trim().to_owned();
+        let (ok, output) = tauri::async_runtime::spawn_blocking(move || {
+            run_with_timeout("rasdial", &[dial_name], Duration::from_secs(90))
+        })
+        .await
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "la conexión VPN se interrumpió antes de terminar",
+            )
+        })??;
         if ok {
             Ok(if output.is_empty() {
                 "conexión establecida".to_owned()
@@ -175,11 +190,21 @@ pub async fn vpn_disconnect(name: String) -> Result<String, ProjectError> {
     {
         let connections = vpn_list().await?;
         require_known_connection(&connections, name.trim())?;
-        let (ok, output) = run_with_timeout(
-            "rasdial",
-            &[name.trim().to_owned(), "/disconnect".to_owned()],
-            Duration::from_secs(30),
-        )?;
+        let dial_name = name.trim().to_owned();
+        let (ok, output) = tauri::async_runtime::spawn_blocking(move || {
+            run_with_timeout(
+                "rasdial",
+                &[dial_name, "/disconnect".to_owned()],
+                Duration::from_secs(30),
+            )
+        })
+        .await
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "la desconexión VPN se interrumpió antes de terminar",
+            )
+        })??;
         if ok {
             Ok("desconectada".to_owned())
         } else {
@@ -262,12 +287,21 @@ pub async fn vpn_wireguard_open() -> Result<(), ProjectError> {
                 "WireGuard no está instalado en este equipo",
             ));
         };
-        Command::new(path).spawn().map(|_| ()).map_err(|error| {
+        tauri::async_runtime::spawn_blocking(move || {
+            Command::new(path).spawn().map(|_| ()).map_err(|error| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    &format!("no se pudo abrir WireGuard: {error}"),
+                )
+            })
+        })
+        .await
+        .map_err(|_| {
             ProjectError::message(
                 ProjectErrorCode::Io,
-                &format!("no se pudo abrir WireGuard: {error}"),
+                "la apertura de WireGuard se interrumpió antes de terminar",
             )
-        })
+        })?
     }
     #[cfg(not(windows))]
     {

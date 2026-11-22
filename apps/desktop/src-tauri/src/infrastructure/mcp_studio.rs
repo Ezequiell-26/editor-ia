@@ -221,9 +221,26 @@ impl McpToolInvoker for StudioMcpInvoker {
                     Err(error) => Self::error_reply(&error),
                 };
             }
-            match self.studio_result(&tool, &args) {
-                Ok(value) => Self::ok_json(value),
-                Err(error) => Self::error_reply(&error),
+            // `studio_result` es síncrono y puede construir clientes
+            // `reqwest::blocking` (internet-archive, generadores remotos):
+            // su runtime interno no puede crearse ni soltarse dentro del
+            // contexto async del accept loop (panic en tokio
+            // blocking/shutdown y la conexión muere sin respuesta). Un
+            // `spawn_blocking` corre el caso de uso en un thread del pool
+            // bloqueante, donde eso está permitido.
+            let app = self.app.clone();
+            let outcome = tokio::task::spawn_blocking(move || {
+                let invoker = StudioMcpInvoker::new(app);
+                invoker.studio_result(&tool, &args)
+            })
+            .await;
+            match outcome {
+                Ok(Ok(value)) => Self::ok_json(value),
+                Ok(Err(error)) => Self::error_reply(&error),
+                Err(_) => Self::error_reply(&ProjectError::message(
+                    ProjectErrorCode::Io,
+                    "la tool de estudio falló en el executor",
+                )),
             }
         })
     }
@@ -311,7 +328,7 @@ fn resource_kind_matrix(
 /// provider y reporta lo que declara (coste, red, límites) más la
 /// disponibilidad de ffmpeg/ffprobe. Nada hardcodeado: si un provider no
 /// puede construirse, simplemente no aparece.
-fn studio_capabilities(state: &AppState) -> Value {
+pub fn studio_capabilities(state: &AppState) -> Value {
     use crate::ports::studio::ResourceAcquisition;
 
     let tools = state.media_tools();
@@ -488,9 +505,8 @@ mod tests {
         ] {
             let entry = by_kind(kind);
             assert_eq!(entry["generation"]["supported"], json!(true), "{kind}");
-            assert_eq!(
+            assert!(
                 entry["generation"]["providers"].as_array().unwrap().len() >= min_providers,
-                true,
                 "{kind}"
             );
         }

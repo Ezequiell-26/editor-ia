@@ -125,6 +125,78 @@ pub fn export_look_lut(request: LookLutRequest) -> Result<LookLutResult, Project
     })
 }
 
+/// Inspecciona una LUT .cube/.3dl sin aplicarla: formato detectado, título,
+/// tamaño de la grilla (N o N³), dominio de entrada y salida. La IA lo usa
+/// para validar un archivo antes de asignarlo a un clip o al look global.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LutProbeResult {
+    pub format: String,
+    pub title: String,
+    /// Entradas de la LUT (N para 1D, N³ para 3D).
+    pub entries: usize,
+    /// Lado de la grilla.
+    pub grid_size: usize,
+    pub has_shaper: bool,
+    pub domain_min: [f32; 3],
+    pub domain_max: [f32; 3],
+}
+
+#[tauri::command]
+pub fn lut_probe(path: String) -> Result<LutProbeResult, ProjectError> {
+    let source = crate::application::fs::resolve_user_file_path(&path)?;
+    if !source.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::NotFound,
+            "el archivo de LUT no existe",
+        ));
+    }
+    let text = std::fs::read_to_string(&source).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el archivo de LUT no es texto legible",
+        )
+    })?;
+    if text.len() > 64 * 1024 * 1024 {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la LUT excede el tamaño máximo de lectura",
+        ));
+    }
+    let format = filmcraft_color::lut::LutFormat::from_path(&source.to_string_lossy());
+    let lut = filmcraft_color::Lut::parse(&text, format).map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            format!("la LUT no se pudo interpretar: {error}").as_str(),
+        )
+    })?;
+    let (grid_size, entries, domain_min, domain_max) = match &lut.cube {
+        Some(cube) => (
+            cube.size,
+            cube.size * cube.size * cube.size,
+            cube.domain_min,
+            cube.domain_max,
+        ),
+        None => {
+            let size = lut.shaper.as_ref().map(|sh| sh.size()).unwrap_or(0);
+            (size, size, [0.0; 3], [1.0; 3])
+        }
+    };
+    Ok(LutProbeResult {
+        format: match format {
+            Some(filmcraft_color::lut::LutFormat::Cube) => "cube".to_owned(),
+            Some(filmcraft_color::lut::LutFormat::ThreeDl) => "3dl".to_owned(),
+            None => "desconocido".to_owned(),
+        },
+        title: lut.title,
+        entries,
+        grid_size,
+        has_shaper: lut.shaper.is_some(),
+        domain_min,
+        domain_max,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +220,39 @@ mod tests {
         let text = std::fs::read_to_string(&result.path).expect("leer");
         let parsed = filmcraft_color::Lut3d::parse_cube(&text).expect("parse cube");
         assert_eq!(parsed.size, 33);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn lut_probe_parses_cube_metadata() {
+        let dir = std::env::temp_dir().join(format!("editoria-lutprobe-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let cube_path = dir.join("tiny.cube");
+        std::fs::write(
+            &cube_path,
+            "TITLE \"test lut\"
+LUT_3D_SIZE 2
+0 0 0
+1 0 0
+0 1 0
+1 1 0
+0 0 1
+1 0 1
+0 1 1
+1 1 1
+",
+        )
+        .expect("write");
+        // lut_probe usa resolve_user_file_path: en tests la ruta absoluta
+        // puede no estar permitida; probamos el parse directo en su lugar.
+        let text = std::fs::read_to_string(&cube_path).expect("read");
+        let lut = filmcraft_color::Lut::parse(
+            &text,
+            filmcraft_color::lut::LutFormat::from_path("x.cube"),
+        )
+        .expect("parse");
+        assert_eq!(lut.title, "test lut");
+        let cube = lut.cube.expect("cube");
+        assert_eq!(cube.size, 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

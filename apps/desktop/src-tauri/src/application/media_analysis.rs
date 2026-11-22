@@ -14,8 +14,8 @@ use crate::media::analysis::{
 };
 use crate::media::resolve_inside_root;
 use crate::ports::media::{
-    proportional_analysis_timeout, MediaProbe, MediaRunner, MediaTools, SceneCut,
-    SceneDetection, StabilizationAnalysis, MEDIA_PROBE_TIMEOUT, MEDIA_TOOL_CHECK_TIMEOUT,
+    proportional_analysis_timeout, MediaProbe, MediaRunner, MediaTools, SceneCut, SceneDetection,
+    StabilizationAnalysis, MEDIA_PROBE_TIMEOUT, MEDIA_TOOL_CHECK_TIMEOUT,
 };
 use crate::ports::projects::{ProjectDocuments, ProjectSession};
 use crate::projects::service::{OpenedProject, ProjectError, ProjectErrorCode};
@@ -248,8 +248,7 @@ pub fn analyze_stabilization(
     // vidstabdetect procesa la ventana completa: deadline proporcional a su
     // duración (acotada a 1 h por la validación de arriba).
     let timeout = proportional_analysis_timeout(duration);
-    let output =
-        runner.run_ffmpeg_with_timeout(&ffmpeg, &args, Some(&directory), timeout)?;
+    let output = runner.run_ffmpeg_with_timeout(&ffmpeg, &args, Some(&directory), timeout)?;
     if !output.status.success() {
         runner.remove_file(&transform_path);
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -268,12 +267,90 @@ pub fn analyze_stabilization(
             "FFmpeg no produjo el archivo de transformación",
         ));
     }
+    // Proxy de preview: el mismo `vidstabtransform` del export horneado una
+    // vez sobre la ventana analizada. Best-effort — si el bake falla el
+    // análisis sigue siendo válido y la preview queda sin estabilizar.
+    let preview_name = format!("{}-preview.mp4", file_name.trim_end_matches(".trf"));
+    let preview_path = directory.join(&preview_name);
+    let preview_proxy = bake_stabilization_preview(
+        runner,
+        &ffmpeg,
+        &path,
+        &directory,
+        &file_name,
+        smoothing,
+        in_seconds,
+        duration,
+        &preview_path,
+    );
     Ok(StabilizationAnalysis {
         path: format!("media/stabilizers/{file_name}"),
         smoothing,
         in_frame,
         out_frame,
+        preview_proxy,
     })
+}
+
+/// Hornea `media/stabilizers/<uuid>-preview.mp4` con el mismo filtro que el
+/// export (`vidstabtransform … crop=black`). Devuelve la ruta relativa al
+/// proyecto o `None` si el bake falla (se limpia el parcial).
+#[allow(clippy::too_many_arguments)]
+fn bake_stabilization_preview(
+    runner: &dyn MediaRunner,
+    ffmpeg: &Path,
+    source: &Path,
+    directory: &Path,
+    trf_name: &str,
+    smoothing: u32,
+    in_seconds: f64,
+    duration: f64,
+    preview_path: &Path,
+) -> Option<String> {
+    // Mismo cwd (`media/stabilizers`) que la pasada de detección: el `.trf`
+    // se referencia por nombre pelado y FFmpeg lo resuelve relativo al cwd.
+    let filter = format!("vidstabtransform=input='{trf_name}':smoothing={smoothing}:crop=black");
+    let args = [
+        "-hide_banner".to_owned(),
+        "-nostats".to_owned(),
+        "-ss".to_owned(),
+        format!("{in_seconds:.6}"),
+        "-t".to_owned(),
+        format!("{duration:.6}"),
+        "-i".to_owned(),
+        source.to_string_lossy().into_owned(),
+        "-vf".to_owned(),
+        filter,
+        // El <video> de la preview también aporta el audio del clip: el proxy
+        // conserva la pista (la estabilización no la toca) en AAC para mp4.
+        "-c:v".to_owned(),
+        "libx264".to_owned(),
+        "-preset".to_owned(),
+        "veryfast".to_owned(),
+        "-crf".to_owned(),
+        "18".to_owned(),
+        "-c:a".to_owned(),
+        "aac".to_owned(),
+        "-b:a".to_owned(),
+        "192k".to_owned(),
+        preview_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    ];
+    let timeout = proportional_analysis_timeout(duration);
+    let baked = runner
+        .run_ffmpeg_with_timeout(ffmpeg, &args, Some(directory), timeout)
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+        && runner.file_exists(preview_path);
+    if !baked {
+        runner.remove_file(preview_path);
+        return None;
+    }
+    preview_path
+        .file_name()
+        .map(|name| format!("media/stabilizers/{}", name.to_string_lossy()))
 }
 
 // ---------------------------------------------------------------------------

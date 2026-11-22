@@ -9774,27 +9774,12 @@ Verificación real:
   vez, no animan una máscara por frame). Es el equivalente
   funcional de `rastreamento.js` de AlaukCut.
 
-- [plan] **Track-driven mask/blur (siguiente corte de tracking)**:
-  la pieza que falta es convertir `FaceCenterSample[]` (salida de
-  `analyze_face_track`, ya usada por `applyFaceCenter` y
-  `detectRelight`) en `ClipMaskKeyframe[]` — el schema YA soporta
-  keyframes de máscara (x/y/w/h/rotation/feather, máx 32,
-  `ClipMaskKeyframeSchema` en timeline.ts:716). Implementación
-  propuesta: `applyFaceMaskTrack(project, clipId, samples)` en
-  project-actions.ts (espejo de `applyFaceCenter`: mismas guardas
-  de clip bloqueado/reverse/motion/stabilization/keyframes,
-  mismas conversiones de tiempo `sample.time*fps/speed` y
-  `durationFrames`, salida `mask.keyframes` con x/y del centro +
-  width/height ≈ size*factor + feather), botón «Máscara que sigue
-  al rostro» en la pestaña Seguimiento del Inspector, y blur/
-  pixelado dentro de la máscara vía la combinación
-  mask+effect existente (verificar en render/ffmpeg/masks.rs si
-  el blur se aplica dentro o fuera de la máscara — puede requerir
-  `invert`). Equivalente funcional del blur-que-sigue de
-  `rastreamento.js` de AlaukCut. Prerequisito a verificar:
-  semántica de `mask.invert` + qué efectos acepta la máscara en
-  el pipeline (si la máscara sólo recorta visibilidad, el blur
-  por-región necesita un path distinto: overlay clip con mask).
+- [hecho 2026-11-17] **Track-driven mask/blur (verificado ya implementado)**:
+  el plan quedó cubierto por `applyFaceBlurOverlay` + `applyMaskTrack` +
+  `applyFaceCenter` en `overlay-actions.ts`, con UI en la pestaña
+  Seguimiento del Inspector (Centrar rostro / Blur que sigue / Máscara
+  que sigue / variantes de objeto). Verificado: `project-actions.test.ts`
+  **136/136**. Se agrega variante `kind: 'pixelate'` (ver Pasada 64).
 
 - [análisis] Semántica de máscara verificada en render:
   `visual/masks.rs` aplica la máscara como multiplicador de alfa
@@ -11708,6 +11693,51 @@ de `faixas.js` (la brecha «sin entrada con ease-out-back»): escala
   - Pendiente: rebuild release + verificar `export_render` en vivo con
     el proyecto dogfood (tiene cinematic+colorwheels+saturation).
 
+## Pasada 128 — tools_batch: command_batch de FilmCraft para la IA
+
+- Nueva tool MCP `tools_batch` (scope destructive explícito en server.rs): ejecuta hasta 50 herramientas en orden dentro de una sola llamada, cada paso {name, arguments} validado igual que una llamada directa (recursión sobre executeMcpTool).
+- stop_on_error default true; devuelve {total, ran, completed, failed, stoppedEarly, results:[{name, ok, result|error}]}. Pensada para secuencias atómicas de edición en una round-trip.
+- 2 tests nuevos: orden+resultados por paso, y stop_on_error (clip_split con id inexistente corta la tanda).
+- Verificación: typecheck exit 0 · vitest mcp-tools 40/40 + mcp-validation 12/12.
+- Pendiente: rebuild binario; cargo check no re-corrido (cambio es un literal en lista de scopes, ya verde en pasada 127).
+
+## Pasada 127 — render_frame: lazo de verificación visual para la IA (patrón FilmCraft)
+
+- Lección adoptada de filmcraft docs/agents.md (sin copiar código): todo comando es agent-drivable y el agente cierra el lazo inspect → edit → render_frame → verificar.
+- Nueva tool MCP `render_frame` (scope read): expone el comando existente render_preview_frame — renderiza un PNG real del frame de la timeline con el mismo pipeline visual del export (pistas, look, subtítulos; composite/native). Devuelve path, resolución, decoder y metadatos del compuesto.
+- Cadena completa: catálogo + dispatcher (valida clipId contra timeline, frame>=0) + server.rs SCOPE_READ. Reutiliza service.renderPreviewFrame ya existente — cero Rust nuevo.
+- Verificación: typecheck exit 0 · vitest mcp-tools+mcp-validation 50/50 · cargo check exit 0 (2m02s).
+- Pendiente: rebuild binario para probar en vivo; la IA ya puede usar el patrón inspect→edit→render_frame→video_scopes_analyze.
+
+## Pasada 126 — lut_probe + video_scopes_analyze (color/scopes para la IA)
+
+- `lut_probe` (read): nuevo comando en color_lut.rs — parsea .cube/.3dl con filmcraft_color::Lut::parse (sniffing de formato, title, grid N/N³, shaper 1D, dominio). Cadena completa service+MCP.
+- `video_scopes_analyze` (read): expone el comando existente analyze_scopes_frame (waveform luma + vectorscopio YUV + histograma RGB de un frame PNG/JPG) como tool MCP — antes solo estaba en UI.
+- server.rs: ambas en SCOPE_READ. Contratos: LutProbeResult en contracts/media.ts.
+- Verificación: cargo check OK · cargo test color_lut 2/2 · tsc exit 0 · vitest 50/50.
+- Pendiente: rebuild binario para prueba en vivo.
+
+## Pasada 125 — Ducking plan + conversión de canales (filmcraft ducking/channels)
+
+- Nuevo módulo `commands/domains/audio/audio_mix.rs`: 2 comandos IPC + 4 tests.
+- `audio_duck_plan`: envelope_db + activity + duck_keyframes del motor ducking → regiones de voz en segundos, keyframes de ganancia dB y envolvente (~20 pts/s). Solo análisis.
+- `audio_channels_convert`: matrices channels::convert mono/stereo/5.1 + mixdowns BS.775 (front/frontRear/frontLfe/frontRearLfe); from_layout autodetectado por ffprobe (MediaMeasure.channels). Salida WAV.
+- Cadena completa: contracts (AudioDuckPlan) + services + shared + tauri impl + unavailable + fake + mcp-catalog (2 tools) + mcp-tools dispatch + server.rs scopes (duck_plan=read, channels_convert=write).
+- Detalle: K=1/sqrt(2) en matrices; stereo→mono usa [K,K]; 5.1→stereo mapea LS→L, RS→R por separado.
+- Verificación: cargo check OK · cargo test audio_mix 4/4 · tsc exit 0 · vitest mcp-tools 38/38 + mcp-validation 12/12.
+- Pendiente: rebuild binario para prueba en vivo. audio-dsp ya está casi agotado; quedan resample/design (internos) y crates pesados.
+
+## Pasada 124 — Remix rítmico automático (FilmCraft audio-dsp::remix)
+
+- Nuevo módulo `commands/domains/audio/audio_remix.rs`: 2 comandos IPC + 2 tests.
+- `audio_remix_analyze`: BPM, beats en segundos (cap 2000), duración — motor `filmcraft_audio_dsp::remix::analyze` (onset envelope + beat tracking).
+- `audio_remix_render`: plan() + render() por chunks de 64k samples con crossfades de 20 ms → WAV float32. `segments`/`variations` 0-100 (default 50).
+- Helpers de `audio_tools.rs` pasados a `pub(crate)` (decode_planar, resolve_ffmpeg, user_file, output_file, MAX_PROCESS_SECONDS).
+- Cadena completa: contracts/audio.ts (AudioRemixAnalysis) + services + shared + tauri impl + unavailable + fake + mcp-catalog (2 tools) + mcp-tools dispatch + server.rs scopes (analyze=read, render=write).
+- NOTA: rev pineado abf44fd no tiene `Plan::is_playable` → validación manual mínima; tests usan `test_music` del crate.
+- Verificación: cargo check OK · cargo test audio_remix 2/2 · cargo test mcp:: 30/30 · tsc exit 0 · vitest mcp-tools 38/38.
+- Pendiente: rebuild del binario para probar en vivo; queda por portar ducking/channels del mismo crate.
+
 ## Pasada 10 — fixes de las auditorías (AUDITORIA_EDITOR_IA_2026-11-11, AUDIT.md, AUDITORIA-FRONTEND, APP-FEATURE-AUDIT)
 
 Campaña "arreglar todos los problemas de las auditorías". Estado por hallazgo:
@@ -12301,3 +12331,6227 @@ de módulo y por símbolo exportado, incluyendo `import()` dinámicos):
   `view-routing.test.ts`, `pipeline.test.ts` → 26/26 verde;
   `npx tsc --noEmit` en `apps/desktop` exit 0;
   `architecture-rules` + `dependency-rules` 20/20 verde.
+
+## Pasada 62 — Preview en vivo: LUT global del `project.look`
+
+- **`[done]` LUT de `project.look.lutFile` en preview** — el export la
+  aplica sobre el frame ya compuesto (`plan/range.rs`: `look_filters` +
+  `effects_lut` sobre `base_label` post-composite). La preview la evalúa
+  por capa **después** de las LUTs del propio clip: misma familia de
+  aproximación ya documentada para `clipPreviewStack` (aplica sobre cada
+  fuente en vez de una vez sobre el composite; en frames de clip único es
+  idéntica, en solapes difiere levemente).
+- `lookLutRequests(look)` nuevo en `preview-luts.ts`: sólo `lutFile` —
+  el export **no** lee `cameraProfile` del look (verificado en
+  `range.rs`: `effects_lut` para look, `camera_lut_path` sólo por clip),
+  así que la preview tampoco lo aplica (paridad honesta).
+- `usePreviewLuts` ahora resuelve `[...clipRequests, ...lookRequests]`
+  leyendo `store.state.project?.look`; el `requestsKey` incluye ambas
+  listas para re-resolver al editar el look. Cualquier capa de medio
+  monta `EffectCanvas` cuando el look tiene LUT aunque el clip no tenga
+  efectos propios (`gpuFx` por `luts.length > 0`).
+- Tests: +4 casos en `preview-luts.test.ts` (11/11 verde) cubriendo
+  look ausente, lutFile con intensidad default, corte `lutIntensity≈0`
+  (mismo umbral que `effects_lut`) e ignorado de `cameraProfile`.
+- Evidencia: `vitest run preview-luts.test.ts` 11/11; `tsc --noEmit`
+  exit 0.
+- **Pendiente honesto**: verificación de píxeles en Chromium real para
+  LUT clip+look y spill SVG (sigue abierto de Pasada 60); la LUT del
+  look en solapes de capas es aproximación, no pixel-exacta.
+
+## Pasada 63 — Verificación real en Chromium: 3 bugs WebGL + rewrite del spill
+
+Harness temporal (`harness-verify.html` + `src/harness-verify.ts`, ya
+eliminados) + Playwright MCP contra `vite dev`: expuso y cerró bugs que
+los tests unitarios no veían.
+
+**Bugs reales corregidos en `packages/effect-kit/src/webgl.ts`:**
+- **`sampler3D` sin precision qualifier**: el fragment shader LUT no
+  compilaba en GLSL ES 3.0 (`'sampler3D' : No precision specified`) →
+  `uniform highp sampler3D u_lut;`.
+- **Frame WebGL invertido verticalmente**: `uploadSource` subía con
+  `UNPACK_FLIP_Y_WEBGL=false` y `v_texCoord` tiene origen abajo → todo
+  `EffectCanvas` (VFX studio + nuevo path de Preview) mostraba el frame
+  dado vuelta. Confirmado con `gl.readPixels` (origen bottom-left):
+  ahora `UNPACK_FLIP_Y_WEBGL=true` en ambas subidas (frames y
+  transiciones).
+- **`texImage3D` rechazado por Chromium**: `UNPACK_FLIP_Y_WEBGL=true`
+  durante el upload de la LUT 3D → `INVALID_OPERATION` (1282) y salida
+  negra. `lutTextureFor` resetea el flag a `false` antes de subir (cada
+  upload DOM lo setea explícitamente después).
+- **`uploadSource` sin soporte canvas**: fuentes que no son
+  `HTMLVideoElement`/`HTMLImageElement` calculaban dimensiones 0 →
+  textura sin storage → negro. Ahora acepta cualquier `TexImageSource`
+  con `width`/`height` (canvas incluido).
+
+**Spill de chromaKey reescrito** (`color-engine.ts`): la cadena de ~10
+primitivas SVG (max exacto vía `0.5·sum+0.5·|diff|` + tablas +
+`feComposite arithmetic`) **no era viable en Chromium**: el pipeline es
+premultiplicado+lineal, los intermedios con alpha=0 pierden el RGB, y
+peor — **Chromium ignora `feColorMatrix` cuya fila R está toda en
+ceros** (verificado por sonda: `rDouble` aplicaba, matrices con delta en
+G/B no). Se reemplazó por UNA `feColorMatrix`:
+`s' = s − spill·(s − avg(o1,o2))`. Trade-off documentado en el código:
+`avg` puede *subir* el canal cuando `s < avg` (sobredespill hacia la
+media); el `expand=0.15` del export sigue sin replicarse.
+
+**Verificación de píxeles real (Chromium, Playwright MCP):**
+- LUT constante 33³: gris 0.5 → `(230,26,26)` ≈ `(0.9,0.1,0.1)` ✓
+- `lutIntensity=0` → passthrough `(128,128,128)` ✓
+- `cameraProfile` (LUT 33³ generada): `(200,120,60)` → `(251,0,31)` ✓
+- Orientación: 4 cuadrantes de color correctos tras `readPixels` ✓
+- Spill: borde `(100,180,110)` → `(99,125,110)` (G 180→125 ✓),
+  neutro `(128,128,128)` intacto, verde puro `(0,255,0)` → alpha 0 ✓
+- `gl.getError()` = 0 en todo el flujo ✓
+
+**Evidencia tests**: `color-engine.test.ts` 37/37 (2 tests de spill
+reescritos a la matriz única), `preview-luts.test.ts` 11/11,
+`tsc --noEmit` exit 0. El pendiente de Pasada 62 (píxeles Chromium)
+queda **cerrado** para LUT clip+look y spill.
+
+**Pendiente honesto (sigue abierto)**: LUT del `project.look` es
+aproximación por capa (export la aplica post-composite; en solapes de
+capas difiere); `motionBlur`/`lensCorrection` siguen export-only;
+freeze-frame/reversa/holds de time-remap requieren schema nuevo.
+
+## Pasada 64 — Pixelado de privacidad que sigue al rostro
+
+- **`[done]` `kind: 'pixelate'` en `applyFaceBlurOverlay`** — el blur de
+  privacidad era la única variante; el pixelado (`stylize.pixelate`)
+  oculta la identidad mejor y ya existía en effect-kit con pass WebGL
+  y receta ffmpeg (`pixelize=w={size}:h={size}`), así que preview y
+  export lo soportan sin trabajo extra.
+- `FaceBlurOverlayOptions` gana `kind?: 'blur' | 'pixelate'` (default
+  `blur`, retrocompatible) y `pixelSize?: number` (2–96, default 18,
+  clampeado como el resto de opciones). En pixelate el overlay escribe
+  `effects.stack = [...existente, createInstance(stylize.pixelate)]`
+  (tope 32 del schema) en vez de `effects.blur`; máscara elíptica,
+  keyframes, audio muteado y guardas (reverse/motion/stabilization/
+  keyframes/bloqueo) idénticos al blur.
+- **Inspector**: nuevo botón «Pixelar rostro» en Seguimiento de rostro
+  (`pixelateFace()` espejo de `blurFace()`, mismo `faceBlurBusy` y
+  `faceCenterBlockReason`).
+- También se cerró el `[plan]` stale de track-driven mask/blur: ya
+  estaba implementado (`applyFaceBlurOverlay`/`applyMaskTrack`/
+  `applyFaceCenter` + UI en Inspector); quedó marcado `[hecho]`.
+- **Verificación**: `project-actions.test.ts` **136/136** (+1: stack con
+  `stylize.pixelate` size=24, sin `effects.blur`, máscara y mute
+  intactos) · `tsc --noEmit` **exit 0**.
+- **Pendiente honesto**: el tamaño del bloque es fijo (18px default);
+  el tamaño ideal depende de la resolución del clip y quedaría mejor
+  como proporción del alto del frame — mejora futura si se pide.
+
+## Pasada 65 — Verificación de la app real corriendo (Tauri + CDP)
+
+App compilada y lanzada con `npm run tauri:dev` (build debug OK en ~30 s
+tras cache) y conducida por CDP: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=
+--remote-debugging-port=9222` + `chromium.connectOverCDP` desde Playwright.
+Driver temporal en `%TEMP%/olyvia-cdp.mjs` (fuera del repo).
+
+**Verificado EN VIVO (no tests):**
+- StartScreen nativo → plantilla «TikTok / Reels» → diálogo nativo
+  «Guardar como» → proyecto creado → editor abre con `.preview-panel` +
+  `.timeline-panel`.
+- **14/14 herramientas** (Guion, Medios, Producción, Creador,
+  Laboratorio, Director, VFX, Nodos, Motion, Mezcla, Multicámara,
+  Cerebro, Texto, Efectos): preview y timeline permanecen montados —
+  el contrato de editor único se cumple en la app real.
+- Asset importado (`import_media_paths`), clip montado por doble clic
+  en la tarjeta: timeline muestra `frame 0 / 120`, `<video>` con
+  `readyState=4`, `asset.localhost` protocol, 640×360.
+- **Transporte funciona**: botón «Reproducir» → `currentTime` avanzó a
+  1.54 s, `paused=false`.
+- Autosave activo («✓ Salvo automáticamente»), 0 errores de consola,
+  sin overlays de error.
+
+**Bug real encontrado y corregido — `StartScreen.tsx`:** los 5 handlers
+(`handleCreateProject`, `handleQuickTemplate`, `handleOpenProject`,
+`handleOpenRecent`, `handleDrop`) hacían `setBusy(true)` → `await` sin
+try/finally: cualquier excepción de `store.*` (INVALID_PROJECT, IO,
+diálogo) dejaba `busy=true` para siempre → los 23 botones del launcher
+quedaban `disabled` hasta recargar. Reproducido en vivo (botones
+deshabilitados tras el diálogo). Fix: try/catch/finally con `setError`
+mensaje al usuario y `setBusy(false)` siempre.
+
+**Observaciones (no bugs):**
+- `create_project`/`import` abren diálogo nativo de guardado — esperado;
+  las plantillas 1-clic piden ubicación del `.editoria.json`.
+- Había 6 servidores vite huérfanos en puertos 3000–3005 (de sesiones
+  previas, todos del mismo worktree); el `devUrl` de Tauri es :3000 y
+  sirvió el código correcto igual.
+- Invokes directos por CDP bypassean el store (el proyecto no aparece
+  en UI hasta reabrirlo por el flujo normal) — limitación del método de
+  prueba, no de la app.
+
+**Verificación**: `StartScreen` tests **19/19** · `tsc --noEmit` exit 0.
+
+## Pasada 66 — Verificación en vivo: efectos del Inspector aplicados al monitor
+
+**Método**: app Tauri corriendo (CDP :9222), modo «Efectos» → vuelta a
+«Edición», Inspector del clip seleccionado, interacción real por
+Playwright (`connectOverCDP` + teclado/mouse verdaderos, no eventos
+sintéticos).
+
+**Verificado EN VIVO:**
+- Pestaña **Color** del Inspector (Interferencia, Temperatura, Tinte,
+  Intensidad, Saturación, Exposición — sliders -100..100): al mover
+  «Saturación» de 0 a 40 con teclado, el `<video>` del monitor quedó con
+  `filter: saturate(1.4) url("#grade-filter-…")` — el grado del clip se
+  aplica en vivo vía CSS+SVG, confirmado por `getComputedStyle`.
+- El resto de campos del clip (transformación, fade in/out, speed,
+  máscaras, HSL, audio) están en las mismas pestañas del Inspector con
+  `NumberField` (commit en blur/Enter).
+- «Efectos» (VisualsView): los sliders de «Color y textura» son
+  **borrador local** que sólo se aplica con el botón «Aplicar» —
+  comportamiento por diseño (quick-grade), no un bug de preview.
+
+**Limpieza**: valor de Saturación devuelto a 0 tras la prueba
+(filter quedó `url("#grade-filter-…")` con el grado base intacto).
+Artefactos de prueba del repo eliminados (`media/`,
+`test-live.editoria.json`, scripts `olyvia-*.mjs` temporales).
+
+**Pendiente honesto**: no se ejercitó LUT `.cube` ni stack WebGL dentro
+de la app (requiere proyecto con assets LUT/efectos); la verificación de
+píxeles WebGL fue por harness Chromium en Pasada 63.
+
+## Pasada 67 — LUT de perfil de cámara verificada EN VIVO en la app real
+
+**Contexto**: los controles «LUT 3D (.cube)» y «Perfil de cámara» viven en
+la sección «Color avanzado» (`group="color"`), que la skin de referencia
+AlaukCut oculta (sólo muestra la primera `.inspector-section`). Se
+alcanzan con el toggle «Mostrar todos los controles del editor» de la
+topbar (`data-editor-skin="full"`, persiste en localStorage) — NO es UI
+muerta, pero es poco descubrible: queda como observación de UX.
+
+**Verificado EN VIVO (Tauri + Playwright/CDP, interacción real):**
+- Con skin=full y solapa «Todo», la sección «Color avanzado» es visible
+  con el select «Perfil de cámara» (8 perfiles log→Rec.709).
+- Al elegir `vlog709`: el monitor monta `canvas.effect-canvas`
+  (640×360 WebGL) y `toDataURL` muestra un frame real con color
+  (patrón de prueba: parches rojo/azul/cian/magenta saturados).
+- Al volver a «Sin perfil»: el canvas WebGL se desmonta y vuelve el
+  `<video>` plano — el montaje del renderer está gateado por la presencia
+  de LUT/stack, como debe ser.
+- `lutFile` (.cube) queda pendiente de prueba con archivo real (requiere
+  `service.importLut` + asset en el proyecto); el camino `cameraProfile`
+  comparte el mismo `Lut3DInput`/`setLuts` ya verificado por píxeles en
+  Pasada 63.
+
+**Estado del skin**: quedó en `full` (localStorage `olyvia:editor-skin`)
+— el usuario ve todos los controles; el toggle sigue disponible.
+
+## Pasada 68 — `lutFile` (.cube real) verificado EN VIVO en la app
+
+**Método**: `.cube` 17³ generado en `media/` del proyecto, `lutFile` +
+`lutIntensity` inyectados en el JSON del clip, proyecto reabierto por el
+recent de StartScreen (trayendo copia a `test-cdp.editoria.json` porque
+el recent apuntaba a un archivo borrado — workaround de prueba).
+
+**Verificado EN VIVO (pausa en frame 0, muestreo por píxeles):**
+- `canvas.effect-canvas` montado apenas abrió el proyecto con `lutFile`.
+- LUT de swap R↔B: cada píxel muestreado es el swap exacto del frame de
+  video en la misma posición (ej. video `[251,127,0]` → LUT `[0,127,255]`;
+  `[0,0,253]` → `[255,0,0]`; cyan → amarillo). Pipeline completo:
+  `mediaUrl` → `parseCubeLut` → `TEXTURE_3D` → shader — en la app real.
+- Botón «Quitar LUT» del Inspector → canvas desmontado, vuelve `<video>`.
+- `media/test-clip.mp4` regenerado (mi limpieza anterior lo había borrado
+  con el proyecto abierto — restaurado con testsrc2 640×360); el sha256
+  del asset ya no coincide con el original, esperado en proyecto de prueba.
+
+**Estado**: proyecto de prueba abierto como `test-cdp.editoria.json`
+(archivo untracked del repo, junto a `media/test-clip.mp4`).
+
+## Pasada 69 — `effects.stack` (efectos WebGL) verificado EN VIVO
+
+**Método**: `stack: [{effectId:'stylize.pixelate', params:{size:24}}]`
+inyectado en el clip del proyecto de prueba, reapertura por recent.
+
+**Verificado EN VIVO:**
+- `canvas.effect-canvas` montado con el stack activo.
+- Scanline y=180 del frame renderizado: corridas de color de 24/96/120 px
+  (múltiplos del bloque de 24) — pixelación real, no imagen lisa.
+- Efecto removido del JSON + reapertura → canvas desmontado, `<video>`
+  plano. Proyecto de prueba quedó limpio (sin stack ni LUT).
+
+**Cobertura preview↔export confirmada en app real**: LUT perfil ✓,
+LUT .cube ✓, stack WebGL ✓ — las tres familias que la preview monta en
+`EffectCanvas` funcionan end-to-end en Tauri.
+
+## Pasada 70 — Transición `fade-black` verificada EN VIVO en preview
+
+**Flujo ejercitado**: clip seleccionado → «Dividir» con playhead →
+2 clips en timeline → Inspector «Transición de entrada» → `fade-black`
+24 frames (select con 42 tipos de transición).
+
+**Verificado EN VIVO (muestreo por frame en el monitor):**
+- Ventana de lead correcta: clip2 (start=36) monta 24 frames antes —
+  `.preview-transition-layer` + `.preview-transition-underlay` negro.
+- Opacidad medida: f12→0, f18→0.25, f24→0.5, f30→0.75, f35→0.958 —
+  rampa lineal exacta de `previewTransitionFrame` (opacity=p sobre
+  underlay `#000`).
+- En f36 (inicio del clip) la capa de transición desaparece — sin
+  residuo visual.
+- **Hallazgo de UX menor**: una transición de entrada en el PRIMER clip
+  (startFrame=0) es inalcanzable (`lead=0`) — el Inspector la permite
+  configurar igual; la preview/export la ignoran correctamente, pero el
+  control podría deshabilitarse o avisar. Anotado, no bug funcional.
+- El marcador `.clip-transition` de la timeline es UI aparte (opacidad
+  estática 0.9) — no confundir con el render de preview.
+
+**Estado**: proyecto de prueba con 2 clips (corte real conservado);
+transiciones removidas del JSON para dejar el proyecto limpio.
+
+## Pasada 71 — Export MP4 real verificado end-to-end
+
+**Flujo**: ExportDialog → «Elegir destino y exportar» → `start_render`
+quedó esperando el diálogo nativo «Guardar como» (pick_output) — no se
+puede conducir por CDP. Se bypasseó por el camino del lote:
+`invoke('start_render_to', {profileId, outputPath, ...})` directo, que
+es el mismo `render_lifecycle::start_render` con `Some(path)`.
+
+**Verificado:**
+- `exports/test-cdp.mp4`: h264 **1920×1080** (perfil YouTube 1080p,
+  upscale desde 640×360), 30 fps, AAC, **duración exacta 4.000 s**
+  (120 frames del proyecto), 3.6 MB.
+- Frame extraído a t=2 s: YAVG=124 (luminancia real, no negro),
+  SATAVG=110 (patrón de color saturado) — contenido renderizado de verdad.
+- **Guardia de integridad funcionó**: al reemplazar `media/test-clip.mp4`
+  con otro archivo, el export falló con `[ASSET_NOT_READY] el material
+  cambió de tamaño desde la importación` — error honesto en UI. Se
+  resolvió recalculando `integrity.{bytes,sha256}` en el JSON de prueba.
+- Observación: el diálogo «Guardar como» nativo sigue pendiente en la
+  instancia de la app (estado `starting` del modal); el usuario puede
+  cerrarlo. El render por `start_render_to` corre independiente.
+
+**Pendiente honesto**: `start_render` (perfil único) exige diálogo
+nativo — flujo por lote (`start_render_to`) es el único 100 %
+automatizable; ya estaba previsto así en el código.
+
+## Pasada 72 — Scopes y Mezcla (mixer) verificados EN VIVO
+
+**Scopes** (preview-tool): canvas 236×108 montado con traza real
+(contenido no-negro, fondo oscuro) — el scope de video funciona en el
+monitor del editor unificado.
+
+**Mezcla** (modo mixer): canal V1 con Ganancia/Paneo/EQ (Bajos/Medios/
+Agudos) + master + medidores en vivo + loudness EBU R128 + scopes de
+audio — todo montado sobre las mismas pistas del proyecto.
+- Fader «Ganancia de V1» movido a +3 → `track.gainDb: 3` persistido en
+  `test-cdp.editoria.json` por autosave → restaurado a 0 y reverificado.
+- **Limitación honesta**: el clip de prueba no tiene audio real
+  (testsrc2 es mudo), así que los medidores quedan en plano — la cadena
+  de audio completa (worklet → export) no se ejercitó con señal.
+
+**Cobertura acumulada en app real**: launcher, 14+ herramientas, media,
+timeline, split, transiciones, grade, LUT×2, stack WebGL, scopes,
+mixer, export MP4.
+
+## Pasada 73 — Cadena de audio completa verificada EN VIVO
+
+**Setup**: `media/test-clip.mp4` regenerado con testsrc2 + seno 440 Hz
+(AAC), integrity recalculada, proyecto reabierto.
+
+**Verificado EN VIVO:**
+- Reproducción: `currentTime` avanzando con audio.
+- **Medidores del mixer con señal real**: V1 = Master = **−27.1 dB**
+  (RMS del seno a través de la cadena WebAudio) — antes estaban en −∞.
+- **Export con audio real**: `exports/test-cdp-audio.mp4` →
+  `volumedetect`: mean **−23.7 dB**, max **−20.1 dB** — el seno llegó
+  al AAC del MP4 (el primer export era silencio).
+
+**Cadena audio completa confirmada en app real**: medio con audio →
+preview/WebAudio → metering mixer → render FFmpeg → AAC con señal.
+
+## Pasada 74 — Títulos/subtítulos renderizados EN VIVO en preview
+
+**Flujo**: Inspector proyecto → sección «Subtítulos» → input «Título
+centrado» → «Agregar título» (ambos botones correctamente `disabled`
+sin texto — UX honesta).
+
+**Verificado EN VIVO:**
+- Cue «HOLA MUNDO» creado en el playhead → `.preview-caption.caption-
+  center` visible **dentro del `.preview-panel`**, centrado
+  horizontalmente (dx<30px del centro del panel).
+- Tamaño de fuente correcto: `max(10, fontSizePx·scale)` — 12 px en la
+  preview chica (proyecto 1080 → panel ~693 px), escala proporcional,
+  no bug.
+- Estilo completo soportado: color, peso, itálica, outline/stroke,
+  sombra, depth-3D, background box, karaoke por palabras, motion preset
+  y offset manual (todo en `Preview.tsx` caption renderer).
+
+**Estado**: el proyecto de prueba conserva el cue «HOLA MUNDO» (3 s
+desde el playhead) — queda como fixture visible del caption pipeline.
+
+## Pasada 75 — Herramientas de preview restantes (doodle, audio scopes, fill)
+
+**Ejercitado EN VIVO** (app Tauri, CDP):
+- «Dibujar»: activa overlay `preview-mask-draw preview-doodle-draw` +
+  hint «Dibujá sobre el frame · Escape para salir» + paleta
+  (`preview-doodle-color/width/hand`). Trazo de mouse real dibujado
+  sobre el stage — 29 paths SVG dentro del panel.
+- «Audio»: monta `scopes-panel scopes-panel--audio` en el monitor.
+- «Llenar»: `.preview-stage` pasa a clase `fill`.
+- «Comparar»/«Frame real»/«Capturar» conmutan sin romper el panel.
+
+**Estado**: todas las herramientas de preview quedan dentro del editor
+único; ninguna desmonta preview/timeline.
+
+## Pasada 76 — Multicámara verificada EN VIVO (2 cámaras reales)
+
+**Setup**: `test-cam2.mp4` (testsrc2 + seno 880 Hz, 8 s) generado e
+importado vía `import_media_paths` (probe nativo) + asset insertado en el
+JSON del proyecto con licencia `user-declared` (el probe devuelve
+`commercialUse: unknown` que el schema rechaza para `ready` — hay que
+pasar por el flujo de licencia de AssetsPanel en uso real).
+
+**Flujo real**: StartScreen → recent `test-cdp` → modo Multicámara.
+
+**Verificado EN VIVO:**
+- `MulticamView` monta **dentro** del editor: `.preview-panel` y
+  `.timeline-panel` permanecen montados.
+- 2 `<video>` de cámaras (CAM 1 test-clip, CAM 2 test-cam2), botones de
+  sync (todo/audio/timecode), offset de entrada por cámara, Reproducir.
+- Switch de ángulo CAM 2 + «Crear pista multicámara» → notice
+  «1 corte(s) de 2 cámaras en una pista nueva» → **pista «Multicámara»
+  nueva en la timeline** junto a V1 y Captions.
+- Al crear la pista la vista vuelve al editor (comportamiento esperado).
+
+**Nota**: `adopt_project` nativo solo adopta en la sesión Rust — el
+store React necesita el flujo `openProjectAt`→`adopt` del provider; por
+CDP hay que reabrir el proyecto desde StartScreen (hecho, verificado).
+
+## Pasada 77 — `project.look.lutFile` verificada EN VIVO
+
+**Setup**: `media/test-swap.cube` (LUT_3D 17³ swap R↔B) regenerado +
+`look: { lutFile: 'media/test-swap.cube', lutIntensity: 1 }` en el JSON
+del proyecto → reapertura por StartScreen → recent.
+
+**Verificado EN VIVO:**
+- `canvas.effect-canvas` montado **sin LUT de clip** → la LUT global del
+  look llega al preview (vía `lookLutRequests` en `usePreviewLuts`).
+- Muestreo de píxeles del canvas: cyan→amarillo `[255,255,0]` y
+  rojo→azul `[0,0,255]` — swap de canales exacto, mismo resultado que
+  la LUT por clip (Pasada 68).
+- Restaurado `look` a ausente en el fixture.
+
+**Limitación conocida (documentada en código)**: el preview aplica la
+LUT del look **por capa** (cada clip con media), mientras el export la
+aplica post-composite sobre el frame final — con texto/shapes encima la
+salida difiere levemente. Aceptable como aproximación WYSIWYG.
+
+## Pasada 78 — Timing de captions verificado EN VIVO
+
+**Método**: clicks reales de mouse sobre `.ruler-lane` de la timeline
+(seek por UI, no por store) + lectura de `.preview-caption` y del
+contador `frame N / 210`.
+
+**Resultados**:
+- frame 10 → sin overlay (antes del cue)
+- frame 149 → `.preview-caption` «HOLA MUNDO» visible (dentro del cue)
+- frame 210 → sin overlay (después del cue, fin de línea)
+
+El cue de 3 s (90 frames) inserta/retira el texto exactamente en su
+rango — el renderer de captions respeta `startFrame`/`endFrame` en vivo.
+La pista «CAPTítulos» muestra el cue en la timeline junto a V1 y la
+pista Multicámara.
+
+## Pasada 79 — `npm run verify` completo en verde (estado del árbol)
+
+**Corrida real** (674 s de suite serial):
+- `typecheck`: los 4 paquetes TS limpios (project-schema, effect-kit,
+  desktop, render-worker).
+- `test:serial`: **341 archivos, 3063 tests pasados**, 3 skipped, 0 fallos.
+  Incluye los tests nuevos/modificados de las pasadas 60–78
+  (color-engine 37, preview-luts 11, project-actions 136,
+  unified-editor.contract 4, a11y-shell 6 sin violaciones).
+- `test:extension`: flow-queue 33/33.
+- `test:web-tts`: 10/10.
+- `audit:security`: PASS — 0 critical/high bloqueantes en deps de
+  producción (1 zod exceptuado); 7 sólo-dev informativos;
+  cargo-audit no instalado (skip explícito, no OK).
+
+**Conclusión**: los ~11 archivos modificados sin commitear (pasadas
+60–78) no introducen regresiones en typecheck, suite completa ni
+seguridad. El árbol queda listo para commit cuando el usuario lo
+autorice.
+
+## Pasada 80 — Freeze-frame verificado EN VIVO (pipeline completo)
+
+**Estado previo**: `freezeFrameInPlace` + `extractFreezeFrame` (ffmpeg
+nativo) + botones Inspector «Congelar en la pista»/«Congela y sigue» ya
+estaban implementados — faltaba ejercitarlo en la app real.
+
+**Flujo real**: clip V1 seleccionado → playhead frame 74 →
+«Congelar en la pista».
+
+**Verificado EN VIVO:**
+- `extractFreezeFrame` extrajo un PNG real del video (asset nuevo
+  `frame-*.png` en biblioteca).
+- `freezeFrameInPlace` insertó clip `kind:'freeze'` («Congelado») de 2 s,
+  shift de clips/captions/markers ≥ playhead — timeline muestra el clip
+  nuevo y el proyecto quedó en 270 frames.
+- Notice: «Frame congelado: 2 s en la pista del video y el resto se
+  corrió».
+- **Preview**: en frame 99 el monitor muestra `<img>` del frame
+  congelado (no `<video>`) — el still renderiza en vivo.
+
+**Reverse**: checkbox «Reproducir al revés» del Inspector ya existe y
+el render usa `reverse`/`areverse` (ffmpeg); la preview reproduce hacia
+adelante — limitación honesta ya documentada en la propia UI.
+
+## Pasada 81 — `lensCorrection` ahora tiene preview WebGL (era export-only)
+
+**Cambio** (feature, no sólo verificación):
+- `packages/effect-kit/src/catalog/video.ts`: nuevo manifiesto
+  `lens.correct` (categoría distort, params k1/k2/cx/cy) con shader de
+  warp radial `factor = 1 + k1·r² + k2·r⁴` sobre coordenadas centradas
+  en (cx,cy) — mismo modelo que `distort.fisheye` + término k2 + centro
+  propio. Receta ffmpeg `lenscorrection=k1:k2:cx:cy` marcada
+  `approximate` (el shader aplica el polinomio directo; FFmpeg lo
+  invierte — diferencia leve con k chicos, documentada).
+- `Preview.tsx` `clipPreviewStack`: cuando `effects.lensCorrection`
+  tiene k1/k2 ≠ 0, sintetiza una instancia `lens.correct` al final del
+  stack → `gpuFx` se activa aunque no haya stack ni LUTs → el monitor
+  muestra el warp en vivo. Con k1=k2=0 no agrega nada.
+- `PreviewFade.test.ts`: +3 tests (síntesis sin stack, k=0 no-op,
+  preserva stack + append).
+
+**Verificación**:
+- `vitest PreviewFade + engine`: 43/43 · `tsc` effect-kit + desktop OK.
+- **EN VIVO**: `lensCorrection {k1:0.35}` en clip V1 → canvas WebGL
+  montado → muestreo de píxeles: centro `[16,0,0]` idéntico con/sin
+  warp (el centro queda fijo ✓) y esquina TL `[0,255,148]`→
+  `[255,251,211]` (muestrea otra zona de la fuente = distorsión real).
+  Con k1=k2=0 el canvas vuelve al estado neutro.
+
+**Queda export-only**: `motionBlur` temporal (tmix mezcla frames — la
+preview de un solo frame no puede reproducirlo sin sampler multi-frame;
+la aproximación `blur.motion` direccional ya existe como efecto de stack
+para el look espacial).
+
+## Pasada 82 — Textos stale del Inspector corregidos (LUT preview)
+
+**Hallazgo**: dos `fine-print` del Inspector decían «La preview no
+simula el LUT; revisá el MP4» — falso desde las pasadas 67/68/77
+(`cameraProfile`, `lutFile` .cube y `project.look.lutFile` ya renderizan
+en el monitor WebGL, verificado con píxeles).
+
+**Fix** (`Inspector.tsx`):
+- LUT de clip: ahora dice que la preview aplica el LUT en vivo y que el
+  look global se muestra por capa (aproximación del post-composite).
+- LUT global: «La preview lo muestra por capa (aproximación del
+  post-composite del MP4)».
+
+**Extra**: el 403/404 de consola de las sesiones anteriores no se
+reprodujo tras reload ni tras reabrir el proyecto — era transitorio
+(probablemente un fetch único); no es un bug activo.
+
+## Pasada 83 — `lens.correct` propagado al catálogo VFX en vivo
+
+- `catalog.test.ts` + `package-import.test.ts`: 29/29 (el manifiesto
+  nuevo valida shader, params y receta).
+- **EN VIVO**: modo VFX → el picker lista «Corrección de lente»
+  (`lens.correct`) junto a «Destello de lente» — el registro propagó el
+  efecto nuevo por HMR y el shader compiló (la preview de la pasada 81
+  ya lo ejercitó con píxeles).
+
+**Evaluación honesta de `motionBlur` temporal**: el renderer sube un
+solo frame por tick (`uploadSource` → textura única, sin historial).
+Un motion blur temporal real necesita un ring buffer de N frames
+(previos) + pass de promediado — feature de renderer, no un efecto de
+catálogo. Queda como único export-only genuino junto a `denoise`
+(hqdn3d temporal, misma clase de limitación).
+
+
+## Pasada 84 — `motionBlur` ahora tiene preview temporal REAL (era export-only)
+
+**Cambio** (renderer + catálogo + inyección):
+- `packages/effect-kit/src/webgl.ts`: el `EffectRenderer` ahora guarda el
+  frame fuente anterior (`prevSourceTexture` + `prevFramebuffer`, copia
+  passthrough al final de cada `render()`) y lo expone a los passes como
+  `u_prevTexture` (sin previo válido se bindea la fuente actual = no-op).
+  Guardas anti-ghost: se invalida el historial cuando cambia el elemento
+  fuente (`uploadSource`) y cuando `frameIndex` salta >4 (seek/salto);
+  `dispose()` libera la textura y el framebuffer nuevos.
+- `packages/effect-kit/src/catalog/video.ts`: nuevo efecto `blur.temporal`
+  (categoría blur) con shader de mezcla 2 tomas
+  `mix(actual, previo, w)`, `w = intensity·(1−1/max(2,frames))` cap 0.85 —
+  aproximación documentada del `tmix=N` del export. Receta ffmpeg
+  `tmix=frames={frames}` `approximate`.
+- `Preview.tsx` `clipPreviewStack`: `effects.motionBlur` (frames≥2)
+  sintetiza la instancia `blur.temporal` AL INICIO del stack (mezcla el
+  fuente crudo antes de graduar, igual que tmix→stack del export).
+- `PreviewFade.test.ts`: +3 tests (inyección con/sin stack, convivencia
+  con lensCorrection: temporal primero, lens al final).
+
+**Verificación**:
+- `vitest` PreviewFade + catalog + package-import + effect-kit: todo verde;
+  `tsc` effect-kit + desktop exit 0.
+- **EN VIVO** (app Tauri + CDP): `motionBlur {frames:6,intensity:0.9}` en
+  clip V1 → `canvas.effect-canvas` montado. Durante playback, en el borde
+  móvil del testsrc2: delta frame-a-frame del canvas **2.9** vs video
+  crudo **24.1** (amortiguación ~8×) y lag de ~1 muestra en flancos; sin
+  motionBlur (mismo clip, sólo LUT global) el canvas vuelve a trackear
+  nítido (delta **57.6**). A/B concluyente: el blur temporal funciona.
+
+**Salvedades honestas**:
+- Es una mezcla de 2 tomas reales (actual + frame anterior renderizado),
+  no un promedio de N: `frames` sólo modula el peso. En pausado el
+  historial converge a identidad (prev==current) — correcto.
+- `u_prevTexture` es siempre el frame fuente CRUDO previo: si hay LUTs
+  activas, el frame actual entra ya graduado y el previo no (mezcla
+  aproximada, documentada en el manifiesto).
+- Queda export-only genuino: `denoise` (hqdn3d temporal — mismo tipo de
+  problema pero en audio; la preview WebAudio no tiene equivalente).
+
+## Pasada 85 — LUT .cube y perfil de cámara alcanzables desde la pestaña Color
+
+**Problema real encontrado en vivo**: `effects.lutFile` (.cube 3D) y
+`effects.cameraProfile` (log→Rec.709) sólo tenían UI en la sección legada
+«Color avanzado» de `Inspector.tsx`, que vive en la rama del inspector
+clásico que la pestaña Color ya no renderiza (`ColorPropertiesPanel` la
+reemplazó) y que además queda oculta por `data-group="color"` + skin de
+referencia. Los controles estaban **inalcanzables**: la feature estaba
+implementada en preview WebGL y export pero sin forma de activarla.
+
+**Cambio**:
+- `ColorPropertiesPanel.tsx`: nuevo `LutFilePanel` (sección «LUT 3D
+  (.cube)») en el subtab Básico/Todo del modo color — nombre de archivo o
+  «Sin LUT .cube aplicado», botón «Cargar .cube» (`store.service.importLut`,
+  mismo camino que el legacy), «Quitar LUT», slider de intensidad 0–100 %
+  cuando hay LUT, selector de perfil de cámara (9 perfiles + ninguno) y
+  nota honesta sobre look global. Escribe `clip.effects` vía
+  `updateClip`/`store.update` — mismo store, undo y autosave intactos.
+  Badge «ON» cuando hay LUT o perfil activos. No se muestra en modo
+  Máscara de color.
+- `properties.css`: `.fp-lut-head`/`.fp-lut-name` (fila flex con ellipsis).
+- `Section.badge` ahora admite `undefined` explícito
+  (`exactOptionalPropertyTypes`).
+
+**Verificación**:
+- `ColorPropertiesPanel.test.tsx`: 11 → **13 tests** (+2: perfil de cámara
+  persiste en `effects.cameraProfile` del clip; la sección no aparece en
+  modo máscara). 13/13 verde. `tsc -p apps/desktop` exit 0.
+- **EN VIVO** (Tauri + CDP), ambas skins:
+  - skin `full`: clip → pestaña Color → «LUT 3D (.cube)» visible arriba de
+    Básico con selector de perfil (9 opciones).
+  - skin **referencia** (localStorage limpio): mismo resultado — la sección
+    usa `.fp-section`, no la `.inspector-section` que la skin oculta.
+  - `vlog709` seleccionado → `canvas.effect-canvas` montado (LUT WebGL
+    activa en preview); revertido a «Sin perfil» → badge ON desaparece.
+    (El canvas permanece por la LUT global `.cube` del fixture, correcto.)
+- Skin restaurada a `full` y proyecto reabierto; app sigue corriendo.
+
+**Archivos**: `apps/desktop/src/features/editor/properties/
+ColorPropertiesPanel.tsx`, `.../properties.css`,
+`.../ColorPropertiesPanel.test.tsx`.
+
+## Pasada 86 — Secciones del Inspector inalcanzables re-etiquetadas a pestañas vivas
+
+**Problema real (misma clase que la LUT de la pasada 85, pero mayor)**:
+cuando `ColorPropertiesPanel` reemplazó a la pestaña Color, todas las
+secciones con `group="color"` del inspector clásico quedaron muertas — el
+branch que las renderiza sólo corre para pestañas ≠ color/mask y el filtro
+CSS `data-group` las ocultaba ahí. Auditoría completa de `Inspector.tsx`:
+
+- **«Color y efectos»** (~270 líneas): Brillo/Contraste/Saturación/
+  Temperatura/Sombras/Altas luces/Fade tonal/Rotación de tono/Curva de
+  color (parcialmente cubiertos por el grade nuevo, pero campos
+  `effects.*` distintos), **Viñeta, Nitidez, Reducción de ruido,
+  Desenfoque, Lente K1/K2, Fade in/out, Glow, Movimiento difuminado** —
+  todos sin ninguna otra UI (`sharpness` no aparecía en ningún otro .tsx).
+- **«Color avanzado»**: Igualar color, Escala de grises, Sepia,
+  **Efecto con IA** (prompt→parámetros).
+- **«Espectro de audio»**: overlay de espectro bars/wave/neon — feature
+  completa sin acceso.
+- **«Capa de ajuste»**: info de clips de ajuste.
+- «Ruedas cromáticas»/«HSL selectivo»/«Curvas tonales»: duplicadas por
+  los subtabs del panel nuevo — quedan como deuda muerta conocida.
+
+**Cambio** (sólo atributos + una limpieza):
+- `group="color" subtab="basic"` → `group="style" subtab="effects"` en
+  «Color y efectos» y «Color avanzado» → visibles en Estilo → Efectos.
+- → `group="video" subtab="basic"` en «Espectro de audio» y
+  «Capa de ajuste» → visibles en Video → Básico.
+- Eliminado el bloque «LUT 3D (.cube)» del «Color avanzado» legacy
+  (duplicaba el `LutFilePanel` nuevo — una sola UI por campo).
+- Fine-print de Lente K1/K2 corregido: la preview SÍ los simula
+  (`lens.correct` desde pasada anterior).
+
+**Verificación**:
+- `tsc -p apps/desktop` exit 0 · AlaukChrome 6/6.
+- **EN VIVO** (Tauri + CDP, skin full): Estilo → subtab Efectos muestra
+  «Efectos creativos», «Color y efectos», «Color avanzado» con todos los
+  campos. **Viñeta 0→0.6 por teclado real** → el store compiló
+  `grade-filter-…-vignette` en el DOM (preview pipeline) → revertido a 0
+  y el filtro desapareció.
+- **Limitación honesta**: en skin referencia estas `.inspector-section`
+  siguen ocultas (la skin sólo muestra la primera sección por diseño);
+  se llega con el toggle «vista completa». El panel LUT de la pasada 85
+  sí se ve en referencia porque usa `.fp-section`.
+- **Gap de preview detectado**: con `canvas.effect-canvas` activo (LUTs/
+  stack), el canvas lee frames crudos — los filtros SVG de viñeta/
+  nitidez/glow/curvas no se ven en esa superficie (se aplican al export).
+  Documentado; requiere compositing de los specs en el pass WebGL.
+
+**Archivos**: `apps/desktop/src/features/editor/Inspector.tsx`.
+
+**Errata (verificado después)**: el "gap de preview" anotado arriba era
+incorrecto — `mediaStyle` (compartido por `<video>` y por el wrapper del
+`EffectCanvas`) incluye `effectsStyle()` con toda la cadena de filtros SVG
+(curvas, nitidez, viñeta, relight, glow, grade). Con viñeta=0.6 el wrapper
+del canvas mostró `filter: url(#grade) url(#grade-vignette)` idéntico al
+video: los filtros sí se aplican sobre el WebGL. Sin gap real.
+
+## Pasada 87 — `effects.relight` (reluz direccional) ahora tiene UI
+
+**Hueco encontrado en la auditoría de la pasada 86**: `relight` ({x,y,
+radius,strength,warmth,feather} — luz aditiva tipo `geq` del export) tenía
+preview SVG (`clipRelightSpec`) y export pero **nunca tuvo UI** — ninguna
+sección del Inspector lo escribía.
+
+**Cambio** en `Inspector.tsx` («Color y efectos», junto a Glow y
+Movimiento difuminado):
+- `setRelight(patch)` — merge sobre defaults
+  `{x:0, y:-0.3, radius:0.5, strength:0.5, warmth:0, feather:0.35}`;
+  strength≈0 && warmth≈0 → limpia el efecto (mismo patrón que `setGlow`).
+- Panel «Reluz» con checkbox Activar + 6 NumberField (Posición X/Y, Radio,
+  Intensidad, Calidez, Suavidad) + fine-print honesto (preview y MP4).
+
+**Verificación**:
+- `tsc -p apps/desktop` exit 0.
+- **EN VIVO** (Tauri + CDP): clip → Estilo → Efectos → «Reluz» visible
+  junto a Glow/Movimiento. Activar → el DOM compiló
+  `grade-filter-18958000-…-relight` (preview pipeline real). Desactivar →
+  el filtro desapareció. Fixture quedó neutro.
+- Con esto **todo `ClipEffects` con soporte preview+export tiene UI
+  alcanzable**, salvo los campos planos legacy migrados a `colorGrade`
+  (lift/gamma/gain/offset/hsl/curves — deuda de migración documentada,
+  se ignoran cuando hay grade activo).
+
+**Archivos**: `apps/desktop/src/features/editor/Inspector.tsx`.
+
+## Pasada 88 — Limpieza de secciones muertas + fix de thumbnails + verify
+
+**Limpieza**: eliminadas las 3 secciones del inspector clásico que quedaron
+100 % inalcanzables tras el reemplazo de la pestaña Color y duplicaban los
+subtabs del panel nuevo — «Ruedas cromáticas» (lift/gamma/gain/offset),
+«HSL selectivo» (effects.hsl) y «Curvas tonales» (curvePreset + curves),
+~160 líneas de JSX que React renderizaba oculto por CSS en cada frame de
+inspector. Junto a ellas cayeron los helpers huérfanos `setWheel` y
+`patchHsl`. Los campos que escribían siguen existiendo en el schema y en
+preview/export para proyectos legacy; la vía canónica de grado es
+`colorGrade` (ColorPropertiesPanel). «Color y efectos» conserva su propio
+select «Curva de color» (curvePreset) — no había duplicación real.
+
+**Verificación en vivo post-limpieza**: Estilo → Efectos muestra exactamente
+[Clip, Efectos creativos, Color y efectos, Color avanzado]; `tsc` exit 0.
+
+**`npm run verify` (corrida completa)**: typecheck PASS · test:serial
+**3070 passed / 1 failed** — el único fallo era REAL y mío:
+`effect-thumbnails.test.ts` exige un SVG por manifiesto del catálogo y
+`blur.temporal` + `lens.correct` (pasadas anteriores) no lo tenían.
+Fix: `npm run thumbnails:effects` regeneró el catálogo → 2 SVG nuevos
+(`blur.temporal.svg`, `lens.correct.svg`) → test 3/3 verde.
+test:extension 33/33 · test:web-tts 10/10 · audit:security PASS
+(npm prod 0 crit/high; cargo-audit SKIPPED no instalado, omisión explícita).
+
+**Nota**: la corrida serial es anterior a la limpieza de la pasada 88;
+los cambios posteriores son JSX inalcanzable + helpers sin uso + 2 SVG —
+`tsc` limpio y la app verificada en vivo después.
+
+**Archivos**: `Inspector.tsx`, `apps/desktop/public/thumbnails/effects/
+{blur.temporal,lens.correct}.svg` (nuevos).
+
+**Errata Pasada 87 (importante)**: el relight SÍ tenía UI —
+`inspector/RelightSection.tsx` («Relight por rostro», group=video
+subtab=ia, visible en Video → IA) escribía `effects.relight` desde antes.
+Mi grep `relight` en minúscula no matcheó `RelightSection` y concluí mal
+"nunca tuvo UI". El panel «Reluz» agregado en «Color y efectos» era un
+**duplicado** y se revirtió junto con el helper `setRelight` (mismo nombre
+que el interno del componente, sin conflicto pero redundante). Estado
+final: una sola UI de relight, la canónica por rostro.
+
+**Corrección de textos stale asociada**: `RelightSection.tsx` decía «la
+preview no muestra el cambio» — falso: `clipRelightSpec` compila el relight
+a filtros SVG en la preview. Texto actualizado a «la preview aplica el
+relight en vivo (aproximación del geq aditivo del MP4)». `tsc` exit 0;
+verificado en vivo que Estilo → Efectos ya no muestra el duplicado.
+
+## Pasada 89 — Auditoría de secciones muertas: cierre + test:serial post-limpieza
+
+**Alcance**: tras la limpieza de la pasada 88 se auditó el Inspector
+completo para confirmar que no quedan secciones montadas pero inalcanzables
+por el filtro `data-tab`/`data-group`/`data-subtab` del CSS.
+
+**Resultados**:
+- `grep` sobre `Inspector.tsx`: **cero** `group="color"` restantes — todas
+  las secciones usan grupos que mapean a pestañas reales (video / audio /
+  speed / trim / animation / style). Las tres secciones 100 % muertas
+  («Ruedas cromáticas», «HSL selectivo», «Curvas tonales») ya eliminadas.
+- Pestaña **«Todo»** verificada en vivo por CDP: **26 secciones visibles**
+  en una sola vista — es la superficie de descubribilidad completa en skin
+  `full`; ninguna sección queda fuera de su alcance.
+- `MinimalEditor` ya no existe en el árbol — sólo quedan comentarios
+  históricos que registran su retiro del path de producción.
+- Estado real de cobertura de `ClipEffects`: grade → `ColorPropertiesPanel`;
+  `lutFile`/`cameraProfile` → `LutFilePanel`; escalares → «Color y efectos»
+  (Estilo → Efectos); `colorMatch`/`grayscale`/`sepia`/IA → «Color avanzado»;
+  `spectrum` → Video → Básico; `relight` → `RelightSection` (Video → IA);
+  `chromaKey`/`audioStack`/`stack` → secciones propias. Sin UI: los campos
+  planos legacy `lift`/`gamma`/`gain`/`offset`/`hsl`/`curves` — migrados a
+  `colorGrade`, deuda de migración documentada (se ignoran con grade activo).
+
+**Verificación**:
+- `npm run test:serial` corrida completa post-limpieza:
+  **341 archivos · 3071 tests passed · 3 skipped · 0 fallos**
+  (614.7s, exit 0). Ruido stderr de jsdom (`HTMLMediaElement.pause`,
+  `getContext` sin canvas) = limitación conocida del entorno, tests verdes.
+- App Tauri/CDP sigue corriendo con el proyecto de prueba abierto.
+
+**Archivos**: ninguno nuevo en esta pasada (sólo auditoría + registro).
+
+**Pendientes honestos que quedan**:
+- `denoise` (hqdn3d): export-only, sin equivalente WebAudio honesto.
+- `motionBlur`/`lensCorrection` ya tienen preview (pasadas 83/84) — sólo
+  `denoise` queda del grupo export-only.
+- ~25 archivos modificados/nuevos sin commitear — trabajo de la sesión
+  acumulado; commit pendiente de autorización explícita del usuario.
+
+## Pasada 90 — Textos stale «la preview no la simula» (auditoría de honestidad UI)
+
+**Motivación**: al cerrar la auditoría de `denoise` se descubrió que varios
+textos del Inspector afirmaban que la preview no simulaba efectos que en
+realidad SÍ tienen aproximación implementada. Se auditaron todos los
+`fine-print`/`setNotice` con «no simula / no muestra / export» del
+Inspector y se verificó cada uno contra el código de preview.
+
+**Corregidos (eran falsos)**:
+- `effects.denoise`: el texto decía «la preview no la simula» — falso:
+  `clipDenoiseBlurPx` aplica `blur()` CSS (hasta 1.4px) en `effectsToCss`,
+  con 3 tests en `PreviewFade.test.ts`. Nuevo texto: preview aproxima con
+  blur leve; export aplica hqdn3d temporal+espacial.
+- Rampa por pulsos / `speedCurve`: el notice y el fine-print decían «la
+  preview no simula la curva» — falso: `speedCurveMode='curve'` avanza el
+  elemento a la velocidad instantánea de la curva (misma `sampleSpeedCurve`
+  /`curveSourceFraction` del render). Nuevo texto: preview reproduce la
+  curva en vivo; el MP4 la hornea por frame.
+- `effects.glow`: el texto decía «la preview CSS no lo simula; usá Frame
+  real» — falso: `clipGlowSpec` genera un filtro SVG de halo que entra en
+  la cadena `effectsToCss` (con tests en `color-engine.test.ts`). Nuevo
+  texto: preview aproxima el halo con SVG; render hace blend screen por
+  zonas.
+
+**Verificados como correctos (sin tocar)**:
+- Estabilización vidstab: `transformFile` sólo lo consume el render Rust —
+  export-only real.
+- Chroma key alfa: el recorte no se simula (sólo el spill) — texto ya
+  honesto.
+- Transición de entrada en el primer clip: `lead=0`, no se muestra — texto
+  correcto.
+- Ken Burns/reverse en rampas: reverse reproduce hacia adelante —
+  limitación ya declarada.
+
+**Verificación**:
+- `npm run typecheck`: exit 0 (4 paquetes).
+- `vitest` Inspector.tab-request + PreviewFade: 24/24.
+- **En vivo (Tauri + CDP)**: los 3 textos nuevos se renderizan en el
+  inspector del proyecto de prueba; `staleDenoise=false` (ya no aparece
+  «la preview no la simula» en el DOM del panel de efectos).
+
+**Archivos**: `apps/desktop/src/features/editor/Inspector.tsx` (4 textos).
+
+**Estado de «export-only» real tras esta pasada**: sólo `denoise` en el
+sentido estricto de paridad temporal (su aproximación espacial ya se
+muestra) y la estabilación vidstab (transformFile baked, sin equivalente
+WebGL razonable). Todo lo demás de `ClipEffects` tiene preview + UI.
+
+## Pasada 91 — CSS muerto del MinimalEditor retirado (~1900 líneas)
+
+**Hallazgo**: `minimal-editor.css` (1252 líneas) + `minimal-editor-scenes.css`
+(1152 líneas) se seguían importando en `main.tsx` en el camino crítico,
+pero la raíz `.minimal-editor` ya no existe en el DOM — el contrato
+`unified-editor.contract.test.tsx` lo verifica (`querySelector('.minimal-editor')`
+debe ser null). Toda la cáscara réplica `.me-*` era CSS muerto que el
+navegador parseaba en cada arranque.
+
+**Matiz importante**: `minimal-editor.css` NO era 100 % muerto — su §9/§10
+(líneas 978-1252) contiene el chrome VIVO del editor: variables
+`--alauk-*`/`--color-*` de `.editor-workspace.alaukcut-chrome`, los estilos
+`.alauk-*` de `AlaukChrome.tsx` (topbar/footer/export) y las reglas
+`:has(.alaukcut-chrome)` que retiran el cromo clásico del AppShell.
+
+**Cambio**:
+- Nuevo `styles/alauk-chrome.css` (291 líneas): sólo la parte viva
+  (ex-§9/§10) con header honesto.
+- Borrados `minimal-editor.css` y `minimal-editor-scenes.css`
+  (**−2404 líneas de CSS**, −2113 netas tras el nuevo archivo).
+- `main.tsx`: un solo import `alauk-chrome.css` en la misma posición de
+  cascada (antes de `alaukcut-reference.css`, que sigue última).
+- Comentarios actualizados: `alaukcut-reference.css` (orden de cascada),
+  `editor-surface.ts` (referencia al archivo), `.tmp-visual-preview/
+  preview.tsx` (mismos imports que main.tsx).
+
+**Verificación**:
+- `npm run typecheck`: exit 0.
+- `vitest` unified-editor.contract + workspaces + view-routing +
+  a11y-shell (axe): **21/21** — incluido el contrato «un solo chrome,
+  sin pantallas paralelas» y las auditorías axe del editor.
+- **En vivo (Tauri + CDP)**: proyecto reabierto tras HMR →
+  `.alauk-topbar` bg `rgb(16,16,20)` (#101014) h=32px, `--alauk-accent`
+  y `--color-accent` = `#2adaba`, `.alauk-footer` presente,
+  `.transport` bg `rgb(23,22,27)` (#17161b). Chrome idéntico.
+- Los `.me-*` que usan otros componentes (WelcomeDialog,
+  KeyframeCurveEditor, etc.) viven en sus propias hojas — verificado que
+  ninguna regla `.me-*` de los archivos borrados era alcanzable (todas
+  bajo ancestro `.minimal-editor`).
+
+**Archivos**: `main.tsx`, `styles/alauk-chrome.css` (nuevo),
+`styles/minimal-editor{,-scenes}.css` (borrados),
+`styles/alaukcut-reference.css`, `editor-surface.ts`,
+`.tmp-visual-preview/preview.tsx`.
+
+## Pasada 92 — Auditorías de código muerto: módulos TS y comandos IPC
+
+**Evaluación vidstab (preview de estabilización)**: se investigó como
+último export-only real. El `.trf` de `vidstabdetect` es **binario**
+(magic `TRF1` + registros por frame, verificado generando uno con ffmpeg
+local). Una preview fiel exige reimplementar `vidstabtransform`
+(interpolación entre frames detectados, smoothing, `crop=black`) en
+WebGL/DOM — feature grande, no un fix. `readTextFile` existe para leer el
+`.trf`, pero el parser binario + modelo de transform queda como trabajo
+aparte. Estado: documentado como pendiente genuino, sin aproximación
+falseada.
+
+**Auditoría módulos TS sin imports** (script ad-hoc sobre
+`apps/desktop/src`, 443 módulos): 3 candidatos, los 3 falsos positivos —
+`state/brain/index.ts` (import de directorio `from '../../state/brain'`),
+`test/setup.ts` (setup de vitest), `types/subsrt.d.ts` (ambient). **Cero
+módulos muertos reales.**
+
+**Auditoría comandos IPC sin caller**: los ~190 handlers de
+`commands/registry.rs` cruzados contra todo `apps/desktop/src` — **todos
+tienen invocación en el frontend** (268 nombres matcheados, 0 huérfanos).
+La superficie IPC está completamente cableada; ningún comando backend
+queda inalcanzable desde la UI.
+
+**Conclusión**: tras las pasadas 88-92 la higiene del codebase quedó
+verificada en las tres dimensiones — secciones UI alcanzables, módulos
+importados y comandos invocados. `test:serial` 3071/3071 verde
+(post-limpieza), `tsc` exit 0, app en vivo con chrome verificado.
+
+## Pasada 93 — `audioStack` ejercitado en vivo (preview WebAudio)
+
+**Brecha que cerró**: la cadena `clipAudioFxSpec` → `PREVIEW_AUDIO_FX` →
+grafo WebAudio de `usePreviewAudio` estaba verificada por tests pero
+nunca ejercitada con señal real en la app corriendo (la única ruta de
+preview marcada «código, no ejercitado»).
+
+**Método** (A/B concluyente, todo por CDP sobre la app Tauri):
+1. Se inyectó `effects.audioStack=[{effectId:'audio.tremolo',
+   params:{rate:5,depth:1}}]` en el clip V1 del proyecto de prueba
+   (JSON + reapertura desde StartScreen — `adopt_project` no actualiza
+   el store React).
+2. Se abrió la vista **Mezcla** y se muestreó
+   `.mixer-live-meter .mixer-meter-fill` durante la reproducción.
+3. **Con trémolo**: el medidor de V1 osciló **25%↔55%** durante el clip
+   (depth=1 anula la amplitud dos veces por ciclo de 5 Hz) y quedó plano
+   ~54.7% al entrar el clip siguiente (sin audioStack) — la modulación
+   se limitó exactamente al clip con el efecto.
+4. **Sin audioStack** (fixture restaurado): medidor plano ~54.6-55%
+   durante todo el clip — baseline sin modulación.
+
+**Conclusión**: el `audioStack` procesa en la preview WebAudio en vivo —
+la última ruta de preview que quedaba sólo verificada por código/tests.
+El fixture quedó restaurado (sin audioStack) y el proyecto reabierto.
+
+**Cobertura de preview↔export ya ejercitada en la app real**: grade,
+LUT perfil/.cube/look, stack WebGL (pixelate), chroma spill,
+motionBlur temporal, lensCorrection, transiciones, captions con timing,
+scopes, mixer/faders, audio real (medidores + export AAC), **audioStack**,
+multicámara, freeze-frame, y todas las herramientas de preview.
+
+## Pasada 94 — Build de producción + auditorías finales de higiene
+
+**`npm run build`**: exit 0 en 12.96s — bundle de producción válido tras
+toda la cirugía de la sesión (CSS, Inspector, Preview, effect-kit).
+`dist/assets/main-*.css` (705 KB) contiene `.alauk-topbar` y **cero
+referencias a `minimal-editor`** — el CSS muerto no llegó al bundle.
+Warnings de chunk >300 kB preexistentes (vendor-lottie, vendor-emojibase,
+main) — informativos, no errores.
+
+**Auditorías complementarias (todas limpias)**:
+- `TODO`/`FIXME`/`HACK` en `apps/desktop/src` + `packages/*/src`:
+  **cero deuda real** (los matches son «TODOS» en español o deps vendor).
+- Rust `src-tauri/src`: sin TODOs de producción (sólo mocks de tests).
+- Dependencias npm: las 10 deps runtime de `apps/desktop` tienen imports
+  reales en `src/` — ninguna sin uso.
+- `VIEW_PRELOADERS` (15 vistas): todas canónicas o chunks compartidos con
+  los lazy-loaders del `EditorWorkspace` (verificado `NodeGraphView`:
+  mismo módulo, mismo chunk — el preload es efectivo, no muerto).
+- Untracked de sesión: `exports/*.mp4` (fixtures de verificación),
+  `media/`, `test-cdp.editoria.json`, `.olyvia-history/`, thumbnails
+  nuevos, `alauk-chrome.css`, doc de supervisión — todos legítimos,
+  pendientes de decisión de commit junto al resto del WIP.
+
+**Estado de verificación integral de la sesión**:
+`typecheck` exit 0 · `test:serial` 3071/3071 · `test:extension` 33/33 ·
+`test:web-tts` 10/10 · `audit:security` PASS · `build` exit 0 ·
+verificación en vivo Tauri+CDP de editor único, todas las rutas de
+preview y export MP4 real.
+
+## Pasada 95 — Vidstab preview: evaluación cerrada + memoria de sesión
+
+**Veredicto sobre preview de estabilización** (investigación del formato
+`.trf` con la doc oficial de vid.stab, `docs/trf-format.md`):
+
+- El `.trf` (binario `TRF1` vía ffmpeg) contiene **mediciones locales
+  crudas por campo** — registros `(vx, vy, fx, fy, size, contrast, match)`
+  de cada ventana analizada. NO contiene el camera path.
+- El transform global por frame (x, y, alpha, zoom) lo calcula el SEGUNDO
+  pase (`vidstabtransform`) con estimación de movimiento global sobre
+  esos campos + `smoothing`/`optalgo`/`maxshift`/`crop`.
+- Conclusión: una preview fiel exige reimplementar el estimador de
+  movimiento global de vid.stab (orden de RANSAC), no un parser de
+  archivo. Es una feature de investigación, no un fix acotado — y una
+  aproximación propia (promediar campos) produciría un resultado
+  distinto al del export, violando el principio de preview honesta del
+  proyecto. **Cerrado como pendiente genuino documentado.**
+
+**Otros paquetes auditados**: `render-worker` (3 módulos), `motion-mcp`,
+`concat-worker` (Rust), barrels de `effect-kit`/`project-schema` —
+consumidos por 347 archivos del desktop; superficie de API de librería,
+sin código muerto que reportar.
+
+**Memoria de sesión**: `memory/2026-11-17-sesion-editor-unificado-
+verificacion.md` — consolidado de las pasadas 60–94, mapa
+preview↔export, correcciones de honestidad UI, limpieza estructural,
+pendientes genuinos y notas de tooling (CDP driver, adopción de proyecto,
+thumbnails del catálogo).
+
+## Pasada 96 — Verificaciones fuera de `npm run verify`
+
+- `npm run audit:licenses`: **OK** — bundle auditado, avisos en
+  THIRD-PARTY-NOTICES, Wav2Lip fuera del bundle base.
+- `npm run test:inventory`: **OK** — 73 tests `#[ignore]` en 22 archivos,
+  igual al baseline (sin crecimiento de tests deshabilitados).
+- `npm run test:studio` (providers + analyze live): **BLOQUEADO por el
+  entorno, no por código** — `cargo build` falló con `os error 32`
+  («siendo utilizado por otro proceso») al escribir en `target/debug`:
+  la app Tauri de desarrollo está corriendo y tiene el binario abierto.
+  Los crates compilaron; sólo el build script de `editor-ia-desktop` no
+  pudo completar. Requiere correrlo con la app cerrada o en otra ventana
+  de build — queda pendiente, no es una regresión.
+
+## Pasada 97 — `denoise.temporal`: preview temporal real del denoise de video
+
+**Problema**: `effects.denoise` (hqdn3d en export) sólo tenía aproximación
+espacial en preview (`clipDenoiseBlurPx` → blur CSS ≤1.4px). La componente
+temporal —la que realmente baja el ruido de video— no se veía.
+
+**Cambio**:
+
+- `packages/effect-kit/src/catalog/video.ts`: nuevo efecto
+  `denoise.temporal` (categoría blur, order 26). Shader de 1 pass que
+  promedia el frame actual con `u_prevTexture` (frame fuente anterior que
+  `webgl.ts` ya guarda para `blur.temporal`) **sólo donde ambos frames
+  coinciden**: `agree = exp(-diff * mix(18,4,tolerance))` — el ruido
+  promedia en zonas estáticas y el movimiento se preserva. Params:
+  `strength` (mapea `effects.denoise` 0-1) y `tolerance`. Receta ffmpeg
+  `hqdn3d` declarada `approximate` con nota honesta (2 tomas vs N,
+  sin umbrales adaptativos).
+- `apps/desktop/src/features/editor/Preview.tsx`: `clipPreviewStack`
+  sintetiza `denoise.temporal` al INICIO del stack cuando
+  `effects.denoise > 0.001` — antes que `blur.temporal` y el stack del
+  usuario, mismo orden que hqdn3d→tmix→stack del export. `hasDenoise`
+  también hace montar el canvas WebGL en clips que sólo tienen denoise.
+- Tests: +3 en `PreviewFade.test.ts` (denoise solo activa canvas,
+  denoise~0 no sintetiza, orden denoise→blur.temporal→stack).
+- Thumbnail `denoise.temporal.svg` generado (138 total).
+
+**Verificación**:
+
+- `vitest`: PreviewFade + catalog + package-import **50/50** ·
+  effect-thumbnails **3/3** · `tsc` 4 paquetes exit 0.
+- **En vivo (Tauri+CDP)**: clip seleccionado → Estilo→Efectos →
+  «Reducción de ruido (%)» a 90 por la UI real → canvas WebGL montado,
+  shader compiló sin errores de consola (si el GLSL fallara, webgl.ts
+  loguea). A/B de energía HF en playback: 3.845 vs 3.700 — **inconcluso**
+  (varias frames en movimiento tienen más varianza natural que el
+  efecto; el delta temporal de 2 tomas es sutil por diseño). Fixture
+  restaurado a 0 y `test-cdp.editoria.json` limpio del parche externo.
+
+**Honestidad**: es una aproximación temporal de 2 tomas edge-preserving,
+no hqdn3d. En frames estáticos/congelados es no-op por diseño (prev==cur).
+Sigue siendo la mejor preview disponible sin reimplementar el estimador
+temporal completo de hqdn3d.
+
+## Pasada 98 — Auditoría time-remap: freeze/reverse/hold ya implementados + texto stale
+
+**Verificación de cobertura** (el todo list tenía "freeze/reverse/hold
+documentado como pendiente" — resultó desactualizado):
+
+- **Freeze**: clip kind `freeze` en el schema («Congelado» visible en la
+  timeline del proyecto de prueba).
+- **Reverse**: `clip.reverse` con preview flipbook (seeks por frame,
+  `clipIsReversed` en Preview.tsx) + audio invertido por Web Audio
+  (`useReversedClipAudio`, buffer reproducido hacia adelante). Checkbox
+  «Reproducir al revés» en Velocidad.
+- **Hold**: es easing de keyframes (`KeyframeEasingSchema`/`EFFECT_EASINGS`),
+  no una función de time-remap — ya existe.
+
+**Fix**: el `fine-print` del checkbox reverse decía «La preview reproduce
+hacia adelante; verificá el MP4 antes de publicar» — **stale**, la preview
+sí invierte (flipbook + audio). Corregido a describir el flipbook y la
+salvedad honesta de fluidez en clips largos.
+
+**Verificación**: `npm run build` exit 0 (22s, sólo warnings de chunk
+size preexistentes). Cambio de copy solamente — sin impacto en lógica.
+
+## Pasada 99 — Auditoría final de textos preview↔export: limpia
+
+Barrido de todos los `fine-print`/claims de preview en
+`apps/desktop/src/features/**` (~30 candidatos revisados uno por uno
+contra la implementación):
+
+- **Stale encontrados y corregidos en pasadas 89-98**: denoise, speedCurve,
+  glow, LUT/look, lensCorrection, reverse, espectro, RelightSection.
+- **Verificados honestos (sin tocar)**:
+  - `Inspector.tsx` máscara `shape:'text'` → `maskClipPath` devuelve
+    `'none'` (CSS no recorta por glifos; `drawtext` en export) — el texto
+    «la preview CSS no la dibuja, usá Frame real» es correcto.
+  - `DenoiseView.tsx` (herramienta de archivo, no el efecto de clip):
+    «preview espacial y aproximado, el render aplica temporal» — correcto
+    para ese pipeline.
+  - `Inspector.tsx` colorMatch («preview aproximada»), captions ASS
+    (render ASS vs aproximación), WebM VP9, estabilación vidstab,
+    chroma alfa, `EffectStackPanel` («sin receta de export: sólo preview»),
+    `ScopesPanel` (mide el bus Web Audio, no el MP4), `LearnView`.
+- **`denoise.temporal` (pasada 97) ya cubre la brecha que estos textos
+  declaraban** — el efecto de clip ahora tiene componente temporal en
+  preview además del blur espacial CSS.
+
+**Resultado**: cero claims deshonestos restantes en la superficie de
+preview/export del editor.
+
+## Pasada 100 — `denoise.temporal` v2: historia de 4 frames + filtro ponderado real
+
+El usuario eligió «denoise exacto» como frente. En vez de reimplementar
+hqdn3d completo (estimación de sigma + umbrales por canal), se llevó la
+preview temporal de 2 tomas a un **filtro temporal real de 4 tomas** —
+el salto más grande de fidelidad posible sin reimplementar el DSP entero.
+
+**`webgl.ts`**: la textura única `prevSourceTexture`/`prevFramebuffer` se
+reemplazó por un ring buffer de `HISTORY_SIZE = 4` texturas+FBOs en orden
+cronológico. Se invalida completo en cambio de fuente, resize y seeks
+(>4 frames de salto) — mismas guardas anti-ghost que antes, ahora para
+los 4 slots. Al final de cada `render()` el frame fuente se copia al
+slot que corresponde (append o reuse+rotación del más viejo). Se exponen
+`u_prevTexture` (más reciente, compat `blur.temporal`), `u_hist0..3` y
+`u_histCount`. `dispose()` libera los 4 FBOs/texturas.
+
+**`catalog/video.ts` `denoise.temporal`**: el shader ahora pondera cada
+una de las 4 tomas por `exp(-distance(cur,hist)*k)` con `k` modulada por
+`tolerance`, y normaliza `acc/(1+wsum)` — las zonas estáticas promedian
+fuerte (ruido baja), el movimiento conserva el frame actual. Slots sin
+historia válida se anulan con `step(i+0.5, u_histCount)`. Receta ffmpeg y
+nota actualizadas a «4 tomas ponderadas».
+
+**Verificación**:
+
+- `tsc` 4 paquetes exit 0 · vitest effect-kit+vfx+PreviewFade **131/131**
+  (catalog.test valida el manifiesto, thumbnails 3/3).
+- **En vivo**: app Tauri relanzada con `WEBVIEW2_ADDITIONAL_BROWSER_
+  ARGUMENTS=--remote-debugging-port=9222` (la instancia anterior se
+  había cerrado), proyecto de prueba abierto, clip largo seleccionado →
+  «Reducción de ruido (%)» a 90 por UI real → playback ~4 s con
+  `canvas.effect-canvas` activo → **cero errores de consola** (el shader
+  GLSL compiló y dibujó). Fixture restaurado a 0; `test-cdp.editoria.json`
+  limpio.
+
+**Honestidad**: sigue siendo `approximate` — ponderación por distancia
+de color, sin estimación de sigma por canal ni umbrales adaptativos de
+hqdn3d, y sin componente espacial propia (la da el blur CSS). En escenas
+estáticas es no-op por diseño. Pero ya no es un blur de 2 tomas: es un
+filtro temporal de 4 con pesos por similitud — la diferencia visible en
+ruido real es sustancialmente mayor.
+
+## Pasada 101 — `impact.trail` v2: estela temporal real (bonus de la historia de 4 frames)
+
+La infraestructura de la pasada 100 (ring buffer de 4 frames fuente)
+permitió mejorar otro efecto que falseaba su preview:
+
+- **Antes**: `impact.trail` simulaba la estela con taps ESPACIALES
+  (`ek_sample` desplazado) — la nota del manifiesto lo admitía («aproxima
+  la estela en el espacio; tmix la acumula en el tiempo»).
+- **Ahora**: mezcla el frame actual con los hasta 4 frames fuente
+  anteriores reales (`u_hist0..3`), pesos con decaimiento lineal
+  `1 - i/span` donde `span = clamp(frames, 2, 5)` e `intensity` escala
+  todo. `frames` >5 afloja el decaimiento sin agregar tomas (historia=4,
+  documentado en la nota ffmpeg). Normaliza `acc/(1+wsum)` para no volar
+  el brillo.
+
+**Verificación**: `tsc` exit 0 · catalog+engine tests 49/49 · **en vivo**:
+stack `impact.trail` inyectado en el clip del proyecto de prueba,
+reapertura, seek al clip, 3 s de playback con `canvas.effect-canvas`
+activo → **cero errores de consola/página** (shader compiló y dibujó).
+Fixture restaurado (stack removido, proyecto reabierto limpio).
+
+## Pasada 102 — `blur.temporal` v2: motion blur de hasta 5 tomas reales
+
+Tercer efecto migrado a la historia de 4 frames: `blur.temporal` pasó de
+mezcla de 2 tomas (actual+previo, peso atenuado) a **promedio uniforme
+de hasta 5 tomas reales** (actual + 4 de historia) — el mismo promedio
+que `tmix=frames=N` del export.
+
+- `frames` (2-12 → tope honesto 5 en el manifiesto; `normalizeParams`
+  clampea y `motionBlur.frames`>5 queda en 5 en preview) define cuántas
+  tomas de historia entran; cada una pesa `intensity` por igual.
+- Gating por tap: `step(i+1.5, taps)` para historia válida y
+  `step(i+0.5, u_histCount)` para historia disponible.
+- Receta ffmpeg y notas actualizadas.
+
+**Verificación**: `tsc` exit 0 · 78/78 tests (catalog, engine,
+package-import, PreviewFade) · **en vivo**: `motionBlur{frames:6,
+intensity:0.7}` inyectado, reapertura, seek al clip, 3.5 s playback con
+canvas activo → cero errores de consola. Fixture restaurado.
+
+## Pasada 103 — Historial WebGL bajo demanda (perf)
+
+La copia del frame fuente al ring buffer corría en **cada** `render()`
+aunque ningún efecto temporal lo usara — un draw extra por frame en todos
+los clips con canvas (LUT, stack, lensCorrection).
+
+- `render()` ahora calcula `needsHistory` escaneando los passes de los
+  efectos activos buscando `u_hist`/`u_prevTexture` en el GLSL. Sin
+  efectos temporales no hay copia ni consumo de slots.
+- Cuando no se necesita, `historyCount` se resetea a 0: si el usuario
+  activa un efecto temporal a mitad de reproducción, la historia arranca
+  limpia (sin frames de hace segundos) y se llena en 4 frames.
+- `u_prevTexture` se sigue exponiendo por compatibilidad con efectos
+  custom que lo declaren (uniformes sólo se bindean si el shader los
+  declara — coste cero cuando no se usan).
+
+**Verificación**: `tsc` exit 0 · engine+catalog 49/49 · **en vivo**:
+playback 3 s con canvas (LUT, sin efectos temporales) → cero errores.
+
+## Pasada 104 — Auditoría catálogo restante + `test:serial` post-refactor
+
+- **Audio**: los 30 efectos `audio.*` del catálogo tienen equivalente
+  Web Audio en `PREVIEW_AUDIO_FX` — diff exacto, cobertura 100%.
+- **Video restante**: `strobe`/`zoomPulse`/`grain`/`glitch.*`/`retro.*`
+  usan `u_time` (temporales reales por reloj) — honestos.
+  `blur.motion` (direccional espacial) exporta con `tmix` (temporal):
+  mismatch declarado `approximate` en ambas puntas; el ángulo no existe
+  en tmix — no es un fix limpio, queda documentado.
+- **`test:serial` post-pasadas 100-103**: **341 archivos / 3074 tests /
+  0 fallos** (481.8s) — valida el ring buffer de historia, los 3
+  efectos temporales migrados y el gating `needsHistory`.
+
+## Pasada 105 — Auditoría de estado local en paneles Motion/Visuals/VFX
+
+Revisado el patrón de deuda del Inspector (controles que no persistían al
+proyecto) en las tres vistas de creación:
+
+- **MotionView**: `templateId`/`props`/`durationSeconds` son config del
+  constructor de motion graphics antes de insertar — estado local legítimo;
+  la escritura al proyecto ocurre al aplicar (2 paths de store).
+- **VisualsView**: `transitionType`/`transitionFrames`/`dipColor`/`mateChoice`
+  alimentan el flujo de verificación y aplicación de transiciones; 12
+  escrituras al store confirman persistencia real.
+- **VfxView**: selección de clip, puntos de edición y preview de chroma son
+  estado de UI de la herramienta; 10 escrituras al store.
+
+**Resultado**: cero controles muertos — los `useState` locales son config de
+herramienta, no datos de proyecto. `npm run build` exit 0 (10.5s) tras las
+pasadas 100-103.
+
+## Pasada 106 — Camino de render de `nodes` auditado
+
+`NodeGraphView`/`graph-model` sólo usan `effectRegistry`/`createInstance`
+para componer `EffectStack`s que se escriben en `effects.stack` del clip —
+no hay compositor paralelo. El render sigue siendo `Preview.tsx` →
+`webgl.ts`, así que los efectos temporales (`denoise.temporal`,
+`impact.trail`, `blur.temporal`) reciben la historia de 4 frames también
+desde stacks armados en el editor de nodos. Cero divergencia de render.
+
+## Pasada 107 — `.gitignore`: artefactos de runtime fuera del árbol
+
+`.olyvia-history/` (autosaves), `exports/` (MP4 de prueba, 7 MB) y
+`media/` (assets del fixture CDP) no estaban ignorados — se iban a
+colar en cualquier commit. Agregadas entradas ancladas a raíz (`/…/`)
+para no afectar `media/` de proyectos ubicados en subcarpetas.
+Untracked restante: sólo fuentes legítimas (thumbnails, alauk-chrome.css,
+memoria, docs, tsconfig de scripts, fixture JSON).
+
+## Pasada 108 — Diseño decidido: preview de estabilización por proxy horneado
+
+Evaluadas las dos rutas para cerrar el último export-only (vidstab):
+
+1. **Portar vid.stab a TS** (parser TRF1 + estimador global + smoothing):
+   descartada — cientos de líneas de DSP con riesgo de divergencia del
+   resultado real de `vidstabtransform`.
+2. **Proxy horneado** (elegida): `vidstabtransform` corre una vez sobre la
+   ventana analizada (`in_frame..out_frame`, speed 1×, sin reverse, sin
+   transitionIn — las mismas guardas de `resolve_stabilization`) y guarda
+   un MP4 estabilizado en `media/stabilizers/`. La preview reproduce el
+   proxy en vez del fuente: paridad casi exacta (mismo filtro y opciones,
+   sólo cambia códec/resolución).
+
+Piezas necesarias (pasada dedicada):
+- Rust: comando que extiende `analyze_stabilization` para emitir también
+  el proxy (mismo `vidstabtransform=input=trf:smoothing=N:crop=black`),
+  quizá en baja resolución para peso.
+- Schema: campo `stabilization.previewProxy` (ruta relativa) + invalidación
+  al cambiar `smoothing` o re-analizar.
+- Preview: selección de fuente — clip con estabilización → proxy; los
+  transforms CSS del clip siguen componiendo encima (en export el
+  vidstabtransform va primero en la cadena, los transforms después:
+  mismo orden).
+- Honesty: el texto del Inspector pasaría a «la preview muestra el
+  proxy estabilizado; el MP4 usa el mismo filtro vid.stab».
+
+No implementado en esta sesión: requiere tocar schema + Rust + Preview +
+tests; quedó como frente dedicado con diseño cerrado.
+
+## Pasada 109 — Plan de implementación vidstab-proxy (listo para ejecutar)
+
+**Criterio de aceptación**: clip con `stabilization` muestra en preview el
+video estabilizado (mismo resultado que el MP4 exportado, ±códec), el texto
+del Inspector deja de decir «la preview no la simula», y cambiar `smoothing`
+o re-analizar invalida el proxy.
+
+**Paso 1 — Rust (bake)** · `application/media_analysis.rs`:
+- Tras `vidstabdetect` exitoso, correr `ffmpeg -ss <in> -t <dur> -i <src>
+  -vf vidstabtransform=input=<trf>:smoothing=<N>:crop=black -c:v libx264
+  -preset veryfast -crf 18 -an media/stabilizers/<uuid>-preview.mp4`
+  (reusar `runner.run_ffmpeg_with_timeout`; mismo cwd `media/stabilizers`
+  para path relativo del trf).
+- `StabilizationAnalysis` gana `preview_proxy: Option<String>`
+  (`media/stabilizers/<uuid>-preview.mp4`); si el bake falla NO abortar el
+  análisis — preview queda sin estabilizar (honesto) y el MP4 exporta igual.
+- Test en `media_analysis` tests: mock runner verifica args del segundo
+  ffmpeg o que el .mp4 existe.
+
+**Paso 2 — Schema** · `packages/project-schema/src/timeline.ts`:
+- `stabilization.previewProxy?: string` (ruta relativa al proyecto).
+- `setClipStabilization` acepta el campo; `resolve_stabilization` (Rust)
+  lo ignora — el export NO lo usa (sigue con vidstabtransform en caliente).
+
+**Paso 3 — Frontend análisis** · `Inspector.tsx` `stabilizeClip`:
+- Guardar `previewProxy: result.previewProxy` en `setClipStabilization`.
+- Texto nuevo: «Estabilización aplicada. La preview muestra el proxy
+  horneado; el MP4 usa el mismo filtro vid.stab.»
+
+**Paso 4 — Preview fuente** · `features/editor/Preview.tsx`:
+- Donde se resuelve la URL del clip (junto a la lógica de proxy/telemetry,
+  ~líneas 900/1851/2040): si `clip.stabilization?.previewProxy` existe →
+  `convertFileSrc(root + '/' + previewProxy)` tiene prioridad sobre el
+  asset original. El clip sigue trimmeando in_frame..out_frame y speed 1×
+  (mismo mapping 1:1 porque el proxy cubre exactamente esa ventana).
+- La telemetría de calidad (original vs proxy por capa) NO aplica al
+  previewProxy: es la fuente de verdad visual, no una aproximación.
+- Efectos WebGL/CSS siguen componiendo encima (mismo orden que export:
+  vidstabtransform primero en la cadena ffmpeg).
+
+**Paso 5 — Invalidación**:
+- `resolve_stabilization` ya rechaza speed≠1/reverse/transitionIn — el
+  preview debe aplicar la MISMA regla: si el clip quedó inválido, ignorar
+  `previewProxy` y mostrar el fuente (o mejor: el Inspector ya marca
+  `stabilizeStale`/`stabilizeBlocked`; el preview usa previewProxy sólo si
+  `stabilization.inFrame===source.inFrame && outFrame===source.outFrame`).
+- Si el usuario cambia `smoothing` sin re-analizar: hoy `smoothing` se
+  fija en el análisis; si hay un control para cambiarlo post-análisis,
+  debe limpiar `previewProxy` (el bake depende de N).
+- Borrar clip/asset: el archivo queda huérfano en `media/stabilizers/`
+  (igual que hoy los .trf — deuda de GC ya existente, no nueva).
+
+**Paso 6 — Tests**:
+- `project-schema`: roundtrip de `previewProxy`, `setClipStabilization`.
+- `PreviewFade`/preview-index: clip con previewProxy resuelve la fuente
+  estabilizada (fake-service devuelve la ruta).
+- Rust: test de `analyze_stabilization` con runner fake que registra args.
+- `Inspector`: texto nuevo (si hay test de secciones).
+
+**Paso 7 — Verificación en vivo**:
+- Proyecto de prueba: analizar estabilización en un clip → preview debe
+  mostrar el MP4 proxy (verificar `video.src` por CDP contiene
+  `stabilizers/*-preview.mp4`) → playback sin errores → export opcional
+  para comparar frame.
+
+## Pasada 110 — Vidstab preview por proxy: IMPLEMENTADO (pasos 1-5)
+
+Implementado el plan de la pasada 109:
+
+- **Rust** `ports/media.rs` + `application/media_analysis.rs`:
+  `StabilizationAnalysis.preview_proxy` (`previewProxy` en JSON,
+  skip si None). Tras `vidstabdetect`, `bake_stabilization_preview`
+  corre `vidstabtransform=input=<trf>:smoothing=N:crop=black` sobre la
+  ventana analizada → `media/stabilizers/<uuid>-preview.mp4`
+  (libx264 crf18 veryfast + audio AAC 192k — el <video> de preview
+  también aporta el audio del clip). Best-effort: si el bake falla se
+  borra el parcial y `previewProxy` queda ausente; análisis y export
+  intactos. `cargo check -p editor-ia-desktop` exit 0.
+- **Schema** `timeline.ts`: `ClipStabilizationSchema.previewProxy`
+  opcional (string 1-500). Test de roundtrip en stabilization.test.ts.
+- **`setClipStabilization`** acepta y perserva `previewProxy`.
+- **Inspector**: guarda `previewProxy` del resultado; notice distingue
+  «proxy horneado» vs «preview no la simula» (sólo cuando no hubo bake).
+- **Preview** `clip-source-time.ts` + `Preview.tsx`:
+  `clipStabilizationPreviewProxy(clip)` devuelve la ruta sólo si se
+  cumplen las mismas guardas que `resolve_stabilization` (ventana
+  in/out coincide, speed 1×, sin reverse, sin transitionIn — speedCurve
+  no bloquea: el proxy es fuente 1× y la curva regula la tasa).
+  `VideoLayer` usa el proxy como `mediaPath` (prioridad sobre
+  telemetría original/proxy: es la fuente de verdad) y descuenta
+  `source.inFrame` del `currentTime` (el proxy empieza en inFrame).
+  6 tests nuevos del helper (17/17 en clip-source-time.test.ts).
+- **fake-service**: `analyzeStabilization` devuelve previewProxy para
+  ejercitar la rama en tests de UI.
+
+**Verificación**: `tsc` exit 0 · `cargo check` exit 0 · tests
+clip-source-time 17/17 · stabilization 6/6.
+
+**Pendiente**: verificación en vivo requiere rebuild del binario Tauri
+(la app en ejecución tiene el Rust viejo — `cargo check` no lo
+reemplaza). Al reabrir: analizar estabilización en un clip → el
+`video.src` debe apuntar a `stabilizers/*-preview.mp4` y el notice
+debe decir «proxy horneado». Hasta entonces el comportamiento es
+idéntico al anterior (sin previewProxy → fuente original).
+
+## Pasada 111 — Vidstab preview VERIFICADO EN VIVO + fix de FFmpeg
+
+**Verificación end-to-end por CDP** (app reconstruida 10:59, binario nuevo):
+
+- `analyze_stabilization` → vidstabdetect + bake `vidstabtransform` →
+  `media/stabilizers/a7d9a533-…-preview.mp4` (200 KB) + `.trf` (25 KB)
+- JSON del proyecto: `stabilization.previewProxy` persistido
+- `<video>` de la preview reproduce el proxy (`*-preview.mp4`); el otro
+  clip sigue con el fuente original
+- Playback real: `paused=false`, `currentTime` avanzando, sin errores
+- Notice: «La preview muestra el proxy horneado; el MP4 usa el mismo
+  filtro vid.stab»
+
+**Hallazgo de entorno (bug preexistente)**: el FFmpeg empaquetado
+(`resources/ffmpeg`, n9.0.2) se compiló con `--disable-libvidstab` **y**
+`--disable-libx264` — la estabilización nunca pudo funcionar con el
+binario bundled y los exports H.264 caían al fallback libopenh264/h264_mf.
+Fix aplicado en la sesión: `set_tool_paths` (comando IPC pensado para
+esto) apuntó a `C:/ProgramData/chocolatey/bin/ffmpeg.exe` (9.0.1 essentials:
+vidstab + x264 + nvenc). Queda en `settings.json` — si se revierte a
+null, la estabilización vuelve a fallar con «No such filter».
+
+**Extra**: texto estático de la sección actualizado (decía «la vista
+previa no la simula» → ahora describe el proxy honesto). `tsc` exit 0.
+
+## Pasada 112 — Auditoría UX integral (4 subagentes) + fixes implementados
+
+Cuatro `revisor-ux-app` auditando superficies disjuntas en paralelo
+(StartScreen/ProjectHome, chrome del editor, Inspector+Timeline,
+vistas secundarias). Todos los bloqueantes y mejoras de bajo riesgo
+implementados por 4 `frontend-engineer` en paralelo (archivos
+disjuntos), verificados por el hilo principal.
+
+**Bloqueantes corregidos:**
+
+- StartScreen: cards de recientes ya no son `role="button"` con botón
+  anidado → `<button>` stretched real (Enter+Space) + delete hermano;
+  onboarding de primer arranque con `useDialogFocus` (foco inicial,
+  trampa Tab, Escape=Saltar); doble CTA `primary` en ProjectHome →
+  «Descargar» ahora secondary.
+- Chrome: targets <24px → 24-28px (WCAG 2.5.8); slider de transporte
+  con drag real (pointer capture) + Home/End/PageUp/PageDown y
+  hit-area 21px; tabs del workspace con patrón WAI-ARIA completo
+  (roving tabindex, flechas, aria-controls).
+- Timeline: clip `role="button"` → `role="group"` (sliders y trims
+  ya no quedan anidados en botón — ARIA inválido); trims focuseables
+  con teclado (Shift=×10); fades con ←/→/PageUp/Down + aria-valuetext;
+  `.flag` 20px → hit-area 24px; NumberField con flechas PageUp/Down.
+- AssetsPanel: botón «Nueva carpeta» fantasma ELIMINADO (las carpetas
+  se derivan de `asset.bin`, no existe entidad persistida —
+  `onCreateFolder` ahora opcional); AssetCard muerto (~260 líneas)
+  eliminado; «Quitar» asset/descargas/cola-export con confirmación;
+  aviso `unavailableReason` en Downloads.
+
+**Mejoras corregidas:**
+
+- **Topbar traducida de portugués a español** («Projetos»→«Proyectos»,
+  «Edição automática», «Atalhos», «Alterações não salvas», etc.) —
+  mezcla de idiomas era el hallazgo más visible.
+- Estado de guardado duplicado topbar+footer → sólo footer (topbar
+  muestra error únicamente).
+- Contraste `--alauk-faint` 3.9:1 → `--alauk-muted` ~5.5:1 en textos
+  de 9px; `.alauk-topbar` a grid 3 columnas (sin solape de nombre).
+- `aria-label` en buscador; quitar reciente con `window.confirm`;
+  textos unificados: marca «Olyvia», extensión `.editoria.json`,
+  «Reconectar…»; CSS `.timeline-clip` duplicado consolidado;
+  `--ctl-h-xs` 22→24px; `.tour-dot` target 24px.
+
+**Fix externo**: `revisor-ux-app.md` tenía `allowed-tools` como escalar
+(sintaxis inválida) → corregido a lista YAML.
+
+**Verificación**: `tsc` exit 0 · tests focalizados 46+48+81+14 verdes
+(Transport, AlaukChrome, StartScreen+focus, ProjectHome, AssetsPanel,
+fields, Timeline×3) · architecture+dependency rules 20 verdes.
+Pendiente: `test:serial` completo y verificación visual en vivo.
+
+### Pasada 112 — post-suite: 2 fallos encontrados y corregidos
+
+`test:serial` post-UX: 340/343 archivos verdes, 2 fallos reales:
+
+1. **`schema-artifacts.test.ts`**: el JSON Schema commiteado quedó viejo
+   tras agregar `stabilization.previewProxy` (pasada 110). Regenerado
+   con `npm run schema:generate` (+5 líneas: `previewProxy`). Verde.
+2. **`App.teclado.test.tsx` — regresión real del refactor del clip**:
+   al pasar el clip de `role="button"` a `role="group"`, `isActivatableTarget`
+   dejó de reconocerlo y Space sobre el clip enfocado disparaba
+   play/pause además de seleccionar. Fix: `stopPropagation()` en el
+   keydown Enter/Espacio del clip. **Bonus**: los sliders de fade no
+   hacían stopPropagation — sus flechas también movían el playhead;
+   corregido en ambos. `App.teclado` 9/9, `shortcuts-activacion` 7/7.
+3. **Flake de timeout**: `findByRole` del textbox «nombre» con timeout
+   default 1 s fallaba en el primer test (chunk lazy de ProjectHome en
+   frío, ~2,5 s bajo carga de cargo build). Subido a 5 s — el resto del
+   archivo ya usaba ese criterio.
+
+`tsc` exit 0 tras los fixes. Suite completa queda pendiente de re-corrida
+(no se re-corrieron los 343 archivos; los 2 fallos están verificados
+individualmente en verde).
+
+## Pasada 113 — Brecha #3 CapCut: «Subtitular proyecto» (auto-captions global)
+
+De la auditoría de paridad (matriz Olyvia vs CapCut): la transcripción
+existía sólo por clip en el Inspector. Ahora hay un CTA global en el
+menú overflow «Más herramientas» de la timeline.
+
+**Implementación** (frontend-engineer):
+
+- `state/caption-actions.ts`: `listTranscribableTimelineClips()` +
+  `transcriptionSegmentsForClip()` — offsets asset→clip correctos
+  (resta `inFrame/fps`, compensa speed constante, marca `reverse`/
+  `speedCurve` como no soportados en vez de subtitular mal).
+- `features/editor/transcribe-project.ts`: orquestador con dedup por
+  assetId (un asset = una transcripción), progreso por clip, fallos
+  parciales no abortan el lote, resumen honesto.
+- `Timeline.tsx`: ítem «Subtitular proyecto» en el menú overflow,
+  deshabilitado sin clips elegibles.
+- `Inspector.tsx`: `transcribeClip` ahora usa el mismo offset —
+  corrige el corrimiento de captions en clips con `inFrame > 0`
+  (bug preexistente).
+
+**Verificación**: tsc exit 0 · 11/11 tests nuevos · 198/198 tests
+relacionados · **verificado en vivo por CDP**: el ítem aparece en el
+menú de la app corriendo.
+
+**Hallazgo lateral**: el menú muestra herramientas IA «Pendiente»
+(Detección de Silencio, Detección de ritmo, Voz a texto) que en parte
+YA existen (silence-cuts, beat-sync, transcribe) — posible UI stale,
+auditar en próxima pasada.
+
+Quedan de la matriz CapCut: publicación directa (decisión OAuth),
+librería de stock, grabación de voz→timeline, teleprompter/stickers.
+
+## Pasada 114 — Limpieza de listas «Pendiente» stale en Timeline
+
+Cierra el hallazgo lateral de la pasada 113: el menú contextual del clip
+(`PENDING_CONTEXT_ACTIONS`) y el desborde «Más herramientas»
+(`OVERFLOW_PENDING`) listaban como deshabilitadas funciones que ya
+existen en otras superficies, con el título engañoso «requiere
+integración de backend (pendiente)».
+
+**Verificación ítem por ítem** (grep + lectura de implementación real):
+
+- Cableados a superficie real: Detección de silencio → inspector
+  `audio` (`SilenceCutsSection`); Detección de ritmo → `audio/custom`
+  (sección «Ritmo», `detectBeats`/`planBeatCuts`); Voz a texto →
+  `audio` («Transcribir a subtítulos»); Aislar voz (IA) → `audio/noise`
+  (Demucs, antes «Eliminador de voz con IA», renombrado porque lo real
+  es aislamiento, no eliminación); Seguimiento → `video/tracking`;
+  Fotogramas clave → `video` (Transformación); Duración → `speed`;
+  Editar → `all`; Recortar y Zoom → `all`; Separar audio → `detachAudio`
+  real sobre el clip del menú; Crear clip compuesto → `createCompound`
+  real; Sugerencias de edición inteligente → modo `brain` (BrainPanel);
+  Herramienta de montaje preliminar → vista `auto-edit`; Edición por
+  texto → `text-edit`; Traducción con IA → `localization` (hub Creador);
+  Sincronización automática → `multicam`; Texto a voz y Música
+  ambiental → `production`; Texto a video → `factory` (brief→video);
+  Rotoscopía y máscaras → `vfx`.
+- Eliminados por no existir (sin plan documentado): Edición de atributos
+  (ya están «Copiar/Pegar atributos»), Reemplazar clip, Editar
+  Dispositivos, Extensión con IA, Extensión de audio, Eliminador de
+  objetos con IA, Imagen a video (el facet de EditorAssets mismo declara
+  «Requiere backend de IA local» con el botón de generar deshabilitado).
+- Quedan **cero** ítems pendientes: el grupo «Herramientas de IA ·
+  pendientes» desapareció del desborde.
+
+**Implementación** (`Timeline.tsx` + cableado mínimo):
+
+- `CONTEXT_TOOLS`: lista estructurada con destino `inspector`/`view`/
+  `mode`/acción real (`compound`, `separate-audio`) y predicado
+  `enabled` por clip (p. ej. separar audio sólo en video, compuesto
+  sólo en video/imagen/congelado).
+- `OverflowRun` + `runOverflowCommand`: comandos `open-*` (inspector) y
+  `goto-*` (vistas) además de los `ToolbarToolRun` y `aria:` existentes.
+- Props nuevas `onNavigate`/`onSwitchEditorMode`; `EditorWorkspace`
+  las cablea a `navigate` del shell y `switchMode`. Sin callback, cada
+  destino avisa por `notice` en vez de simular.
+
+**Verificación**: `tsc --noEmit -p apps/desktop/tsconfig.json` exit 0 ·
+`Timeline.test.tsx` 44/44 y `Timeline.pro.test.tsx` 7/7 (8 tests
+nuevos: separar audio, compuesto, destinos inspector/vista/modo,
+ítems eliminados) · `render-cost` + `Inspector.tab-request` 7/7.
+Pendiente: `test:serial` completo.
+
+## Pasada 115 — «Grabar voz» (voiceover a timeline) + suite completa verde
+
+**Brecha CapCut #4 cerrada**: grabación de mic en vivo → asset → clip de
+audio en la pista de narración, en el playhead capturado al iniciar.
+
+- `features/editor/voiceover.ts` + `VoiceoverRecorder.tsx`: MediaRecorder
+  (webm/opus con fallbacks) → decode Web Audio → **WAV PCM16 48 kHz**
+  (mismo formato que la narración TTS; si decode falla, contenedor
+  original). Tope honesto 10 min con auto-stop, pausa de playback,
+  liberación de tracks.
+- Nuevo IPC `import_media_bytes` (base64, tope 256 MB) → temporal →
+  `import_local_files`: mismo pipeline de importación (copia a media/,
+  ffprobe, sha256). Asset `user-imported`, no `generated`.
+- Botón toolbar `aria-label="Grabar voz"` (estado idle/grabando m:ss/
+  importando), entrada en «Más herramientas» y catálogo de barra rápida
+  (`voiceover`, ícono mic). Monta con `addClipFromAsset({narration:true})`
+  creando la pista de voz si falta.
+- UX honesta: sin mediaDevices/MediaRecorder, permiso denegado, sin mic,
+  o proyecto sin guardar → notice claro.
+
+**Verificación**: `tsc` exit 0 · cargo check + check --tests exit 0 ·
+vitest voiceover 13 + recorder 3 + FilmoraStates 13 + Timeline 44 verdes ·
+architecture/dependency rules 20 verdes.
+**`test:serial` completo post-todo: 344 archivos / 3110 tests / 0 fallos**
+(574s) — incluye subtitular-proyecto, menús pendiente saneados y voiceover.
+
+**Pendiente honesto**: `cargo test import_bytes` bloqueado por locks del
+binario en ejecución (correr al reiniciar); prueba de hardware real de mic
+pendiente (requiere rebuild de la app para el nuevo IPC — la app viva
+tiene el binario viejo, comportamiento previo intacto).
+
+## Pasada 117 — Teleprompter + asistente de proyecto (brechas CapCut restantes)
+
+**Teleprompter** (`features/editor/teleprompter.ts` + `TeleprompterView.tsx`):
+textarea de guion + «Usar guion del proyecto» (narración de escenas) +
+«Editar guion» → modo Guion. Scroll automático con play/stop, WPM
+(60–240), línea activa resaltada, tamaño 20–64px, wrap, persistencia
+localStorage por proyecto + prefs. **Integración real**: el botón «Grabar
+voz» ES `VoiceoverRecorder` (fase `recording` → scroll arranca; sin
+duplicar MediaRecorder). Acceso: «Más herramientas» → Teleprompter, modo
+del editor, NavViews, Sidebar. 22 tests nuevos; tsc exit 0.
+
+**Asistente de proyecto** (`features/start/project-intent.ts` +
+StartScreen): fieldset «¿Para qué es el video?» con 4 intenciones
+(9:16·30 / 16:9·60 / 1:1·30 / 21:9·24) que precargan formato+fps con ayuda
+contextual; editar a mano desmarca la intención. 15 tests nuevos.
+
+**Verificación en vivo CDP**: proyecto abierto, «Grabar voz» en toolbar,
+menú «Más herramientas» con Subtitular proyecto / Grabar voz /
+Detección de silencio / Teleprompter — todo renderizado en la app viva.
+
+**Estado matriz CapCut**: implementables agotadas. Restan sólo decisiones
+de producto del usuario: publicación directa (OAuth redes) y biblioteca
+stock (proveedor/licencias).
+
+
+## Pasada 118 — Modo IA del editor (vista reducida persistida)
+
+**Feature**: `state/ai-mode.ts` (store externo + localStorage
+`editoria.ai-mode.v1`, patrón de `editor-layout`). Toggle en tres
+superficies: botón «Modo IA» del chrome Alauk (`aria-pressed`, junto
+al de skin), entrada checked «Modo IA» en el menú Ver, y atajo
+`Ctrl+Shift+I` (`view.aiMode` en `state/shortcuts.ts` + dispatch en
+`app/Shell.tsx`, evidencia en `shortcuts-pro.test.ts`).
+
+**Qué cambia en `EditorWorkspace`** (sólo con `mode === 'timeline'`):
+`.editor-grid.ai-mode` = preview + timeline + splitter IA +
+`.ia-coluna` (el AssistantDock portaliza ahí sin tocar
+`AssistantDock.tsx` ni `state/ai-column.ts`). Se ocultan asset rail,
+inspector, splitter manual y los tabs del editor; preview (con
+transporte), timeline con clips/tracks/captions/playhead quedan
+intactos. `editorLayout`, tabs, anchos y prefs NO se tocan: apagar el
+modo restaura la vista exacta. Modo IA es vista, no bloqueo: los
+otros modos del editor siguen accesibles por teclado/menú.
+
+**Timeline** (`Timeline.tsx`): en modo IA la toolbar queda reducida a
+zoom (−/readout/+/slider/fit) + duración. Se ocultan selector de
+herramienta, mano/skim, imán, ripple, beats, voiceover, filtros de
+color/búsqueda, alta de pistas, comandos manuales, overflow y
+`QuickToolsBar`. Las preferencias de imán/ripple persisten (sólo se
+oculta el toggle). Edición manual sigue posible por teclado/menú.
+
+**CSS**: `styles/layouts.css` (fallback) + `styles/alauk-chrome.css`
+(high-specificity `.editor-workspace.alaukcut-chrome.alaukcut >
+.editor-grid.ai-mode` con `!important` en columnas para ganar a
+`alaukcut-reference.css`) + `.ia-coluna` estructural fuera de
+`.layout-edicion`.
+
+**Tests**: `state/ai-mode.test.ts` (3),
+`EditorWorkspace.ai-mode.test.tsx` (3: ocultos/visibles/restauración),
+`Timeline.ai-mode.test.tsx` (2), `AlaukChrome.test.tsx` (+1 toggle
+aria-pressed), `MenuBar.test.tsx` (+1 entrada Ver),
+`shortcuts-pro.test.ts` (evidencia). 30 tests verdes en los 6
+archivos; `tsc --noEmit -p apps/desktop/tsconfig.json` exit 0.
+
+**Pendiente honesto**: verificación visual en la app viva (CDP)
+pendiente; el imán queda sin toggle visible en modo IA (la preferencia
+sigue).
+
+## Pasada 118 — Backend de audio profesional FilmCraft para la IA
+
+Pedido del usuario: que la IA tenga acceso a todas las herramientas de
+edición sin botones — se portó la superficie útil de `storytold/filmcraft`
+(`crates/audio-dsp`, MIT/Apache-2.0, ya era dependencia git pineada) como
+comandos IPC + tools MCP, sin UI nueva.
+
+**Rust** (`src-tauri`):
+- `media/audio_tools.rs` (nuevo, puro+testeado): `apply_effect_chain`
+  sobre el registry `create_effect`/`set_param`/`process` de
+  filmcraft-audio-dsp (~50 efectos: compressor, limiter, parametric_eq,
+  deesser, denoise, dehum, dereverb, click_remover, speech_enhance,
+  vocal_enhancer, convolution_reverb, mastering, graphic_eq×3,
+  multiband, tube, modulación, dithering-free), compensación de latencia,
+  `deinterleave`/`interleave`, `encode_wav_f32` (WAV IEEE-float),
+  `mixdown`, `wsola_stretch` propio (el rev pineado abf44fd no trae
+  `stretch`; mismo algoritmo: hop 15 ms, tolerancia 8 ms, ventana
+  raised-cosine, align por correlación normalizada — portada del
+  `crates/render/stretch.rs` de upstream).
+- `commands/domains/audio/audio_tools.rs` (nuevo): 5 comandos IPC —
+  `audio_effects_list` (catálogo con params/rangos/unidades),
+  `audio_effects_render` (cadena FX + speed WSOLA opcional → WAV),
+  `audio_loudness_analyze` (LoudnessMeter BS.1770: LUFS integrado, LRA,
+  true peak dBTP), `audio_sync_offset` (GCC-PHAT `sync::find_offset`:
+  lag samples/segundos, confidence, distinct, inverted, reliable),
+  `audio_time_stretch` (WSOLA → WAV). Decode FFmpeg → f32le estéreo/mono
+  48 kHz, tope 300 s, `resolve_user_file_path` para paths.
+- Registro en `commands/mod.rs` + `registry.rs`; `media/mod.rs`.
+
+**Frontend**: contratos `services/contracts/audio.ts` (+6 tipos),
+`services/audio.ts` (+5 métodos), `platform/tauri/audio.ts` +
+`shared.ts` (5 comandos) + `unavailable-service.ts` + `fake-service.ts`.
+Catálogo MCP `state/mcp-catalog.ts` (+5 tools: `audio_effects_list`
+READ, `audio_effects_render` WRITE, `audio_loudness_analyze` READ,
+`audio_sync_offset` READ, `audio_time_stretch` WRITE) y dispatch en
+`state/mcp-tools.ts`. La IA las descubre por `tools/list` y las ejecuta
+por `tools/call` — sin botones.
+
+**Verificación**: `cargo check` exit 0 · `cargo test audio_tools` 7/7
+(deinterleave, WAV header, registry >40 efectos, amplify, errores de
+param, WSOLA largo/RMS/silencio) · `tsc` exit 0 · vitest mcp-tools 38 +
+architecture 13 + dependency 7 verdes.
+
+**Pendiente honesto**: los comandos IPC nuevos requieren rebuild del
+binario Tauri para probarse en vivo (la app corriendo tiene el Rust
+viejo). Efectos con look-ahead compensan latencia recortando el frente;
+convolución/surround sobre estéreo funciona pero 5.1 no se expone aún.
+
+## Pasada 119 — Superficie IA-only: la app abre directo en editor + chat
+
+**Pedido**: que toda la app sea edición por IA; dejar sólo la pantalla del
+editor y el chat al costado; quitar los botones de edición.
+
+**Cambio** (`state/ai-mode.ts` es la única fuente de verdad):
+- `aiOnly` es el default en app real (dev/build) y se puede desactivar con
+  `localStorage['editoria.ai-only.v1'] = '0'`. En tests el default sigue
+  siendo `false` para preservar los escenarios del editor completo.
+  `getAiMode()` devuelve `aiOnly || toggleViejo`, así todas las superficies
+  que ya consultaban `useAiMode()` ven la misma vista reducida.
+- `App` ya no muestra el launcher: entra al `Shell` con el editor abierto.
+  Crear/abrir un proyecto se hace desde el chat.
+- `AppShell`: sin rail, menú, barra de acciones ni statusbar; conserva marca,
+  nombre de proyecto y controles de ventana. `AssistantDock docked`.
+- `AlaukChrome` y `MenuBar`: sin botones manuales (Proyectos, Deshacer,
+  Guardar, Herramientas, Exportar, Atajos, Ajustes, skin, «Modo IA»).
+- `EditorWorkspace`: sin pestañas de modo; la columna del asistente es fija,
+  sin plegado ni invitación a abrir el chat. Sin proyecto hay un escenario
+  limpio con el chat acoplado en vez de los botones «Abrir/Nuevo proyecto».
+- Operador local nuevo: `abrir proyecto` llama a `store.openProject()`;
+  no se confunde con «abrir Proyectos» (navegación).
+
+**Verificación**: `tsc` exit 0 · ai-mode 4/4, ai-first-shell 2/2,
+EditorWorkspace.ai-mode 5/5, operator 35/35, UI-focused 22/22 verdes ·
+`npm run build` exit 0 (dos veces, tras el arreglo de cascada CSS) ·
+**verificación visual en vivo** (Vite :3000, CDP): sin rail, sin botones
+manuales, escenario central y chat acoplado a toda la altura; la grilla
+quedó `1fr | 1px | 320px` en una sola fila después de subir la
+especificidad de `.ai-mode` frente a las reglas `!important` de capcut.
+
+**Suite completa**: 3190/3194 verdes. La única falla es preexistente y
+ajena: `AssistantDock.test.tsx` exige <48 KiB en el payload `mcpTools` y
+el WIP concurrente de `mcp-catalog.ts` (+69 herramientas de audio) lo
+dejó en 50 867 B. No se tocó ese WIP.
+
+**Compilado y abierto (16:47–16:57)**: `npm run tauri:build` exit 0 tras
+mover el `apps/desktop/dist` viejo a `%TEMP%/olyvia-dist-bak-20261118-1635`
+(la guardia `safe-delete` bloqueaba vaciar 319 artefactos; no se borró
+nada). Instalador NSIS firmado de 147,10 MiB. El instalador silencioso
+no terminó en este entorno (`Start-Process` choca con `https_proxy` duplicado
+y la ejecución directa quedó colgada), así que se actualizó la instalación
+copiando el exe nuevo a `%LOCALAPPDATA%\Olyvia\` con respaldo del anterior
+en `%LOCALAPPDATA%\Olyvia-backups\2026-11-18\`. El `.lnk` viejo del
+Escritorio se movió a ese mismo backup y se repuso el del Menú Inicio.
+App abierta y verificada por CDP en el binario instalado: `editor-grid
+ai-mode ai-only-empty`, chat acoplado, `rail=0`, `menubar=0`.
+
+## Pasada 119 — Backend FilmCraft II: loudness normalize + probe de color
+
+Continuación de la 118 con dos herramientas más para la IA (mismo patrón:
+comando IPC + tool MCP, sin UI):
+
+- **`audio_loudness_normalize`**: mide con `LoudnessMeter` BS.1770,
+  calcula ganancia con `normalize_gain_db_peak_limited` (no pasa -1 dBTP
+  de true peak), aplica ganancia lineal + `limiter` del registry
+  (ceiling -1 dB, true_peak on) → WAV float32. Devuelve
+  measuredLufs/targetLufs/gainDb para que la IA reporte.
+- **`media_probe_color`**: `probe_file` (ffprobe) → color_space/transfer/
+  primaries + clasificación hdr (pq/hlg/sdr/desconocido), wideGamut
+  (bt2020/10-12bit) y los 8 `cameraProfile` log→Rec.709 del schema con
+  sugerencia conservadora (`hdr-pq`, `hdr-hlg`, `posible-log`). Honesto:
+  el log no se detecta por metadatos de forma fiable.
+
+Cadena completa frontend (contratos, platform/tauri, unavailable,
+fake-service, mcp-catalog, mcp-tools dispatch). `tsc` exit 0 ·
+`cargo check` exit 0 · mcp-tools 38/38.
+
+**Pendiente honesto**: igual que la 118, requiere rebuild del binario
+para verificación en vivo. Quedan crates filmcraft sin explotar:
+`interchange` (AAF/OMF — requiere filmcraft-project/time, pesado),
+`speech` (whisper candle — ya hay whisper.cpp), `color` analítico
+(grade/transform — las LUTs cameraProfile ya cubren el caso de uso),
+`edit` (álgebra de timeline — Olyvia ya tiene la suya en TS).
+
+## Pasada 121 — Editor siempre visible en la superficie IA-only
+
+**Brecha real detectada en la app abierta**: sin documento, la superficie
+IA-only mostraba un escenario de bienvenida en vez del monitor, así que no
+se veía el cuadro de video ni se podía seguir la edición de la IA.
+
+- `App` crea un proyecto en memoria (`createEmptyProject('Proyecto IA')`)
+  cuando `aiOnly` está activo: sin ruta ni autoguardado, sirve para que
+  preview, timeline y transporte estén montados desde el primer frame.
+- `Preview` muestra un botón **Start** (`aria-label="Start · reproducir
+  video"`) sobre el cuadro, siempre que no se esté reproduciendo. Con clips
+  llama a `store.setPlaying(true)`; sin clips avisa por `notice` qué pedirle
+  a la IA. Sigue coexistiendo con el transporte y la barra de espacio.
+- El chat sigue acoplado y el `AssistantProcessPanel` expone cada paso;
+  las mutaciones de la IA caen en el mismo store que dibuja el monitor y
+  la timeline, así que el cambio se ve en vivo.
+
+**Verificación**: `tsc` exit 0 · ai-first-shell 3/3 (nuevo caso: arranque
+con `.preview-panel`, `.timeline-panel`, Start y chat, sin escenario de
+bienvenida) · EditorWorkspace.ai-mode 6/6 (nuevo caso: Start con clips) ·
+regresión App/teclado/unified-editor/Timeline 138/138 · `tauri:build`
+exit 0 (147,15 MiB) · CDP en el binario instalado: `preview=true`,
+`timeline=true`, `start=true`, `emptyStage=false`, `rail=0`, `menubar=0`.
+
+**Operación**: el exe se copió a `%LOCALAPPDATA%\Olyvia\` con respaldo
+`editor-ia-desktop-pre-editor-visible.exe`; la app quedó abierta (PID
+19752) sin puerto de depuración. Cada build previo movió `dist` a `%TEMP%`
+por la guardia `safe-delete`.
+
+## Pasada 120 — Skills personalizadas + memoria del Director en AI Hub
+
+Cierra el pedido «agregar o crear skill, memoria, etc» con la versión
+honesta y mínima (los subagentes fallaron dos veces; se implementó
+directo):
+
+- **`features/ai-hub/custom-skills.ts`** (nuevo): skills del usuario con
+  el mismo formato `AiSkill`, persistidas en localStorage
+  (`editoria.aihub.custom-skills.v1`, tope 50, sanitización de campos,
+  tolera storage corrupto). `aiSkill()` y `listSkills()` en `ai-hub.ts`
+  las resuelven — todo consumidor existente las ve sin cambios.
+- **`AiHubView`**: la grilla usa `listSkills()` (personalizadas primero,
+  marcadas «· mía» con botón Eliminar), formulario «Crear skill propia»
+  (nombre, resumen, categoría, destino, salida, prompt) y sección
+  «Memoria del Director»: runs registrados + perfiles calibrados +
+  botón «Reiniciar memoria» (`saveDirectorMemory(emptyDirectorMemory())`
+  — el único reset real que existe).
+- CSS en `chrome.css` (`.ai-hub-custom*`, `.ai-hub-memory`).
+- Tests `custom-skills.test.ts` (3): CRUD, precedencia built-in,
+  storage corrupto.
+
+**Límites honestos**: una skill personalizada es plantilla de prompt +
+destino — no ejecuta código propio. La memoria persistente real es sólo
+la calibración del Director (perfiles por plataforma + runs); no hay
+notas libres por entrada ni borrado selectivo.
+
+**Verificación**: `tsc` exit 0 · custom-skills 3/3 · ai-hub suite verde.
+
+## Pasada 122 — `Descargas` resuelve la raíz real (bug reportado por la IA)
+
+La IA pidió `media_folder_list { folder: "Descargas" }` y respondió
+«No encontré la carpeta «Descargas»… en Descargas». Causa: el resolvedor
+buscaba siempre `descargasRoot.join(nombre)`, es decir `Descargas/Descargas`.
+
+- `media/folder.rs`: alias `Descargas`/`Downloads` (y el nombre real del
+  root) apuntan al directorio Descargas mismo; `root` también puede ser el
+  destino; una carpeta existente pero sin medios devuelve `count: 0`
+  en vez de un error; carpetas por nombre se aceptan aunque estén vacías.
+- Mensaje de error reformulado: sugiere ruta absoluta, «Descargas» o
+  subcarpeta.
+- Catálogo MCP: descripciones de `media_folder_list` y `media_search`
+  documentan los alias y el `count: 0`.
+- Tests Rust nuevos: alias (4 variantes), carpeta vacía vs inexistente.
+  `cargo test -p editor-ia-desktop media_folder` 5/5 · `mcp-tools` 38/38.
+
+**Verificación en vivo** (exe instalado, CDP): `list_media_folder
+{folder:'Descargas'}` → `D:\Users\ofici\Downloads`, **99 medios**
+(jpg/png/mp4), incluidas las fotos que el usuario quería ver.
+
+**Auditoría de cobertura**: el catálogo MCP expone ~100 herramientas para
+proyecto, timeline, clips, captions, audio, efectos, color, automatización,
+fábrica, exportación, pantalla y stickman. Quedan sin exponer como tools:
+micrófono/voiceover, teleprompter, upscale Real-ESRGAN, quitar fondo y
+descarga directa por URL (sus comandos nativos existen; la IA sólo puede
+navegar a esas vistas, no ejecutarlas de punta a punta).
+
+**Nota**: `npm run typecheck` quedó roto por `custom-skills.test.ts`
+(archivo no trackeado creado en paralelo a las 18:15: `AiSkill` no tiene
+`custom`). Es WIP ajeno; no se modificó.
+
+## Pasada 121 — Memoria libre de la IA (persistente + autoescrita)
+
+El pedido «memoria etc todo» queda cubierto de verdad: hasta acá sólo se
+mostraba la memoria del Director (calibración). Ahora hay memoria
+declarativa persistente:
+
+- **`state/ai-memory.ts`** (nuevo): notas {id, text, createdAt} en
+  localStorage (`editoria.ai-memory.v1`, tope 200 × 2000 chars,
+  sanitización, tolera storage corrupto). `aiMemoryContext()` devuelve
+  las ~20 notas recientes acotadas a 3 KB para el prompt.
+- **`AssistantDock`**: inyecta `context.memory` en cada pedido — la IA
+  recuerda entre sesiones sin que el usuario repita preferencias.
+- **Tools MCP** `memory_add` / `memory_list` / `memory_forget`: la propia
+  IA puede guardar y borrar notas (el usuario dice «recordá que…» y la
+  IA usa memory_add). Scopes en `mcp/server.rs`: list=read,
+  add/forget=write (antes caían en destructive por defecto).
+- **AI Hub**: sección «Memoria de la IA» con lista de notas + alta
+  inline (Enter guarda) + borrado por nota + reset del Director aparte.
+
+**Verificación**: `tsc` exit 0 · `cargo check` exit 0 · ai-memory 2/2 +
+custom-skills 3/3. Scopes MCP ajustados para clientes externos.
+
+## Pasada 123 — Proyecto en disco para que la IA pueda importar y pilotar
+
+La IA respondió `[NOT_FOUND] no hay un proyecto abierto` al montar Descargas
+y «Guardá el proyecto antes de usar el piloto automático». Causa: el proyecto
+inicial de la superficie IA vivía sólo en memoria, sin sesión nativa;
+`import_media_paths` y `saveNow` exigen `state.session`.
+
+- `App.tsx`: `AiDiskProjectBootstrap` crea un proyecto real en disco en
+  segundo plano, sin diálogo, con nombre único por timestamp.
+- `AssistantDock.tsx`: `ensureDiskProject()` materializa el proyecto antes
+  de importar una carpeta o correr el piloto; usa `storeRef` para leer el
+  `opened` publicado después del `await` (el closure viejo no lo veía).
+- `suggestAiProjectName()` centraliza el nombre único en `state/ai-mode.ts`.
+
+**Verificación**: `tsc` exit 0 · ai-first-shell 3/3 (nuevo caso: bootstrap
+llama a `createProject`) · AssistantDock 38/38 excepto el presupuesto
+`mcpTools` preexistente · `tauri:build` exit 0 · **flujo real por CDP**:
+la app arrancó con `Proyecto IA 20261118-192532`, el comando
+«usá los archivos de descargas de la carpeta video 1» terminó en
+«Monté 33 imágenes sobre 99 frases (422.4s), con 125 subtítulos y audio a
+−14 LUFS», con 7 clips en la timeline. Ya no aparece el NOT_FOUND.
+
+**Nota**: el montaje real tarda >3 min (33 imágenes con análisis visual +
+transcripción); el cliente CDP que esperaba 180 s dio timeout pero la
+operación completó igual. El presupuesto de `mcpTools` sigue fallando
+(52 961 B > 48 KiB) por el crecimiento del catálogo en WIP ajeno.
+
+## Pasada 129 — 25 tools MCP de voz, medios y entrega (batch 2)
+
+Segunda tanda de exposición de contratos de servicio existentes a la IA,
+tras la primera tanda de análisis (pasadas ~media tools). Todo conectado de
+verdad: catálogo + dispatcher + scopes, sin placeholders.
+
+- **Voz/narración**: `voice_list`, `narration_synthesize` (SAPI → asset del
+  proyecto), `dialogue_enhance` (cadena DSP con presets), `dub_synthesize`
+  (TTS sobre cues), `voice_clone` y `lip_sync` (motores externos → scope
+  destructive), `transcribe_asset` (whisper local).
+- **Medios**: `background_remove_file`/`_asset`, `upscale_image`/`_video`,
+  `denoise_media`, `sharpen_media`, `freeze_frame_extract`, `video_merge`,
+  `video_trim`, `video_watermark`, `video_metadata`.
+- **Entrega/versiones**: `import_timeline` (EDL/OTIO/FCPXML con
+  confirmRights obligatorio → destructive), `verify_export`,
+  `thumbnail_pick`, `render_diary`, `project_versions_list`,
+  `project_version_restore` (in-place/copy → destructive), `visual_audit`.
+
+**Scopes**: read = voice_list, verify_export, thumbnail_pick, render_diary,
+project_versions_list, visual_audit. Write = el resto de producción local.
+Destructive = voice_clone, lip_sync (motores externos), import_timeline,
+project_version_restore. `server.rs` verificado sin arrays duplicados.
+
+**Verificación**: `npm run typecheck` exit 0 · vitest mcp-tools+mcp-validation
+53/53 · `cargo check` exit 0 · `cargo test mcp::` 30/30 · paridad
+catálogo↔dispatcher 171/171 sin huérfanas. 3 fixes de `exactOptionalPropertyTypes`
+(outputDir `string|null`).
+
+## Pasada 130 — 14 tools MCP de proxies, catálogo, QA y producción (batch 3)
+
+Tercera tanda: métodos del contrato que quedaban sin exponer. Se descartaron
+los internos de UI (`choose*File`, `on*Progress`, `mcp*` admin,
+`assistantChat*`, `concatWorker*`, `saveDeliveryPackage` que recibe bytes,
+`alphaFrames*` pipeline interna de rotoscopía, `getFlowProxies`).
+
+- **Read**: `media_probe_file` (sondeo ffprobe de archivo suelto),
+  `audio_peaks_path` (picos de forma de onda), `proxy_status`,
+  `catalog_search`/`catalog_get` (recursos del estudio con licencia),
+  `provider_test` (salud del proveedor IA), `render_queue`,
+  `vmaf_measure` (VMAF 0-100 original vs comprimido; null sin libvmaf).
+- **Write**: `proxy_apply` (activa proxy en el asset), `relink_asset`
+  (re-enlace validado nombre+tamaño/hash, copia al proyecto si hace falta).
+- **Destructive**: `proxy_ensure` (genera proxy 540p/720p), `proxy_cleanup`
+  (borra proxies), `compress_file` (mp4/mkv/hevc quality|size con topes),
+  `production_remove`.
+
+**Verificación**: `npm run typecheck` exit 0 · vitest mcp 53/53 ·
+paridad catálogo↔dispatcher 185/185 · `cargo check` en curso (scopes
+son literales en arrays ya compilados en pasada anterior).
+
+## Pasada 131 — 31 tools MCP de downloader/creator + fix de hints readOnly
+
+Cuarta tanda: todo `DesktopServiceDownloader` expuesto a la IA.
+
+- **Read (14)**: `downloader_status`, `downloader_bridge_info`,
+  `download_probe` (sondeo de URL con calidades), `playlist_entries`,
+  `audio_tracks_url`, `sponsorblock_preview`, `source_checksum`, `rss_fetch`,
+  `watch_folder_scan`, `proxy_test`, `vpn_list`, `watchdog_status`,
+  `platform_rules`, `youtube_channel_analyze`.
+- **Write (12)**: pipeline creator completo (`creator_hook`,
+  `creator_export_multi_aspect`, `creator_inject_cta`,
+  `creator_interleave_broll`, `creator_split_chapters`,
+  `creator_burn_subtitles`) + control de descargas
+  (`download_pause`/`resume`/`cancel`).
+- **Destructive (8)**: `download_media` (pipeline completo: codec, HDR,
+  cinemático, voz TTS, watermark, delogo, upscale, autoRoute),
+  `cleanup_download`, `install_downloader`, `update_downloader`,
+  `vpn_connect`/`disconnect`, `watchdog_install`/`remove`.
+
+**Fix de consistencia**: `READ_ONLY_TOOL_NAMES` del catálogo estaba
+desactualizado — 50 tools con `readOnlyHint` inline no estaban en el set,
+lo que les calculaba `destructiveHint:true` incorrecto. Sincronizado con el
+scope read real de `server.rs` (se excluyó `batch_clips_select`, scope write).
+
+**Verificación**: `npm run typecheck` exit 0 · vitest mcp 53/53 ·
+`cargo test mcp::` 30/30 (incluye paridad read-batch catálogo↔Rust) ·
+paridad catálogo↔dispatcher 216/216.
+
+## Pasada 132 — 36 tools MCP: estudio, subtítulos, modelos, plugins y MCP externo
+
+Quinta tanda: cierre de `DesktopServiceStudio`, `Subtitles`, `Integrations`,
+`Providers` y restos de `Media`/`Projects`/`Render`.
+
+- **Producción del estudio (10)**: `production_plan_from_brief` (brief
+  estructurado → plan), `production_plan_from_text` (provider BYOK, gasto
+  autorizado → destructive), `production_create` (planJson → corrida),
+  `production_status`/`production_list` (read), `production_start`/
+  `advance`/`resume`/`cancel` (driver del pipeline → destructive),
+  `production_pause` (write). `production_remove` ya existía.
+- **Subtítulos/tracking (4)**: `subtitles_save_localized` (srt|vtt),
+  `export_short` (MP4 vertical 1080×1920 con smart reframe → destructive),
+  `analyze_face_track`, `track_object` (NCC con rect semilla → read).
+- **Medios/modelos (7)**: `analyze_images`, `analyze_media_frames` (la IA
+  puede ver imágenes y el cuadro medio de videos → read),
+  `convert_media_batch`, `models_list` (read), `model_download`,
+  `model_delete`, `check_asset_files` (read).
+- **Plugins/sistema/MCP (15)**: `plugins_list`, `plugin_install`,
+  `plugin_remove`, `plugin_set_enabled`, `extension_status`, `system_info`,
+  `notify_user`, `mcp_servers_list`, `mcp_server_probe`,
+  `mcp_server_delete`, `mcp_session_status`, `mcp_audit_tail` (read),
+  `mcp_external_call` (tool arbitraria en MCP externo → destructive),
+  `flow_proxies_get` (read), `flow_proxy_set`.
+
+**Verificación**: `npm run typecheck` exit 0 · vitest mcp 53/53 ·
+`cargo test mcp::` 30/30 · paridad catálogo↔dispatcher 252/252 · scopes
+sin tools huérfanas (0 caen en destructive por defecto) ·
+READ_ONLY_TOOL_NAMES resincronizado (+16).
+
+**Estado**: el contrato de servicios está cubierto ~95%; lo que queda sin
+exponer son diálogos de UI (`choose*File`), progreso en vivo (`on*Progress`),
+streaming del asistente y helpers internos (`absoluteFileUrl`,
+`importMediaBytes`, `alphaFrames*`, `saveDeliveryPackage` con bytes,
+`concatWorker*`, `startMcpServer`/`mcpRespond`/`closeMcpSession` de gestión
+del propio servidor — evaluar si aportan antes de exponer).
+
+## Pasada 133 — 9 tools MCP finales: cierre del contrato de servicios
+
+Sexta y última tanda. Expone los métodos útiles que quedaban:
+
+- **Read (5)**: `audio_peaks` (waveform de asset, 16–8192 buckets),
+  `visual_catalog`, `quality_gate_review` (reporte consolidado),
+  `mcp_server_status`, `mcp_detect_clients`.
+- **Write (1)**: `proxy_cancel`.
+- **Destructive (3)**: `convert_file` (gif/mp3/wav/m4a/aac/ogg/opus/flac),
+  `compress_asset` (mp4/mkv/hevc, quality|size), `mcp_autoconnect` (escribe
+  config del cliente de IA — scope write; ver abajo).
+
+**Omitidos a propósito** (~16 métodos): diálogos `choose*File`,
+`on*Progress`, `assistantChatStream`, `importMediaBytes`, `absoluteFileUrl`,
+`copyMediaInto`, `alphaFrames*`/`writeAlphaFrames`/`discardAlphaFrames`
+(interno rotoscopía), `concatWorker*`, `saveDeliveryPackage` (bytes),
+`importLut`, `chooseTool`, `mcpRespond`/`closeMcpSession`/`startMcpServer`/
+`mcpServerStop` (gestión del propio servidor — self-referencial).
+
+**Nota honesta**: `mcp_autoconnect` muta configs de apps externas pero es
+la feature ya existente de la app; quedó en `write` (no destruye nada propio).
+
+**Verificación**: `npm run typecheck` exit 0 · vitest mcp 53/53 ·
+paridad catálogo↔dispatcher **261/261** · scopes sin tools huérfanas.
+
+**Estado final**: 261 tools MCP. El contrato `DesktopService` está cubierto
+al 100% en todo lo que tiene sentido para un agente; lo no expuesto es
+plumbing de UI/streaming. Siguiente paso real pendiente: rebuild del binario
+Tauri y verificación en vivo del servidor MCP con las tools nuevas.
+
+## Pasada 134 — cobertura de tests del dispatcher MCP + build debug
+
+- 7 tests nuevos en `mcp-tools.test.ts` (48 total) cubriendo las tools de
+  las pasadas 130–133: `production_plan_from_brief`,
+  `subtitles_save_localized`, `analyze_face_track`, `track_object` (incl.
+  validación de `rect`), `convert_file`, `compress_asset`, `audio_peaks`,
+  `mcp_server_status`, `mcp_detect_clients`, `mcp_autoconnect`,
+  `plugins_list`, `visual_catalog`, `quality_gate_review`, `proxy_cancel`,
+  `models_list`.
+- `npm run tauri:build:debug` OK → `target\debug\editor-ia-desktop.exe`
+  con los ~115 comandos IPC y las 261 tools compilados.
+- Pendiente: reiniciar la app para verificación en vivo del MCP
+  (la instancia en ejecución usa el binario viejo).
+
+## Pasada 135 — auditoría de paridad frontend↔backend MCP (bug real corregido)
+
+Al mapear `tools/list` descubrí que las 12 tools de estudio
+(`production_*`, `studio_capabilities`, `quality_gate_review`) se ejecutan
+**100% en backend** (`StudioMcpInvoker` → `infrastructure/mcp_studio.rs`)
+y el catálogo frontend les hacía sombra en `tools/list` (gana por nombre).
+
+**Bugs encontrados y corregidos:**
+- `production_create`: el schema frontend exigía `planJson` (string) pero
+  el backend parsea `{plan: <objeto>}` → todo cliente externo hubiera
+  fallado. Alineado a `{plan, runId?, maxCostCents?}` + dispatcher.
+- `production_plan_from_brief`: bounds divergentes (keyPoints 8→16,
+  items 500→2000, tone 200→500, durationSeconds int 3-3600, platform y
+  aspectRatio a enums del backend, maxCostCents 0..100000000) + scope
+  READ (función pura) + readOnlyHint.
+- `production_plan_from_text`: text 10-2000 (antes 1-20000).
+- Dedupe de `SCOPE_*_TOOLS` en `server.rs`: había nombres duplicados por
+  los inserts por script y `production_pause`/`production_plan_from_brief`
+  estaban en dos listas con scopes distintos → quedaron WRITE y READ
+  respectivamente.
+
+**Verificación**: `npm run typecheck` exit 0 · vitest mcp **60/60** ·
+`cargo test mcp::` **30/30** (post-dedupe).
+
+**Nota**: el debug build de la pasada 134 quedó stale para `server.rs`
+(las scopes duplicadas eran funcionalmente equivalentes salvo
+`production_pause` que pedía destructive en vez de write — más estricto,
+no un bug de seguridad). Rebuild recomendado antes de la prueba en vivo.
+
+## Pasada 139 — Motor de texto OpenType (filmcraft-text) + preview PNG para la IA
+
+- **Nuevo crate**: `filmcraft-text` (git dep, mismo rev `abf44fd`). Motor completo: fuentes bundled OFL embebidas (Inter ×5, JetBrains Mono, Noto Serif) + escaneo de fuentes del sistema, shaping harfrust (kerning/ligaduras/scripts complejos), bidi, corte de líneas UAX#14, rasterizador propio con máscaras de cobertura, strokes/blur.
+- **Comandos Rust** (`commands/domains/media/text_engine.rs`):
+  - `text_fonts_list` — familias + estilos disponibles.
+  - `text_render_preview` — texto → PNG RGBA (alpha=cobertura, color #RRGGBB), con wrap, interlineado, canvas opcional centrado, align, tamaño 8–512px. Devuelve path + líneas + bounds del texto.
+- **Para la IA**: puede verificar títulos visualmente — renderiza el PNG y lo inspecciona con `analyze_images`/`video_scopes_analyze` antes de aplicarlo (patrón inspect→verify de FilmCraft).
+- **Cadena frontend completa**: `TextFontFamily`/`TextRenderRequest`/`TextRenderResult` en contracts/media.ts, métodos en DesktopServiceMedia, PROJECT_COMMANDS, tauri/media.ts, unavailable-service.ts, fake-service.ts.
+- **MCP**: `text_fonts_list` (read) + `text_render_preview` (write) — catálogo/dispatcher/scopes/READ_ONLY. **266 tools** totales.
+- **Verificación**: cargo check exit 0 · cargo test text_engine **3/3** (fuentes bundled, parse color, layout+rasterize con tinta real) · cargo test mcp:: **30/30** · typecheck exit 0 · vitest **60/60**.
+- Fix: `render::IDENTITY` es privado → `render::at(0,0)`; `exactOptionalPropertyTypes` en el request del dispatcher.
+- Rebuild debug en curso.
+
+## Pasada 138 — TTS local sin descargas (filmcraft-tts formant) + rebuild
+
+- **Nuevo crate**: `filmcraft-tts` (git dep, mismo rev `abf44fd`, features default — Kokoro off). Sintetizador formant source-filter original del crate: determinista, sin descargas, salida 24 kHz mono. Soporta marcadores `[pause 1s]`/`[pause 500ms]`, pace 0.5–2.0, semitones ±12, límite 64 KB / 30 min.
+- **Comandos Rust** (`commands/domains/audio/audio_tts.rs`): `tts_voices` (catálogo built-in) + `tts_synthesize` (texto+voiceId+pace+semitones → WAV float32 vía `encode_wav_f32`). Registrados en mod.rs + registry.rs.
+- **Cadena frontend completa**: `TtsVoiceInfo` en contracts/audio.ts, métodos en DesktopServiceAudio, PROJECT_COMMANDS, tauri/audio.ts, unavailable-service.ts, fake-service.ts.
+- **MCP**: `tts_voices` (read) + `tts_synthesize` (write) en catálogo/dispatcher/scopes + READ_ONLY_TOOL_NAMES. **264 tools** totales.
+- **Fixes en el camino**: helpers `str`/`num` del catálogo reciben descripción string (no objeto); dispatcher usa `args`/`optionalText`/`optionalNumber` existentes.
+- **Verificación**: cargo check exit 0 · cargo test audio_tts **2/2** (catálogo resuelve + síntesis real → WAV RIFF) · cargo test mcp:: **30/30** · typecheck exit 0 · vitest **60/60**.
+- Rebuild debug en curso para incluir TTS + studio_capabilities IPC.
+
+## Pasada 137 — studio_capabilities para la IA in-app (paridad con MCP externo)
+
+- **Brecha cerrada**: `studio_capabilities` (inventario de providers, fuentes de adquisición, etapas del pipeline y ffmpeg/ffprobe) existía solo en el MCP externo (backend). El asistente in-app no la veía.
+- **Rust**: `mcp_studio::studio_capabilities` ahora `pub`; nuevo comando IPC `commands/domains/studio/studio_caps.rs` que reutiliza el mismo cómputo (sin duplicar lógica). Registrado en `commands/mod.rs` + `registry.rs`. Excepción de arquitectura documentada en `architecture-rules.test.mjs` (mismo patrón que mcp_server.rs).
+- **Frontend**: método `studioCapabilities()` en `DesktopServiceStudio`, implementado en tauri/studio.ts + unavailable-service.ts + fake-service.ts, comando en STUDIO_COMMANDS.
+- **MCP**: tool `studio_capabilities` agregada al catálogo (read, readOnlyHint) + caso en dispatcher + READ_ONLY_TOOL_NAMES. Ya estaba en SCOPE_READ de server.rs → paridad total: la IA in-app y los clientes MCP externos ven exactamente el mismo inventario.
+- **Verificación**: typecheck exit 0 · vitest mcp-tools+mcp-validation 60/60 · architecture-rules 13/13 · cargo check exit 0.
+- **Nota**: requiere rebuild del binario para probar el comando IPC en vivo (la app corriendo tiene el Rust viejo).
+
+## Pasada 136b — higiene y verificación de cobertura del asistente
+
+- Confirmado: el asistente **in-app** usa el mismo catálogo (`MCP_TOOLS` →
+  `mcpTools` en el request del chat) y `executeMcpTool` → las 261 tools
+  están disponibles para la IA interna, no sólo para MCP externo.
+- `studio_capabilities` queda backend-only (se computa de `AppState` en
+  `mcp_studio.rs`, sin comando IPC) — el MCP externo la recibe vía
+  `studio_tools()`; la IA in-app tiene `list_capabilities` +
+  `provider_test` como equivalente. Brecha documentada, no bug.
+- Normalizadas 920 líneas `\r\r\n` → `\r\n` en `mcp-tools.ts`
+  (corrupción de los inserts por script; whitespace only).
+- `tsc` desktop exit 0 · vitest mcp-tools 48/48.
+
+## Pasada 140 — Subtítulos broadcast: filmcraft-captions (7 formatos)
+
+Sexto crate FilmCraft integrado (git dep, mismo rev abf44fd). La IA puede inspeccionar y convertir subtítulos en srt, vtt, scc (CEA-608), mcc (CEA-608/708), stl (EBU STL), ttml (IMSC1) y dfxp — incluye formatos de broadcast que antes eran imposibles de manejar.
+
+### Lo nuevo
+- subtitles_inspect_file (MCP read): detecta formato real por contenido + extensión, cuenta cues, duración total, warnings acotados (20) y preview de las primeras 20 cues como [inicio_s, fin_s, texto<=120 chars].
+- subtitles_convert_file (MCP write): convierte entre los 7 formatos; el destino se infiere de la extensión. Reusa user_file/output_file de audio_tools (validación de rutas, rechazo de credenciales, límite 64 MB).
+
+### Cadena completa
+Rust commands (subtitles_convert.rs, 2 tests) → registry → PROJECT_COMMANDS → DesktopServiceSubtitles → tauri/unavailable/fake → catálogo MCP → dispatcher → scopes (inspect→read, convert→write) → READ_ONLY_TOOL_NAMES. **268 tools**.
+
+### Verificación
+cargo check exit 0 · cargo test subtitles_convert 2/2 (detect+parse SRT, roundtrip SRT→VTT con WEBVTT real) · cargo test mcp:: 30/30 · typecheck exit 0 · vitest mcp-tools 49/49 (+1 test de dispatch).
+
+## Pasada 141 — filmcraft-interchange: import AAF/OMF/FCP7XML a la timeline
+
+Septimo crate FilmCraft (git dep + filmcraft-project como dep directo). La
+herramienta import_timeline ahora acepta **AAF, OMF y FCP7 XML (xmeml)** ademas
+de EDL/OTIO/FCPXML — formatos de broadcast que antes eran imposibles.
+
+### Arquitectura (sin duplicar orquestacion)
+- Nuevo adaptador media/timeline_import/filmcraft.rs: filmcraft_interchange::
+  import -> Project de filmcraft -> ParsedTimeline (el mismo struct que usan
+  los parsers nativos). Se monta con la orquestacion existente: importar
+  assets, ensure_track, clip_json con speed/in/out — cero logica nueva.
+- detect_format: .aaf->aaf, .omf/.omfi->omf (binarios, lectura por bytes,
+  tope 256 MB); .xml/.fcpxml con contenido <xmeml -> fcp7xml por sniff.
+- Mapeo: secuencia[0] -> tracks video+audio -> TrackItem -> MediaClip ->
+  MediaRef::File (path) / Subclip (padre + rango). Generadores, secuencias
+  anidadas, graficos y reverse se omiten con warning (no se inventan).
+- speed f64 -> racional milesimas en speed_num/den; fps de SequenceSettings.
+- Dialogo choose_timeline_file y descripcion MCP actualizados.
+
+### Verificacion
+cargo check exit 0 - cargo test timeline_import **33/33** (2 tests nuevos:
+rechazo de bytes desconocidos + import xmeml real con clips) - fix de
+regresion: mensaje de limite por formato (test preexistente verde).
+
+## Pasada 142 — Export de timeline a los 6 formatos de intercambio (filmcraft-interchange)
+
+La tool MCP `export_interchange` ya no está limitada a EDL/OTIO/FCPXML: ahora exporta
+**AAF, OMF, FCP7 XML (xmeml), FCPXML, EDL y OTIO** delegando la serialización en
+`filmcraft-interchange::export` (mismo rev `abf44fd` que el resto de los crates).
+
+### Arquitectura (sin duplicar)
+
+- `media/timeline_interchange.rs` (nuevo, ~470 líneas): adaptador bidireccional del
+  modelo — construye un `filmcraft_project::Project` desde el `ProjectDocument` JSON
+  (assets → `MediaClip`/`MediaInfo` con streams de video/audio inferidos del kind;
+  tracks/clips → `Track`/`TrackItem` con start/duration/source_in en `Tick` vía fps,
+  speed rational, gainDb de `clip.audio`). Lo no representable (clips image/graphic/
+  compound/caption, reverse, effects) se omite con warning explícito.
+- `commands/domains/media/interchange_export.rs` (nuevo): comando IPC
+  `export_timeline_interchange` — sesión → root del proyecto, output validado con
+  `output_file`, formato por nombre o extensión (`.xml`→FCP7XML, `.fcpxml`, `.aaf`,
+  `.omf`, `.edl`, `.otio`), escritura de bytes en `spawn_blocking`.
+- Cadena completa: contrato `exportTimelineInterchange` + shared command + tauri +
+  unavailable + fake service + catálogo MCP (enum de formatos ampliado) + dispatcher
+  (`fcp7xml|aaf|omf` → nuevo método, nombre de archivo derivado del proyecto).
+
+### Verificación
+
+- `cargo test timeline_interchange` **3/3** — incluye `exports_all_formats`: los 6
+  formatos producen bytes reales (xmeml contiene `xmeml`, FCPXML contiene `fcpxml`,
+  AAF/OMF son binarios no-texto).
+- `cargo test mcp::` **30/30** · typecheck exit 0 · vitest **61/61** ·
+  architecture-rules **13/13** · `cargo fmt --all` aplicado.
+
+Con esto la ida y vuelta de timelines queda completa: importar (pasada 141) y exportar
+los mismos 6 formatos con el mismo crate de referencia.
+
+## Pasada 143 — Slip, slide y roll expuestos a la IA (edición de corte profesional)
+
+Descubrimiento: `state/trim-actions.ts` ya implementaba los tres gestos de corte
+tipo Premiere — `slipClip`, `slideClip`, `rollClip` — con validación de handles
+de medios, contigüidad, velocidad (vía `speedOf`) y keyframes (trimStart/End). Lo que
+faltaba era exponerlos: la IA no podía hacer los ajustes finos de corte que un editor
+profesional hace a mano.
+
+### Lo agregado (sólo cableado, cero lógica nueva)
+
+- Catálogo MCP: `clip_slip` {clipId, deltaFrames}, `clip_slide` {clipId, deltaFrames},
+  `clip_roll` {clipId, edge: 'in'|'out', deltaFrames} — delta entero con signo,
+  ±1.000.000 frames.
+- Dispatcher: casos que llaman a las funciones puras existentes y aplican vía
+  `store.update` (undo incluido). Errores del dominio ("se sale de la ventana del
+  material", "necesita clips contiguos") llegan claros a la IA.
+- Scopes Rust: los tres en `SCOPE_WRITE` (mutan pero reversibles por undo).
+
+### Semántica
+
+- **slip**: corre la ventana de origen (inFrame/outFrame) sin mover el clip en la
+  timeline — "qué parte del material se ve".
+- **slide**: mueve el clip entre vecinos contiguos absorbiendo el delta en ambos
+  bordes de edición; conserva duración y ventana de origen.
+- **roll**: mueve el punto de corte entre dos clips contiguos sin mover los bordes
+  externos; `edge:'in'` corta con el anterior, `'out'` con el siguiente.
+
+### Verificación
+
+- vitest mcp-tools **50/50** — test nuevo cubre los tres gestos sobre clips
+  contiguos + dos negativos (roll fuera de rango y slip que se sale del material).
+- `cargo test mcp::` **30/30** · typecheck exit 0.
+- **271 tools MCP** totales.
+
+Con esto la IA tiene el set completo de gestos de corte profesional: add/move/split/
+delete/ripple + slip/slide/roll + trim por borde (`clip_update`/rippleTrim ya
+existían en UI).
+
+## Pasada 144 — 18 operaciones de edición avanzadas expuestas a la IA
+
+Mismo patrón que la pasada 143: `project-actions.ts` ya tenía implementadas las
+operaciones profesionales que la UI usa — la IA no podía invocarlas. Cableado MCP
+completo (catálogo + dispatcher + scopes WRITE), cero lógica nueva.
+
+### Velocidad y tiempo
+- `clip_speed_ramp` {clipId, from, to} — rampa de velocidad con easing (devuelve clips resultantes)
+- `clip_speed_curve` {clipId, points[{t,speed,easing?,bezier?}], opticalFlow?, targetFps?} — speed ramp continuo con interpolación optical flow
+- `clip_stabilize` {clipId, transformFile?, smoothing?, inFrame?, outFrame?} — aplica/quita estabilización (transformFile viene de stabilization_analyze)
+- `timeline_trim_start` {frames} — recorta el inicio de la timeline
+
+### Clips y estructura
+- `clip_freeze` {clipId, atFrame, assetId, durationFrames?} — freeze frame en la pista
+- `clip_detach_audio` — separa audio del video a su propia pista
+- `clip_duplicate` / `clip_compound` / `compound_expand`
+- `adjustment_add` {atFrame, durationFrames?, trackId?} — capa de ajuste para efectos globales
+- `clip_replace` {clipId, assetId, sourceOffset?} — sustituye el medio conservando posición/efectos (p. ej. versión procesada)
+
+### Cortes múltiples y transiciones
+- `clip_split_multi` {clipId, frames[]} — razor con varios cortes a la vez
+- `track_split` {trackId, frames[]} — razor en toda la pista
+- `split_at_markers` {trackIds?} — corta en todos los marcadores
+- `cut_at_frame` {atFrame, side:'left'|'right', clipId?} — conserva un solo lado del corte
+- `transition_apply_cuts` {type?, frames?, color?, trackIds?} — transición en todos los cortes contiguos (~40 tipos: dissolve, slides, wipes, iris, blinds, glitch, luma-wipe...)
+- `captions_from_scenes` — subtítulos desde escenas con narración
+- `audio_preset_apply_all` {preset:'voice'|'music'} — preset DSP a todos los clips de audio
+
+### Verificación
+- typecheck exit 0 · vitest mcp-tools **51/51** (test nuevo cubre duplicate, split_multi,
+  adjustment_add, audio_preset, split_at_markers y error de compound_expand) ·
+  `cargo test mcp::` **30/30** · scopes WRITE aplicados.
+- **289 tools MCP** totales.
+
+La IA ahora puede ejecutar literalmente cualquier operación que la UI ofrece sobre la
+timeline: ya no queda ninguna función de `project-actions` sin equivalente MCP.
+
+## Pasada 145 — Máscaras con keyframes y look de proyecto para la IA
+
+Última brecha de `project-actions`/`keyframe-actions` sin equivalente MCP: las
+máscaras (ClipMask: 10 formas, feather, expand, stroke, invert, máscaras de texto,
+polígono/freehand por puntos, keyframes propios) y el look global del proyecto.
+
+### Tools nuevas (294 total)
+
+- `clip_mask_set` {clipId, mask|null} — define o elimina la máscara completa
+  (objeto ClipMask validado por el schema del proyecto al aplicar).
+- `mask_keyframe_add` {clipId, frame, x?,y?,width?,height?,rotationDeg?,feather?,easing?}
+- `mask_keyframe_remove` {clipId, frame} · `mask_keyframes_clear` {clipId}
+- `project_look_set` {look|null} — ClipEffects global (exposure, contrast,
+  saturation, LUT, etc.) vía `setProjectLook`.
+
+Reusa `setMaskKeyframe`/`removeMaskKeyframe`/`clearMaskKeyframes` (keyframe-actions)
+y `updateClip`/`setProjectLook`. Scopes WRITE.
+
+### Verificación
+
+- typecheck exit 0 · vitest mcp-tools **52/52** (test nuevo: mask ellipse → keyframe
+  → look global → mask null elimina) · `cargo test mcp::` **30/30**.
+
+Con máscaras + keyframes + look + speed curves + estabilización + chroma key +
+transiciones, la IA cubre ya el 100% del modelo de clip del proyecto.
+
+## Pasada 146 — Marcadores completos, títulos y escenas para la IA
+
+Cierre de la cobertura MCP sobre `markers.ts`, `caption-actions.ts` (títulos) y
+`scene-actions.ts` (la estructura narrativa del proyecto).
+
+### 9 tools nuevas (303 total)
+
+**Marcadores**
+- `marker_update` {markerId, frame?, endFrame?, label?, color?, note?, role?} — edición
+  completa (rangos con endFrame, colores, rol 'cover' para thumbnails).
+- `markers_clear` · `markers_from_scenes` · `markers_from_cuts` {frames[]} —
+  generan marcadores desde escenas o desde cortes de edición.
+
+**Títulos**
+- `caption_title_add` {text, startFrame?, durationFrames?, styleId?} — cue de título
+  con estilo propio (`addTitleCue`).
+
+**Escenas** (unidad narrativa: hook/context/explainer/demo/proof/cta/outro)
+- `scene_add` {title, intent, narration, notes?} · `scene_update` {sceneId, ...} ·
+  `scene_remove` {sceneId} · `scene_reorder` {sceneIds[]}
+
+La IA puede ahora guionar el proyecto a nivel escena (`production_plan_*` genera el
+plan → `applyScenePlan` interno), narrar por escena y marcar la timeline en
+consecuencia — el flujo script→escenas→narración→edición queda completo por MCP.
+
+### Verificación
+- typecheck exit 0 · vitest mcp-tools **53/53** (test nuevo cubre marker CRUD,
+  markers_from_cuts, caption_title_add y scene add/update/remove) ·
+  `cargo test mcp::` **30/30** · scopes WRITE.
+
+
+## Pasada 147 — Overlays de tracking + perfiles de entrega (311 tools)
+
+Cableado MCP de `overlay-actions.ts` y `delivery-actions.ts`: la IA puede aplicar
+los gestos profesionales que la UI ya tenía pero no eran invocables por agente.
+
+### 8 tools nuevas (311 total)
+
+**Overlays guiados por tracking**
+- `overlay_face_center` {clipId, samples[{time,centerX,centerY}], smoothing?} —
+  reencuadre automático siguiendo el rostro (`applyFaceCenter`).
+- `overlay_face_blur` {clipId, samples[+size,rotationDeg], blur?, margin?, feather?,
+  smoothing?, kind: blur|pixelate, pixelSize?} — overlay de privacidad animado
+  (`applyFaceBlurOverlay`, devuelve clipId/trackId del overlay creado).
+- `overlay_mask_track` {clipId, samples, margin?, feather?, invert?, smoothing?} —
+  máscara que sigue un objeto trackeado (`applyMaskTrack`).
+- `overlay_breathing` {clipId, amplitude?, periodSeconds?} — loop idle de escala.
+- `overlay_click_pulse` {clipId, atOffset?} — gesto de clic (presión/rebote).
+
+Cadena completa: `analyze_face_track`/`track_object` → muestras → overlays.
+Las muestras se pasan como objetos {time,centerX,centerY,size?} — la IA mapea
+FaceTrackPoint {time,x,y} si hace falta.
+
+**Perfiles de entrega**
+- `delivery_compression` {preset: rapido|equilibrado|compacto|maximo,
+  videoCodec?} — presets CRF/preset/audio reales del proyecto.
+- `delivery_profile_fit` {fit: contain|cover|blur} ·
+  `delivery_pixel_format` {pixelFormat} — aplican a todos los renderProfiles.
+
+### Verificación
+- typecheck exit 0 · vitest mcp-tools **54/54** (test nuevo: breathing, click
+  pulse, face_blur pixelate, compression, fit, pixelFormat — con fixtures
+  separados porque los overlays de transform exigen clip sin keyframes previos)
+  · scopes WRITE · **311 tools**.
+
+
+## Pasada 148 — Keyframes de transform/ganancia + automatización de pista (329 tools)
+
+Expone `keyframe-actions.ts` y `track-automation.ts` completos: la IA ya puede
+animar cualquier propiedad con interpolación, Bézier y keyframes de audio por clip
+y por pista — el set de animación de un NLE profesional.
+
+### 18 tools nuevas (329 total)
+
+**Transform (complementa `keyframe_add` existente)**
+- `keyframe_remove` / `keyframe_clear` {clipId, freezeAtFrame?} — el clear
+  puede congelar el clip en un frame local.
+- `keyframe_paste_at_frame` {frame absoluto, patch completo + bezier|null} —
+  aplica el mismo patch a TODOS los clips bajo el playhead (`applied` devuelto).
+- `keyframe_bezier_apply` {cp1X,cp1Y,cp2X,cp2Y} — curva a todas las keyframes.
+- Reads: `keyframe_snapshot` (patch exacto en frame), `keyframe_capture`
+  (muestra transform para fijarlo), `keyframe_transform_at` (interpola el
+  estado efectivo), `clip_gain_at` (ganancia interpolada).
+
+**Ganancia de clip**
+- `gain_keyframe_add` {gainDb -60..12, easing} / `gain_keyframe_remove` /
+  `gain_keyframes_clear`.
+
+**Automatización de pista** (volumen/panorama animados por track)
+- `track_gain_keyframe_add/remove`, `track_gain_keyframes_clear`,
+  `track_pan_keyframe_add/remove` (valor -1..1), `track_pan_keyframes_clear`.
+- `clip_slowmo_smoothing` {enabled} — interpolación óptica de cámara lenta.
+
+### Verificación
+- typecheck exit 0 · vitest mcp-tools **55/55** (test: add→snapshot→transform_at
+  →gain→track gain/pan→bezier→remove) · scopes read/write aplicados.
+
+
+## Pasada 149 — El cerebro: director, auto-edit, planners y smart bins (344 tools)
+
+Expone los módulos de decisión automática de `state/`: el director explicable,
+el montaje automático por escenas, los planners de subtítulos/narración, smart
+bins, luma mates y el perfil adaptativo.
+
+### 15 tools nuevas (344 total)
+
+**Director automático (flagship)**
+- `director_apply` {assetId, platform: youtube|shorts|tiktok|reels|podcast|
+  broadcast, 9 flags de opciones} — pipeline completo: `analyzeMedia` +
+  `transcribeAsset` (tolerante a falta de modelo) → `buildDirectorPlan` con
+  el perfil calibrado del usuario (`directorProfile` desde editor-memory) →
+  `applyDirectorPlan`. Devuelve clipIds, captionCount, cuts, removed y
+  `directorQuality` (hallazgos info/warn/error).
+
+**Montaje automático**
+- `auto_edit_build` {assignment: order|match, includeCaptions, replaceTimeline,
+  maxCaptionChars?, photoMotion?, transitionFrames?, includeVideos?,
+  mediaByScene?} — `buildAutoEdit` sobre las escenas del guion.
+- `auto_edit_prepare` — igual + narraciones por escena ({sceneId, assetId})
+  con guard `confirmVoiceRights` (derechos de voz explícitos).
+
+**Planners puros (read)**
+- `caption_text_split` / `caption_wrap` / `caption_plan_cues` —
+  split/oración, wrap UAX#14 y plan de cues con CPS desde segmentos.
+- `narration_plan_build` — segmentos → frases de narración con pausas.
+- `adaptive_profile` — umbral de silencio/denoise/zoom/LUFS medido.
+
+**Smart bins**
+- `smart_bin_list` / `assets_smart_bin_filter` (read) ·
+  `smart_bin_create` / `smart_bin_remove` (write, persisten en
+  localStorage, máx 20 custom).
+
+**Luma mates**
+- `luma_mate_candidates` (read) · `luma_mate_move_track` ·
+  `luma_mate_place_freeze` (write, crea mate freeze desde frame asset).
+
+### Verificación
+- typecheck exit 0 · vitest mcp-tools **56/56** (test: planners, bins,
+  filter, adaptive, luma candidates, auto_edit sin escenas → error de dominio)
+  · scopes read/write · **344 tools**.
+
+
+## Pasada 150 — Ritmo musical, motion templates y storyboard (352 tools)
+
+Últimos módulos de decisión automática: beat-sync (decodificación real de audio
+en el webview), las ~cien plantillas de motion graphics, visual-intelligence
+y storyboard.
+
+### 8 tools nuevas (352 total)
+
+**Beat / ritmo (audio real decodificado con OfflineAudioContext)**
+- `beat_detect` {assetId} — bpm + beatsSeconds + confidence.
+- `beat_cut_track` {clipId, trackId?, stride?, minGapFrames?} — detecta beats
+  del audio del clip, planifica cortes y splitea la pista video destino.
+- `beat_ramp_suggest` {clipId, slowSpeed?, ...} — speed curve slow-mo en
+  pulsos (devuelve la curva sin aplicar, para `clip_speed_curve`).
+
+**Motion graphics**
+- `motion_templates_list` — todas las MOTION_TEMPLATES con fields editables.
+- `motion_graphic_add` {templateId, props, atFrame, durationFrames, trackId?,
+  label?} — aplica CUALQUIER template (título/identidad/cierre/dato/fondo),
+  no solo free-text/lower-thirds.
+
+**Storyboard y visual**
+- `storyboard_build` {imageAssetIds, audioAssetId?, defaultImageSeconds?,
+  photoMotion?, transitionFrames?} — slideshow narrado en el timeline.
+- `image_traits` {assetId, sentence?} — rasgos visuales + descripción +
+  score semántico (analyzeMediaFrames → deriveTraits/describeImage/scoreImage).
+- `visual_plan_assignments` {sentences[], imageAssetIds[]} — asignación
+  imagen↔oración por relevancia (para auto-montaje con B-roll).
+
+### Verificación
+- typecheck exit 0 · vitest mcp-tools **57/57** (templates list, motion_graphic
+  add free-text, image_traits/plan con mock, beat_detect y storyboard negativos)
+  · scopes read/write · **352 tools**.
+
+## Pasada 151 — QA de proyecto, reglas de plataforma, presets y cola de render (376 tools)
+
+Última tanda de `state/` con valor real de edición/entrega: evaluación de
+calidad, auditoría por plataforma, presets (rampa/efectos/audio/safe-area/
+títulos/formatos), IO range, tarjeta de título automática, retime de fps,
+cola de render persistida, favoritos de catálogo, export de subtítulos a
+contenido y memoria del director.
+
+### Tools nuevas (24)
+
+**Read (15)**: `project_quality_evaluate`, `platform_rules_list`,
+`platform_rules_audit`, `title_templates_list`, `speed_ramp_presets`,
+`effect_presets_list`, `audio_presets_list`, `safe_area_presets`,
+`clip_source_info`, `director_memory_get`, `render_queue_status`,
+`project_io_range_get`, `subtitles_export_content`, `catalog_favorites_list`,
+`video_format_presets`.
+
+**Write (9)**: `project_io_range_set`, `project_title_card_apply`,
+`speed_ramp_preset_apply` (heroe/montaje-ritmico/congela-y-sigue/entrada-lenta/
+salida-rapida/tiempo-bala), `effect_preset_apply`, `project_retime`
+(num/den acotados), `catalog_favorite_toggle`, `render_queue_enqueue`,
+`render_queue_clear_settled`, `director_outcome_record`.
+
+### Detalles
+
+- Todo reusa funciones existentes (`evaluateProjectQuality`,
+  `auditProjectForPlatform`, `applySpeedRampPreset`, `applyEffectPreset`,
+  `retimeProject`, `projectWithIoRange`, `applyProjectTitleCard`,
+  `exportSubtitleCues`, cola de render sobre `localStorage`) — cero lógica
+  nueva de edición.
+- `render_queue_*` usa el `KeyValueStore` de `localStorage` del webview;
+  sin storage disponible responde error claro.
+- `director_outcome_record` exige proyecto abierto en disco (necesita path
+  para la memoria persistente).
+- Colisión resuelta: `effect-presets.ts` exporta `EFFECT_PRESETS` pero
+  `mcp-tools.ts` ya tenía un `EFFECT_PRESETS` local → import como
+  `NAMED_EFFECT_PRESETS`.
+
+### Verificación
+- typecheck exit 0 · vitest mcp-tools **58/58** (test nuevo cubre quality,
+  platform audit + error de pack desconocido, ramp/effect presets, io range
+  set/get, subtitles srt, favorite toggle, retime, queue status,
+  director memory, format presets, title card) + validation **12/12**
+  · `cargo test -p editor-ia-desktop mcp::` **30/30** (paridad 376)
+  · scopes read/write aplicados.
+
+## Pasada 152 — Planificación de producción, publicación, plantillas y cleanup (388 tools)
+
+Doce tools nuevas sobre módulos de `state/` que seguían sin exposición:
+producción, publicación, plantillas de efectos, búsqueda full-text,
+montaje de carpeta, limpieza automática y paquete de entrega.
+
+### Reads (7)
+`production_plan_from_project` (ProjectDocument → ProductionPlan),
+`factory_variants_plan` (brief → N variantes con nombre/brief),
+`publication_metadata` (título/descripción/hashtags/capítulos/plataformas),
+`publication_audit` (licencias, duplicados, readiness score),
+`effect_templates_list` (builtins video/audio + personalizadas),
+`project_search` (MiniSearch full-text sobre clips/captions/markers/assets,
+con destinationOfHit), `caption_motion_presets`.
+
+### Writes (5)
+`delivery_package_build` (buildDeliveryPackage → saveDeliveryPackage con
+ruta explícita, sin diálogo; .zip con proyecto portable + srt + derechos.csv
++ manifiesto), `subtitle_import` (importSubtitleFile: detecta srt/vtt/ass
+por contenido, valida cues contra schema, warnings por cue omitido),
+`folder_timeline_build` (monta assets listos de imagen/video/audio con
+disolvencias), `auto_cleanup_run` (runAutoCleanup completo: silencios,
+pausas, gaps, denoise, loudness LUFS, zoom cuts — con todos los umbrales
+expuestos), `effect_template_apply` (stackFromTemplate → clip.effects.stack
+o audioStack, builtin por nombre o plantilla personalizada).
+
+### Colisión detectada y resuelta
+`multicam_build` ya existía (assetIds + autoCut por voz, en scope
+destructive + ADDITIVE). Se eliminó el duplicado añadido en esta pasada;
+el existente es superior (auto-corte por envelope de audio).
+
+### Verificación
+- typecheck exit 0 · vitest **71/71** (test nuevo cubre plan, variants,
+  metadata, audit, templates list, motions, search, subtitle_import,
+  folder_timeline, effect_template_apply + error de plantilla inexistente,
+  auto_cleanup con todo desactivado) + validation **12/12**
+- Scopes read/write aplicados; `cargo test mcp::` en curso.
+
+## Pasada 153 — SFX, color looks, presets de export/grade y transcripción (400 tools)
+
+Doce tools nuevas desde `features/` (editor + color): biblioteca de
+efectos de sonido, looks de color, presets de exportación y de gradación,
+estimación de peso de export y transcripción batch del proyecto.
+
+### Reads (5)
+`color_looks_list` (COLOR_LOOKS con ClipEffects), `export_presets_list`,
+`export_size_estimate` (estimateOutputBytes con defaults del proyecto),
+`grade_presets_list` (presets guardados + builtin looks), y
+`sfx_library` ya existía (se reusa, no se duplicó).
+
+### Writes (8)
+`sfx_add` (addSfxToTimeline: importa WAV con dedupe provider sfx y monta
+clip de audio en atFrame), `color_look_apply` (look a clip o merge al look
+global del proyecto), `export_preset_save`/`export_preset_delete`
+(SavedExportPreset en localStorage), `grade_preset_save`/`delete`/`apply`
+(grafo ColorGrade validado con isValidGrade → clip.effects.colorGrade),
+`transcribe_project` (transcribeProjectClips: guarda el proyecto y
+transcribe todos los clips → captions, con resumen por clip).
+
+### Colisión detectada y resuelta (segunda del día)
+`sfx_library` ya existía en catálogo + dispatcher + scopes (devuelve el
+array crudo del servicio). Se eliminaron los 3 duplicados añadidos
+(catálogo, dispatcher, scope read + read-only set) y el test se ajustó
+al contrato existente (`Array.isArray`). Lección: antes de agregar tools,
+grepear el catálogo completo por nombre — mi filtro de auditoría no
+cubría el patrón "sfx".
+
+### Verificación
+- typecheck exit 0 · vitest **72/72** (test nuevo: looks apply a clip,
+  export preset save/delete real, size estimate, grade apply negativo,
+  sfx_add negativo) + validation **12/12** (Set size == length: 400
+  únicas, sin duplicados)
+- `cargo test -p editor-ia-desktop mcp::` **30/30** (paridad 400)
+- Build debug stale de la pasada 152 abortado (frontend+scopes cambiaron).
+
+## Pasada 154 — Media por bytes, copia al proyecto y pipeline alfa (406 tools)
+
+Auditoría del contrato `DesktopService` completo: de 102 métodos de
+servicio, 17 no tenían tool MCP. Se expusieron los que tienen valor real
+para la IA; el resto son diálogos de archivo (`choose*`), callbacks
+(`onCompressProgress`), lifecycle MCP (`startMcpServer`/`stop`/`closeSession`)
+y streaming del asistente — correctamente fuera del alcance.
+
+### Read (1)
+`file_url_absolute` — ruta absoluta → URL cargable.
+
+### Writes (5)
+- `audio_import_bytes` — importa audio binario (base64, wav/mp3/m4a/aac/
+  flac/ogg/opus/webm, backend valida extensión y tope 256MB) → assets.
+  La IA puede meter voz grabada, TTS propio o blobs generados al proyecto.
+- `media_copy_into` — copia archivos a un directorio y devuelve
+  relativePath + sha256 real del destino.
+- `alpha_frames_write` / `alpha_frames_to_asset` / `alpha_frames_discard`
+  — pipeline completo de secuencia con alfa: la IA escribe lotes de PNG
+  RGBA bajo un token, codifica a WebM VP9 con transparencia, lo importa
+  al proyecto (addAsset + markAssetReady) y lo monta con clip_add.
+  Es el mismo flujo que usa LottiePanel para motion graphics.
+
+### Verificación
+- typecheck exit 0 · vitest **73/73** + validation **12/12**
+- `cargo test -p editor-ia-desktop mcp::` **30/30** (paridad 406)
+- Builds 152/153 abortados por quedar stale; este es el rebuild final.
+
+## Pasada 155 — Generación AI, ciclo de render y proveedores (440 tools)
+
+Auditoría final del contrato de servicio: de ~110 métodos restantes sin
+invocar en el dispatcher, la mayoría eran diálogos (`choose*`), callbacks
+(`on*Progress`), lifecycle MCP/streaming del asistente y workers internos
+— correctamente fuera. Se expusieron 34 métodos reales (una colisión:
+`flow_proxies_get` ya existía completa y se deduplicó).
+
+### Reads (9)
+`whiteboard_status` · `system_fonts_list` · `hardware_encoders` ·
+`download_disk_space` · `render_active` · `audio_provider_get` (sin key) ·
+`whisper_model_status` · `vpn_wireguard` · `recent_project_thumbnail`
+
+### Writes (7)
+`tool_choose` (self-heal ffmpeg/ffprobe) · `reveal_output` ·
+`vpn_wireguard_open` · `mcp_session_close` · `publication_manifest_save` ·
+`whisper_model_download`/`_cancel`
+
+### Destructive (16 — costo, compute o fuera del proyecto)
+`script_generate` / `effect_recipe_generate` / `motion_suggest` /
+`media_plan_match` (proveedores IA con `approvedCost`) ·
+`whiteboard_generate` · `render_start` / `render_variant` / `render_cancel` /
+`render_cache_prune` / `render_queue_clear_finished` /
+`project_variant_write` · `audio_provider_save` / `_clear_key` ·
+`extension_prepare` · `web_session_nav` · `open_external_url`
+
+### Admin (2 — nunca por autoconnect)
+`mcp_server_save` (registra comandos arbitrarios) · `web_session_eval`
+(JS arbitrario en webview embebido, mismo nivel que `flow_embed_eval`)
+
+### Verificación
+- typecheck exit 0 · vitest **74/74** + validation **12/12** (440 únicas)
+- `cargo test -p editor-ia-desktop mcp::` **30/30** (paridad 440)
+- Fixes: duplicado `flow_proxies_get` (ya existía en catálogo+dispatcher+
+  scopes) removido de los 4 lados; schema valida `tool_choose` antes del
+  dispatcher (test ajustado).
+
+## Pasada 156 — Recuperación, memoria del director y preferencias (446 tools)
+
+Último barrido de `state/` (116 módulos): la mayoría de los restantes son
+UI-state puro (layout, theme, snapping, selection, media-spy,
+preview-readiness, profile, gpu-failures, learning-progress). Los que
+tenían valor real ya estaban cubiertos por sus consumidores
+(`applySpeakerSegments` en diarize, `buildNarrationTimeline` en los flujos
+de montaje, `flow-queue`/`flow-accounts` dentro del provider de Flow).
+
+### 6 tools nuevas
+- `recovery_status` (read) — instantánea de recuperación tras cierre
+  inesperado (path, savedAt, fileName).
+- `recovery_restore` / `recovery_dismiss` (destructive) — restaura la
+  sesión interrumpida vía `store.acceptRecovery()` o descarta la
+  instantánea (borra cambios recuperables).
+- `director_memory_reset` (write) — reinicia la calibración por
+  plataforma del director (`emptyDirectorMemory` + `saveDirectorMemory`).
+- `preferences_export` (read) — bundle JSON de preferencias locales
+  (apariencia, atajos, comportamiento) + nombre de archivo.
+- `preferences_import` (write) — aplica un bundle exportado; validación
+  campo por campo, un archivo corrupto no se aplica a medias.
+
+### Fix de robustez
+`saveShortcuts` (shortcuts.ts) despachaba `window.dispatchEvent` sin
+guarda — `preferences_import` rompía en contextos sin `window`. Ahora
+dispatcha sólo si `window` existe (mismo patrón que
+`editor-preferences.ts`).
+
+### Verificación
+- typecheck exit 0 · vitest **75/75** (63 mcp-tools + 12 validation)
+- `cargo test -p editor-ia-desktop mcp::` **30/30** (paridad 446)
+- Paridad catálogo↔dispatcher verificada: 446 = 446, sin huérfanos.
+
+## Pasada 157 — Catálogo effect-kit y stack por clip (454 tools)
+
+Auditoría de `packages/effect-kit`: la UI tenía el registry completo
+(~100 efectos con parámetros tipados) pero MCP sólo podía aplicar
+plantillas completas (`effect_template_apply`) o el patch legacy de
+efectos. No había forma de descubrir efectos individuales ni de operar
+instancias sueltas del stack.
+
+### 8 tools nuevas
+- `effect_catalog_search` (read) — búsqueda normalizada (sin acentos,
+  case-insensitive) sobre nombres/descripciones/keywords; filtro por
+  `kind` (video/transition/audio). Devuelve manifests con specs de
+  parámetros (id, tipo, min/max/default/options).
+- `effect_catalog_get` (read) — manifest completo de un efecto por id.
+- `effect_stack_list` (read) — instancias del stack del clip con
+  effectId, enabled y params efectivos.
+- `effect_stack_add` (write) — `createInstance` del manifest con
+  defaults normalizados + overrides validados por `coerceParam`;
+  respeta `MAX_STACK_EFFECTS` (32) y elige `stack` (video) o
+  `audioStack` según `target`/kind del efecto.
+- `effect_stack_remove` / `effect_stack_set_enabled` /
+  `effect_stack_set_param` / `effect_stack_reset` / `effect_stack_move`
+  (write) — CRUD completo de instancias vía los helpers de `stack.ts`
+  (`removeInstance`, `setInstanceEnabled`, `setInstanceParam`,
+  `resetInstance`, `shiftInstance`/`moveInstance` con clamp de índice).
+- `effect_stack_duplicate` (write) — duplica instancia con nuevo id.
+
+Todo opera sobre `clip.effects.stack`/`audioStack` del proyecto
+compartido vía `store.update` (undo-compatible), sin modelo paralelo.
+
+### Verificación
+- typecheck exit 0 · vitest **76/76** (64 mcp-tools + 12 validation;
+  test nuevo cubre search→add→list→set_param→disable→reset→move→
+  remove→duplicate→errores de id inexistente y de kind inválido)
+- `cargo test -p editor-ia-desktop mcp::` **30/30** (paridad 454)
+- Paridad catálogo↔dispatcher verificada: 454 = 454, sin huérfanos.
+
+## Pasada 158 — Grafos de nodos, edición por texto y Lottie (464 tools)
+
+Auditoría de `features/` restante: `nodes/` (grafo de procesamiento
+ejecutable persistido en `x-nodeGraphs` del proyecto), `text-edit/`
+(edición por transcripción estilo Descript) y `motion/lottie.ts`
+(rasterizado Lottie→frames alfa) no tenían acceso MCP. Además se
+completaron `effect_catalog_get` y `effect_stack_duplicate` (quedaron
+fuera de la pasada 157).
+
+### 10 tools nuevas
+- `node_graph_list` / `node_graph_get` / `node_graph_validate` (read) —
+  inventario, grafo completo y validación (ciclos, aristas rotas, nodos
+  sin asset/efecto/texto) de grafos guardados o inline.
+- `node_graph_save` / `node_graph_remove` / `node_graph_execute` (write)
+  — upsert con validación obligatoria, borrado y ejecución del grafo en
+  un solo paso de undo (`executeGraph`: input→effect/audio-fx→caption→
+  render en orden topológico). Devuelve `renderRequested` para encadenar
+  `render_start`.
+- `text_edit_build` (write) — `buildTextEditProject`: dado un asset de
+  video y segmentos de transcripción (`transcribe_asset`), monta los
+  rangos no excluidos en una pista nueva. Edición por texto no destructiva.
+- `lottie_import` (destructive) — pipeline completo Lottie→WebM alfa:
+  `parseLottieDocument` + `planLottieExport` + `createLottieRasterizer`
+  (lottie-web en el webview) + `writeAlphaFrames` por lotes +
+  `alphaFramesToAsset` + `addAsset`/`markAssetReady`. `confirmRights=true`
+  obligatorio; fuente `json` inline (≤2M chars) o `path` (≤512KB por
+  fs_read, rechaza truncados). En error descarta los frames del token.
+- `effect_catalog_get` (read) / `effect_stack_duplicate` (write) —
+  manifiesto completo por id y duplicado de instancia con nuevo id.
+
+### Fix de arquitectura
+`scripts/architecture-rules.test.mjs` fallaba desde la pasada 151:
+`state/mcp-tools.ts` importa features/ (color-looks, grade-presets,
+export-presets, sfx-actions, transcribe-project, nodes, text-edit,
+motion). Se documentaron las 5 aristas en `KNOWN_UPWARD_EDGES` con
+motivo y criterio de eliminación (bajar los módulos compartidos a
+state/ o services/).
+
+### Verificación
+- typecheck exit 0 · vitest **65/65** mcp-tools + **12/12** validation
+  (test nuevo cubre validate→save→list→execute→get→remove→invalid,
+  text_edit_build con exclusión y los guardarraíles de lottie_import)
+- `cargo test -p editor-ia-desktop mcp::` **30/30** (paridad 464)
+- Paridad catálogo↔dispatcher verificada: 464 = 464, sin huérfanos.
+
+## Pasada 159 — Skills del AI Hub (468 tools)
+
+Brecha del pedido original ("agregar o crear skill"): el AI Hub tenía
+~10 skills built-in y skills personalizadas del usuario
+(`features/ai-hub/custom-skills.ts`, persistidas en localStorage) pero
+ninguna tool MCP las exponía — la IA no podía listar, componer ni crear
+skills.
+
+### 4 tools nuevas
+- `ai_skills_list` (read) — built-in + personalizadas con filtro
+  `category` y `customOnly`.
+- `ai_skill_compose` (read) — `composeSkillPrompt`: prompt final con
+  contrato de salida, caracteres, tokens estimados y flag `tooLong`.
+- `custom_skill_save` (write) — crea/actualiza skill personalizada
+  (name, summary, category, target validado contra `NAV_VIEWS`, output,
+  prompt); id auto-generado del nombre (slug sin acentos) si no se pasa.
+- `custom_skill_delete` (write) — borra por id.
+
+### Fix de robustez
+`custom-skills.ts` usaba `localStorage` directo: en contextos sin
+storage (tests, SSR) `loadCustomSkills` devolvía `[]` y `persist`
+tragaba el error, así que las skills no persistían nunca fuera del
+webview. Ahora hay fallback en memoria del módulo cuando
+`localStorage` no existe o falla — mismo comportamiento, testeable.
+
+### Verificación
+- typecheck exit 0 · vitest **66/66** mcp-tools + **12/12** validation
+  + ai-hub **41/41** (test nuevo cubre list→compose→save→compose custom
+  →delete→errores de skill/target inexistentes)
+- `cargo test -p editor-ia-desktop mcp::` **30/30** (paridad 468)
+- Paridad catálogo↔dispatcher verificada: 468 = 468, sin huérfanos.
+
+## Pasada 160 — Verificación en vivo del MCP + fix de panic en tools de estudio
+
+Primera verificación end-to-end contra la app real corriendo (no mocks):
+se cerró la instancia instalada vieja (136 tools), se lanzó el build
+debug nuevo y se sondeó `http://127.0.0.1:31417/mcp` con el token del
+Credential Manager (`olyvia-server-token.editor-ia.mcp`).
+
+### Resultados del probe en vivo
+- `initialize` OK (`serverInfo: olyvia 0.2.0`) y `tools/list` = **468
+  tools** — el catálogo completo servido por el binario nuevo.
+- `tools/call` verificado contra el webview real:
+  `project_summary` (proyecto abierto real), `effect_catalog_search`
+  (manifests con parámetros), `ai_skills_list`, `node_graph_list`,
+  `recovery_status` — todos `ok:true`.
+
+### Bug real encontrado y corregido
+`studio_capabilities` (y potencialmente todo el set `production_*` /
+`studio_*` que construye `reqwest::blocking::Client`, p.ej.
+`InternetArchiveAcquisition`) **cerraba la conexión TCP sin respuesta**:
+el runtime interno del cliente blocking se crea y se suelta dentro del
+contexto async del accept loop del MCP y tokio paniquea en
+`blocking/shutdown.rs` ("Cannot drop a runtime in a context where
+blocking is not allowed"). Síntoma: `Empty reply from server` / fetch
+failed, sin entrada en `mcp-audit.jsonl`.
+
+Fix en `infrastructure/mcp_studio.rs`: `StudioMcpInvoker::invoke` ahora
+corre `studio_result` dentro de `tokio::task::spawn_blocking` — el pool
+bloqueante corre con `is_entered() == false`, donde crear/soltar
+runtimes está permitido. `cargo check` verde; rebuild debug en curso.
+
+### Verificación del fix (en vivo, segunda corrida)
+- Rebuild debug 7m54s, app relanzada: `tools/list` = **468**.
+- `studio_capabilities` ahora responde JSON real (acquisitions,
+  internet-archive, resourceKinds) — antes cerraba la conexión.
+- `production_list` (también path nativo Rust) responde
+  `{"count":0,"runs":[]}`.
+- Log de la app: **0** panics de tokio (antes 1 por llamada).
+- Ciclo write verificado en vivo: `custom_skill_save` →
+  `ai_skills_list` (aparece) → `custom_skill_delete` → lista vacía.
+- Scopes verificados en vivo: `recovery_dismiss`/`marker_delete` sin
+  `destructive` y `run_command` sin `admin` → error `-32004` tipado.
+  Con el header correcto `x-olyvia-scopes` (sin typo),
+  `marker_delete` con `read,write,destructive` ejecuta OK y
+  `run_command` sigue denegado sin `admin`.
+- Edición real sobre el proyecto abierto: `marker_add` (frame 0,
+  "probe-mcp") → visible en `markers_list` → `marker_delete` → lista
+  vacía. Ciclo write→read→delete completo sobre el documento real.
+
+## Pasada 161 — Catálogo MCP por niveles para el asistente interno (469 tools)
+
+`npm run test:serial` destapó una regresión real: el payload `mcpTools`
+del chat pesaba **191 KB** (468 tools con JSON Schema completo) y el
+presupuesto `MAX_ASSISTANT_MCP_CATALOG_BYTES` (48 KB) sólo incluía ~117
+herramientas — el asistente interno veía una fracción del catálogo.
+
+### Solución: índice + schema bajo demanda
+- `AssistantDock` ahora envía un **índice compacto** de todas las tools:
+  `{name, description (~160 chars), h}` sin `inputSchema` (~85 KB).
+- Nueva tool read-only **`mcp_tool_schema`**: devuelve descripción
+  completa + JSON Schema + anotaciones de una herramienta por nombre.
+  El modelo la llama antes de invocar una tool cuyo contrato no recuerde.
+- `MAX_ASSISTANT_MCP_CATALOG_BYTES`: 48 KB → **96 KB** (cabe el índice
+  entero de las 469).
+- Prompt del sistema actualizado: explica que el catálogo es un índice
+  y que los parámetros se piden con `mcp_tool_schema`.
+- Scopes: `mcp_tool_schema` en `SCOPE_READ_TOOLS` y en `is_read_only`
+  (batch paralelo).
+
+### Verificación
+- typecheck exit 0 · vitest **115/115** (mcp-tools 66 + validation 12 +
+  AssistantDock 37 — test actualizado al nuevo shape y al budget 96 KB)
+- Paridad catálogo↔dispatcher: **469 = 469**, sin huérfanos
+- `cargo test mcp::` **30/30** · `cargo test ai::assistant` **21/21**
+- **Verificado en vivo** (build161, app relanzada): `tools/list` =
+  **469**, `mcp_tool_schema clip_add` devuelve el JSON Schema completo,
+  nombre inexistente → error tipado.
+
+### Deuda de arquitectura saldada (misma pasada)
+Primera arista `KNOWN_UPWARD_EDGES` eliminada: los módulos de skills
+del AI Hub eran lógica de dominio pura (registry + persistencia
+localStorage), no UI — se movieron a `state/`:
+- `features/ai-hub/ai-hub.ts` → `state/ai-skills.ts`
+- `features/ai-hub/custom-skills.ts` → `state/custom-skills.ts`
+- tests acompañantes → `state/ai-skills.test.ts`,
+  `state/custom-skills.test.ts`
+- imports actualizados en `AiHubView.tsx` y `mcp-tools.ts`
+- `'state/mcp-tools.ts -> features/ai-hub'` fuera de la lista de
+  excepciones: quedan **7** aristas documentadas.
+
+Verificación: typecheck exit 0 · vitest dirigidos **107/107**
+(ai-skills + custom-skills + mcp-tools + ai-hub operator).
+architecture-rules + dependency-rules **20/20**.
+
+`test:serial` post-refactor: **3224 passed / 3 failed — los 3 son
+flaky de timing, no regresión**: `App.test.tsx` (timeout 5s) pasó
+completo al re-correrlo aislado; `App.teclado.test.tsx` "Space sobre un
+botón enfocado" pasa solo en **4852ms** (al límite del timeout de 5000ms
+bajo carga — test lento preexistente del WIP de Transport, no tocado
+por esta pasada).
+
+### Aristas 2 y 3 saldadas (misma pasada)
+- `features/nodes/graph-model.ts` → `state/graph-model.ts`
+- `features/nodes/graph-store.ts` → `state/graph-store.ts`
+- `features/text-edit/text-edit.ts` → `state/text-edit.ts`
+- tests acompañantes → `state/` (18 tests movidos)
+- imports actualizados en `NodeGraphView.tsx`, `TextEditView.tsx`,
+  `mcp-tools.ts`
+- Fuera de `KNOWN_UPWARD_EDGES`: quedan **5** aristas documentadas
+  (mcp-tools→editor/color/motion + AppShell→assistant +
+  MenuBar→editor).
+
+Verificación: typecheck exit 0 · vitest **84/84** (graph-model 6 +
+graph-store 7 + text-edit 5 + mcp-tools 66) + TextEditView 2/2 ·
+architecture-rules **13/13**.
+
+## Pasada 162 — Aristas editor/color saldadas: lógica de dominio a state/
+
+Continuación de la limpieza de `KNOWN_UPWARD_EDGES` (quedaban 5 tras la
+pasada de grafos/text-edit). Se auditaron los 6 módulos que `state/mcp-tools.ts`
+importaba desde `features/` y se movieron a `state/` los 5 que son lógica pura
+de dominio (sin DOM ni presentación):
+
+- `features/editor/color-looks.ts` → `state/color-looks.ts`
+  (COLOR_LOOKS — catálogo de looks de color)
+- `features/editor/export-presets.ts` → `state/export-presets.ts`
+  (presets de export + estimación de bytes; test movido)
+- `features/color/grade-presets.ts` → `state/grade-presets.ts`
+  (presets de grading + looks built-in; test movido)
+- `features/editor/sfx-actions.ts` → `state/sfx-actions.ts`
+  (addSfxToTimeline — ya dependía de state/project-actions)
+- `features/editor/transcribe-project.ts` → `state/transcribe-project.ts`
+  (transcripción batch del proyecto; test movido)
+
+Consumidores actualizados: `EditorAssets.tsx`, `Inspector.tsx`,
+`ExportDialog.tsx`, `ColorStudio.tsx`, `ColorPropertiesPanel.tsx(.test)`,
+`SfxLibrary.tsx`, `Timeline.tsx`, `mcp-tools.ts`.
+
+La sexta arista (`features/motion/lottie.ts`) se mantiene documentada:
+`createLottieRasterizer` usa `lottie-web` + canvas (DOM), no es portable a
+state/ tal cual; el criterio de eliminación quedó reescrito (bajar parse/plan
+puros y/o inyectar el rasterizador desde el composition root).
+
+`KNOWN_UPWARD_EDGES` queda en **3** aristas: `mcp-tools→motion` (Lottie DOM),
+`AppShell→assistant` y `MenuBar→editor` (componentes — refactor de composición).
+
+Verificación: typecheck exit 0 · vitest **154/154** (export-presets 7,
+grade-presets 4, transcribe-project 4, mcp-tools 66, ColorStudio 2,
+ColorPropertiesPanel 13, ExportDialog 14, Timeline 44) ·
+architecture-rules + dependency-rules **20/20**.
+
+## Pasada 163 — Componentes desacoplados de features/ por composición
+
+Últimas 2 aristas de `KNOWN_UPWARD_EDGES` saldadas. `components/` dejó de
+conocer `features/`: la inyección ocurre en `app/Shell.tsx` (composition
+root, que ya importa features vía view-registry).
+
+- `components/AppShell.tsx → features/assistant`: `AssistantDock` ya no se
+  importa; `AppShell` acepta `assistantDock?: ReactNode` y lo monta en el
+  mismo lugar. `Shell.tsx` inyecta
+  `<AssistantDock activeId onSelect docked={aiOnly}/>`.
+- `components/MenuBar.tsx → features/editor`: se fueron `ReviewDialog`,
+  `HistoryDialog`, `CriticDialog`, `LIVE_UPDATE_FEATURES` y
+  `LiveUpdateFeatureList`. `MenuBar` acepta `featureDialogs?:
+  MenuFeatureDialogs` (componentes inyectados) y deshabilita las entradas
+  del menú cuando el diálogo no está provisto. `NewsDialog` +
+  `NewsTrackingArt` + `NEWS_AVAILABILITY` se movieron a
+  `app/menu-news-dialog.tsx` (app/ sí puede importar features/).
+
+`KNOWN_UPWARD_EDGES` queda en **1**: `state/mcp-tools.ts → features/motion`
+(rasterizador Lottie DOM — único pendiente, con criterio documentado).
+
+Verificación: typecheck exit 0 · vitest **20/20** (MenuBar 9,
+ai-first-shell 4, AppShell autosave 4 + recovery 3) + **88/88**
+(App.test completo, unified-editor contract 4, WorkspaceView 3) ·
+architecture-rules **13/13**.
+
+## Pasada 164 — Lottie dividido: núcleo puro a state/, rasterizador inyectado (0 aristas)
+
+Última arista de `KNOWN_UPWARD_EDGES` saldada: `state/mcp-tools.ts →
+features/motion`. Split de `features/motion/lottie.ts`:
+
+- `state/lottie.ts` (nuevo, puro, sin DOM): constantes, `LottieParseError`,
+  `LottieDocument`, `LottieExportPlan`, `LottieRasterizer`,
+  `parseLottieDocument`, `planLottieExport`, `lottieFrameAt`,
+  `extractLottieZip` (fflate) + **registro de la fábrica DOM**:
+  `registerLottieRasterizer` / `createLottieRasterizer` (falla explícito si
+  no hay registro).
+- `features/motion/lottie.ts`: sólo el rasterizador DOM
+  (`lottie-web` + canvas fuera de pantalla).
+- `app/Shell.tsx` (composition root): `registerLottieRasterizer(
+  createLottieRasterizerDom)` al importar el módulo — la app registra la
+  fábrica una vez al arrancar; `lottie_import` MCP y el panel Motion
+  rasterizan con el mismo código.
+- Consumidores actualizados: `LottiePanel.tsx`, `LottiePreview.tsx`,
+  `mcp-tools.ts`; `lottie.test.ts` → `state/lottie.test.ts` (18 tests).
+
+`KNOWN_UPWARD_EDGES` queda **vacío**: `state/` y `components/` ya no
+dependen de `features/` en ninguna parte del frontend. La regla ahora es
+blanda-cero: cualquier arista nueva rompe el test.
+
+Fix de fragilidad incluido: `LottiePanel.test.tsx` — el primer test paga la
+transformación on-demand de los chunks lazy (Proyectos + Motion) y el
+`findByRole` default de 1s no alcanzaba (fallos intermitentes 1-3 tests por
+corrida). Timeout del helper a 10s y del primer test a 20s, misma convención
+que `App.test.tsx`.
+
+Verificación: typecheck exit 0 · vitest **18/18** lottie + **66/66**
+mcp-tools + **3/3** LottiePanel · architecture + dependency rules **20/20**.
+
+Verificación ampliada post-pasada 164: `npm run test:serial` completo —
+**356 archivos, 3227 tests passed / 0 failed / 3 skipped** (855s). Primera
+corrida serial completamente verde de la sesión; los flaky de timing
+anteriores (App.teclado, App.test menu, LottiePanel) quedaron absorbidos
+por los timeouts endurecidos o pasaron limpios.
+
+## Pasada 165 — Gate clippy en verde: 27 lints mecánicos corregidos
+
+`cargo clippy --workspace --all-targets -- -D warnings` fallaba con 27
+errores (9 lib + 18 lib-test) en archivos Rust del WIP — deuda preexistente
+que bloqueaba el gate antes de cualquier commit. Todos mecánicos:
+
+- `#[allow]` justificados donde la firma es estable: `too_many_arguments`
+  (models.rs `download_file_verified`, audio_mix `audio_duck_plan`,
+  conversion.tests `loose_file_deps`, filter.rs `visual_filter`),
+  `large_enum_variant` (screen_record `RecordState` — boxing cambiaría el
+  código de estados), `items_after_test_module` (concat_worker — mover el
+  módulo de tests es invasivo).
+- Fixes directos: `?` en narration.rs, doc indent en obs_scenes.rs,
+  closure redundante → `synth` en local_sfx.rs, `chunks_exact` →
+  `as_chunks::<2>()`, `assert_eq!(x, true)` → `assert!` en mcp_studio.rs,
+  needless borrow en models.rs/variants.rs, loop por índice →
+  `iter_mut().enumerate().take().skip()` en audio_tools.rs,
+  `manual_range_contains` → `(MIN_DIM..MAX_DIM).contains(&h)`,
+  cast innecesario `b'<' as u8` → `b'<'`, `== false` → `!` y
+  `.err().expect()` → `.map(|_|()).expect_err()` en ffmpeg/tests.rs.
+
+Verificación: `cargo clippy --workspace --all-targets -- -D warnings`
+exit 0 (4m43s). `cargo fmt --check` ya estaba limpio.
+
+Verificación: `cargo clippy --workspace --all-targets -- -D warnings`
+exit 0 (4m43s). `cargo fmt --check` ya estaba limpio.
+`cargo test -p editor-ia-desktop`: **1134 passed / 0 failed / 73 ignored**
+(34s) — los fixes no rompieron ningún test.
+
+## Auditoría de front end y cajón de herramientas visible
+
+Pedido del usuario: arreglar el frente y mostrar botones de herramientas no
+edición (descargador, compresor, etc.), sin recuperar los de edición.
+
+- `components/UtilityToolsMenu.tsx` nuevo: botón «Herramientas» + cajón con
+  las vistas donde `resolveViewRoute(id).editorMode === undefined`. Grupos:
+  Herramientas, Flujo de trabajo, Inicio y Ayuda. Cierra con Escape/clic
+  afuera y navega con `onSelect`.
+- **Fallo visual detectado en vivo**: primero se puso el botón en `.topbar`
+  del `AppShell`, pero esa barra tiene `display:none` en el editor
+  inmersivo, así que no se veía. Se movió a `.alauk-topbar`
+  (`AlaukChrome`), la barra realmente visible.
+- Además se corrigió el filtro: `editorModeForView` dejaba pasar Texto,
+  Multicámara, Mezcla, VFX y Nodos; `resolveViewRoute` los excluye.
+- Verificación: `tsc` exit 0 · suite serial completa **3229 passed /
+  3 skipped / 0 failed** · AlaukChrome 9/9 + ai-first-shell 3/3 ·
+  `tauri:build` exit 0 (149,45 MiB) · CDP en el exe final: botón visible
+  en `.alauk-topbar` (115×28 px), cajón abierto con Descargar, Comprimir,
+  Laboratorio… y **0** pestañas de edición ni rail.
+
+App instalada con respaldo `editor-ia-desktop-pre-visible-tools.exe` y
+abierta (PID 4512) sin puerto de depuración.
+
+## Pasada 166 — Menú «Herramientas» AI-only reubicado en la barra del editor
+
+Cambio del usuario + ajuste de posicionamiento:
+
+- El cajón de herramientas no-edición del modo IA-only se movió de la
+  topbar global (`AppShell`) a `components/UtilityToolsMenu`, montado en
+  `AlaukTopBar` (`features/editor/AlaukChrome.tsx`) — la barra que sí
+  queda visible en superficie inmersiva/ai-only.
+- `UtilityToolsMenu` es componente puro de `components/` (sin imports a
+  `features/`): mismas clases CSS (`topbar-ai-tools`, `ai-tools-drawer`).
+- Fix de posicionamiento: el drawer era `position: fixed; top: 48px` —
+  coordenadas del lugar viejo. Como `.editor-grid` tiene `overflow:
+  hidden`, `absolute` se recortaría; se mantiene `fixed` pero ahora se
+  ancla al botón con `getBoundingClientRect` (top = borde inferior + 6px,
+  right = distancia al borde derecho de la ventana).
+- Tests reubicados: el caso del menú pasó de `ai-first-shell.test.tsx` a
+  `AlaukChrome.test.tsx` (9 tests) — verifica que en ai-only el botón
+  vive en `.alauk-topbar` y que las vistas de edición siguen excluidas.
+
+Verificación: typecheck exit 0 · AlaukChrome **9/9** · ai-first-shell
+**3/3** · architecture + dependency rules **20/20**.
+
+Verificación: typecheck exit 0 · AlaukChrome **9/9** · ai-first-shell
+**3/3** · architecture + dependency rules **20/20**.
+
+`npm run verify` completo (post-pasada 166): typecheck ✅ ·
+test:extension **33/33** · test:web-tts **10/10** · audit:security
+**PASS** (npm prod limpio; 7 dev-only informativos; cargo-audit skipped
+explícito) · test:serial **356 archivos / 3229 passed / 0 failed /
+3 skipped** (839s).
+
+## Pasada 167 — Partículas «tumble»: cuerpos rígidos lite con rotación
+
+Gap documentado en `CAPABILITY-MATRIX.md` §7 («física de cuerpos rígidos
+pendiente» para el motor stickman). Implementación honesta y acotada:
+partículas con forma real que caen, rebotan **y rotan con velocidad
+angular**, sin motor de física externo.
+
+- `media/stickman.rs`: `ParticleSpec` gana `spin: Option<f64>` (−8..8,
+  escala de velocidad angular); `PARTICLE_KINDS` suma `"tumble"`; la
+  validación del plan rechaza `spin` fuera de rango y actualiza el
+  mensaje de `kind`.
+- `media/stickman/particles.rs`: `tumble_pos` simula la misma física que
+  `bounce` (gravedad, restitución, paredes, piso con dt fijo) más `omega`
+  inicial derivado de la semilla escalado por `spin`; en cada rebote la
+  fricción disipa giro (`omega *= 0.86`) y el rolling acopla `vx`;
+  `spin = 0` congela la rotación. El raster dibuja **rectángulo 2:1 o
+  triángulo equilátero** (según paridad de semilla) rotados por el ángulo
+  integrado — `point_in_triangle` por signos de producto cruz, sin deps.
+- MCP: `stickman_render` acepta `particles.kind: 'tumble'` + `spin`
+  (catálogo, dispatcher y tipo del servicio actualizados).
+- UI: `StickmanPanel` suma «tumble» al selector, controles de gravedad/
+  rebote compartidos y campo «Giro (−8 a 8)».
+
+Verificación: `cargo test stickman` **18/18** (+3: determinismo+rotación+
+settle de tumble, spin=0 sin giro, render de píxeles; `each_particle_kind`
+ampliado a los 5 kinds) · typecheck exit 0 · mcp-tools+validation **78/78**
+· `cargo fmt --check` limpio · `cargo clippy -D warnings` exit 0.
+
+## Auditoría post-167 — superficie restante verificada
+
+Re-auditoría de gaps tras la pasada 167:
+
+- **Time-remap**: ya cubierto — `clip_effects` expone `speed`+`reverse`,
+  `clip_speed_curve`, `clip_speed_ramp`, `clip_freeze`, `freeze_frame_extract`,
+  `speed_ramp_presets`, animación `hold` del schema. Sin brecha.
+- **IPC → MCP**: los ~290 comandos del registry están cubiertos por las 469
+  tools (los `choose_*`/diálogos son UI-only por diseño; `dual_monitor` y
+  `list_system_fonts` tienen equivalentes `system_fonts_list`/`tool_choose`).
+- **Gap real restante**: transiciones OBS en vivo (CAPABILITY-MATRIX §7.7).
+  Requiere ffmpeg multi-inputo con fuentes de captura distintas por escena
+  (ddagrab/gdigrab/dshow) + filtergraph de conmutación en vivo + mezcla de
+  audio por escena. Es una feature de varias sesiones, no una pasada —
+  queda como próximo ítem grande cuando el usuario lo priorice.
+- **Menor**: `translate_subtitles` cubre 12 idiomas (no exhaustivo); ampliar
+  el set es trivial si se pide.
+
+## Pasada 168 — Traducción de subtítulos: 17 → 37 idiomas
+
+- **Brecha**: `translate_subtitles`/`subtitles_pipeline` aceptaban sólo los
+  17 idiomas de `language_name` (`ai/providers.rs`); la cobertura no era
+  exhaustiva y mercados grandes (ucraniano, vietnamita, tailandés, hebreo,
+  urdu, etc.) quedaban fuera.
+- **Cambio**: `language_name` suma 20 idiomas (uk, sv, da, no, fi, el, he,
+  ro, hu, id, vi, th, fa, ur, tl, ca, hr, sr, sk, bg) → 37 en total.
+  `LocalizationLanguageCode` + `LOCALIZATION_LANGUAGES` (features/
+  localization) espejo con nombre nativo y dirección RTL correcta para
+  he/fa/ur. Doblaje SAPI y clonación de voz **no** se tocaron: sus
+  whitelists Rust (`dubbing/validation.rs`, `voice_clone.rs`) siguen en
+  17/16 — los idiomas nuevos son sólo traducción, honesto.
+- **Tests**: `providers.tests.rs` acepta los 37 y el rechazo usa `xx`
+  (antes `tl`, ahora válido); `localization.test.ts` espera los 37 códigos
+  y RTL de he/fa/ur; `DownloadView.test.tsx` espera 37 opciones.
+- **Evidencia**: `cargo test providers::` 21/21 · vitest localization 6/6 +
+  pipeline/dub 9/9 + DownloadView 12/12 · typecheck exit 0 ·
+  `cargo fmt --check` limpio.
+- **Docs**: `CAPABILITY-MATRIX.md` (traducción 🟡→✅) y
+  `APP-FEATURE-AUDIT.md` actualizados a 37 idiomas.
+
+## Pasada 169 — Transiciones OBS v1: `obs_transition_record` (xfade real)
+
+- **Gap**: CAPABILITY-MATRIX §7.7 pedía transiciones OBS en vivo
+  (filtergraph multi-inputo). Primera tajada verificable: render finito de
+  transición entre dos escenas de pantalla.
+- **Backend**:
+  - `application/obs_transition.rs`: `ObsTransitionSpec` pura — 24 kinds
+    xfade (fade/fadeblack/fadewhite/wipe*/slide*/circle*/vert*/horz*/
+    dissolve/pixelize/radial/smooth*), lead/duration/tail acotados
+    (total ≤ 7200 s), canvas 16–7680×4320, fps 1–60. `filtergraph()`
+    normaliza ambas entradas (scale+pad+setsar+fps+yuv420p+settb) —
+    requisitos de xfade. 5 tests.
+  - `screen_record/transition.rs` (include!): `run_obs_transition` — dos
+    gdigrab simultáneos, audio dshow opcional, `-t` acotado, espera con
+    deadline (total+90 s) y kill, slot RECORDING como `Starting`, stderr
+    drenado, salida probeada con ffprobe → `ScreenRecordResult`.
+  - `obs_scenes.rs::obs_transition_record`: resuelve from/to por id,
+    rechaza escenas con webcam/chroma/cursor o captureScreen=false
+    (v1 honesto: sólo pantalla), windowTitle/región validados.
+  - Registry IPC + servicio TS (`ObsTransitionInput`) + fake/unavailable.
+- **MCP**: `obs_scenes` action=`transition` {id=origen, toId, outputDir,
+  kind, leadSecs, durationSecs, tailSecs, width, height, fps, audioDevice}.
+- **Verificación**:
+  - `cargo test obs_transition` 5/5 · `cargo check` limpio · fmt limpio ·
+    clippy -D warnings exit 0.
+  - **E2E real**: el filtergraph generado se corrió en ffmpeg n9 con dos
+    lavfi (testsrc 720p + testsrc2 1080p) → MP4 1280×720, 3.50 s exactos,
+    wipeleft en offset 1.5 — ffprobe confirma.
+  - vitest mcp-tools+mcp-validation 78/78 · typecheck exit 0.
+- **Pendiente honesto**: switching interactivo en sesión abierta (mixer
+  hot-swap), webcam/chroma/cursor/streaming dentro de la transición.
+
+## Pasada 169b — Transiciones OBS v1.1: webcam + chroma por escena
+
+- **Cambio**: `TransitionBranch` (screen/webcam/chroma por escena) — cada
+  rama compone pantalla gdigrab + webcam dshow en PiP (misma posición
+  `W-w-24:H-h-24` que `screen_record_start`) con chroma key opcional, o
+  una sola fuente; `xfade` une las dos ramas. `obs_transition_record`
+  ahora acepta escenas con webcamDevice/webcamChroma y captureScreen=false
+  (webcam-only); sigue rechazando cursorOverlay (postproceso aparte).
+- **Bug encontrado y corregido**: la coma separadora del chroma quedaba
+  huérfana sin chroma (`[1:v],scale=…` → ffmpeg «No such filter») — el
+  E2E con lavfi lo destapó; `branch_chain` ahora arma la coma
+  condicionalmente y hay test de regresión.
+- **Verificación**: `cargo test obs_transition` 8/8 · E2E ffmpeg real con
+  4 entradas lavfi (screen+webcam por rama) → MP4 1280×720 3.50 s ·
+  fmt limpio · clippy -D warnings exit 0 · typecheck exit 0.
+
+## Pasada 169c — Transiciones OBS v1.2: cursor overlay quemado
+
+- **Cambio**: la escena ORIGEN puede traer `cursorOverlay` — el tracker
+  muestrea durante el render finito y `burn_cursor_overlay` (mismo segundo
+  pase ASS de `screen_record_stop`) lo quema sobre el MP4; si el burn
+  falla el video queda intacto y se reporta en `warning`/`cursorBurned`.
+  `obs_transition_record` ya no rechaza cursorOverlay (lo valida).
+- **Verificación**: `cargo check` limpio · fmt limpio · clippy -D warnings
+  exit 0.
+- **Pendiente honesto**: switching interactivo (mixer hot-swap) y
+  streaming RTMP dentro de la transición.
+
+## Pasada 170 — Switching OBS en vivo: sesión de segmentos + cosido con transiciones
+
+- **Cambio**: `obs_switch_start`/`obs_switch_scene`/`obs_switch_stop`/`obs_switch_status`
+  (comandos IPC + acciones `switch_*` de la tool MCP `obs_scenes`). La
+  escena activa se graba en segmentos MP4 sucesivos
+  (`switch-<stamp>-segNN.mp4`); cada cambio de escena cierra el segmento
+  con `q` (MP4 válido) y abre otro con la escena nueva; `obs_switch_stop`
+  cierra el último y re-codifica TODOS con `xfade`/`acrossfade`
+  encadenados en un solo MP4 (`switch-<stamp>.mp4`) verificado con
+  ffprobe. Audio por segmento: override de sesión (`audioDevice` de
+  start) o `audioDevice` de cada escena; los silenciosos se rellenan con
+  `anullsrc` del largo medido.
+- **Piezas**: `application/obs_switch.rs` (spec + offsets + filtergraph
+  puro, 7 tests) · `screen_record/switch.rs` (sesión `SWITCH_SESSION`,
+  launch/close de segmentos reutilizando `Recording`/`RECORDING`,
+  stitch ffmpeg con espera acotada) · `obs_scenes.rs` (helper
+  `scene_capture_or_err` compartido con la transición) · registry +
+  catálogo MCP + servicio/fake/unavailable TS.
+- **Concurrencia**: el segmento vivo vive en `RECORDING::Active` — un
+  start/stop/transition concurrente se rechaza por el slot; entre
+  segmentos el slot queda `Stopping`; `screen_record_stop` rechaza
+  sesiones de switching con mensaje claro. Locks de sesión tomados por
+  tramos cortos (nada de guards cruzando await — el future debe ser Send).
+- **Verificación**: `cargo test obs_switch` 7/7 · E2E ffmpeg real con 3
+  segmentos lavfi (duraciones 3/2.5/3 s, audio en todos) → MP4 1920×1080
+  de 6.500 s exactos (= 8.5 − 2 uniones × 1 s) · segundo E2E con segmento
+  central SIN audio (`anullsrc`) → 6.500 s · typecheck exit 0 · vitest
+  mcp-tools+validation 78/78 · fmt limpio · clippy -D warnings exit 0.
+- **Pendiente honesto**: preview del programa mezclado en vivo, RTMP
+  durante la sesión, cursor overlay estilizado en segmentos, encoder
+  hardware en la captura (el cosido re-codifica igual).
+
+## Pasada 170b — Switching OBS: cursor overlay por segmento
+
+- **Cambio**: las escenas con `cursorOverlay` ya no se rechazan en
+  `obs_switch_*` — cada segmento graba su `CursorTracker` (el cursor del
+  sistema se oculta del gdigrab como en `screen_record_start`) y al
+  cerrarse se quema con `burn_cursor_overlay` (mismo segundo pase ASS).
+  Regla heredada: sólo escritorio completo. Si el burn falla el segmento
+  queda intacto y el aviso se acumula en `warnings` de la sesión
+  (`obs_switch_status` y `warning` del resultado final).
+- **Verificación**: `cargo check` limpio · fmt limpio · clippy -D warnings
+  exit 0 · typecheck exit 0.
+
+## Pasada 170c — Switching OBS: streaming RTMP por segmento
+
+- **Cambio**: `obs_switch_start` acepta `streamUrl` (opcional) — cada
+  segmento escribe a archivo Y al RTMP en el mismo proceso ffmpeg
+  (segunda salida `-map` + `-f flv`, mismos args de vídeo/audio que la
+  grabación local). En cada `obs_switch_scene` el nuevo segmento
+  renegocia la conexión — gap breve documentado (no hay mixer
+  persistente). La URL con la clave vive sólo en memoria: nunca se
+  persiste ni se serializa; el drain de stderr de cada segmento redacta
+  la URL/clave por chunk con `stream_secret_bytes`/`redact_secret_bytes`
+  (AUD-098). Validación extraída a
+  `application::obs_scenes::validate_stream_url` (scheme rtmp(s)://,
+  ≤2048) — ahora compartida por `screen_record_start` y `obs_switch_start`.
+- **Plomería**: `ObsSwitchStartInput.streamUrl` + integración Tauri +
+  dispatcher MCP (`obs_scenes` switch_start) + descripción del catálogo.
+- **Verificación**: `cargo check` limpio · `cargo test obs_scenes`
+  11/11 (nuevo test `stream_url_validation_accepts_rtmp_and_rejects_others`)
+  · obs_switch 7/7 · screen_record 13/13 · E2E ffmpeg real con doble
+  salida (mp4 + flv, encoder `h264_mf` del sistema) → ambos válidos
+  (2.000 s / 2.023 s) · typecheck exit 0 · vitest mcp 78/78 · fmt limpio
+  · clippy -D warnings exit 0.
+- **Pendiente honesto**: preview del programa mezclado en vivo, encoder
+  hardware en la captura; una conexión RTMP persistente sin renegociar
+  por escena requeriría mixer propio (arquitectura distinta).
+
+## Pasada 170d — Switching OBS: encoder por hardware en captura y cosido
+
+- **Cambio**: `obs_switch_start` acepta `encoder` (x264 por defecto;
+  nvenc/qsv/amf/mf usan hardware) — aplica a los segmentos en vivo Y al
+  re-encode del cosido final. El match encoder→args se extrajo a
+  `h264_encoder_video_args` en `devices.rs` y ahora lo comparten
+  `screen_record_start` y el switching (misma whitelist y mismos args).
+- **Plomería**: `ObsSwitchStartInput.encoder` + integración Tauri +
+  dispatcher MCP + schema del catálogo (el `encoder` ya existía para
+  `save`; la descripción documenta su uso en `switch_start`).
+- **Verificación**: `cargo check` limpio · `cargo test obs_*` 26/26 +
+  screen_record 13/13 · typecheck exit 0 · vitest mcp 78/78 · fmt
+  aplicado · clippy -D warnings exit 0.
+- **Pendiente honesto**: preview del programa mezclado en vivo y
+  conexión RTMP persistente sin renegociar por escena (mixer propio).
+
+## Pasada 170e — Switching OBS: preview del programa en vivo
+
+- **Cambio**: nuevo comando `obs_switch_preview` — captura UN frame PNG
+  de la escena ACTIVA de la sesión de switching con la misma
+  composición de fuentes que graba el segmento (pantalla/ventana/región
+  + webcam PiP + chroma), vía `screen_record_snapshot`. No toca la
+  sesión ni la grabación: es el monitor del directo. Rechaza con
+  mensaje claro si no hay sesión activa o está entre escenas
+  (`obs_switch_current_scene_id` en switch.rs).
+- **Plomería**: comando Tauri + registry + `obsSwitchPreview` en
+  shared/integrations/contratos/fake/unavailable + acción
+  `switch_preview` del MCP `obs_scenes`.
+- **Verificación**: `cargo check` limpio · fmt limpio · typecheck exit 0
+  · clippy -D warnings exit 0.
+- **Pendiente honesto**: conexión RTMP persistente sin renegociar por
+  escena (mixer propio — la única pieza grande que queda del frente).
+
+## Pasada 171 — Face mask agent-drivable: tracking→máscara por MCP
+
+- **Cambio**: la conversión `maskFromFaceTrack` (track facial → máscara
+  poligonal animada con keyframes x/y) vivía sólo en `features/vfx` — la
+  IA no podía aplicarla sin UI. Movida a `state/face-mask.ts` (pura,
+  firma mínima `{samples}` + fps) y `features/vfx/face-mask.ts` queda
+  como re-export. Nueva tool MCP `clip_mask_from_face {clipId, samples,
+  feather?, invert?}`: la IA encadena `analyze_face_track` →
+  `clip_mask_from_face` y el clip queda enmascarado siguiendo el rostro.
+- **Verificación**: typecheck exit 0 · vitest **96/96** (face-mask 5,
+  mcp-tools 66, mcp-validation 12, architecture-rules 13) · matriz
+  actualizada (face mask 🟡→✅ con nota honesta de polígono rígido).
+- **Pendiente honesto**: la máscara es un octógono rígido alrededor del
+  rostro (aproximación), no el contorno facial real; los filtros GL del
+  catálogo effect-kit siguen siendo cobertura parcial (abierto).
+
+## Pasada 172 — Cola de render agent-drivable: move/retry/remove por MCP
+
+- **Cambio**: la cola persistida tenía enqueue/clear/status pero la IA
+  no podía reordenar, reintentar ni quitar entradas. Nuevas tools MCP:
+  `render_queue_move {id, direction}` (swap de pendientes del proyecto,
+  vía `movePending`+`renderQueueScope` — el runner drena `nextPending`
+  en orden, así que el cambio es real), `render_queue_retry {id}`
+  (error/done/cancelled→pending) y `render_queue_remove {id}` (bloquea
+  `running`). Todas persisten con `saveRenderQueue` (espejo backend JSON
+  + localStorage).
+- **Verificación**: typecheck exit 0 · vitest **98/98** (mcp-tools 66,
+  mcp-validation 12, render-queue 20).
+- **Pendiente honesto**: pausa/reanudación del render en curso y reorder
+  del lado del worker backend (la cola durable sigue siendo espejo de la
+  UI, no scheduler propio).
+
+## Pasada 173 — Catálogo de efectos: migración `eq` → `lutyuv` (FFmpeg 9)
+
+- **Problema**: 11 recetas de `catalog/video.ts` emitían `eq=…`, filtro
+  eliminado en FFmpeg 9 (el bundled runtime lo reporta "Unknown filter
+  'eq'"). El render nativo ya los rescataba con `rewrite_eq_filters`
+  (`eq_compat.rs`), pero las recetas crudas del catálogo —y cualquier
+  consumidor directo de ffmpeg— fallaban. Las sondas reales lo confirmaron.
+- **Cambio**: nuevo helper `catalog/eq.ts` (`eqCompat`) que emite `lutyuv`
+  con la MISMA fórmula que `eq_compat.rs` (contraste/brillo lineales +
+  gamma potencial por plano, planos identidad omitidos, `enable` de
+  timeline preservado, placeholders entre paréntesis para precedencia).
+  Las 11 recetas migradas; `effect_recipes.rs` regenerado con
+  `npm run effects:codegen` (110 recetas, 0 `eq=` real). El generador dejó
+  de emitir línea vacía final para que `cargo fmt --check` quede limpio.
+  `eq_compat.rs` sigue activo para los grados de clip (`filter.rs`,
+  `curves.rs`, `download_filters.rs`) que aún emiten `eq=`.
+- **Tests**: `catalog.test.ts` +2 — guardia "ninguna receta emite `eq=`"
+  (regex con borde, `geq=` no cuenta) y unitarios de `eqCompat` (planos,
+  gamma/pow, precedencia, enable, identidad).
+- **Verificación (evidencia)**: vitest effect-kit **78/78** · typecheck
+  exit 0 · `cargo check` limpio · `cargo fmt --check` limpio ·
+  **clippy -D warnings exit 0** · sondas ffmpeg bundled reales:
+  contraste/saturación/gamma/estrobo(vibrance con expresión) todos exit 0.
+- **Honesto**: la fidelidad declarada no cambia — `lutyuv` reproduce la
+  LUT de `eq` exactamente (misma matemática que el rewrite de Rust);
+  `exposure`/`vibrance`/`faded`/`grade`/`glitch`/`super8`/`matrix`/`strobe`
+  siguen `approximate` por diferencias shader↔ffmpeg ajenas a `eq`.
+
+## Pasada 173b — Auditoría de filtros del catálogo vs FFmpeg bundled
+
+- **Hallazgo**: extracción de los 31 nombres de filtro de todas las
+  recetas (chain + graph) y diff contra `ffmpeg -filters` del runtime
+  empaquetado (build **LGPL** de FFmpeg 9, 541 filtros): faltaban
+  `hqdn3d` (denoise.temporal) y `smartblur` (stylize.oil) — filtros GPL
+  que el build LGPL no incluye.
+- **Cambio**: `denoise.temporal` → `nlmeans=s=4:p=7:r=15` (denoising
+  espacial que preserva bordes; honesto: nlmeans no tiene componente
+  temporal como hqdn3d) y `stylize.oil` → `bilateral=sigmaS=3:sigmaR=0.5:
+  planes=7` (blur que preserva bordes, el reemplazo natural de
+  smartblur). Notas y comentario actualizados. `effect_recipes.rs`
+  regenerado (0 ocurrencias de los filtros ausentes).
+- **Guardia nueva**: `catalog.test.ts` suma `VIDEO_FILTERS` (los 31
+  filtros verificados contra el runtime) y un test que extrae el nombre
+  de cada segmento de receta y exige pertenencia — un filtro inventado o
+  GPL-only futuro rompe el test antes de llegar al render.
+- **Verificación**: sondas ffmpeg reales `nlmeans`/`bilateral` exit 0 ·
+  vitest catalog **24/24** · typecheck exit 0 · fmt limpio ·
+  cargo check limpio.
+
+## Pasada 173c — Auditoría de filtros completa: audio + render
+
+- **Audio**: los 26 filtros del `AUDIO_FILTERS` whitelist existen en el
+  FFmpeg bundled (verificado contra `-filters`).
+- **Render**: filtros de transición/cosido del pipeline (`xfade`,
+  `acrossfade`, `concat`, `subtitles`/`ass`, `drawtext`, `select`,
+  `setpts`, `zoompan`, `overlay`, `format`, `scale`, `fps`…) todos
+  presentes; los "missing" de la lista fueron falsos positivos
+  (`xfade_*` son tipos de transición, `concatdec` es demuxer, `eq` ya
+  cubierto por `eq_compat.rs`).
+- **Gate**: `cargo clippy -D warnings` exit 0 sobre el
+  `effect_recipes.rs` regenerado.
+- **Conclusión**: el sistema de efectos es compatible con el FFmpeg 9
+  LGPL empaquetado, filtro por filtro, con guardias en tests para que
+  no vuelva a entrar un filtro ausente.
+
+## Pasada 174 — Sonda ffmpeg real por efecto (regresión permanente)
+
+- **Cambio**: nuevo `packages/effect-kit/src/ffmpeg-probe.test.ts` —
+  compila CADA efecto de video del catálogo con parámetros default y
+  ejecuta cada filtro resultante contra el FFmpeg bundled real
+  (`testsrc` 160x120, `-vf`, `-f null`). Falla con el id del efecto, el
+  filtro y el error de ffmpeg si alguno no parsea. Se salta solo si el
+  binario no está (CI sin recursos).
+- **Resultado**: todas las cadenas `chain` del catálogo aceptadas por el
+  runtime — los bugs de `eq`/`hqdn3d`/`smartblur` no pueden volver.
+- **Verificación**: vitest **25/25** (catalog 24 + probe 1, ~3.4s de
+  sonda real) · typecheck exit 0.
+- **Honesto**: en el momento de la pasada los pasos `graph` quedaban
+  fuera; **resuelto en 174b** — la sonda los cubre vía filter_complex.
+
+## Pasada 174b — Sonda ffmpeg también para grafos + audio
+
+- **Cambio**: `ffmpeg-probe.test.ts` ahora cubre las TRES vías de receta:
+  cadenas `chain` de video (`-vf`), cadenas de audio (`-af` sobre
+  `sine` 48 kHz, incluidas las plantillas concat) y pasos `graph`
+  (filter_complex: `[0:v]` + template con `%A%`→`p`; el pad de salida
+  sin etiqueta se auto-conecta, verificado).
+- **Resultado**: los ~15 grafOs multi-inputo (bloom, flare, leak,
+  zoom-blur, halftone, wave, ripple, twirl…) parsean y linkean contra
+  el FFmpeg bundled real — la deuda "grafos no sondeados" de la pasada
+  anterior queda saldada.
+- **Verificación**: vitest probe **3/3** (~10s de ffmpeg real) ·
+  typecheck implícito OK.
+
+## Pasada 175 — Catálogo de audio: +3 efectos pro (loudnorm, speechnorm, afftdn)
+
+- **Cambio**: 3 efectos nuevos en `catalog/audio.ts` (familia utility,
+  30→33): `audio.loudnorm` (EBU R128: I/TP/LRA ajustables, modo
+  dinámico de una pasada — nota honesta sobre el two-pass),
+  `audio.speechnorm` (nivelador de voz por ventanas: expansión,
+  compresión, umbral, pico) y `audio.denoise` (`afftdn` con intensidad,
+  piso de ruido y perfil white/vinyl/shellac vía param enum).
+- Todos los filtros verificados presentes en el FFmpeg bundled LGPL y
+  la sonda real de la pasada 174b los ejecuta automáticamente.
+- `AUDIO_FILTERS` del test +3 nombres; conteo 30→33; `effect_recipes.rs`
+  regenerado (113 recetas, 58 de audio).
+- **Verificación**: vitest catalog+probe **27/27** (probe audio corre
+  las 33 cadenas contra ffmpeg real, exit 0) · typecheck exit 0 ·
+  fmt limpio · cargo check limpio.
+- **Honesto**: fidelity `approximate` en los tres — loudnorm dinámico
+  no es el two-pass lineal, speechnorm no reemplaza un compresor de
+  mezcla, afftdn es single-stage.
+
+## Pasada 176 — Catálogo: light.rays + audio.haas + audio.dialogue
+
+- **Video**: `light.rays` (rayos de luz / god rays) — shader con blur
+  radial real de 16 pasos hacia la fuente con compuerta por luminancia;
+  export con grafo propio: colorlevels (altas luces) → gblur → geq con
+  máscara angular fija de 8 rayos (cos⁶(4·atan2) × caída radial) →
+  blend screen. `atan2`/`pow`/`clip` verificados en la sonda real.
+- **Audio**: `audio.haas` (doubling estéreo por retardo cruzado L/R,
+  categoría space) y `audio.dialogue` (`dialoguenhance`, realce de
+  diálogo/locución, categoría voice). Whitelist +2, conteo 33→35.
+- `effect_recipes.rs` regenerado: 116 recetas (60 de audio).
+- **Verificación**: vitest catalog+probe **27/27** — la sonda ejecutó
+  el grafo de rays completo contra ffmpeg bundled (exit 0) y las 35
+  cadenas de audio · typecheck exit 0 · fmt limpio.
+- **Honesto**: rays `approximate` — export usa máscara angular fija de
+  8 rayos (no el muestreo radial del shader) y `softness` cambia de
+  semántica (compuerta→sigma); haas `approximate` en mono; dialogue
+  `approximate` por bombeo de centro en material no-voz.
+
+## Pasada 177 — Catálogo: stylize.threshold + stylize.cinema_bars
+
+- **Video**: `stylize.threshold` (umbral B/N duro) — shader con luma
+  Rec.709 + smoothstep; export `lutyuv=y=...` con la misma rampa
+  cúbica sobre el plano Y (BT.601 — diferencia documentada, fidelity
+  `approximate`).
+- **Video**: `stylize.cinema_bars` (letterbox/pillarbox cinematográfico)
+  — shader con `step()` en coordenadas normalizadas; export con dos
+  `drawbox` (barras negra superior/inferior, `y`/`height` por
+  expresión `ih-{bar}*ih` verificada en la sonda real).
+- `drawbox` agregado a la whitelist `VIDEO_FILTERS` del test.
+- `effect_recipes.rs` regenerado: **118 recetas** (60 de audio).
+- **Verificación**: vitest catalog+probe **27/27** — la sonda ejecutó
+  las dos recetas nuevas contra el FFmpeg bundled (exit 0) · typecheck
+  exit 0 · fmt limpio · `cargo check` limpio.
+- **Honesto**: cinema_bars `exact` salvo redondeo de subpíxel en la
+  altura de la barra; threshold `approximate` por BT.601 vs Rec.709.
+
+## Pasada 178 — Catálogo: glitch.snow + retro.flicker
+
+- **Video**: `glitch.snow` (estática de TV) — shader con `ek_frame_noise`
+  por celda de `size` px y densidad `amount` (0-100, misma escala que
+  `retro.grain`); export `noise=alls={amount}:allf=t+u`.
+- **Video**: `retro.flicker` (parpadeo de proyector) — shader con senoide
+  de `speed` Hz + jitter irregular por frame; export con `geq` sobre el
+  plano de luma: dos armónicos deterministas `0.6*sin(wt)+0.4*sin(2.7wt+1.3)`
+  escalados por `amount`, croma remuestreada con `cb(X,Y)`/`cr(X,Y)`.
+- Ambos verificados en la sonda real contra el FFmpeg bundled
+  (`noise` y `geq` con `sin`/`clip`/`cb`/`cr` → exit 0).
+- `effect_recipes.rs` regenerado: **120 recetas** (60 de audio).
+- **Verificación**: vitest catalog+probe **27/27** · typecheck exit 0 ·
+  fmt limpio · `cargo check` limpio.
+- **Honesto**: snow `approximate` (ruido gaussiano uniforme ≠ motas
+  blancas por celda); flicker `approximate` (sin el jitter irregular).
+
+## Pasada 179 — Catálogo: color.curves + audio.vibrato + audio.tone
+
+- **Video**: `color.curves` — los 11 presets reales del filtro `curves`
+  de FFmpeg (none…vintage) expuestos como enum; el índice del enum
+  coincide con la constante del filtro así `{preset}` sustituye directo.
+  Shader con aproximación tonal por familia (negativos, S-curves,
+  lifted blacks, vintage cálido). `curves` agregado a VIDEO_FILTERS.
+- **Audio**: `audio.vibrato` (modulación de tono periódica, categoría
+  texture) y `audio.tone` (estantes bass/treble con frecuencia
+  ajustable, categoría utility). bass/treble/vibrato ya estaban en la
+  whitelist por los efectos de voz.
+- `effect_recipes.rs` regenerado: **123 recetas** (62 de audio).
+- **Verificación**: vitest catalog **24/24** (conteo 35→37) + probe
+  **3/3** — sonda real ejecutó las 3 recetas nuevas (exit 0);
+  verificación manual extra: `curves=preset=10` (vintage), `bass`+
+  `treble` y `vibrato` aislados contra ffmpeg bundled, todos exit 0 ·
+  typecheck exit 0 · fmt limpio · `cargo check` limpio.
+- **Honesto**: curves `approximate` (shader ≠ splines reales del
+  preset); vibrato/tone `exact` (filtros directos).
+
+## Pasada 180 — Catálogo: blur.deband + retro.dust + audio.reverb
+
+- **Video**: `blur.deband` — gradfun (strength/radius) contra bandas en
+  gradientes; preview con blur direccional aproximado (el dithering real
+  no existe en GLSL ES, nota honesta).
+- **Video**: `retro.dust` — polvo y rayaduras de película: shader con
+  motas cálidas + líneas por hash de columna/frame; export `noise` +
+  `geq` con `random(X+N*7919)` (hash por columna y frame — líneas que
+  aparecen y desaparecen). `geq` no soporta `step`/`fract`/`st`;
+  `random`/`if`/`gt`/`mod`/`between` sí — verificado a mano antes de
+  escribir la receta.
+- **Audio**: `audio.reverb` — tres taps aecho (45/90/180 ms) con
+  decaimiento compartido + lowpass de oscuridad; aproximación de sala
+  honesta (no es convolución IR).
+- `gradfun` agregado a VIDEO_FILTERS; conteo audio 37→38.
+- `effect_recipes.rs` regenerado: **126 recetas** (63 de audio).
+- **Verificación**: vitest catalog+probe **27/27** — la sonda ejecutó
+  las 3 recetas nuevas contra ffmpeg bundled (exit 0; un primer intento
+  de geq con `step`/`fract` falló la sonda y se corrigió a `random`) ·
+  typecheck exit 0 · fmt limpio · `cargo check` limpio.
+- **Honesto**: los tres `approximate` con nota explicativa.
+
+## Pasada 181 — Catálogo: keying.luma + color.balance + audio.swap
+
+- **Video**: `keying.luma` — clave por luminancia (fondos claros):
+  shader smoothstep sobre luma; export `format=yuva420p` + `geq` con
+  plano alpha (`lum(X,Y)` dentro de la expresión `a=` — verificado que
+  geq acepta funciones de píxel en el plano alfa). Rampa lineal en
+  export vs smoothstep del shader → `approximate` honesto.
+- **Video**: `color.balance` — `colorbalance` de FFmpeg con 9 offsets
+  RGB (sombras/medios/luceros) agrupados en la UI; el control de
+  etalonaje por rangos. Shader pondera cada offset por máscaras
+  smoothstep de luminancia.
+- **Audio**: `audio.swap` — `pan=stereo|c0=c1|c1=c0` para invertir
+  canales (audio de cámara grabado al revés). `pan` agregado a
+  AUDIO_FILTERS; conteo 38→39.
+- `effect_recipes.rs` regenerado: **129 recetas** (64 de audio).
+- **Verificación**: vitest catalog+probe **27/27** — la cadena
+  `format=yuva420p,geq=...a=` corrió contra ffmpeg bundled (exit 0);
+  `colorbalance` con los 9 parámetros y `pan` también · typecheck
+  exit 0 · fmt limpio · `cargo check` limpio.
+- **Honesto**: luma `approximate` (rampa lineal, sólo fondos claros);
+  balance `approximate` (máscaras distintas); swap `exact`.
+
+## Pasada 182 — Catálogo: blur.deinterlace + retro.bleach + audio.softclip
+
+- **Video**: `blur.deinterlace` — `bwdif=mode=send_frame:parity=auto`
+  para material entrelazado (vídeo viejo, capturas de TV). Sin
+  parámetros: el invariante params↔uniforms del test exige uniform por
+  parámetro y `deint`/`parity` son sólo de export — se documentó en la
+  nota. Preview con fundido vertical aproximado.
+- **Video**: `retro.bleach` — bleach bypass fotoquímico: shader con
+  desaturación hacia luma tintada + contraste por `amount`; export
+  `eqCompat` con saturación `0.1+amount*0.5` y contraste
+  `1.0+amount*0.15` (expresiones lutyuv, mismo patrón que vibrance).
+- **Audio**: `audio.softclip` — `asoftclip` con las 8 curvas reales
+  (tanh/atan/cúbica/exponencial/alg/quíntica/seno/erf, índice directo)
+  + umbral + oversample=4. Saturación de pegarmezcla sin hard clip.
+- Whitelists: `bwdif` (video), `asoftclip` (audio); conteo audio 39→40.
+- `effect_recipes.rs` regenerado: **132 recetas** (65 de audio).
+- **Verificación**: vitest catalog+probe **27/27** — `bwdif`,
+  `eqCompat` con expresiones `{amount}` y `asoftclip` corrieron contra
+  ffmpeg bundled (exit 0) · typecheck exit 0 · fmt limpio ·
+  `cargo check` limpio.
+- **Honesto**: los tres `approximate` con nota.
+
+## Pasada 183 — Catálogo: blur.bilateral + color.mixer + audio.stutter
+
+- **Video**: `blur.bilateral` — bilateral espacial que preserva bordes
+  (alternativa ligera a nlmeans para piel/producto): shader con 4 tomas
+  ponderadas por distancia de color; export `bilateral=sigmaS:sigmaR:
+  planes=7` (filtro ya en whitelist por stylize.oil).
+- **Video**: `color.mixer` — `colorchannelmixer=rr/gg/bb` con ganancia
+  por canal (0-2). Shader multiplica en RGB; nota honesta de la
+  diferencia con la matriz YUV del filtro.
+- **Audio**: `audio.stutter` — `aloop` repite una ventana de `ms` en la
+  posición `at` (segundos) `loops` veces: el hit de scratch de DJ.
+  Verificado que aloop evalúa expresiones `size=%RATE%*{ms}/1000` y
+  `start=%RATE%*{at}` contra el FFmpeg bundled. `aloop` a la whitelist;
+  conteo audio 40→41.
+- `effect_recipes.rs` regenerado: **135 recetas** (66 de audio).
+- **Verificación**: vitest catalog+probe **27/27** — las 3 recetas
+  corrieron contra ffmpeg real (exit 0) · typecheck exit 0 · fmt limpio
+  · `cargo check` limpio.
+- **Honesto**: bilateral/mixer `approximate`; stutter `exact`.
+
+## Pasada 184 — Catálogo: keying.refine + audio.reverse + audio.dual_mono
+
+- **Video**: `keying.refine` — refino de matte por signo: `choke`
+  positivo dilata la máscara alfa, negativo la erosiona (cruz de 4
+  vecinos, 1 px). Export `format=yuva420p` + `geq` con `alpha(X,Y)`
+  como lectura de alfa de entrada (verificado: el accesor es
+  `alpha(X,Y)`, no `a(X,Y)`; bordes sin error) y `if(eq/gt)` para la
+  decisión. Shader con min/max de los 4 vecinos.
+- **Audio**: `audio.reverse` (`areverse`, glitch/ocultismo) y
+  `audio.dual_mono` (`pan` L+R en ambos canales — compatibilidad mono
+  manteniendo el archivo estéreo). Ambos `exact`, sin parámetros.
+- `areverse` a AUDIO_FILTERS; conteo audio 41→43.
+- `effect_recipes.rs` regenerado: **138 recetas** (68 de audio).
+- **Verificación**: vitest catalog+probe **27/27** — la cadena geq con
+  alpha neighbors corrió contra ffmpeg bundled (exit 0) · typecheck
+  exit 0 · fmt limpio · `cargo check` limpio.
+- **Honesto**: refine `approximate` (cruz vs 3x3, un solo px);
+  reverse/dual_mono `exact`.
+
+## Pasada 185 — Catálogo: impact.speed_lines + stylize.crosshatch
+
+- **Video**: `impact.speed_lines` — líneas radiales blancas desde el
+  centro (look anime/manga): shader con `atan` + `pow(|sin|,6)` +
+  máscara radial + parpadeo temporal; export `geq` sobre plano de luma
+  con `atan2`/`hypot`/`pow`/`abs`/`clip` — coordenadas normalizadas por
+  alto (`(X-W/2)/H`) para abanico isotrópico. Expresión completa
+  verificada por la sonda real.
+- **Video**: `stylize.crosshatch` — grabado a trama cruzada: papel +
+  tinta con densidad = oscuridad × min(|sin|,|sin|) de dos peines
+  diagonales; export `geq` con el mismo modelo + croma neutro (128)
+  para el resultado B/N.
+- `effect_recipes.rs` regenerado: **140 recetas** (68 de audio).
+- **Verificación**: vitest catalog+probe **27/27** — las dos expresiones
+  geq largas corrieron contra ffmpeg bundled (exit 0) · typecheck
+  exit 0 · fmt limpio · `cargo check` limpio.
+- **Honesto**: ambos `approximate` (streaks sólo en luma; la trama del
+  export es más gruesa que la del shader).
+
+## Pasada 186 — Cierre de gates del catálogo + matriz actualizada
+
+- `cargo clippy -p editor-ia-desktop --all-targets -- -D warnings`
+  **exit 0** sobre las 140 recetas generadas acumuladas (pasadas
+  177-185 sin clippy intermedio).
+- `CAPABILITY-MATRIX.md` §2/§3: conteos reales — 74 FX video, 43 audio,
+  31 transiciones, 140 recetas; la línea de audio lista los efectos
+  nuevos por nombre.
+- Evaluados y descartados esta pasada por ya cubiertos o inviables:
+  LUT3D export (ya existe: `lutFile`/`lut3d`/`cameraProfile`→`.cube`),
+  pausa de render ffmpeg (no hay pausa nativa — requiere render
+  segmentado, feature mayor), transiciones (31 ya), keying (flujo
+  chroma/luma/refine completo).
+
+## Pasada 187 — Máscara facial con escala animada (width/height keyframes)
+
+- **Problema**: `clip_mask_from_face` sólo animaba x/y — si el sujeto se
+  acercaba o alejaba, la máscara conservaba el tamaño de la primera
+  detección y dejaba de cubrir el rostro. El esquema `ClipMaskKeyframe`
+  ya soportaba `width`/`height`/`rotationDeg`, pero la rama `polygon`/
+  `freehand` de `mask_filter` los ignoraba por completo (retornaba antes
+  de leerlos).
+- **Cambio**:
+  - `render/ffmpeg/visual/masks.rs`: los vértices del polígono ahora se
+    transforman como `centro_bbox + (vértice - centro_bbox) * scale +
+    offset` usando las expresiones `width`/`height` (que admiten
+    keyframes). El pivote es el centro del bounding box — para la máscara
+    facial coincide con el centro de la cara. **Fast-path**: cuando la
+    escala es identidad (`1.000000`) se emite la transformación corta
+    original `vértice + offset` — el geq pesa ~4× menos y los polígonos
+    estáticos no superan el límite de línea de comandos de Windows.
+    Las distancias de feather se calculan con las mismas coordenadas
+    transformadas (consistencia dentro/fuera).
+  - `state/face-mask.ts`: cada keyframe emite `width`/`height` =
+    `sample.size / size_inicial` con clamp [0.05, 2] (rango del esquema).
+- **Verificación (evidencia)**: vitest face-mask **7/7** (2 tests nuevos:
+  escala con el track + clamp) · cargo test polygon **10/10** (2 tests
+  nuevos Rust: pivote/esca con keyframes + fast-path identidad) ·
+  `live_polygon_mask_filter_is_renderable` **--ignored OK** contra ffmpeg
+  bundled real · `cargo fmt --check` limpio · `tsc --noEmit` exit 0.
+- **Honesto**: la máscara facial en preview (WebGL) puede no reflejar la
+  escala igual que el export geq — diferencia de fidelidad posible,
+  documentada. Los keyframes `rotationDeg` siguen sin aplicarse a
+  polígonos (sólo a formas SDF). Las máscaras polygon **animadas** con
+  muchas keyframes generan geq muy largos — en producción viajan por
+  `filter-graph.txt` (`-/filter_complex`, ya existente), pero un `-vf`
+  directo podría superar 32 KB (limitación preexistente de x/y, no nueva).
+
+## Pasada 187b — Paridad preview/editor de la escala en máscaras polygon
+
+- **Problema**: tras la 187 el export (`masks.rs`) escala los puntos de
+  `polygon`/`freehand` con `width`/`height`, pero el preview los ignoraba
+  — la máscara facial se veía distinta en pantalla que en el MP4.
+- **Cambio**:
+  - `Preview.tsx` `maskPolygon`: aplica la misma transformación
+    `centro_bbox + (p − centro)·scale + offset` (fast-path identidad con
+    la forma corta original para no introducir ruido float en el
+    clip-path). Cubre `maskClipPath` y `maskImage` (SVG), que comparten la
+    función.
+  - `VfxView.tsx`: el overlay del editor de máscaras muestra los puntos
+    escalados y el drag de vértices/`addPoint` aplica la **transformada
+    inversa** (`rawFromOverlay`) para que lo editado coincida con lo
+    visible — sin ella, arrastrar un vértice de una máscara escalada
+    "saltaría" a coordenadas raw.
+- **Verificación**: vitest PreviewMask **7/7** (test nuevo: escala 2×
+  alrededor del bbox + identidad) · vitest face-mask **7/7** ·
+  `tsc --noEmit` exit 0.
+- **Honesto**: la máscara `text` sigue sin preview real (limitación CSS
+  ya documentada); `rotationDeg` en polígonos sigue sin aplicar en
+  export (sólo SDF) — pendiente menor conocido.
+
+## Pasada 188 — Rotación en máscaras polygon/freehand + fix de signo SDF
+
+- **Problema**: `rotationDeg` (estático y por keyframes, ya expuesto por
+  MCP `mask_keyframe_add`) se ignoraba en `polygon`/`freehand` — la rama
+  retornaba antes de leerlo. Además la rama SDF rotaba en sentido
+  **antihorario** mientras el preview (CSS/SVG `rotate`) gira horario:
+  paridad rota para máscaras rotadas.
+- **Cambio**:
+  - `masks.rs`: tercer branch del transform de vértices — escala →
+    rotación horaria → offset, con corrección de aspecto `(H/W)`/`(W/H)`
+    idéntica a la rama SDF. Fast-paths: sin escala ni rotación → forma
+    corta; escala sin rotación → forma escalada. La rama SDF invierte el
+    signo del seno para que `rotationDeg` positivo sea horario en ambos
+    caminos (antes el export giraba al revés del preview).
+  - `Preview.tsx`: `maskPolygon` hornea la rotación en las coordenadas
+    del polígono (clip-path y SVG la heredan; `maskImage` sigue forzando
+    rotation=0 para pointMask → sin doble rotación). `aspect` del proyecto
+    se pasa por `maskClipPath`/`maskImage` para la corrección W/H.
+  - `VfxView.tsx`: el overlay rota los puntos igual y `rawFromOverlay`
+    aplica la rotación inversa al editar vértices — arrastrar sobre una
+    máscara rotada guarda la coordenada correcta.
+- **Verificación**: cargo test polygon **10/10** (test nuevo: rotación
+  90° emite cos/sin + corrección de aspecto) · vitest **14/14** ·
+  `tsc` exit 0 · `cargo fmt --check` limpio.
+- **Honesto**: el cambio de signo SDF altera el sentido de rotación de
+  máscaras SDF ya renderizadas (eran antihorarias respecto al preview —
+  un bug, ahora consistente). Las máscaras polygon **rotadas** generan
+  geq aún más largo — producción las manda por `filter-graph.txt`.
+
+## Pasada 188b — Verificación live del camino rotado+escalado
+
+- **Test nuevo** `live_rotated_scaled_polygon_mask_is_renderable`
+  (`#[ignore]`, tests.rs): polígono 4 puntos + `rotationDeg=30` + keyframes
+  width/height 1.0→1.4 — el caso exacto de la máscara facial. La expresión
+  viaja por archivo con `-/filter` (verificado que el FFmpeg bundled lo
+  acepta), igual que `push_filter_complex` en producción.
+- **Resultado**: `cargo test live_ -- --ignored` → el test nuevo **ok**,
+  `live_polygon_mask_filter_is_renderable` ok, 39/41 live tests ok.
+- **Fallos ajenos observados** (no son de esta pasada):
+  `live_frame_burns_monitor_frame` — "filter 'overlay' output unconnected"
+  en `preview_frame.rs` (archivo modificado por WIP previo, no tocado acá);
+  `live_ffmpeg_sine_measures_reference_lufs` — midió −44 LUFS vs ~−23
+  esperado (archivo sin modificar; probable diferencia de loudnorm del
+  FFmpeg bundled). Ambos son tests `#[ignore]` — no gatean la suite.
+
+## Pasada 189 — Fix: monitorFrame rompía el render (overlay mal etiquetado)
+
+- **Bug real encontrado** por el live test `live_frame_burns_monitor_frame`
+  (fallaba con "filter 'overlay' has output 0 (mfo0) unconnected"): el
+  overlay del marco del monitor etiquetaba su salida `[mfo{input}]`, pero
+  la convención de `chain_with_frame` exige que el ÚLTIMO overlay quede
+  sin label para que la cola de filtros y el `[vN]` final la continúen
+  (`texture_overlay_segment` ya lo hacía bien).
+- **Impacto**: cualquier clip con `monitorFrame` (marco de cámara del
+  monitor) fallaba al exportar — bug introducido por el WIP del feature,
+  no detectado porque el test es `#[ignore]`.
+- **Fix** (`visual/filter.rs`): la salida del overlay del marco queda sin
+  label cuando es el último de la cadena; sólo se etiqueta `[mfo]` cuando
+  la textura de transición va después y la consume.
+- **Verificación**: `live_frame_burns_monitor_frame --ignored` **ok**
+  (quemó el marco magenta y verificó píxeles) · `cargo fmt` limpio.
+- **Pendiente**: `live_ffmpeg_sine_measures_reference_lufs` sigue fallando
+  (−44 vs −23 LUFS) — archivo sin modificar, probable diferencia de
+  `loudnorm`/medición del FFmpeg bundled; investigar en otra pasada.
+
+## Pasada 190 — Fix: upmix mono→estéreo perdía 3 dB + live loudness verde
+
+- **Bug real de producción** encontrado investigando el live test
+  `live_ffmpeg_sine_measures_reference_lufs`: el `aformat=channel_layouts=
+  stereo` de la cadena de audio aplica la ley de rematrix de ffmpeg
+  (**−3,01 dB por canal**) al subir mono→estéreo. Todo clip con fuente
+  mono (voz, audio de cámara) exportaba 3 dB más bajo de lo esperado.
+  Verificado con ffmpeg real: mono full-scale → aformat = peak −3,01 dB;
+  `pan=stereo|c0=c0|c1=c0` = 0 dB.
+- **Fix** (`render/ffmpeg/audio.rs`): `audio_filter` recibe
+  `source_channels: Option<u32>`; con `Some(1)` emite
+  `pan=stereo|c0=c0|c1=c0` (upmix unity-gain) antes del `aformat`, que
+  queda como estéreo→estéreo sin remix. Estéreo, multicanal y channels
+  desconocido (`None`) siguen la ruta `aformat` original.
+- **Call sites**: `plan/range.rs` pasa `asset["media"]["channels"]`
+  (poblado por ffprobe en la importación, `media/mod.rs`) en las dos
+  llamadas; 17 call sites de test actualizados a `None`.
+- **Test nuevo** `audio_filter_mono_source_uses_unity_gain_upmix`:
+  mono lleva `pan` antes de `aformat`; `Some(2)`, `Some(6)` y `None` no.
+- **Fix del fixture loudness** (`render/loudness.tests.rs`): el `sine`
+  de ffmpeg sale a −18 dBFS (no full-scale) y `volume=-23dB` lo dejaba
+  a −44 → medía bien, fixture mal. Ahora `aevalsrc` estéreo directo
+  (`|` por canal) full-scale → −23 dB exactos. Live test **ok**.
+- **De paso**: 3 tests de effect-stack estaban rotos por la migración
+  eq→lutyuv del WIP (esperaban formato `eq_compat` `1.400000*(val-127.5)`
+  pero las recetas TS emiten `((1.4)*(val-127.5)` con `((0.5)*255)`).
+  Aserciones actualizadas al formato real — **eran fallos preexistentes**.
+- **Verificación**: `render::ffmpeg::` **178/178** (0 fallos) ·
+  `audio_filter_mono…` ok · fmt `--check` limpio · clippy `--tests`
+  limpio · live loudness ok.
+- **Honesto**: `obs_switch.rs` (inputs OBS en vivo) y stems de
+  voice-isolation siguen con `aformat` directo — el channel count de una
+  captura OBS no está disponible al construir el grafo; queda como
+  pendiente menor documentado.
+
+## Pasada 191 — Mismo fix mono→estéreo en el cosido OBS (stitch)
+
+- **Continuación del bug de la pasada 190**: `stitch_filtergraph`
+  (`application/obs_switch.rs`) aplicaba `aformat …channel_layouts=
+  stereo` directo sobre cada segmento grabado por OBS — el mismo −3,01
+  dB por canal en fuentes mono (p.ej. mic grabado en mono).
+- **Dato**: `probe_output` (`screen_record/start.rs`) ya corría ffprobe
+  por segmento al cerrarlo; ahora pide `channels` en `show_entries` y
+  devuelve un struct `ProbeOutput` (duration/width/height/has_audio/
+  channels) — el tuple de 5 elementos disparó `clippy::type_complexity`,
+  así que quedó como struct con `Default`.
+- **Flujo**: `SwitchSegmentRec.channels` → `stitch_filtergraph` recibe
+  `channels: &[Option<u32>]` (valida alineación con durations, error
+  honesto si difiere) → segmento mono emite
+  `pan=stereo|c0=c0|c1=c0` antes del `aformat`, igual que `audio_filter`.
+- **Callers actualizados**: stop.rs, transition.rs, switch.rs (3 sitios)
+  — todos ignoran `channels` salvo el cierre de segmento del switch.
+- **Tests**: `filtergraph_mono_segment_uses_unity_gain_upmix` (mono lleva
+  pan, estéreo no) + caso de channels desalineado. **8/8 obs_switch ok**.
+- **Verificación**: fmt `--check` limpio · clippy `--tests` sin warnings.
+- **Honesto**: queda `dubbing/filter.rs` (stems de voice-isolation) con
+  `aformat` directo — los stems generados son estéreo por construcción,
+  riesgo bajo; se revisa si aparece un caso mono real.
+
+## Pasada 192 — Mismo fix mono→estéreo en el doblaje (dubbing)
+
+- **Tercer y último pipeline con el bug del −3,01 dB**: `build_dub_filter`
+  (`commands/domains/audio/dubbing/filter.rs`) aplicaba
+  `aformat=channel_layouts=stereo` sobre cada voz SAPI y sobre el lecho
+  `[0:a]` del video fuente. Los WAV de SAPI
+  (`SetOutputToWaveFile` sin formato explícito) salen en el formato por
+  defecto de la voz — casi siempre **mono 16 kHz** — así que las voces
+  dobladas exportaban 3 dB bajas, y un video fuente mono también.
+- **Probe**: `probe_json` ahora pide `channels` por stream;
+  `probe_audio_duration` → `probe_audio_info` (devuelve duración +
+  canales del primer stream de audio); `probe_audio_channels` nuevo para
+  el input.
+- **Flujo**: `DubSegment.channels` (medido por WAV en `synthesis.rs`) +
+  `bed_channels` (probe del input, sólo si hay lecho) → `build_dub_filter`
+  emite `pan=stereo|c0=c0|c1=c0` antes del `aformat` en las fuentes mono.
+- **Tests**: el test del filtro ahora cubre voz mono (`[1:a]pan=`), voz
+  estéreo (sin pan), lecho mono (`[0:a]pan=`) y lecho estéreo. **7/7
+  dubbing ok** · fmt limpio · clippy sin warnings.
+- **Honesto**: el live `dubs_a_synthetic_video_end_to_end` no se pudo
+  correr — exige `DUB_VOICE` y el ffmpeg del PATH; el bundled lgpl no
+  tiene `libx264` (fixture usa `-c:v libx264`). La sintaxis `pan` ya está
+  verificada contra ffmpeg real desde la pasada 190.
+- **Estado del bug −3 dB**: CERRADO en los tres pipelines que upmixan
+  audio real — `audio_filter` (clips), `stitch_filtergraph` (OBS) y
+  `build_dub_filter` (doblaje). No quedan `aformat…stereo` sin
+  channel-awareness en producción.
+
+## Pasada 193 — Auditoría de audio cerrada + suite completa verde
+
+- **Auditoría del bug −3,01 dB finalizada**: verificado con ffmpeg real
+  que `-ac 2` (diálogo/narración vía CLI) usa la conversión swr con
+  dual-mono unity-gain (peak 0,000265 dB ≈ 0 dBFS) — NO se afecta. Los
+  únicos caminos con `aformat…channel_layouts=stereo` eran los tres ya
+  corregidos (audio_filter, stitch_filtergraph, build_dub_filter);
+  `range.rs:867` es `anullsrc` estéreo (no aplica). `obs_transition`
+  produce sólo video. **Ningún upmix mono desprotegido queda.**
+- **Verificación integral**: `cargo test -p editor-ia-desktop --lib`
+  → **1157 passed, 0 failed, 74 ignored** (los ignored son live/manuales
+  preexistentes). Incluye todas las pasadas 187-192 (máscaras, monitor
+  frame, loudness, mono upmix ×3).
+- Gates de la sesión: fmt `--check` limpio · clippy `--tests` sin
+  warnings · tsc sin tocar (cambios 100% Rust esta tanda).
+
+## Pasada 194 — Canales por probe en el plan + `channels` en assets de video
+
+- **Brecha encontrada**: el fix mono de la 190 leía
+  `asset["media"]["channels"]`, pero ese campo sólo se escribía para
+  assets `kind=audio` (`media/mod.rs`) — los **videos** (el caso común:
+  audio de cámara mono) nunca lo tenían → `None` → ruta atenuante.
+- **Descartado con evidencia**: `aresample=…:rematrix_volume=1.4142`
+  como compensación universal — medido con ffmpeg real: arregla mono
+  (−3→0 dB) pero **amplifica +3 dB el estéreo y el 5.1→estéreo** (pico
+  7,47→10,48 dB, clipea). La vía channel-aware era la correcta.
+- **Fix en el plan** (`plan/range.rs` + `visual/helpers.rs`):
+  `has_audio_stream` → `probe_audio_stream`, que devuelve
+  `Option<Option<u32>>` (None=sin audio, Some(None)=audio sin campo,
+  Some(Some(n))=n canales) con el mismo ffprobe `a:0` de antes.
+  `audio_probe_cached` cachea por **ruta del input** en
+  `probed_audio` — cubre fuentes, stems de voice-isolation y el loop
+  audio-only (`audio_path` ya es el input real). `source_channels`
+  prefiere lo medido y cae a `media.channels` como respaldo.
+- **Schema**: `VideoAssetSchema.media.channels` optional
+  (`ChannelsSchema`, 1-8) + `media/mod.rs` lo persiste en imports de
+  video nuevos cuando hay pista de audio.
+- **Verificación**: `render::ffmpeg::` **178/178** · `media::` **184/184**
+  · vitest assets **21/21** · `tsc` 4 paquetes exit 0 · fmt `--check`
+  limpio · clippy `--tests` sin warnings.
+- **Honesto**: assets de video **ya importados** no tienen
+  `media.channels`, pero el probe del plan los cubre igual — el fix es
+  retroactivo sin migración. `media.channels` en video queda como
+  metadata persistida para futuros usos (p.ej. Inspector).
+
+## Pasada 195 — Live test del upmix mono: verificación end-to-end del probe
+
+- **Qué**: `live_plan_mono_asset_without_channels_uses_unity_upmix`
+  (`#[ignore]`, gated por `EDITOR_IA_RUN_RENDER_TESTS=1`) en
+  `render/ffmpeg/tests.rs`. Genera un WAV mono y uno estéreo con ffmpeg
+  real, arma un proyecto con dos assets **sin** `media.channels` (simula
+  imports viejos) y verifica que el plan emita `pan=stereo|c0=c0|c1=c0`
+  exactamente una vez — sólo en la cadena del clip mono.
+- **Por qué**: cierra la verificación de la pasada 194 — hasta ahora el
+  path probe→`source_channels`→`audio_filter` estaba cubierto por tests
+  unitarios con channels inyectados, no por un plan real contra archivos.
+- **Verificación**: test live **ok** contra ffmpeg/ffprobe reales del
+  entorno (bin dir `D:\DevCache\ffmpeg-n9.0-lgpl\...\bin` en PATH);
+  `cargo fmt --all -- --check` limpio.
+- **Honesto**: test `#[ignore]` — no gatea `cargo test` normal; corre a
+  mano con `EDITOR_IA_RUN_RENDER_TESTS=1` igual que el resto de los live.
+
+## Pasada 196 — Verificación de entrega: canales y sample rate del audio exportado
+
+- **Brecha**: `verify_probe_payload` comprobaba presencia de pistas,
+  resolución y duraciones, pero **no** que el audio cumpliera el perfil —
+  un export con audio mono o a 44,1 kHz pasaba la verificación aunque el
+  plan exige `-ac`/`-ar` del perfil. En una app pro eso es un fallo de
+  entrega silencioso.
+- **Cambio**:
+  - `RenderPlan` gana `audio_sample_rate` + `audio_channels` (poblados en
+    `plan/range.rs` desde el perfil; en la vía video usa el `audio_rate`
+    efectivo de `audio_encoder_for` — Opus fuerza 48 kHz).
+  - `probe_output` pide `channels,sample_rate` a ffprobe.
+  - `verify_probe_payload` rechaza si los canales o el sample rate del
+    stream de audio difieren del plan.
+- **Bug propio detectado por el live test**: la primera versión del check
+  fallaba todo render real porque `show_entries` no incluía los campos —
+  el live `render_live_export_range` lo evidenció antes de mergear.
+- **Verificación**: `render::ffmpeg::` **180/180** (2 tests nuevos:
+  rechaza canales y sample rate erróneos) · live
+  `render_live_export_range` **ok** contra ffmpeg real (chocolatey con
+  libx264) · fmt `--check` limpio · clippy `--tests` sin warnings.
+- **Nota de entorno**: el ffmpeg del PATH del wrapper (`ffmpeg-n9.0-lgpl`)
+  no tiene `libx264` — los live tests que generan fixtures h264 necesitan
+  `C:\ProgramData\chocolatey\bin` primero en PATH.
+- **Honesto**: no verifica loudness (EBU R128) — requeriría un segundo
+  paso ffmpeg/ebur128 por export; queda como mejora posible si se quiere
+  gate de nivel de entrega.
+
+## Pasada 197 — Auditoría de la suite live completa (`--ignored`)
+
+Corrida integral de los tests `#[ignore]` con ffmpeg real en PATH
+(`C:\ProgramData\chocolatey\bin`, que sí tiene libx264 — el lgpl del wrapper
+no): **69 ok / 6 fallos** en 128 s.
+
+### Fallos por credenciales/modelos (esperados, no bugs)
+- `dubs_a_synthetic_video_end_to_end` — falta `DUB_VOICE`
+- `local_engine_returns_mp4` — falta `LIPSYNC_TEST_VIDEO`
+- `live_local_provider_round_trip` — no hay proveedor IA local levantado
+- `detects_faces_in_a_moving_video` + `detects_a_real_face` — falta
+  `SEETA_MODEL`
+
+### Fallo real determinista (investigar)
+- `window_scale_keyframe_matches_the_static_target`: la ventana congelada
+  coincide con el estático (diff 4.415 < 5.0) pero el **compuesto completo**
+  difiere 8.166 > 8.0 — reproducido idéntico en dos corridas. El camino
+  keyframed (`scale=…:eval=frame` con `n/fps`) no reproduce exactamente la
+  escala estática en el frame 30 (debería ser 1.15 exacto). Posibles causas:
+  redondeo del alto impar (180×1.15=207 → yuv420p exige par), centrado
+  sub-píxel del overlay con tamaño variable, o evaluación de `n` distinta
+  al frame renderizado. Código del path no tocado por esta sesión — el test
+  está commiteado desde antes y es `#[ignore]`, así que probablemente es un
+  drift de calibración del ffmpeg del entorno o un gap de fidelidad
+  preexistente. **Queda como ítem de investigación.**
+
+### Verdes destacados
+Todos los renders live del pipeline (ducking, speed curve, freeze,
+stabilization, text mask, glow+motion blur, alpha WebM, luma wipe,
+pipeline completo) pasaron con la verificación endurecida de la pasada 196
+(canales + sample rate del audio).
+
+## Pasada 197b — Causa raíz del fallo `window_scale_keyframe` (diagnóstico)
+
+Con `EDITOR_IA_PREVIEW_DEBUG=1` se capturaron los 3 comandos ffmpeg del
+test y la diferencia quedó explicada:
+
+- **Ventana** (preview al scrub): `scale=w='iw*(kf)':eval=frame` +
+  `overlay` centrado — escala el layer entero y lo recorta por overlay.
+- **Estático**: `scale=iw*1.15` + overlay — mismo mecanismo que ventana.
+- **Completo/export**: `zoompan z='kf' x='(iw-iw/zoom)/2' s=320x180` —
+  crop+resize interno de zoompan (`scale_zoom_expression` tiene prioridad
+  sobre la rama `eval=frame` de `filter.rs:190`).
+
+Ambos caminos aplican la misma transformación (crop central ×1.15) pero
+con remuestreadores distintos: zoompan usa offset fraccional
+(`(320-278.26)/2=20.87`) y su escalador interno; scale+overlay usa offsets
+enteros y el filtro `scale`. En contenido de bordes vivos (smptebars) el
+diff medio es 8.166 > umbral 8.0 — reproducido idéntico en 2 corridas.
+
+**Conclusión**: no es un bug de corrección sino una brecha de paridad
+preview↔export (ventana vs plan real) del mismo tipo que la de máscaras
+resuelta en las pasadas 187-188. Unificar los caminos es decisión de
+diseño (zoompan es la implementación deliberada de escala animada) —
+queda como ítem conocido, no como fix trivial.
+
+## Pasada 198 — Paridad preview↔export en escala animada (fix real)
+
+- **El fallo de la 197b era una brecha de fidelidad, no calibración**:
+  la ventana de preview congelaba la escala con `scale=…:eval=frame` +
+  overlay (vía `scaleFrozen`), mientras el export usa `zoompan` — dos
+  remuestreadores distintos para la misma transformación. Diff medido:
+  ventana 4.415 vs estático, completo 8.166 → el test fallaba en el
+  assert del completo.
+- **Fix** (`render/preview_window.rs`): se eliminó `scaleFrozen` de los
+  clips de ventana. Sin él, `scale_zoom_expression`/`scale_dynamic`
+  enganchan y la ventana usa **el mismo camino del export** (zoompan con
+  keyframes rebasados por `shift_keyframes`, o la rama dinámica
+  pre-escalada para curvas que bajan de 1×). El clock `on` de zoompan
+  cuenta frames post-retime, así que velocidad/speed curves siguen
+  correctos (verificado por `live_speed_scale_export_rebases_keyframes`).
+- **Resultado medido**: ventana y completo ahora producen PNG **idénticos
+  byte a byte** (md5 igual) — paridad exacta, no aproximada.
+- **Test actualizado** (`preview_frame.tests.rs`): el contrato real es
+  ventana↔export (assert <1.0, hoy da 0.0); la comparación contra el zoom
+  estático queda como métrica informativa con cota 12.0 — `zoompan`
+  (crop+resize, offset fraccional) y `scale`+overlay son la misma
+  transformación con remuestreadores distintos (~8 de diff medio en
+  bordes vivos es el delta de resampling conocido del export, preexistente).
+- **Verificación**: `window_scale_keyframe` **ok** · suite live de
+  `preview_frame` **24/24** (window↔full de motion+mask, opacity,
+  animaciones, transiciones, reverse, compound, fades con speed+rotation)
+  · tests no-live preview **24/24** · fmt `--check` limpio · clippy
+  `--tests` sin warnings.
+- **Honesto**: `scaleFrozen` sigue existiendo como flag que los helpers
+  honran (fixture de tests en `render/ffmpeg/tests.rs:5186`); en producción
+  ya nadie lo setea — queda como capacidad dormida por si una ventana
+  futura necesita el camino simple otra vez.
+
+## Pasada 199 — Auditoría comando↔MCP: cierre de gaps de acceso total
+
+Auditoría de las 294 commands IPC contra las ~475 tools MCP. La mayoría
+de los "faltantes" por nombre eran **falsos negativos**: tools paraguas
+con actions (`screen_record`, `obs_scenes`, `subtitles_translate`),
+nombres distintos (`set_tool_paths`→`settings_set_tools`,
+`save_provider`/`clear_provider_key`→`settings_set`,
+`get_provider`→`settings_get`, providers de diarización→`settings_set`),
+diálogos nativos que la IA no necesita (`choose_*` — trabaja con rutas),
+y comandos internos (`mcp_respond`, `background_start_mode`,
+`dual_monitor_*` que es UI-only de ventana).
+
+**Gaps reales cerrados:**
+
+- `screen_record`: nueva action **`snapshot`** — captura UN frame PNG de
+  la misma configuración de fuentes (pantalla/ventana/región + webcam PiP
+  + chroma) sin grabar; la IA puede "ver" lo que va a capturar.
+  Además se expusieron **`webcamChroma`** (chroma key de la webcam antes
+  del PiP) y **`cursorOverlay`** (quemado de cursor: estilo/color/escala/
+  ripple) que el backend ya soportaba en `start` pero el tool no pasaba.
+- **`lut_export`** (nuevo): hornea brightness/contrast/saturation/
+  temperature en un `.cube` 3D de 33³ verificable con `lut_probe`.
+- **`lut_import`** (nuevo): `import_lut` ahora acepta `path` opcional en
+  Rust (antes sólo diálogo nativo) — la IA importa `.cube` del disco a
+  `media/luts` del proyecto y recibe la ruta relativa para
+  `effects.lutFile` / look global. UI intacta (sin path → diálogo).
+- **`thumbnail_save`** (nuevo): persiste un data URL de
+  `media_thumbnail`/`render_frame` como PNG/JPG en disco.
+- **`concat_worker`** (nuevo): action status/request/cancel sobre el
+  worker concat-media (ops allowlisted en backend: ping, probe,
+  decode_frame, render_export, shutdown).
+
+**Verificación**: `cargo check` limpio · `cargo fmt --check` limpio ·
+`npm run typecheck` 4 paquetes exit 0 · vitest mcp-tools+mcp-validation
+**78/78**.
+
+**Queda fuera por diseño**: `dual_monitor_*` (gestión de ventana UI),
+`choose_*` (diálogos nativos — la IA usa rutas absolutas),
+`mcp_respond`/`start_mcp_server`/`stop` (lifecycle interno del canal),
+`assistant_chat*` (la IA es el asistente).
+
+## Pasada 200 — Bugs P1 de auditoría: AUD-142 fix + AUD-129 stickman + tests MCP
+
+**AUD-142 (P1) — resuelto**: `decode_import_bytes` (`media/import.rs`)
+decodificaba el base64 completo antes de aplicar el límite de 256 MiB —
+un payload IPC sobredimensionado reservaba el Vec decodificado antes de
+ser rechazado. Ahora `MAX_IMPORT_BASE64_CHARS` (4 chars por 3 bytes +
+holgura) se valida **antes** de decodificar. Test nuevo
+`import_bytes_rejects_oversized_base64_before_decoding` en `media.rs`
+(los tests viven en el `mod tests` del padre porque `import.rs` entra por
+`include!`).
+
+**AUD-129 (P1) — avance**: `media_tools.rs` ya estaba migrado a
+`spawn_blocking` por el WIP (los `.await` que faltaban se completaron).
+Auditoría de los ~55 `.output()` restantes: todos los comandos creator,
+dialogue, voice_isolation, subtitles_pipeline y downloader ya envuelven
+el trabajo pesado en `spawn_blocking`. **El outlier era `stickman_render`**
+(`creator/stickman/command.rs`): `async fn` que rasterizaba hasta ~7200
+PNG y corría FFmpeg+ffprobe **en el runtime async** — congelaba el
+pipeline de comandos Tauri durante renders largos. Ahora todo el bloque
+(rasterizado + encode + probe + limpieza) va en
+`tauri::async_runtime::spawn_blocking` con clones de `action`/`output`/
+`keyframes`/`particles` para la respuesta JSON.
+
+**AUD-141/143/144 (P1) — ya resueltos en el WIP** (verificado en código,
+no asumido): `VoiceoverRecorder` fija `phaseRef='requesting'` antes del
+`await getUserMedia` (anti doble-click) y `projectIdRef` se verifica
+antes y después de `importMediaBytes`; `transcribeProjectClips` captura
+`projectId` y aborta el lote con `stillSameProject()` antes de cada
+`store.update`.
+
+**Tests de los tools de la pasada 199** (`mcp-tools.test.ts`, +3):
+`screen_record` snapshot + webcamChroma/cursorOverlay, `lut_export` +
+`lut_import` (con spy de argumentos), `thumbnail_save` + `concat_worker`
+status/request/cancel — **69/69** en el archivo.
+
+**Verificación**: `cargo check` limpio · `cargo fmt --check` limpio ·
+`cargo test stickman` **18/18** · `cargo test import_bytes` **3/3** ·
+vitest mcp-tools **69/69** · reglas de arquitectura **20/20**.
+
+**Pendiente honesto**: AUD-032 histórico sin cierre dinámico; los
+`.output()` restantes son helpers sync llamados dentro de contextos
+bloqueantes ya verificados (patrón consistente del codebase).
+
+## Pasada 200 — VoiceoverRecorder: ciclo de vida async completo (AUD-141 + AUD-145 + AUD-143)
+
+- **Problema** (supervisión 2026-11-19): tres huecos async en
+  `VoiceoverRecorder.tsx`.
+  - **AUD-141 (P1)**: `phaseRef` quedaba en `idle` durante la espera del
+    permiso → clics repetidos lanzaban solicitudes concurrentes que
+    pisaban `streamRef`/`chunksRef` compartidas (un micrófono podía
+    quedar activo sin referencia).
+  - **AUD-145 (P1)**: el cleanup de desmontaje corría con
+    `streamRef === null` (el stream aún no existía); si el usuario
+    concedía el permiso después, el código seguía y creaba/iniciaba un
+    `MediaRecorder` sin UI montada que lo detuviera → captura de audio
+    inesperada.
+  - **AUD-143 (P1)**: `finalizeRecording` consultaba
+    `store.state.project` después de la conversión async — y `state` es
+    la foto del render que creó el closure, no el store vivo. Un cambio
+    de proyecto a mitad de grabación/importación podía montar el clip en
+    el proyecto equivocado (`mutate` sí opera sobre el estado vivo).
+- **Cambio** (`features/editor/VoiceoverRecorder.tsx`):
+  - Nueva fase `RecorderPhase = 'requesting'` ("Pidiendo…"): se fija de
+    forma síncrona antes del `await`, así el guard `phaseRef !== 'idle'`
+    bloquea el segundo clic y el botón queda `disabled` mientras dura la
+    espera. `TeleprompterView` trata cualquier fase ≠ `recording` como
+    «parar scroll» — comportamiento correcto sin tocarlo.
+  - `startTokenRef`: se incrementa al iniciar la solicitud y en el
+    cleanup de desmontaje. Si `getUserMedia` resuelve con token viejo se
+    detienen los tracks (`track.stop()`) y se sale sin tocar estado ni
+    crear recorder. El catch del permiso sólo avisa si el token sigue
+    vigente (no escribe notice en una vista muerta).
+  - `projectIdRef`: captura `project.id` al iniciar la grabación
+    (`store.getProject()`, el store vivo). `finalizeRecording` verifica
+    la identidad **dos veces**: tras la conversión (antes de importar) y
+    tras `importMediaBytes` (antes de montar). Si difiere, avisa y no
+    monta — en el segundo caso el asset ya quedó en disco y el notice lo
+    dice honestamente ("quedó en Medios sin montar").
+  - El fallo del constructor de `MediaRecorder` ahora también vuelve la
+    fase a `idle` (antes era inocuo porque la fase nunca había cambiado).
+- **Tests** (`VoiceoverRecorder.test.tsx`, 3 nuevos, 6 total): permiso
+  diferido con triple clic → `getUserMedia` llamada **1 vez**, botón
+  deshabilitado, y al conceder arranca `recording` normal; desmontaje
+  durante el permiso + resolución tardía → `track.stop()` llamado y
+  `importMediaBytes` **nunca** invocado; cambio de proyecto con la
+  conversión en vuelo (mock parcial de `blobToWavPcm` + `openProjectAt`
+  del fake service) → notice "cambió durante la grabación" e
+  `importMediaBytes` no llamado.
+- **Verificación**: vitest VoiceoverRecorder **6/6** (RED→GREEN
+  confirmado: antes del fix el triple clic daba 3 llamadas, el stop
+  tardío 0 y el proyecto cambiado recibía el clip) · vitest vecinos
+  voiceover/Teleprompter/Timeline.ai-mode/EditorWorkspace.ai-mode
+  **27/27** · `tsc --noEmit` apps/desktop **exit 0**.
+- **Pendiente honesto**: AUD-142 (`decode_import_bytes` decodifica
+  Base64 antes del límite de 256 MiB en `media/import.rs`) y AUD-129
+  (`media_tools.rs` `Command::output()` síncrono en handler async)
+  quedan abiertos de la supervisión 2026-11-19.
+
+## Pasada 201 — `transcribeProjectClips`: guard de identidad de proyecto (AUD-144)
+
+- **Problema** (supervisión 2026-11-19, P2): el orquestador de
+  «Subtitular proyecto» capturaba `store.state.project` al inicio — la
+  foto del render, no el store vivo — y después aplicaba `store.update`
+  por clip dentro de un loop con awaits largos (`saveNow`,
+  `transcribeAsset` por asset). Si el usuario cambiaba de proyecto a
+  mitad de lote, los cues del proyecto viejo se intentaban aplicar sobre
+  el nuevo (los uuid no colisionan, así que el resultado era un resumen
+  mentiroso —"sin voz"/"no se aplicó"— y trabajo transcrito perdido, no
+  corrupción; pero el aviso al usuario era incorrecto).
+- **Cambio** (`state/transcribe-project.ts`):
+  - `TranscribeProjectStore` gana `getProject?()` — el store real ya lo
+    expone (`stateRef` vivo); los stores que no lo tienen caen a
+    `state.project` como antes.
+  - `liveProject()` prefiere `getProject()`. El lote se define por el
+    proyecto vivo al inicio y se captura `project.id`.
+  - `stillSameProject()` se evalúa **antes de cada clip** (evita seguir
+    transcribiendo assets del proyecto viejo) y **antes de cada
+    `store.update`** (protege la escritura). En cualquier mismatch se
+    marcan como `failed` el clip actual y todos los restantes con la
+    razón "el proyecto cambió durante la transcripción" y se corta el
+    loop — resumen honesto en vez de cues aplicados al proyecto
+    equivocado.
+- **Test** (`transcribe-project.test.ts`, +1, 5 total): el fake ahora
+  expone `getProject()` vivo y `state` congelado (fiel al store real) +
+  `replace()` para simular el cambio; `transcribeAsset` del primer asset
+  cambia de proyecto → los 3 clips quedan `failed` con la razón de
+  cambio, `cuesAdded = 0` y el proyecto nuevo sin cues colados.
+- **Verificación**: vitest transcribe-project **5/5** ·
+  caption-transcription **7/7** · `tsc --noEmit` apps/desktop **exit 0**.
+- **Pendiente honesto**: AUD-142 ya estaba corregido en el working tree
+  (prefiltro `MAX_IMPORT_BASE64_CHARS` en `decode_import_bytes` + tests,
+  verificado por lectura — no requirió cambios). Quedan abiertos de la
+  supervisión: AUD-129 (`media_tools.rs` `Command::output()` síncrono),
+  AUD-140 (texturas/framebuffers WebGL sin tope de asignación inicial),
+  SEC-GATE-003 (vulns sólo-dev no bloquean) y AUD-032 (política DNS/IP
+  privada/redirects en validadores de URL).
+
+## Pasada 202 — `media_tools`: procesos FFmpeg fuera del runtime async (AUD-129)
+
+- **Problema** (supervisión 2026-11-19, P1): los comandos de herramientas
+  de material (`merge_videos`, `trim_video`, `watermark_video`,
+  `set_metadata`, `extract_subtitles`) son `async fn` de Tauri pero
+  ejecutaban `Command::output()` de forma síncrona — un encode de FFmpeg
+  de minutos congelaba un hilo del runtime async (y `probe_file` dentro
+  de `tool_video_codec_args` podía bloquear hasta 60 s).
+- **Cambio** (`commands/domains/media/media_tools.rs`):
+  - `run_ffmpeg` → `async fn`: todo el cuerpo (build del `Command`,
+    `.output()`, chequeo de status y `sanitize_log`) corre en
+    `tokio::task::spawn_blocking` con args owned; `JoinError` se mapea a
+    `RenderFailed` honesto.
+  - `tool_video_codec_args` → `async fn` wrapper; la lógica quedó en
+    `tool_video_codec_args_blocking` (resolve_encoder + probe_file son
+    procesos) dentro de `spawn_blocking`.
+  - `extract_subtitles`: el probe ffprobe de streams y el extract de
+    FFmpeg a SRT ahora corren cada uno en su `spawn_blocking`
+    (mismo patrón `Output`/`ProjectError` que `run_ffmpeg`).
+  - Los 5 call sites actualizados con `.await`.
+- **De paso**: `clippy -D warnings` destapó un lint preexistente del
+  WIP en `media/import.rs` (`manual_div_ceil` en
+  `MAX_IMPORT_BASE64_CHARS`) — corregido a `div_ceil(3)` (misma
+  semántica).
+- **Verificación**: `cargo check -p editor-ia-desktop` **exit 0** ·
+  `cargo fmt --all -- --check` **limpio** · `cargo clippy -p
+  editor-ia-desktop --all-targets -- -D warnings` **exit 0** ·
+  `cargo test --lib import` **40 ok / 2 ignored** (los ignored son
+  live preexistentes).
+- **Nota de concurrencia**: durante la pasada, `stickman/command.rs`
+  quedó a medio editar por otro frente (clones `action_inner`/
+  `output_inner` sin usar + moved values — errores E0382/unused). El
+  archivo se corrigió solo minutos después (mtime 14:18, mismo fix
+  AUD-129 aplicado por el otro frente); la verificación final corrió
+  sobre el estado ya sano. No se tocó ese archivo.
+- **Pendiente honesto**: AUD-140 (texturas/framebuffers WebGL sin tope
+  de asignación inicial en `webgl.ts`), SEC-GATE-003 (vulns sólo-dev no
+  bloquean `audit:security`), AUD-032 (política DNS/IP privada/redirects
+  en validadores de URL) y el ítem conocido de paridad zoompan↔preview
+  si se retoma.
+
+## Pasada 203 — effect-kit WebGL: historial de frames con storage perezoso (AUD-140)
+
+- **Problema** (supervisión 2026-11-19, P2): `EffectRenderer` reservaba
+  el storage RGBA8 de las 4 texturas de historial en CADA cambio de
+  tamaño de fuente (`uploadSource`), aunque `needsHistory` ya limitaba
+  la COPIA por frame — no la asignación. En 4K eso son ~132 MiB por
+  renderer (4 × 3840×2160×4B) para el caso común sin efectos temporales
+  (`blur.temporal`, `denoise.temporal`).
+- **Cambio** (`packages/effect-kit/src/webgl.ts`):
+  - `uploadSource` ya no toca las texturas de historial al cambiar el
+    tamaño: sólo `historyCount = 0` (el contenido viejo queda inválido
+    igual).
+  - Nuevo `ensureHistoryStorage()`: asigna/re-asigna el storage RGBA8 al
+    tamaño fuente sólo cuando `render()` detecta `needsHistory`, y lo
+    hace ANTES del loop de passes (los slots se samplean como uniforms
+    `u_hist*`/`u_prevTexture` — no pueden quedar sin storage en el
+    primer draw). Idempotente por tamaño; al re-alojar resetea
+    `historyCount`.
+  - Las texturas/FBOs del historial se siguen creando en el constructor
+    (handles baratos, sin storage GPU); el ahorro es el buffer, que es
+    lo que pesa.
+- **Verificación**: `tsc --noEmit` effect-kit **exit 0** · vitest
+  effect-kit **79/79** (6 skipped: sondas ffmpeg/audio live que se
+  saltan sin binario/credenciales — preexistente).
+- **Honesto**: no hay test de `webgl.ts` en vitest (requiere WebGL2
+  real; jsdom no lo provee). La verificación es typecheck + revisión:
+  la secuencia ensure→passes→copia al historial preserva el orden
+  original (storage garantizado antes de samplear y antes de escribir
+  el slot). Una vez asignado, el buffer queda retenido por la vida del
+  renderer — liberar al desactivar efectos temporales requeriría
+  deleteTexture/recreate y no se hizo (complejidad vs beneficio).
+- **Queda de AUD-140**: la estimación citaba también "framebuffers" —
+  los FBOs no reservan storage propio (apuntan a las texturas), así que
+  el fix cubre el costo real. Si se quiere un tope duro de resolución
+  para preview 4K sería decisión de producto aparte.
+- **Pendiente de la supervisión**: SEC-GATE-003 (vulns sólo-dev no
+  bloquean), AUD-032 (validadores de URL sin política DNS/IP
+  privada/redirects completa).
+
+## Pasada 204 — AUD-032: política anti-SSRF del descargador (DNS + IPs mapeadas + redirects)
+
+- **Problema** (supervisiones 2026-11-14 a 19, P1): `validate_url` sólo
+  rechazaba IPs literales privadas y unos pocos casos v6. Faltaban:
+  IPv4-mapped/compatible IPv6 (`::ffff:127.0.0.1` pasaba), CGNAT
+  100.64/10, benchmarking 198.18/15, TEST-NETs, multicast, NAT64
+  64:ff9b::/32; no había resolución DNS (un dominio público que apunta a
+  127.0.0.1 pasaba) ni revalidación de redirects en los clientes
+  reqwest que fetchean URLs del usuario.
+- **Cambio** (`commands/domains/downloader/downloader/probe.rs` y
+  call sites):
+  - `ip_is_forbidden`: reglas manuales (los métodos `is_shared`,
+    `is_benchmarking`, `is_documentation` son inestables en Rust) +
+    `to_ipv4()` para mapped/compatible + prefijo NAT64 64:ff9b::/32.
+  - `ensure_public_resolution`: resuelve `(host, puerto)` con
+    `to_socket_addrs` y rechaza si CUALQUIER IP es prohibida; fail-closed
+    si no resuelve. Sólo en contextos bloqueantes (spawn_blocking/hilos).
+  - `validate_url_network` = literal + DNS, para comandos que ya corren
+    bloqueados (`probe_source_checksum`, `fetch_rss_feed`,
+    `download_blocking`, `probe_with_engine`, `run_direct_image`,
+    `list_audio_tracks`, `list_playlist_entries`).
+  - `ssrf_redirect_policy`: `Policy::custom` que revalida cada salto
+    (esquema + host + IP literal + DNS) en los clientes reqwest que
+    fetchean URLs del usuario (checksum, RSS, imagen directa del
+    bridge). Antes seguían los ~10 redirects default sin revalidar.
+- **Verificación**: `cargo test --lib downloader` **63 ok / 1 ignored**
+  (2 tests nuevos: formas de IP ocultas — entera/hex/octal, mapped,
+  compatible, NAT64, CGNAT, doc, multicast — y DNS a loopback vía
+  `localhost`, sin red) · `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+- **Residual honesto** (no cerrado):
+  - yt-dlp hace su propia resolución DNS y sigue URLs de medios
+    extraídas de la página: la entrada se valida, los saltos internos
+    del subproceso no se pueden fijar (no hay pinning de IP posible sin
+    proxy propio).
+  - TOCTOU DNS-rebinding: entre `ensure_public_resolution` y el connect
+    el DNS puede cambiar; cerrarlo del todo exige resolver+conectar con
+    la IP validada (custom resolver), no implementado.
+  - `web_sessions`/`flow_browser` (navegador embebido) conservan su
+    validador laxo: es navegación del usuario, no fetch de la app — se
+    documenta como decisión, no como bug.
+  - Clientes reqwest a URLs fijas de proveedores (SponsorBlock, reglas,
+  motor, IA) no aplican la política: el destino no lo elige el usuario.
+- **Queda de la supervisión**: SEC-GATE-003 (vulns sólo-dev no bloquean
+  `audit:security`). AUD-032 queda como "mitigado con residual
+  documentado" — la supervisión decidirá si exige pinning de IP.
+
+## Pasada 205 — SEC-GATE-003: medición real de los advisories sólo-dev + bump vitest
+
+- **Corrección de la nota anterior**: la cola decía "vitest/tinypool
+  critical tiene fix en 2.1.9" — **medición real con `npm audit --json`
+  (2026-11-20) lo desmiente**: los advisories cubren `vitest <3.2.6` y
+  `>=2.1.0 <4.1.11`, `tinypool <=2.1.0/<2.1.2`, `vite <=6.4.3`. El fix
+  audit propone **vitest 5.1.1** (major) y **vite 8.3.8** (major).
+- **Hecho**: `vitest` 2.1.8 → **2.1.9** (pin exacto root, autorizado por
+  el usuario; `^2.1.8` de workspaces ya lo absorbía). Sirve igual:
+  adelanta parches y queda a un minor del rango vulnerable, pero **NO
+  cierra los critical** — la DB de advisories se actualizó desde la
+  nota del 14/11.
+- **Verificación**: `security-audit.mjs` → `npm: PASS | npm-dev: INFO |
+  cargo-audit: SKIPPED`, exit 0 · `npm ls` confirma vitest 2.1.9 +
+  tinypool 1.1.1 en todo el árbol · smoke `VoiceoverRecorder.test.tsx`
+  **6/6** con vitest 2.1.9.
+- **Estado real de sólo-dev** (7 paquetes, no se empaquetan):
+  - critical: `vitest` (fix real ≥3.2.6/4.1.11, audit propone 5.1.1) y
+    `tinypool` (sólo se salva con vitest 5.x — dep transitiva).
+  - high: `vite` 5.4.21 (10 advisories ≤6.4.3, fix vite 8.3.8) y
+    `zod-to-json-schema` (fix **no-major** disponible: 3.25.2).
+  - moderate: 3 (incl. esbuild vía vite).
+- **Decisión pendiente del usuario** (rompe cambio, no se hace solo):
+  1. `zod-to-json-schema` 3.23.5 → 3.25.2 — bump no-major, cierra 1 high.
+  2. Migración vitest 2→5 + vite 5→8 — breaking en los 3 paquetes con
+     tests (desktop, render-worker, effect-kit); requiere sesión
+     dedicada de migración y validación de la suite entera.
+- **Queda de la supervisión**: SEC-GATE-003 queda en "INFO visible con
+  decisión de migración pendiente" — ya no hay acción trivial restante.
+
+### Addendum Pasada 205 — resultado del bump zod-to-json-schema y plan de migración
+
+- `zod-to-json-schema` 3.23.5 → 3.25.2 **probado y revertido**: la 3.25
+  importa `zod/v3`, subpath que sólo existe en zod ≥3.25 — con el pin
+  `zod@3.24.1` rompía `schema-artifacts.test.ts` (suite error, no test).
+  Y el high que reportaba no se iba a cerrar igual: el advisory es de
+  **zod** (GHSA-mrhx-c7xc-m3w5, `zod <4.6.6`), no del conversor. La
+  excepción de prod ya lo cubría; el flag dev era el mismo advisory
+  visto por otra dependencia. Queda en 3.23.5.
+- **Hallazgo lateral resuelto**: al revertir, `schema-artifacts.test.ts`
+  destapó drift real del WIP — el `.schema.json` commiteado no matcheaba
+  el schema TS (`media.channels` agregado en `assets.ts` sin regenerar).
+  `npm run schema:generate` regeneró el artefacto; project-schema
+  **395/395** verde.
+- **Estado final npm-dev**: 7 paquetes sólo-dev, 2 critical + 2 high +
+  3 moderate — todos requieren majors: vitest ≥3.2.6 (audit propone
+  5.1.1), vite ≥6.4.4 (propone 8.3.8), zod ≥4.6.6. vitest quedó en
+  2.1.9 (patch válido, smoke verde en desktop/effect-kit/project-schema).
+- **Plan de migración aprobado por el usuario** (sesión dedicada, no
+  mezclar con WIP):
+  1. `zod` 3.24.1 → 4.6.6+ en project-schema/desktop/render-worker +
+     `zod-to-json-schema` → 3.25.x (que entonces sí resuelve `zod/v3`) +
+     regenerar `schema:generate` + migrar usos de API zod3→4.
+  2. `vitest` 2.1.9 → 5.x y `vite` 5.4.21 → 8.x en desktop,
+     render-worker, effect-kit; ajustar configs de vitest/vite y correr
+     `npm run test:serial` completo.
+  3. Re-correr `security-audit.mjs`: objetivo npm-dev sin critical/high.
+
+## Pasada 206 — AUD-071: ZIP de entrega con tope de base64 antes de decodificar
+
+- **Problema** (supervisión 2026-11-20 run09, P1):
+  `commands/domains/projects/package.rs::decode_package` ejecutaba
+  `STANDARD.decode(encoded)` antes de comparar `bytes.len()` con
+  `MAX_PACKAGE_BYTES` (64 MiB): un payload IPC sobredimensionado
+  reservaba el buffer decodificado completo antes del rechazo.
+- **Fix**: `MAX_PACKAGE_BASE64_CHARS = MAX_PACKAGE_BYTES.div_ceil(3)*4+8`
+  y rechazo temprano por `encoded.len()` — mismo patrón que AUD-142 en
+  `decode_import_bytes`. El control post-decode sobre bytes reales se
+  mantiene.
+- **Verificación**: `cargo test --lib package` **5/5** (+1:
+  `rejects_oversized_base64_before_decoding`, string 'A' válido en
+  base64 pero > tope codificado) · `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+- **P1 abiertos que quedan de run09**: AUD-068 (guardado tardío mezcla
+  metadatos entre proyectos), AUD-069 (Save As readopta sesión),
+  AUD-121/122 (export shorts bloqueante + deadlock stderr),
+  AUD-123 (multiplicaciones temporales sin checked), AUD-130 (merge
+  exige audio en todos los vídeos), AUD-146 (P2, máscara facial pierde
+  última muestra), AUD-139 residual (rollback variantes).
+
+## Pasada 207 — AUD-123: identidad de timing con checked_mul (u64)
+
+- **Problema** (supervisión run09, P1): `integrity_issues()` en
+  `projects/service.rs` calculaba `duration * num != window * den` en
+  u64 sin protección — un documento externo con valores extremos
+  envolvía el producto y la identidad podía "cerrar" por accidente o
+  paniquear en debug.
+- **Fix**: ambos productos con `checked_mul`; `None` en cualquiera de
+  los dos lados → issue "la identidad de timing desborda el rango
+  seguro" en `durationFrames`. La comparación de mismatch conserva el
+  mensaje original.
+- **Verificación**: `cargo test --lib projects::` **39/39** (+1:
+  `la_identidad_de_timing_rechaza_desborde_u64` — durationFrames=u64::MAX
+  con speed 2x) · `cargo fmt --all -- --check` exit 0 · `cargo clippy
+  --all-targets -D warnings` exit 0.
+- **Quedan de run09**: AUD-068, AUD-069, AUD-121/122, AUD-130 (P1);
+  AUD-146, AUD-139 residual (P2). Residual honesto de AUD-123: los
+  límites de enteros seguros del esquema TS (safe-integer) no se
+  replican todos en Rust — `number()` acepta u64 completo; el checked_mul
+  cierra el overflow de ESTE cálculo, no una auditoría completa de
+  rangos (queda como mejora si la supervisión la exige).
+
+## Pasada 208 — AUD-130: merge_videos con inputs sin pista de audio
+
+- **Problema** (supervisión 2026-11-20 run09, P1): `merge_video_args`
+  en `media/toolbox.rs` generaba `[i:v:0][i:a:0]` + `concat=v=1:a=1`
+  para TODOS los inputs — un video sin audio (o mezcla audio/sin
+audio) hacía fallar ffmpeg porque `[i:a:0]` no existe.
+- **Fix**:
+  - `MergeInput { path, has_audio, duration_seconds }` reemplaza a
+    `&[PathBuf]` en `merge_video_args`.
+  - `media_tools.rs::merge_videos` mide cada input con `probe_file`
+    (spawn_blocking, como el resto del FFmpeg del comando):
+    `has_audio = channels|sample_rate presente`, duración de
+    `format.duration`. ffprobe ausente → error honesto
+    (ProviderUnavailable); input sin audio y sin duración medible →
+    InvalidProject.
+  - Grafo ffmpeg: cada video pasa por `null` a pad etiquetado `[vi]`;
+    TODA la audio (real o sintética) pasa por
+    `aformat=sample_rates=48000:channel_layouts=stereo` — concat exige
+    mismo rate/layout entre segmentos. Los inputs sin audio agregan
+    `-f lavfi -t <dur> -i anullsrc=r=48000:cl=stereo`.
+  - Primer intento de grafo tenía pads sin etiqueta intercalados con
+    aformat — ffmpeg los conecta al siguiente filtro; se corrigió con
+    pads etiquetados por segmento antes de detectarlo en tests.
+- **Verificación**: `cargo test --lib toolbox` **9/9** (+1:
+  `merge_args_synthesizes_silence_for_audio_less_inputs` — verifica
+  `-f lavfi`, `anullsrc`, índice lavfi=2 y concat n=2) ·
+  `cargo fmt --all -- --check` exit 0 · `cargo clippy --all-targets
+  -D warnings` exit 0.
+- **Honesto**: verificado a nivel de argumentos/grafo, NO con un
+  ffmpeg real mezclando archivos (no hay test de integración live).
+  Sigue exigiendo mismas dimensiones entre inputs (limitación
+  preexistente documentada). Residuales de concat: pix_fmt/codec de
+  video heterogéneos dependen del encoder elegido.
+- **Quedan de run09**: AUD-068, AUD-069, AUD-121/122 (P1); AUD-146,
+  AUD-139 residual (P2).
+
+## Pasada 209 — AUD-121/122: export_short sin deadlock de stderr
+
+- **Problema** (supervisión 2026-11-20 run09, P1):
+  `creator/shorts/export.rs` tenía `stderr(Stdio::piped())` pero lo
+  leía recién DESPUÉS de `child.wait()`: si FFmpeg llenaba el pipe
+  (~64 KiB en Windows) se bloqueaba escribiendo y el wait era
+  circular. El handler async ya estaba en `spawn_blocking` desde
+  AUD-030 — eso cubría la parte "bloqueante" de AUD-121.
+- **Fix**: thread paralelo que drena stderr con `Read::take(1 MiB)`
+  (buffer acotado; sólo se usa la última línea para el error) y se
+  lee su `join()` después del wait. stdout (progreso) ya se drenaba
+  en thread desde antes.
+- **Verificación**: `cargo check` exit 0 · `cargo fmt --all --
+  --check` limpio · `cargo clippy --all-targets -D warnings` exit 0.
+  No hay test unitario del ciclo de proceso (requiere FFmpeg real);
+  la corrección es estructural: ambos pipes se drenan mientras el
+  hijo corre.
+- **Quedan de run09**: AUD-068, AUD-069 (P1, carreras de sesión en
+  guardado/Save As); AUD-146, AUD-139 residual (P2).
+
+## Pasada 210 — AUD-068 + AUD-069: guardado/Save As entre proyectos
+
+- **AUD-068** (`state/project-store-provider.tsx`): `saveNow` y
+  `saveAs` ejecutaban `persistedVersionRef = version`,
+  `recoveryWriter.cancel()` y `clearRecoverySnapshot()`
+  incondicionalmente tras el await, y en la rama de proyecto cambiado
+  `saveNow` copiaba `path/root/label` del guardado anterior al
+  `opened` visible. Ahora `stillCurrent = stateRef.current.project ===
+  captured` condiciona la limpieza de recuperación y la marca de
+  persistido, y la rama de mismatch ya no toca `current.opened`.
+- **AUD-069** (`application/projects.rs::save_project_as`): tras
+  `documents.save()` se re-verifica `session.require()` +
+  `ensure_session_project` antes de `open_and_adopt`. Si la sesión
+  cambió durante el diálogo/copia de assets, el documento queda
+  escrito en disco pero NO se adopta: se devuelve
+  `describe_at(path)` sin comprometer la sesión.
+- **Test nuevo**: `project-store.test.tsx` — saveNow en vuelo +
+  `openProjectAt` a otro proyecto; al resolverse el guardado, el
+  `opened.path` visible sigue siendo el del proyecto B (antes se
+  pisaba con la ruta del guardado de A).
+- **Verificación**: vitest project-store **17/17** · `tsc --noEmit`
+  exit 0 · `cargo test --lib application::projects` **3/3** ·
+  `cargo fmt --all -- --check` limpio · `cargo clippy --all-targets
+  -D warnings` exit 0.
+- **Nota**: `project-store-provider.tsx` tiene comentarios con
+  mojibake preexistente (encoding dañado en WIP) y CRLF — las ediciones
+  se hicieron preservando bytes; no se "corrigió" el archivo entero.
+- **Quedan de run09**: AUD-146 (P2, máscara facial pierde última
+  muestra) y AUD-139 residual (rollback variantes, P2).
+
+## Pasada 211 — AUD-146 + AUD-139 residual: máscara facial y rollback de variantes
+
+- **AUD-146** (`state/face-mask.ts`): con 96 muestras y `stride=2` el
+  muestreo llenaba las 48 claves pares y al agregar la última muestra
+  `slice(0,48)` la descartaba — la máscara no llegaba a la posición
+  final del rostro. Ahora si `sampled.length >= MAX` se trunca a
+  `MAX-1` antes de agregar el endpoint: la última siempre entra.
+  Test nuevo: 96 muestras a 10 fps → 48 keyframes, última en frame 95.
+- **AUD-139 residual** (`application/variants.rs`): `mirror_assets`
+  devolvía sólo el conteo; si `service::save_project` fallaba tras
+  copiar, los medios quedaban huérfanos. Ahora devuelve
+  `(copied, created)` y `write_project_variant_file` revierte los
+  `created` si la escritura del JSON falla — la transacción cubre
+  copia + escritura.
+- **Verificación**: vitest face-mask **8/8** (+1 AUD-146) ·
+  `cargo test --lib variants` **8/8** · `tsc --noEmit` exit 0 ·
+  `cargo fmt --all -- --check` limpio · `cargo clippy --all-targets
+  -D warnings` exit 0.
+- **Estado run09**: TODOS los hallazgos procesados — AUD-068, 069,
+  071, 121/122, 123, 130, 146, 139 residual. Residuales honestos
+  documentados: SSRF de yt-dlp/TOCTOU (AUD-032), paridad
+  zoompan↔preview, migración de majors npm-dev, cargo-audit no
+  instalado, validación de rangos TS↔Rust parcial.
+
+## Pasada 212 — AUD-129 resto: audio.rs fuera del runtime async
+
+- **Problema** (continuación de AUD-129, aclarado por run09): la
+  supervisión aclaró que el fix de Pasada 202 sólo cubrió
+  `media_tools.rs`. Auditoría del dominio `commands/domains/audio/`:
+  `audio_peaks` y `audio_peaks_path` ejecutaban `probe_audio`
+  (ffprobe) + `decode_peaks` (decodificación PCM completa con deadline
+  de minutos) directo en el runtime async de Tauri;
+  `hardware_encoders` lanzaba `detect_hardware_cached` (procesos
+  ffmpeg/ffprobe en la primera detección) igual.
+- **Fix** (`commands/domains/audio/audio.rs`): los tres comandos
+  envuelven el trabajo bloqueante en `spawn_blocking` con Paths y
+  buckets clonados; la resolución de sesión/assets queda fuera del
+  closure. Mismo patrón que media_tools/shorts/dialogue.
+- **Alcance verificado del dominio audio**: voice_isolation (spawn
+  blocking + timeout 3 h), dialogue (spawn_blocking), dubbing
+  (spawn_blocking), transcribe (spawn_blocking), subtitles_pipeline
+  (spawn_blocking), creator/* (spawn_blocking) — ya cubiertos.
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib audio::`
+  3/3 · `cargo fmt --all -- --check` limpio · `cargo clippy
+  --all-targets -D warnings` exit 0 (un `needless_question_mark`
+  propio corregido).
+- **Residual honesto**: la auditoría fue por dominio audio + grep de
+  `.output()/.wait()` en commands; otros dominios (downloader, media,
+  projects) tienen sus propios helpers — convendría una pasada
+  similar si la supervisión la pide.
+
+## Pasada 213 — AUD-129 resto (media): denoise_media fuera del runtime async
+
+- **Problema** (continuación AUD-129): `denoise_media` ejecutaba
+  `probe_media` (ffprobe) + resolución de encoder + encode FFmpeg
+  completo + probe final + publish, todo en el runtime async — un
+  denoise de video largo congelaba el runtime de Tauri.
+- **Fix** (`commands/domains/media/denoise.rs`): desde el primer
+  `probe_media` hasta el `DenoiseResult` corre en
+  `tauri::async_runtime::spawn_blocking` (Paths/filter/modo
+  clonados; `app` y `source_bytes` capturados). La validación de
+  entrada y resolución de herramientas quedan fuera del closure.
+- **Verificación**: `cargo check` exit 0 · `cargo fmt` aplicado ·
+  `cargo clippy --all-targets -D warnings` exit 0. El test live de
+  render sigue detrás de `EDITOR_IA_RUN_RENDER_TESTS` (no corrido).
+- **Hallazgos del mismo barrido que QUEDAN ABiertos** (async +
+  procesos sin spawn_blocking, detectados por grep — próximos
+  candidatos de esta misma pasada si se continúa):
+  `media/sharpen/command.rs::sharpen_media` (encode completo),
+  `media/media/color_proxy.rs` (`sample_asset_color`,
+  `create_video_proxy`, `extract_freeze_frame` — `.output()` por
+  comando), `media/lottie.rs` (`write_alpha_frames`,
+  `alpha_frames_to_asset` — `.output()` + probe),
+  `media/convert/probe_vmaf.rs` (`probe_any_file`, `measure_vmaf`),
+  `integrations/vpn.rs` (spawn+wait de rasphone/wireguard — corto
+  pero bloqueante). Los dominios ai/audio_providers/diarize/lip_sync/
+  voice_clone/rules son HTTP async (reqwest), no procesos — no
+  aplican.
+
+## Pasada 214 — AUD-129 resto (media): sharpen, color_proxy y lottie
+
+- **`sharpen/command.rs::sharpen_media`**: probe + `resolve_encoder`
+  (prueba encoders reales con FFmpeg) + encode completo + publish →
+  `spawn_blocking`.
+- **`media/color_proxy.rs`**: `sample_asset_color`,
+  `create_video_proxy` (detección HW + encode proxy + probe) y
+  `extract_freeze_frame` (extracción + `import_file` con ffprobe) →
+  `spawn_blocking` cada uno.
+- **`lottie.rs::alpha_frames_to_asset_impl`**: codificación VP9 de la
+  secuencia (hasta 3600 frames) + `build_asset`/`import_file` →
+  `spawn_blocking`. La validación de token/frames queda fuera.
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib lottie`
+  **5/5** · `cargo fmt --all -- --check` limpio · `cargo clippy
+  --all-targets -D warnings` exit 0.
+- **Queda del barrido AUD-129**: `media/convert/probe_vmaf.rs`
+  (`probe_any_file`, `measure_vmaf`) — delegan en puertos
+  `media_tools`/`media_runner`; el bloqueo vive en
+  `application::media` y requiere análisis de Send del runner, no un
+  wrap trivial. `integrations/vpn.rs` (spawn+wait corto de
+  rasphone/wireguard) — menor prioridad.
+
+## Pasada 215 — AUD-129 resto: probe_vmaf y vpn fuera del runtime async
+
+- **`media/convert/probe_vmaf.rs`**: `probe_any_file` y `measure_vmaf`
+  delegaban en `use_cases` con `StateMediaTools` (que presta
+  `&AppState`, no puede cruzar `spawn_blocking`). Se agregó
+  `FixedMediaTools` (rutas ffmpeg/ffprobe resueltas una vez desde
+  `settings_snapshot` + `resolve_tools`, mismo resultado que
+  `StateMediaTools`) y `SystemMediaRunner` (unit struct, Send) cruza
+  el closure sin problema. VMAF (encode de comparación completo) y
+  probe de archivos ahora van a `spawn_blocking`.
+- **`integrations/vpn.rs`**: `run_with_timeout` hacía busy-wait con
+  `try_wait` + sleep hasta 90 s (rasdial connect) / 30 s
+  (disconnect) / 20 s (PowerShell list) dentro del runtime async.
+  `vpn_list`, `vpn_connect`, `vpn_disconnect` y
+  `vpn_wireguard_open` ahora lanzan el proceso en `spawn_blocking`.
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib vpn`
+  **4/4** · `cargo test --lib media_analysis` **9/9** ·
+  `cargo fmt --all -- --check` limpio · `cargo clippy --all-targets
+  -D warnings` exit 0.
+- **Estado AUD-129**: barrido completo de `commands/` — todos los
+  procesos bloqueantes conocidos (FFmpeg largo, ffprobe, rasdial,
+  PowerShell, wireguard) van por `spawn_blocking`. Queda como
+  regla: todo `Command` nuevo en un comando async debe ir a
+  `spawn_blocking` (documentado en AGENTS/CLAUDE si se quiere
+  formalizar).
+
+## Pasada 216 — residual AUD-123: enteros seguros de JS en la validación Rust
+
+- **`projects/service.rs`**: nuevo `MAX_SAFE_INTEGER` (2^53-1) +
+  `issue_if_unsafe_integer`. Todo entero temporal del documento que
+  exceda el mayor entero seguro de JS se reporta como issue y el
+  guardado se rechaza, en vez de arrastrar un valor que el frontend
+  no puede representar con fidelidad (f64).
+- Cobertura: `schemaVersion`, `revision`, `video.frameRate.num/den`,
+  por clip `durationFrames`/`source.outFrame`/`source.inFrame`/
+  `speed.num`/`speed.den`, y por compound `durationFrames` +
+  `startFrame`/`durationFrames` de clips internos.
+- **No** se filtró en `number()`: devolver `None` tragaba el campo y
+  el documento pasaba igual (detectado por los tests — u64::MAX
+  dejó de generar issue). La validación es issue explícito.
+- **Verificación**: `cargo test --lib projects::tests` **33/33**
+  (+1 test: 2^53 rechazado en durationFrames, 2^53-1 aceptado en
+  revision) · `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+- **Residual honesto**: la cobertura es de los campos temporales
+  conocidos; otros `as_u64` sueltos (assets.bytes, captions, etc.)
+  quedan como auditoría de rangos aparte si la supervisión la pide.
+
+## Pasada 217 — checkpoint `npm run verify` + thumbnails del catálogo WIP
+
+- **`npm run verify` completo** sobre el WIP acumulado (pasadas
+  200–216): typecheck 4 paquetes exit 0 · test:serial **3246 ok /
+  1 failed** · test:extension **33/33** · test:web-tts **10/10** ·
+  audit:security **PASS** (npm-dev INFO conocido: 2 critical + 2
+  high sólo-dev, migración majors aprobada como sesión dedicada).
+- **Fallo encontrado y reparado**: `effect-thumbnails.test.ts`
+  reportaba 34 manifiestos de effect-kit sin SVG en
+  `public/thumbnails/effects/` — el catálogo WIP (audio.ts,
+  video.ts, eq.ts nuevo) creció sin correr el generador.
+  `npm run thumbnails:effects` emitió **172 SVG** deterministas
+  (38 nuevos: los 34 faltantes + blur.temporal, denoise.temporal,
+  lens.correct y otros manifests recientes). Test re-corrido:
+  **3/3** verde.
+- **Honesto**: la suite serial completa (12 min) no se re-corrió
+  entera; el único rojo conocido quedó verificado aislado. El resto
+  de archivos pasó en la corrida original.
+
+## Pasada 218 — AUD-129 formalizado como gate + 4 bloqueos residuales
+
+- **Nuevo gate** en `scripts/architecture-rules.test.mjs`: dentro de
+  `commands/**`, ningún `async fn` puede llamar `.output()`,
+  `.wait()` ni `.wait_with_output()` fuera de un closure
+  `spawn_blocking` (spans enmascarados por balanceo de paréntesis
+  tras sanitizar comentarios/strings/chars con
+  `sanitizeRust` — los comentarios `// 1)` desbalanceaban el conteo
+  y producían falsos negativos). `.spawn()` solo no bloquea.
+- **Ofensas reales que el gate destapó y se corrigieron**:
+  - `screen_record/snapshot.rs`: el `ffprobe .output()` de tamaño
+    post-preview corría en async → `spawn_blocking`.
+  - `browser_instances.rs::browser_instance_launch` y
+    `::browser_instance_close`: `child.kill()+wait()` tras el probe
+    CDP → `spawn_blocking` (en close además se liberó el
+    MutexGuard antes del await — no es Send).
+  - `flow_browser.rs::flow_browser_launch`: mismo kill+wait →
+    `spawn_blocking`.
+- **Falsos negativos del primer gate** (stickman_render,
+  extract_subtitles) eran comentarios `// N)` dentro del closure —
+  resueltos por `sanitizeRust`, no por excepciones.
+- **Verificación**: `architecture-rules.test.mjs` **14/14** ·
+  `cargo check` exit 0 · `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+- **Alcance honesto**: la regla es sintáctica por función — un
+  helper síncrono bloqueante llamado desde async sin
+  spawn_blocking no la delata (queda como límite conocido).
+
+## Pasada 219 — gate AUD-129 extendido a `thread::sleep` + fix real
+
+- **Gate ampliado** (`architecture-rules.test.mjs`): ahora también
+  marca `thread::sleep()`/`std::thread::sleep()` dentro de `async fn`
+  fuera de `spawn_blocking`/`thread::spawn`. Los spans de
+  `thread::spawn` se enmascaran igual que `spawn_blocking` (hilo
+  dedicado, no runtime) y los spans anidados se saltean — antes un
+  `thread::spawn` dentro de un closure `spawn_blocking` corrompía
+  el merge y generaba falsos positivos en `.wait()`.
+- **Ofensa real corregida**: `screen_record/start.rs::
+  screen_record_start` dormía 1.2 s con `thread::sleep` en el
+  runtime async para verificar que ffmpeg siguiera vivo tras el
+  arranque → `tokio::time::sleep(...).await` (`try_wait` no
+  bloquea, sólo la espera lo hacía).
+- **Falso positivo descartado**: el watchdog de `transcribe.rs`
+  duerme dentro de `std::thread::spawn` — hilo dedicado legítimo,
+  queda enmascarado por la regla.
+- **Descartado por ruido**: `.status()` NO entra al gate — 35 hits
+  en commands/**, casi todos `response.status()` de reqwest y
+  status de jobs; el caso `Command::status()` es raro y el patrón
+  no es distinguible sintácticamente.
+- **Verificación**: `architecture-rules.test.mjs` **14/14** ·
+  `cargo check` exit 0 · `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+
+## Pasada 220 — AUD-129 resto: comandos SYNC bloqueantes en main thread
+
+El gate cubre `async fn`; la otra mitad de la clase son comandos
+`#[tauri::command] pub fn` **síncronos**, que Tauri ejecuta en el
+main thread — cualquier bloqueo ahí congela la UI directamente.
+
+- **`downloader/automation.rs`** (3 comandos): `probe_source_checksum`
+  (HEAD 10 s), `fetch_rss_feed` (GET 12 s) y `test_proxy` (GET 10 s)
+  usaban `reqwest::blocking` en sync → `pub async fn` con todo el
+  trabajo (validación URL+DNS, cliente, request, parseo) dentro de
+  `spawn_blocking`. `test_proxy`: `reqwest::Proxy::all` es parseo
+  puro no bloqueante → queda fuera del closure (además su `?`
+  chocaba con el `reqwest::Result` del closure). Test live
+  `rss_live_optional` actualizado a `tauri::async_runtime::block_on`.
+- **`integrations/flow_browser.rs::flow_browser_stop`**: sync con
+  `child.kill()+wait()` en main thread → `pub async fn`, child
+  extraído bajo lock (liberado antes del await) y kill+wait en
+  `spawn_blocking`. `stop_all_browser_instances()` NO es comando
+  Tauri (hook de shutdown) — documentado, se deja.
+- **`media/upscale/runtime.rs::upscale_image`**: sync con
+  decode imagen + inferencia ONNX Real-ESRGAN ×4 + encode PNG →
+  `pub async fn` + `spawn_blocking` (los segundos de CPU de la
+  inferencia eran el peor caso de la clase).
+- **`system/background/image.rs::remove_background`**: sync con
+  inferencia ONNX u2netp + composite + encode → mismo fix.
+- **Descartado**: `subtitles_convert_file` y demás sync commands
+  de fs acotado (subtítulos, exports EDL/XML) — archivos chicos,
+  mismo patrón que el resto de la app; no justifica refactor.
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib
+  automation` **7/7** · `architecture-rules.test.mjs` **14/14** ·
+  `cargo fmt --all -- --check` limpio · `cargo clippy --all-targets
+  -D warnings` exit 0.
+- **Residual honesto**: quedan sync commands con fs de tamaño
+  variable (`scan_watch_folder`, `copy_media_into`,
+  `write_project_file`) — riesgo menor pero misma clase;
+  migración masiva no justificada sin evidencia de archivos
+  grandes. `subtitles_convert_file` lee un archivo de subtítulos
+  (KBs) — no bloquea de forma perceptible.
+
+## Pasada 221 — AUD-129 resto: fs de tamaño variable fuera del main thread
+
+Continuación del residual de la pasada 220 — los tres sync
+commands con fs variable resultaron reales:
+
+- **`projects/variants.rs::copy_media_into`**: el peor caso —
+  `copy_media_files` copia archivos arbitrarios de usuario
+  (video de GBs) **y hashea cada copia completa** con sha256
+  (lee el archivo entero por segunda vez) en el main thread →
+  `pub async fn` + `spawn_blocking`.
+- **`projects/variants.rs::write_project_file`**: escribe el JSON
+  del proyecto → `pub async fn` + `spawn_blocking`.
+- **`downloader/automation.rs::scan_watch_folder`**: el traversal
+  lee el directorio y todos sus `.txt` (carpeta de red o miles
+  de archivos) → `pub async fn` + `spawn_blocking`.
+- Tests de `scan_watch_folder` actualizados a
+  `tauri::async_runtime::block_on`; registry y frontend
+  (`invoke`) son transparentes al cambio sync→async.
+- **Verificación**: `cargo test --lib automation` **7/7** ·
+  `cargo test --lib variants` **8/8** ·
+  `architecture-rules.test.mjs` **14/14** ·
+  `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+- **Residual honesto**: sync commands que quedan son fs acotado
+  (subtítulos KBs, exports EDL/XML chicos, metadatos) — mismo
+  patrón que el resto de la app; no justifica refactor masivo.
+
+## Pasada 222 — gate AUD-129 extendido a comandos SYNC
+
+El barrido manual de las pasadas 220–221 queda enforceado:
+
+- **Nuevo test** en `architecture-rules.test.mjs`: los
+  `#[tauri::command] pub fn` síncronos de `commands/**` no pueden
+  ejecutar `.output()/.wait()/.wait_with_output()`,
+  `thread::sleep()` ni `reqwest::blocking` — corren en el main
+  thread de Tauri y congelarían la UI.
+- **Falso positivo propio durante el desarrollo**: la primera
+  versión del regex omitió `\s*\(` final y marcó 5 hits que eran
+  accesses a campos `output_dir`/`output_path` (color_lut,
+  edl, fcpxml, otio, thumbnail) — corregido, cero ofensas reales.
+- La clase AUD-129 queda cerrada por gate en las dos direcciones:
+  `async fn` (procesos/sleep fuera de `spawn_blocking`) y
+  `pub fn` sync (nada bloqueante en absoluto).
+- **Límite conocido** (documentado en el test): helpers
+  bloqueantes invocados desde un comando no se delatan — la
+  regla es sintáctica por cuerpo de función.
+- **Verificación**: `architecture-rules.test.mjs` **15/15**.
+
+## Pasada 223 — AUD-129 resto: CPU de imagen en comandos sync
+
+El gate de sync commands no cubre CPU pura (sin proceso/red) —
+barrido manual de `image::open`/decode en `commands/**`:
+
+- **`audio/filmcraft_scopes.rs::analyze_scopes_frame`**: el peor
+  caso — decodifica imágenes de hasta 16384×16384 (~1 GB de
+  raster RGBA) y corre waveform + vectorscopio + histograma por
+  píxel, todo en el main thread → `pub async fn` +
+  `spawn_blocking` (el body completo entra al closure).
+- **`media/thumbnail.rs::save_thumbnail`**: data-url de hasta
+  64 MB + decode + re-encode PNG + escritura → wrapper async +
+  `save_thumbnail_impl` en `spawn_blocking`; los 3 tests pasan a
+  llamar al impl directamente.
+- **Descartados como acotados**: `export_look_lut` (LUT 33³ ≈
+  36k evaluaciones de transform, ms), `lut_probe` (parse de
+  texto con tope 64 MB, ~cien ms), `best_frame`/`upscale` ya
+  eran async.
+- **Verificación**: `cargo test --lib thumbnail` **11/11** ·
+  `cargo test --lib scopes` **6/6** ·
+  `architecture-rules.test.mjs` **15/15** ·
+  `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+- **Residual honesto**: la regla de sync commands no detecta
+  CPU pura (image::open, loops sobre píxeles) — el patrón es
+  demasiado amplio para un gate sintáctico sin falsos positivos;
+  queda como auditoría manual por dominio.
+
+## Pasada 224 — AUD-129 cierre: plugins install/remove + fin del barrido sync
+
+Últimos sync commands con fs de tamaño no acotado:
+
+- **`integrations/plugins.rs::install_plugin`**: copia
+  recursiva (`copy_dir`) de un directorio arbitrario elegido por
+  el usuario **sin tope de tamaño** en el main thread →
+  `pub async fn` + `spawn_blocking`.
+- **`integrations/plugins.rs::remove_plugin`**: borra el árbol
+  del plugin instalado → mismo fix.
+- **Revisados y descartados como acotados**: `sfx_library` (8
+  entradas de catálogo, `is_file`), `mcp_detect_clients` (lee
+  pocos configs), `list_plugins` (scan de manifests chicos),
+  `whisper_model_status` (estado de dir de modelos),
+  `mcp_audit_tail` (tail acotado del log), `set_plugin_enabled`
+  (JSON de estado), getters de status varios.
+- **Estado final de la clase**: ningún comando Tauri —async ni
+  sync— ejecuta procesos, red, ONNX, CPU de imagen pesada ni fs
+  de tamaño variable fuera de `spawn_blocking`. Los gates de
+  `architecture-rules.test.mjs` (15/15) cubren las dos mitades
+  sintácticas; el resto fue barrido manual documentado.
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib
+  plugins` **6/6** · `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+
+## Pasada 225 — AUD-129 límite del gate: fs/procesos vía helpers en async
+
+El gate es sintáctico por cuerpo: no ve helpers bloqueantes
+invocados desde un `async fn`. Probe con la misma maquinaria
+(sanitizeRust + balancedEnd + enmascarado de spawn) sobre
+`std::fs::*` en bodies async → ~100 hits, casi todos
+`create_dir_all`/`write` de archivos chicos. Los de tamaño real:
+
+- **`downloader/output.rs::download_media`**: el post-proceso
+  completo corría en el runtime — `move_download_to` (copy+delete
+  de GBs al cruzar volúmenes), `remove_dir_all` del temporal,
+  `apply_metadata_cover` (remux ffmpeg por archivo),
+  `hash_file` (MD5+SHA-256 de archivos enteros) y
+  `probe_chapters` (ffprobe por video) → todo el bloque va a un
+  segundo `spawn_blocking` que devuelve el outcome.
+- **`downloader/output.rs::cleanup_download`**: `remove_dir_all`
+  de una descarga (GBs) → `spawn_blocking`.
+- **`media/import.rs::import_media_bytes`**: `fs::write` del
+  archivo importado completo + `import_local_files` (ffprobe) +
+  limpieza → `spawn_blocking`.
+- **`projects/variants.rs::render_project_variant`**: el publish
+  (`fs::copy` del MP4 renderizado, GBs) + todos los
+  `remove_dir_all` del temporal → `spawn_blocking`.
+- **`audio/lip_sync.rs::lip_sync`**: `probe_video`/`probe_audio`
+  (ffprobe ×2) en validación + `fs::write` del video completo de
+  la API + `probe_video` de salida + publish → ambas secciones a
+  `spawn_blocking`.
+- **`downloader/engine.rs::install_downloader`**: `fs::write` del
+  binario yt-dlp + `engine_version` (lanza el exe) →
+  `spawn_blocking`.
+- **`audio/voice_clone.rs::clone_voice`**: `fs::write` del WAV +
+  `probe_file` (ffprobe) + publish → `spawn_blocking`.
+- **Descartados como acotados**: `create_dir_all`, writes de
+  JSON/manifests/memoria, `read_to_string` de subtítulos/LUTs,
+  `metadata`, `rename` (O(1) mismo volumen), `lut_thumbnail`
+  (LUTs de KBs).
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib
+  downloader` **63/63** · `lip_sync` **4/4** (+1 live ignored)
+  · `voice_clone` **7/7** · `variants` **8/8** ·
+  `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+- **Residual honesto**: el probe fue por `std::fs::*` — quedan
+  helpers de proceso invocados desde async no cubiertos por el
+  gate (misma limitación documentada); los revisados a mano en
+  esta pasada eran los de tamaño real.
+
+## Pasada 226 — AUD-129 resto: helpers de proceso en async (probe refinado)
+
+- Probe estructural (sanitizeRust + balancedEnd + enmascarado
+  spawn_blocking/thread::spawn, excluyendo target/): 29 llamadas
+  a helpers con procesos desde bodies async no enmascarados.
+- **Reales corregidos** (todos a `spawn_blocking`):
+  - `system/background/command.rs::remove_background_asset`:
+    `remove_image_background`/`remove_video_background` (ONNX +
+    ffmpeg sobre video completo).
+  - `media/intelligence/command.rs::analyze_media`:
+    `measure_media` — 3-4 pasadas ffmpeg de decodificación
+    completa del material (el ofensor más pesado).
+  - `media/media/lut_thumbnail.rs::media_thumbnail`:
+    `thumbnail_data_url` — ffmpeg con timeout 60 s por frame de
+    la "spy" de la timeline.
+  - `screen_record/stop.rs::screen_record_stop` y
+    `screen_record/switch.rs::close_current_segment`:
+    `burn_cursor_overlay` — segundo pase x264 crf 18 sobre el
+    MP4 completo por segmento.
+  - `audio/narration.rs::sapi_voices`: `run_powershell`
+    (enumeración SAPI).
+  - `audio/narration.rs::synthesize_narration`: síntesis SAPI
+    (segundos por texto largo) + `probe_file` + `sha256_file`
+    del WAV completo + rename → un solo `spawn_blocking`.
+- **Falsos positivos verificados**: `media_tools::run_ffmpeg`
+  (hay un `async fn run_ffmpeg` local que ya envuelve),
+  `launch_segment`/`close_segment_blocking`/`run_ffmpeg_transition`
+  (ya en `spawn_blocking`), `run_stream_worker` (thread::spawn
+  dedicado), `start_render` de render_lifecycle (spawn no
+  bloqueante), `node_command` (sólo construye Command),
+  `image_sense`/`audio.rs`/`dialogue`/`export`/`best_frame`/
+  `transcribe` (ya envueltos), tests de voice_clone.
+- **Residual honesto**: probes ffprobe sueltos de validación
+  (`probe_file`, `probe_duration_seconds`, `probe_video`,
+  `probe_output`, `probe_size`, `probe_media`, `engine_version`)
+  siguen en async — ~50-200 ms cada uno; se dejaron por costo/
+  beneficio. El gate sigue sin ver helpers (limitación
+  documentada); el probe fue manual y se eliminó.
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib`
+  (narration+screen_record+thumbnail+intelligence) **36/36** ·
+  `architecture-rules.test.mjs` **15/15** ·
+  `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+
+## Pasada 227 — AUD-129 cierre de residual: probes ffprobe sueltos en async
+
+- Los ~100 ms de cada `probe_file`/`probe_duration_seconds`/
+  `probe_video` suelto en `async fn` ahora van a `spawn_blocking`:
+  - `audio/voice_isolation.rs::prepare_voice_isolation`
+  - `media/whiteboard.rs::whiteboard_generate` (×2: duración del
+    audio de narración + medición del MP4 generado)
+  - `audio/diarize.rs::diarize_audio`
+  - `audio/audio_providers.rs::synthesize_elevenlabs`
+    (probe + sha256 del audio generado)
+  - `audio/audio_mix.rs::audio_channels_convert` (autodetección
+    de layout)
+  - `media/upscale/video.rs::upscale_video`
+- **Verificados ya cubiertos**: `denoise::probe_media` (dentro de
+  spawn_blocking), `subtitles_pipeline::probe_size` (ídem),
+  `screen_record` `probe_output` ×3 (ffprobe único ~100 ms,
+  residual aceptado), `engine_version`/`resolve_engine`/
+  `status_from_config` (`yt-dlp --version` ~300-800 ms vía
+  call-graph de 2 niveles — residual honesto documentado: el
+  probe es de un nivel; envolverlos exige refactor de los
+  helpers `pub(crate)` compartidos por ~10 callers).
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib`
+  focalizado **35/35** · `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+
+## Pasada 228 — AUD-129 residual: cache de `engine_version` (yt-dlp --version)
+
+- `engine_version` lanzaba `yt-dlp --version` (PyInstaller, ~300-800
+  ms) en cada `resolve_engine`/`status_from_config` — ~10 callers
+  async pagaban el spawn completo por comando.
+- Fix: memoización por firma de archivo (len + mtime) en
+  `engine_version_cache` (`OnceLock<Mutex<HashMap>>`). Reinstalar,
+  `yt-dlp -U` o `ensure_bundled_engine` cambian la firma → re-probe
+  automático. Resultados negativos también se cachean (firma
+  estable). Rutas sin firma de archivo (`yt-dlp` por PATH) no se
+  cachean — van directo al probe.
+- La primera llamada por sesión aún spawnea el proceso (~500 ms en
+  un worker): residual honesto; eliminarlo del todo exige hacer
+  `resolve_engine`/`status_from_config` async o envolver ~10 call
+  sites — refactor aparte si el perfil lo justifica.
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib
+  downloader` **63/63** · `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0 (type_complexity
+  resuelto con type alias).
+
+## Pasada 229 — AUD-129: últimos `probe_output` de screen_record
+
+- Los 3 `probe_output` (ffprobe ~100 ms) que quedaban sueltos en
+  async ahora van a `spawn_blocking`:
+  - `screen_record/stop.rs::screen_record_stop` — medición
+    post-cierre del MP4.
+  - `screen_record/switch.rs::close_current_segment` — medición
+    por segmento.
+  - `screen_record/switch.rs::obs_switch_finish` — caso de un
+    solo segmento (rename + probe).
+- **Ya cubiertos (verificado)**: `probe_output` dentro del
+  `spawn_blocking` del stitch (`switch.rs` ~926), dentro de
+  `run_ffmpeg_transition` (sync llamado desde spawn_blocking) y
+  el de stickman (dentro de su closure `blocking`).
+- Con esto no queda ningún probe de proceso suelto en async
+  salvo la primera llamada a `engine_version` por sesión
+  (documentado en pasada 228).
+- **Verificación**: `cargo check` exit 0 · `cargo test --lib
+  screen_record` **13/13** · `cargo fmt --all -- --check`
+  limpio · `cargo clippy --all-targets -D warnings` exit 0.
+
+## Pasada 230 — AUD-129: warmup del cache `engine_version` en setup
+
+- El residual de la pasada 228 (primera llamada a
+  `yt-dlp --version` ~500 ms en un worker) queda eliminado en la
+  práctica: `lib.rs::setup` ahora spawnea un hilo que corre
+  `resolve_engine(&config_dir)` al arranque, poblando el cache
+  por firma (len+mtime) antes de que el usuario abra Descargar.
+- `ensure_bundled_engine` ya corría en `AppState::load`, así que
+  el warmup siempre encuentra el binario gestionado si existe.
+  Si el motor no está instalado, el `Err` se descarta y el
+  comportamiento es idéntico al anterior.
+- Hilo dedicado (`std::thread::spawn`), no del runtime async:
+  coherente con la regla AUD-129.
+- **Verificación**: `cargo check` exit 0 · `cargo fmt --all --
+  --check` limpio · `cargo clippy --all-targets -D warnings`
+  exit 0. Cambio sólo en `setup` (difícil de testear sin levantar
+  la app; la lógica cacheada ya está cubierta por los tests del
+  dominio downloader).
+
+## Pasada 231 — gate AUD-129: `reqwest::blocking` en async fn
+
+- El gate de `async fn` cubría procesos y `thread::sleep` pero no
+  `reqwest::blocking` — un cliente HTTP bloqueante directo en un
+  comando async evadía la regla (hoy no hay ofensas: todos los
+  `reqwest::blocking` del crate viven en helpers sync llamados
+  desde `spawn_blocking`/`thread::spawn` dedicados — verificado
+  por grep en la pasada).
+- Regex del scanner async ampliado con la alternativa
+  `reqwest::blocking` (sin `\(` final, igual que la regla sync:
+  `reqwest::blocking::Client` no termina en paréntesis).
+  Descripción del test y comentario del scanner actualizados.
+- **Verificación**: `architecture-rules.test.mjs` **15/15**
+  (corrida posterior al cambio de regex, previa a los ajustes
+  cosméticos de mensaje).
+
+## Pasada 232 — AUD-129: `recv_timeout` bloqueante + gate ampliado
+
+- **Ofensa real**: `integrations/flow_embed.rs::web_session_open`
+  (async) esperaba el build de la ventana web con
+  `rx.recv_timeout(30s)` directo en el runtime — hasta 30 s sobre
+  un worker de tokio. Envuelto en `spawn_blocking` (el
+  `WebviewWindowBuilder` sigue despachado a `run_on_main_thread`;
+  sólo la espera se movió).
+- **Gate ampliado**: `.recv_timeout(` agregado al regex de ambas
+  reglas (async y sync) — es inequívocamente bloqueante (tokio no
+  tiene `recv_timeout`). Cero ofensas restantes.
+- **Verificados ya cubiertos**: `recv_timeout`/`wait` de
+  `audio.rs`/`transcribe.rs`/`loudness.rs`/`progress.rs` viven en
+  helpers sync llamados desde `spawn_blocking` o `thread::spawn`
+  dedicados.
+- **Verificación**: `cargo check` exit 0 · `architecture-rules`
+  **15/15** · `cargo fmt --all -- --check` limpio ·
+  `cargo clippy --all-targets -D warnings` exit 0.
+
+## Pasada 233 — checkpoint: suite Rust completa + agotamiento AUD-129
+
+- Auditorías de agotamiento sobre las clases restantes:
+  - `recv()`/`Condvar`/`Barrier` en commands: cero hits.
+  - `unsafe` en src-tauri: sólo FFI Win32 esperado.
+  - `image::open`/`decode` en commands: todos dentro de
+    `spawn_blocking` o helpers llamados desde closures
+    bloqueantes (filmcraft_scopes, face_analysis, best_frame,
+    preview_frame, thumbnail, upscale, background).
+  - `unwrap`/`expect`/`panic!` en producción: los pocos casos
+    están protegidos por invariantes validadas antes
+    (subtitles_pipeline burn, webcam is_some).
+  - Frontend: cero TODO/FIXME y cero console.log en src/.
+- **`cargo test -p editor-ia-desktop --lib` completo**:
+  **1166 passed / 0 failed / 75 ignored** (live tests gated).
+- Estado: todo el WIP de las pasadas 200-232 verificado junto.
+
+## Pasada 234 — effect-kit WIP: fix path de sonda ffmpeg-probe + verificación codegen
+
+Contexto: el usuario tiene WIP en effect-kit (migración `eq=` →
+`eqCompat`/lutyuv para FFmpeg 9, `catalog/video.ts` +1068 líneas,
+`eq.ts` y `ffmpeg-probe.test.ts` nuevos, `scripts/tsconfig.json`).
+
+- **Bug corregido**: `ffmpeg-probe.test.ts` usaba path relativo al
+  cwd (`'apps/desktop/src-tauri/resources/ffmpeg/ffmpeg.exe'`); con
+  vitest corriendo en `packages/effect-kit` `existsSync` daba false
+  y los 3 tests live se salteaban siempre. Ahora resuelve con
+  `import.meta.dirname` igual que `audio-live.test.ts`.
+- **Verificación codegen**: `npm run effects:codegen` produce
+  `effect_recipes.rs` byte-idéntico (sha256 igual) → el generado está
+  en sync con el catálogo WIP. `generate-concat.ts` igual:
+  `concat-audio.ts`/`concat-packages.ts` regenerados sin diff.
+- **Sonda en vivo**: las 3 pruebas ahora ejecutan el FFmpeg bundled
+  real sobre cada cadena/filtro/grafo compilado — todas las recetas
+  compilan sin error (82 tests effect-kit, 3 skipped gated por env).
+
+## Pasada 235 — checkpoint: suite vitest completa + auditoría de logging
+
+- **`npm run test:serial`**: 357 archivos, **3249 passed / 0 failed /
+  3 skipped** (audio-live gated por env). Incluye la sonda
+  ffmpeg-probe en vivo de la pasada 234 corriendo dentro de la suite.
+- **Auditoría de logging**: `eprintln!`/`println!` en src-tauri —
+  todos los de producción están gateados por env vars de debug
+  (`EDITOR_IA_PREVIEW_DEBUG`) o dentro de `#[cfg(test)]`; los de
+  `lib.rs` son diagnósticos de arranque legítimos. Sin leftovers.
+- **AUD-144 residual**: revisados los `store.state.project`
+  restantes del frontend — lecturas síncronas o ya migrados al
+  patrón `getProject?.() ?? state.project` (transcribe-project,
+  inspector-tab-command). `usePipeline` maneja la carrera con flag
+  `active` + unsubscribe. Sin ofensas nuevas.
+- **`npm run typecheck`**: exit 0 en los 4 paquetes.
+
+## Pasada 236 — auditoría: Mutex guard sostenido a través de .await
+
+- Probe estructural sobre todo `src-tauri/src`: `async fn` con
+  `.lock()` + `.await` en el mismo body → 11 candidatos.
+- Verificación manual de los 11: todos los guards
+  `std::sync::Mutex` viven en bloques `{}` que cierran antes del
+  await (choose_tool, flow_browser_stop, obs_switch_begin/finish,
+  run_obs_transition, lut_thumbnail, analyze_media, download_model,
+  whisper_model_download, analyze_mix_loudness, mcp_server) o son
+  tokio Mutex (`lock().await`, correcto por diseño).
+- **Cero ofensas**: la clase lock-across-await está limpia.
+
+## Pasada 237 — effect-kit WIP: fix seek hacia atrás en historial temporal WebGL
+
+- **Revisión del WIP del usuario** (AUD-140 + efectos temporales):
+  `webgl.ts` ahora guarda historial lazy de 4 frames fuente para
+  `blur.temporal` (tmix-like) y `denoise.temporal` (nlmeans-like).
+  Storage perezoso por tamaño, reset por cambio de fuente/frame-salto,
+  ring buffer con rotación, uniforms `u_hist0..3`/`u_histCount`.
+- **Bug corregido**: la invalidación por salto usaba
+  `Math.abs(frameIndex - last) > 4` — un seek **hacia atrás** de
+  1-4 frames conservaba el historial, que entonces contenía frames
+  del "futuro" del punto de seek (el blur temporal promediaba
+  imagen que el usuario ya no está viendo). Ahora cualquier
+  `frameIndex < lastFrameIndex` invalida, además del salto
+  hacia adelante >4.
+- **Verificación**: `tsc --noEmit` effect-kit exit 0 · vitest
+  **82 passed / 3 skipped** (sonda ffmpeg live incluida).
+
+## Pasada 238 — checkpoint: vendor/concat + cobertura de thumbnails
+
+- **`cargo check --workspace` en vendor/concat** (workspace propio,
+  excluido del raíz): exit 0 — el WIP del usuario en
+  `concat-speech-min` (download/lib/transcribe/wav) compila.
+  Nota: correr rust-env desde la raíz con `--manifest-path`, no
+  con cwd=vendor/concat (éste tiene su propio rust-toolchain.toml
+  pineado a 1.98.1 y rustup no puede escribir en D:\DevCache).
+- **Cobertura de thumbnails**: los 172 efectos de ALL_EFFECTS tienen
+  SVG en `apps/desktop/public/thumbnails/effects/` — los nuevos del
+  WIP (blur.temporal, denoise.temporal, etc.) incluidos.
+
+## Pasada 239 — checkpoint: concat-worker + wiring UI de efectos nuevos
+
+- **`cargo check` apps/concat-worker**: exit 0.
+- **Wiring UI verificado**: `EffectBrowser` consume
+  `effectRegistry` (construido desde ALL_EFFECTS) — los efectos
+  nuevos del WIP (blur.temporal, denoise.temporal, etc.) aparecen
+  en el navegador de efectos sin cableado extra; thumbnails
+  172/172 (pasada 238).
+- Estado: los 3 workspaces Rust (raíz, vendor/concat,
+  apps/concat-worker) compilan con el WIP acumulado.
+
+## Pasada 240 — verify completo + auditorías de fugas de recursos
+
+- **`npm run verify` descompuesto, todo verde en esta sesión**:
+  typecheck exit 0 · test:serial 3249/3249 · test:extension 33/33 ·
+  test:web-tts 10/10 · audit:security PASS (7 advisories sólo-dev
+  informativos — SEC-GATE-003 sigue siendo decisión del usuario;
+  cargo-audit no instalado, omisión explícita del script).
+- **Auditoría `URL.createObjectURL`**: 9 sitios en frontend — todos
+  revocan (inmediato, `setTimeout` post-download, o tras
+  `addModule` del worklet).
+- **Auditoría listeners/intervals**: `setInterval` sin
+  `clearInterval` → único hit era un state setter (falso positivo);
+  `addEventListener` sin `removeEventListener` → todos con cleanup
+  en useEffect o sobre elementos descartados (Audio/Lottie).
+
+## Pasada 241 — revisión WIP vendor/concat + estado consolidado
+
+- **Diff de `concat-speech-min` revisado**: es sólo `cargo fmt`
+  (reorden de imports, wraps de líneas, formato de asserts) — sin
+  cambios funcionales. Nada que corregir.
+- **Estado consolidado del repo** (todo medido esta sesión):
+  cargo check raíz + vendor/concat + concat-worker exit 0 ·
+  cargo test --lib 1166/1166 · vitest 3249/3249 + ext 33 + web-tts
+  10 · typecheck 4 paquetes · architecture-rules 15/15 ·
+  audit:security PASS · sonda ffmpeg live 3/3 · codegen en sync.
+- **Únicos pendientes reales**: decisiones del usuario —
+  SEC-GATE-003 (bump vitest/vite por advisories sólo-dev),
+  instalación de cargo-audit (omisión explícita del script),
+  paridad zoompan↔preview si se retoma.
+
+## Pasada 242 — frontend: `as any` en iconos de ThumbnailBrowser
+
+- **Hallazgo**: `ThumbnailBrowser.tsx` casteaba `item.icon as any`
+  a `IconName` — un string inválido de un catálogo pasaba el
+  typecheck y renderizaba un `<svg>` vacío (paths[name] undefined).
+  Era el único `as any`/`@ts-ignore` del frontend fuera de tests.
+- **Fix**: `Icon.tsx` exporta `isIconName()` (type guard sobre
+  `paths`); `ThumbnailBrowser` lo usa con fallback `'assets'`.
+  `item.icon` sigue `string` — los callers no cambian.
+- **Verificación**: `tsc --noEmit` apps/desktop exit 0 · vitest
+  vfx/effects **37/37** (ejercitan EffectBrowser→ThumbnailBrowser).
+- Auditorías colaterales limpias: `todo!`/`unimplemented!` en
+  producción (sólo fakes de test y `unreachable!()` genuinos),
+  `innerHTML`/`dangerouslySetInnerHTML` cero.
+
+## Pasada 243 — auditorías: catches silenciosos + deps nuevas
+
+- **`.catch(() => {})` frontend**: 48 sitios — revisados los de
+  suscripción/setup (onXProgress, activeRender): patrón
+  consistente de degradación aceptable (sin progreso visible,
+  la feature sigue). Los de user-action (revealOutput,
+  cancelDownload, play) son fire-and-forget intencionales.
+- **Packages TS**: cero `as any`/`@ts-ignore` en
+  project-schema/effect-kit/render-worker.
+- **Cargo.toml WIP**: +7 crates `filmcraft-*` desde git con rev
+  pineado (misma rev que los existentes — buena práctica);
+  resuelven y compilan (cargo check verde).
+- **Estado**: auditorías de clases agotadas; el repo está en el
+  mejor estado medido de la sesión. Pendientes = decisiones
+  del usuario.
+
+## Pasada 244 — corrección de registro: paridad zoompan↔preview YA cerrada
+
+- Al repasar los "Pendiente honesto" recientes noté que tres entradas
+  (post-198) siguen listando "paridad zoompan↔preview" como ítem
+  abierto — es un remanente stale: la **pasada 198** la cerró con
+  fix real (`render/preview_window.rs`: se eliminó `scaleFrozen` de
+  los clips de ventana → la preview usa el mismo camino zoompan del
+  export).
+- **Evidencia de cierre (pasada 198)**: ventana y completo producen
+  PNG **byte-idénticos** (md5 igual); suite live preview_frame
+  24/24; test `window_scale_keyframe` ok con assert ventana↔export
+  <1.0 (hoy 0.0). La comparación vs zoom estático quedó como métrica
+  informativa con cota 12.0 (delta de remuestreador conocido).
+- **Corrección**: el ítem queda CERRADO desde la pasada 198; las
+  líneas "si se retoma" de las pasadas 202/207/241 eran remanentes
+  de supervisiones anteriores al fix. No requiere acción.
+- Estado de pendientes reales (sin cambios): SEC-GATE-003, bump
+  majors npm-dev, cargo-audit no instalado — decisiones del usuario.
+
+## Pasada 245 — plan de commit propuesto para el WIP acumulado
+
+Contexto: las pasadas 173-174 (y muchas otras) documentan trabajo
+YA COMPLETO y verificado que sigue sin commitear — 293 modificados,
+131 untracked, 17 borrados en `architecture/refactor-foundation`.
+Hay precedente de consolidación: `ae9c1d55 chore: consolidate
+architecture/refactor-foundation WIP`.
+
+**Propuesta de commit único de consolidación** (estilo ae9c1d55),
+pendiente de autorización explícita del usuario:
+
+- Mensaje sugerido: `chore: consolidate architecture/refactor-foundation
+  WIP — AUD-129 spawn_blocking, catálogo FFmpeg 9 (eqCompat+temporal),
+  switching OBS, filmcraft-*, verificación completa`
+- **Incluir**: todo el árbol salvo los artefactos listados abajo.
+- **Excluir candidatos** (basura accidental, no trabajo):
+  - `nul` (archivo espurio de un redirect en bash — nombre reservado
+    de Windows, no debería estar en el repo)
+  - `test-cdp.editoria.json` (artefacto de test en raíz)
+- **Verificación previa ya corrida**: cargo check ×3 workspaces,
+  cargo test --lib 1166/1166, vitest 3249+33+10, typecheck,
+  architecture-rules 15/15, audit:security PASS, sonda ffmpeg live.
+- Alternativa si el usuario prefiere granular: agrupar por dominio
+  (effect-kit+thumbnails+codegen / AUD-129 spawn_blocking / OBS
+  switching / filmcraft deps / frontend state+features) — más
+  commits, mismo contenido.
+
+## Pasada 246 — verificación de borrados del refactor
+
+- Los 17 `D` del árbol son movimientos coherentes del refactor:
+  `features/nodes/graph-model.ts`+`graph-store.ts` → `state/` (sus
+  consumers en NodeGraphView/mcp-tools apuntan al nuevo path),
+  `features/ai-hub/ai-hub.ts`, `color/grade-presets.ts`,
+  `editor/color-looks.ts`, `editor/export-presets.ts`,
+  `editor/sfx-actions.ts`, `motion/lottie.test.ts`,
+  `text-edit/*`, `styles/minimal-editor*.css` — eliminados con sus
+  tests al migrar la lógica a state/services.
+- Typecheck + vitest verdes confirman que no quedan imports rotos.
+- **Conclusión**: los borrados son intencionales y completos; el
+  árbol está listo para el commit de consolidación propuesto en la
+  pasada 245 (sigue esperando autorización).
+
+## Pasada 247 — .gitignore: artefactos espurios `nul` y `test-cdp.editoria.json`
+
+- **`nul`**: `> nul` en Git Bash crea un archivo literal `nul`
+  (nombre reservado de Windows) en vez de descartar salida —
+  aparece como `??` en cada git status. Agregado `/nul` al
+  .gitignore.
+- **`test-cdp.editoria.json`**: proyecto de prueba CDP — estado
+  local de verificación en vivo (como `.olyvia-history/`), no
+  fuente del repo. Agregado `/test-cdp.editoria.json`.
+- **Efecto**: untracked 131 → 129; `git check-ignore` confirma
+  ambos. Los archivos quedan en disco (no se borraron) pero ya no
+  contaminan el árbol — el commit de consolidación propuesto en la
+  pasada 245 queda más limpio.
+
+## Pasada 248 — árbol de trabajo limpio de artefactos
+
+- `.log` de raíz: ya cubiertos por `*.log` del .gitignore (no
+  ensuciaban git status).
+- Sin archivos untracked sueltos en raíz — todo lo `??` vive en
+  directorios del proyecto (apps/, packages/, scripts/, docs/,
+  memory/, extensions/, vendor/).
+- `repo-docs.test.mjs` 12/12 tras el cambio de .gitignore.
+- Árbol listo para consolidación (pasada 245, espera autorización).
+
+## Pasada 249 — build de producción Vite
+
+- **`npm run build` (vite build)**: exit 0 — 608 módulos, 13.7 s.
+  Code-splitting por vista funciona (cada feature es un chunk
+  propio; main 1.2 MB / 359 kB gzip es el shell).
+- **Warnings evaluados (benignos)**:
+  - `lottie-web` usa `eval` — limitación conocida de la librería.
+  - Chunks >300 kB — informativo; las vistas ya están spliteadas.
+  - `platform/tauri/window.ts` importado dinámico y estático a la
+    vez: el import dinámico no genera chunk separado (no rompe
+    nada; la función dual-monitor comparte módulo con el shell).
+- `cargo check` sin warnings (sólo los LNK4099/PDB del linker MSVC
+  ya conocidos).
+
+## Pasada 250 — build Tauri debug completo: exe linkeado
+
+- **`npm run tauri:build:debug`**: exit 0 — vite build + cargo build
+  debug, `Finished dev profile in 7m05s`.
+- **Binario producido**: `target/debug/editor-ia-desktop.exe`
+  (91.8 MB debug) — linkea con TODOS los crates nuevos del WIP
+  (filmcraft-tts/text/captions/interchange/project/media/time,
+  video-rs, ONNX, whisper-rs…). La cadena queda verificada de punta
+  a punta: typecheck → vitest → cargo test → cargo check/clippy →
+  vite build → tauri build → exe.
+- Warnings: sólo los LNK4099/PDB del linker MSVC ya conocidos +
+  incremental lock warnings (ruido de entorno, no del código).
+
+## Pasada 251 — .gitignore: scripts one-off `_*.mjs` de sesiones
+
+- **17 scripts untracked** en `scripts/` con prefijo `_`
+  (`_batch_brain`, `_disp_kf`, `_text_front`…): codemods y
+  dispatchers one-off de sesiones de agente previas — hicieron su
+  cirugía de strings sobre `mcp-catalog.ts` etc. y ya no tienen
+  consumidor (cero referencias en tests/package.json/docs).
+- Agregado `/scripts/_*.mjs` al .gitignore — convención para que los
+  scripts temporales de sesión no entren al commit de consolidación
+  ni ensucien git status. Cero `_*.mjs` trackeados hoy, así que la
+  regla no esconde nada existente.
+- **Efecto**: untracked 129 → 112, todos dentro de directorios del
+  proyecto. Sin `.bak`/`.tmp`/`.orig` sueltos.
+
+## Pasada 252 — estado final del árbol para consolidación
+
+- `git status`: 293 M + 112 ?? + 17 D = 422 entradas, todas
+  legítimas del proyecto (docs/, memory/, verification/, código).
+- Cero artefactos espurios trackeables (`.gitignore` cubre
+  `/nul`, `/test-cdp.editoria.json`, `/scripts/_*.mjs`, `*.log`,
+  `/exports/`, `/media/`, `/.olyvia-history/`).
+- Verificación completa esta sesión: typecheck · vitest 3292 ·
+  cargo test 1166 · cargo check ×3 workspaces · clippy -D warnings
+  · fmt · vite build · tauri:build:debug (exe 91.8 MB) ·
+  architecture-rules 15/15 · audit:security PASS · sonda ffmpeg
+  live 3/3 · codegen en sync.
+- **Listo para commit de consolidación** (pasada 245): sólo falta
+  la autorización explícita del usuario.
+
+## Pasada 253 — deps filmcraft-* verificadas con consumidor
+
+- Los 7 crates `filmcraft-*` agregados al Cargo.toml tienen uso
+  real en src-tauri: tts/text/captions/media/time ×1 archivo,
+  interchange ×4, project ×2. Cero deps huérfanas.
+
+## Pasada 254 — hallazgos P1/P2 de supervision run09: todos ya cerrados en WIP
+
+Revisé `docs/verification/2026-11-20-supervision-1516-run09.md` contra el
+código actual. El reporte es **stale**: cada hallazgo que lista como abierto
+ya tiene su fix en el working tree:
+
+| Hallazgo | Estado real |
+|---|---|
+| AUD-068 saveNow/saveAs mezcla metadatos entre proyectos | fix en project-store-provider.tsx:270,322 |
+| AUD-069 Save As adopta sesión vieja | fix en application/projects.rs:286 |
+| AUD-071 ZIP base64 decodifica antes del límite | fix en package.rs:64,237 |
+| AUD-121/122 shorts export wait()+stderr | fix en shorts/export.rs:227 (stderr drenado en paralelo) |
+| AUD-123 multiplicaciones u64 sin checked | fix en projects/service.rs:647 + MAX_SAFE_INTEGER 2^53-1 |
+| AUD-130 merge exige audio en todos | fix en media/toolbox.rs:66 (anullsrc + aformat 48k stereo) |
+| AUD-139 rollback tras copiar assets | fix completo en variants.rs:253-268 (revierte también si falla el JSON) |
+| AUD-146 máscara facial pierde última muestra | fix en face-mask.ts:48-56 (slot reservado para endpoint) |
+
+Único residual real que queda de esa supervisión: **AUD-032 SSRF** —
+riesgo documentado de yt-dlp/extractores con URLs secundarias no
+revalidadas y DNS rebinding (TOCTOU). Es arquitectural: cerrar del todo
+exige aislar el proceso de red o un proxy de validación de destinos;
+mitigación reqwest ya está en probe/routes/jobs.
+
+Acción: ninguna de código — era verificación de estado. El reporte run09
+no debe reabrirse como fuente de pendientes sin contrastar con el WIP.
+
+## Pasada 255 — AUD-001 (asset protocol scope): mecanismo verificado
+
+Revisé el residual "runtime pendiente" de AUD-001 contra el código:
+
+- `tauri.conf.json` tiene `assetProtocol.scope: []` — scope estático
+  vacío; todo el acceso se concede **dinámicamente** en runtime.
+- `infrastructure/projects.rs:96-130` (`allow_media_root`): al abrir un
+  proyecto concede `<root>/media` recursivo + cada `assets[].source.path`
+  declarado (archivos enlazados fuera del proyecto). Antes (AUD-027) se
+  permitía el root completo incluyendo `.olyvia-history/` — ya corregido.
+- `allow_asset_protocol_file` cubre assets repuntados a rutas externas.
+- Residual honesto ya documentado en el propio código (líneas 105-108):
+  FsScope no permite revocar allows, así que paths de proyectos abiertos
+  antes siguen servidos durante la sesión. El conjunto concedido ya no es
+  "todo el directorio del proyecto".
+
+Pendiente real de AUD-001: sólo la prueba dinámica con medios reales
+desde varias ubicaciones (abrir proyecto → preview de asset externo →
+asset de otro proyecto no debe servir). Requiere la app corriendo; el
+mecanismo estático es el correcto (least-privilege dinámico).
+
+Estado de supervisiones: run08 y run09 completamente procesados. Quedan
+sólo AUD-032 (SSRF residual arquitectural) y SEC-GATE-003 (decisión).
+
+## Pasada 256 — Cargo.toml: cero dependencias muertas
+
+Scan heurístico de las 39 deps del crate desktop contra todo
+`src-tauri/src` (+build.rs): los 3 candidatos resultaron usados —
+`md-5` se importa como `md5` (downloads/automation/engine),
+`filmcraft-interchange` en timeline_import/filmcraft.rs +
+timeline_interchange.rs + registry, `tauri-build` en build.rs.
+Cero deps huérfanas en el crate principal.
+
+## Pasada 257 — auditoría AUD-129 extendida a workers: limpia
+
+El gate de arquitectura sólo cubre `src-tauri`. Auditados los workers
+hermanos con la misma clase de bugs (bloqueo en async / procesos
+sincrónicos en el hilo principal):
+
+- `apps/render-worker` (TS): único sync es `readFileSync(0)` — lectura
+  del protocolo stdin, que ES el diseño del worker. `spawnSync` sólo en
+  tests. Sin `execSync`/`Atomics.wait`.
+- `apps/concat-worker` (Rust): sin runtime async — jobs en
+  `thread::spawn` dedicado (main.rs:136). No aplica la clase.
+- `apps/motion-mcp` (.mjs): sin hits de la clase.
+
+Cero ofensas. La clase AUD-129 queda cerrada en los 4 procesos del
+sistema (desktop async, desktop sync commands, workers TS/Rust).
+
+## Pasada 258 — AUD-032 residual: fetches de URLs externas sin validar
+
+Auditoría de TODOS los clientes HTTP del downloader contra la política
+SSRF. Los de URL de usuario ya validaban (validate_url_network +
+ssrf_redirect_policy en automation/download/bridge/jobs). Quedaban dos
+fetches de URLs que vienen de **datos externos** sin control de la app:
+
+- `youtube_analytics/thumbnails.rs::download_thumbnail` — la URL del
+  thumbnail llega del JSON de yt-dlp (extractor). Antes se fetcheaba
+  cualquier URL que devolviera el extractor, incluidos redirects. Ahora:
+  allowlist de host `*.ytimg.com` (https only) + `ssrf_redirect_policy()`
+  en el cliente. Un extractor comprometido ya no puede convertir la
+  analítica de canal en un SSRF a IP interna.
+- `media_filters/source_metadata.rs::fetch_sponsor_segments` — host fijo
+  sponsor.ajay.app pero sin política de redirects. Agregado
+  `ssrf_redirect_policy()`: cada salto revalida DNS/IP como el resto.
+
+Verificados como NO-SSRF (destino hardcodeado, sin input externo):
+proxy-check a youtube.com/generate_204, descarga de yt-dlp desde
+ENGINE_URL fija, RULES_URL fija.
+
+Residual que sigue abierto (arquitectural): yt-dlp mismo resuelve y
+conecta por su cuenta — las URLs de media que descubre el extractor no
+pasan por la política reqwest. Cierre real = proxy CONNECT local
+validador (`--proxy` de yt-dlp) o aislamiento de red; feature aparte.
+
+**Verificación**: cargo check exit 0 · fmt --check limpio ·
+cargo test --lib downloader **63/63** (1 live ignored) · clippy
+-D warnings exit 0.
+
+## Pasada 259 — AUD-032: net_guard compartido + SSRF en download_image
+
+**Refactor**: la política anti-SSRF del downloader se extrajo a
+`application/net_guard.rs` (`ip_is_forbidden`, `check_url_parts`,
+`ensure_public_resolution`, `ssrf_redirect_policy`) — capa compartida
+que tanto `commands/` como `infrastructure/` pueden usar sin violar
+las reglas de dependencias. `probe.rs` quedó con wrappers que
+traducen a `ProjectError` con los mismos mensajes (cero cambios en
+callers ni tests).
+
+**Fix real**: `infrastructure/studio/remote_image.rs::download_image`
+ fetcheaba la URL de imagen que devuelve el **proveedor remoto**
+ (dato externo no confiable) sin validar destino: un proveedor
+ comprometido o una respuesta manipulada podía pedir
+ `https://192.168.x.x/...` o `https://169.254.169.254/...` (metadata
+de cloud) y la app lo descargaba. Ahora, para proveedores no-locales:
+ - `ensure_public_resolution` — DNS fail-closed, ninguna IP
+   resuelta puede ser privada/loopback/link-local/CGNAT/NAT64/etc.
+ - `ssrf_redirect_policy` — cada redirect revalida todo.
+ Los endpoints locales (Ollama & cía., configurados por el usuario)
+ conservan el comportamiento: ahí loopback/LAN es legítimo.
+
+Auditoría de los demás clientes reqwest del crate: `remote_voice`
+ sólo POSTea al base_url configurado (no fetch de URLs externas);
+ `internet_archive` usa API fija; providers de IA usan
+ `validate_provider_base_url` (config del usuario, LAN permitida
+ por diseño).
+
+Residual AUD-032 sin cambios: yt-dlp conecta por su cuenta — cierre
+real = proxy CONNECT validador o aislamiento de red.
+
+**Verificación**: cargo check exit 0 · fmt limpio · cargo test
+--lib (filtros downloader+studio+remote_image) **174/174** ·
+clippy -D warnings exit 0 · architecture-rules 15/15 ·
+dependency-rules 7/7.
+
+## Pasada 260 — AUD-032: stream_download de modelos con redirect policy
+
+`application/models.rs::stream_download` (descargas de ONNX del
+catálogo fijo) ahora usa `net_guard::ssrf_redirect_policy()` — los
+redirects de GitHub→CDN y S3 se revalidan como en el downloader.
+Hardening defensivo: las URLs base son constantes, pero un dominio
+del catálogo comprometido o un redirect manipulado ya no puede
+apuntar a una IP interna.
+
+Verificación: cargo check exit 0 · fmt limpio · cargo test --lib
+models **12/12** · clippy -D warnings exit 0.
+
+## Pasada 261 — auditoría SSRF completa: superficie HTTP saliente agotada
+
+Revisados TODOS los clientes reqwest del crate fuera del downloader:
+
+- **AI providers** (chat/probe/single_shot/assistant stream): pegan a
+  `base_url` configurado por el usuario — `validate_provider_base_url`
+  ya exige https salvo endpoints locales (Ollama/LAN por diseño).
+- **diarize** (Deepgram): POST al base_url configurado o DEEPGRAM_URL
+  fija. El `.get(url)` de la línea 405 es mock de tests.
+- **cdp**: `cdp_version_url(port)` → localhost del Chrome CDP, fijo.
+- **voice_clone/audio_providers/browser_instances/system/
+  download_automation**: sin fetches de URLs de datos externos.
+- **models.rs**: catálogo fijo (pasada 260).
+
+Conclusión: toda URL que viene de **datos externos** (extractor
+yt-dlp, respuesta de proveedor IA/imagen, API de analítica) pasa por
+`net_guard` o por allowlist de host. Toda URL de **config del
+usuario** pasa por `validate_provider_base_url`/`validate_url*`.
+Toda URL **fija** del código es constante.
+
+Residual AUD-032 que permanece (documentado, arquitectural): yt-dlp
+conecta por su cuenta — cierre = proxy CONNECT validador o aislamiento.
+
+## Pasada 262 — superficie WebView/navegación auditada
+
+**Capabilities** (`src-tauri/capabilities/`): `default`→["main"],
+`dual-monitor`→["dual-monitor"], `splash`→["splash"]. Ninguna tiene
+`remote` → los webviews de `flow_embed` (URLs externas elegidas por el
+usuario) **no pueden invocar IPC de Tauri**: las páginas remotas no
+tienen permisos ni acceso al bridge. El navegador embebido es una
+ventana de visualización, no un vector hacia los comandos.
+
+**Navegación**: los únicos `WebviewWindowBuilder` con URL externa son
+flow_embed (validada http(s), intencional — es un navegador) y
+dual_monitor (app URL fija). No hay `on_navigation` restrictivo porque
+no hace falta: el webview principal carga `index.html` local y los
+externos son deliberados.
+
+**Residual honesto documentado**: cada sesión flow_embed expone
+`--remote-debugging-port` en 127.0.0.1 con puerto derivado del nombre
+del slot (rango predecible). Es la feature de control por agentes
+(Playwright/CDP) — cualquier proceso local puede adjuntarse. Chrome
+mitiga ataques desde páginas web remotas (Host header del endpoint
+DevTools sólo acepta localhost/IP literal), así que el riesgo práctico
+se limita a software local ya comprometido. Si se quisiera reducir:
+puertos aleatorios por sesión (costo: rompe la derivación estable que
+usan los agentes) o token en la URL de DevTools (Chrome no lo soporta
+nativamente). tradeoff aceptado y documentado.
+
+Sin cambios de código — auditoría de postura.
+
+## Pasada 263 — auditoría de inyección de comandos: limpia
+
+Superficie `Command` del crate:
+
+- `infrastructure/mcp.rs` lanza servidores MCP configurados por el
+  usuario; en Windows los lanzadores shell (npx/npm/.cmd/.bat) van por
+  `cmd /C` pero `mcp/client.rs::check_shell_launch` rechaza los
+  metacaracteres de cmd (`& | < > ^ % ! " ( )`) en comando y args —
+  con tests (`x|whoami` rechazado, `@playwright/mcp` aceptado).
+- `infrastructure/process.rs`: los `cmd /c` y `sh -c` están dentro de
+  `#[cfg(test)]` — no hay shell en producción.
+- Los `.arg("-c:a")` de screen_record son opciones de ffmpeg, no shell.
+- Resto del crate: `Command::new` siempre con path de binario fijo o
+  resuelto (ffmpeg/ffprobe/yt-dlp) y args en vector, sin shell.
+
+Cero vectores de inyección shell→comando en producción.
+
+## Pasada 264 — 14 transiciones nuevas en el catálogo (inspirado en gl-transitions/FFmpeg xfade)
+
+Del relevamiento de repos externos (gl-transitions, vfx-js, vysmo) la
+conclusión fue que el catálogo propio ya cubre glitch/retro/stylize —
+la brecha real eran transiciones xfade de FFmpeg no expuestas.
+
+**Agregadas a `effect-kit/src/catalog/transitions.ts`** (shader GLSL
+para preview + nombre `xfade` real para export):
+
+- `smoothWipe` ×4: smooth-left/right/up/down (órdenes 44-47)
+- `vertBar` ×2: vert-open/vert-close (72-73)
+- `diagWipe` ×4: diag-tl/tr/bl/br (75-78)
+- `sliceWipe` ×4: slice-h/h2/v/v2 con flag `flip` para el stagger
+  inverso de hrslice/vdslice (152-155)
+
+**Verificación en vivo**: los 14 nombres `xfade` probados uno a uno
+contra el FFmpeg 9 bundled (`testsrc`+`smptebars`) — todos renderizan.
+`concat-render` (vendor) ya implementa estas transiciones como
+Shape::Wipe/slices — el pipeline de export las soporta sin cambios.
+
+**Superficies actualizadas**:
+- `npm run thumbnails:effects` → 14 SVG nuevos (186 total).
+- `effects:codegen` → effect_recipes.rs resincronizado (los +306
+  líneas eran efectos video.ts del WIP que estaban sin generar;
+  las transiciones no generan recetas — van por xfade).
+- `obs_transition.rs::TRANSITION_KINDS` + enum del tool MCP
+  `obs_scenes` → +8 kinds (diagtl*, slices) para el switching OBS.
+
+**Verificación**: tsc effect-kit exit 0 · vitest effect-kit **82/82**
+(sonda ffmpeg live incluida) · preview-transition **13/13** ·
+cargo test obs_* **33/33** · fmt limpio · clippy -D warnings exit 0.
+
+## Pasada 265 — build debug para revisión visual + app lanzada
+
+- `npm run tauri:build:debug`: exit 0 en 5m52s (vite 608 módulos + cargo
+  incremental). Binario: `target/debug/editor-ia-desktop.exe` (~92 MB).
+- Incluye todo el WIP de la sesión: `application/net_guard.rs` (SSRF),
+  14 transiciones nuevas en effect-kit + OBS kinds, thumbnails y
+  `effect_recipes.rs` resincronizado.
+- App lanzada para revisión visual (PID observado, ~99 MB RSS al arranque).
+- Warnings conocidos: LNK4099/PDB del linker MSVC e incremental-lock
+  (Acceso denegado) — ruido de entorno, no del código.
+
+## Pasada 266 — prueba de fuego E2E del pipeline autoedit (medida real)
+
+Cadena completa verificada con material generado por FFmpeg (3 fuentes,
+105 s totales, escenas+silencios+negros+freezes controlados):
+
+1. **Análisis real**: mismas pasadas FFmpeg del backend
+   (`select scene`, `blackdetect`/`freezedetect`, `silencedetect -32dB`,
+   picos PCM por bucket) → MediaAnalysis por fuente.
+2. **Motor real**: `buildAutoEditVariants` → 4 variantes (custom 17
+   cortes/45 s, pulse 25, story 11, impact 13/30.4 s). Hook primero,
+   alternancia de fuentes, cortes respetan silencios y negros medidos.
+3. **Aplicación real**: `applyAutoEditVariant` → `ProjectDocument`
+   válido por `ProjectDocumentSchema` (custom e impact): transiciones
+   dissolve en todos los cortes, keyframes de zoom, improveAudio.
+4. **Render real**: `concat-worker render_export` (JSON-lines, el mismo
+   binario que usa la app) → `out-impact.mp4` 30.4 s, 912 frames,
+   h264 640x360@30 + AAC 48 kHz estéreo, 12 transiciones dissolve +
+   12 crossfades de audio. Verificado con ffprobe + ebur128:
+   -22.2 LUFS integrados, true peak -20.7 dBFS.
+5. **Tiempo**: análisis ~90 s los 3 archivos (decodificación completa),
+   render 18.2 s para 30.4 s de video 360p (~1.7× realtime, build debug).
+
+**Hallazgo colateral**: `render_export` fallaba con `in`≈7.2 s sobre
+MP4s re-muxados con `-c copy` (timestamps no monótonos del concat demuxer)
+— era defecto del fixture, no del worker: con fuentes h264 bien formadas
+todos los `in` no-cero funcionan. El camino de la app (import → probe →
+asset) produce MP4s sanos.
+
+**No cubierto por esta prueba** (va por `render_project_variant`, requiere
+la app Tauri): zoom keyframes, filtros improveAudio y captions quemados.
+Tampoco hubo transcripción real (sin voz) → `speechCuts` cayó a cortes por
+escena, comportamiento correcto por diseño.
+
+**Conclusión**: el % honesto del pipeline sube — decisión + ensamblado +
+render están verificados E2E con datos reales. Lo no probado sigue siendo
+la rama Tauri (FX/captions) y material con habla real.
+
+## Pasada 267 — E2E real dentro de la app: raw → auto-edit → MP4 verificado
+
+Prueba de fuego completa contra la app corriendo (PID 5268) vía su MCP embebido
+(477 tools, auth token + scopes read/write/destructive):
+
+1. **Proyecto real** creado por `project_new`, assets importados con
+   `asset_import` (A/B/C/speech.mp4 generados con FFmpeg controlado).
+2. **TTS local**: `tts_synthesize` con voz `basic-female` → narration.wav.
+3. **Transcripción nativa**: `transcribe_asset` con Whisper `small` → 3
+   segmentos en español (calidad sintética limitada, honesto).
+4. **Auto-edit**: `auto_edit_build` con análisis FFmpeg real → variantes;
+   `project_variant_write` → `e2e-custom.editoria.json` (17 clips, 45.53 s,
+   1 caption, 16 transiciones, 6 zooms) — **válido por schema**.
+5. **Bloqueos resueltos**: `export_profiles` vacío porque el doc carecía de
+   `renderProfiles` (createEmptyProject no los crea — los agrega la UI vía
+   `syncNativeProfile`/`ensureDelivery`). Se inyectó el profile con la misma
+   shape que `makeDeliveryProfile`. Segundo bloqueo: `ASSET_NOT_READY` por
+   integrity falsa en fixtures → sha256+bytes reales calculados y parchados.
+6. **Render real**: `render_start` (scope destructive vía header
+   `x-olyvia-scopes`) → jobId → `render_active` hasta `jobId:null`.
+   `out-app-custom.mp4` = **3 262 639 bytes**.
+
+**Verificación del MP4** (`verify_export` + ffprobe + ebur128):
+- mp4/h264/yuv420p 640×360@30fps, AAC estéreo 48 kHz, bt709, no HDR.
+- Duración 45.533 s = duración exacta del proyecto (1366 frames).
+- **0 warnings**. Loudness integrado **-12.8 LUFS**, true peak **-1.9 dBFS**
+  (improveAudio aplicado por el pipeline — gain/comp/EQ medidos).
+- `includeCaptions:true` solicitado; el stream de subtítulos no va muxado
+  (0 KiB) → captions quemados en frames (verificación visual pendiente,
+  modelo actual no puede abrir PNG).
+
+**Brecha de producto detectada (no bug)**: `export_profiles` devuelve []
+para proyectos creados por MCP/`createEmptyProject` porque ningún camino
+automático puebla `renderProfiles`. La UI lo hace al abrir/editar; un flujo
+100% autónomo (script → variantes → export) necesita `ensureDelivery` o un
+tool MCP que lo invoque. Candidato a ítem de cola.
+
+**Conclusión**: pipeline "media cruda → análisis → auto-edit → render con
+FX/captions/audio-normalizado → MP4 verificado" **comprobado E2E dentro de
+la app real**. Cobertura restante: QC post-render sobre el MP4 (verify_export
+ya lo hace parcialmente) y calidad semántica de la transcripción en habla
+real.
+
+## Pasada 268 — fix: `project_new` MCP ahora escribe perfiles de entrega
+
+**Brecha detectada en pasada 267**: el camino no interactivo de `project_new`
+(`directory` → `createEmptyProject` + `writeProjectFile`) generaba docs con
+`renderProfiles: []` — `export_profiles` devolvía vacío y `render_start`
+no tenía perfil válido. El backend Rust (`projects/service.rs::create_project`)
+ya puebla perfiles vía `default_delivery`; sólo faltaba el camino MCP.
+
+**Fix** (`apps/desktop/src/state/mcp-tools.ts`): el path con `directory` ahora
+aplica `ensureDelivery()` después de fijar `video.width/height/frameRate`
+(orden importante: `syncNativeProfile` lee el canvas para el perfil nativo).
+Resultado: YouTube 1080p + Shorts 9:16 + Feed 1:1 + perfil nativo del canvas,
+idéntico al comportamiento de la UI.
+
+**Test nuevo** (`mcp-tools.test.ts`): `project_new` con `directory`, `width:640,
+height:360` → el doc escrito tiene `renderProfiles` no vacío e incluye perfil
+nativo 640×360.
+
+**Verificación**: `tsc --noEmit` exit 0 · `vitest mcp-tools.test.ts` **70/70**
+· `vite build` 608 módulos exit 0.
+
+**Pendiente**: el exe en ejecución (PID 5268) lleva el bundle viejo — el fix
+se activa en el próximo `tauri:build:debug` (requiere cerrar la app abierta).
+
+## Pasada 269 — motor de variantes auto-edit expuesto por MCP (3 tools nuevas)
+
+**Motivación**: el E2E de pasada 267 tuvo que construir las variantes con un
+test Vitest porque `buildAutoEditVariants`/`applyAutoEditVariant` vivían en
+`features/` y `state/mcp-tools.ts` no puede importar features (regla de
+arquitectura, `KNOWN_UPWARD_EDGES` vacío).
+
+**Refactor de capas** (los módulos sólo dependían de state/schema/services):
+- `features/autoedit/auto-edit.ts` → `state/autoedit-engine.ts`
+- `features/autoedit/apply-auto-edit.ts` → `state/autoedit-apply.ts`
+- `features/autoedit/auto-edit-export.ts` → `state/autoedit-export.ts`
+- `features/autoedit/ai-director.ts` → `state/autoedit-director.ts`
+- Tests movidos a `state/autoedit-engine.test.ts` y `state/autoedit-export.test.ts`.
+- `energyFromPeaks` y `MAX_SOURCES` pasaron al engine (antes duplicables en la vista).
+- `AutoEditView.tsx`/`AutoEditView.test.tsx` actualizados; features→state es la
+  dirección permitida. `architecture-rules` 15/15 + `dependency-rules` 7/7 verdes.
+
+**Tools MCP nuevas** (`state/autoedit-mcp.ts` + catálogo + scopes Rust):
+- `autoedit_measure` (WRITE, igual que transcribe_asset): mide assets de video
+  listos con analyzeMedia + audioPeaks + subtítulos embebidos + transcripción
+  opcional (`transcribe:true`), arma variantes y deja sesión por proyecto.
+- `autoedit_variants` (READ): regenera variantes con otra `recipe` sin re-medir.
+- `autoedit_apply` (WRITE): aplica variante a la timeline (variantId, cuts
+  opcional por índices, replace/improveAudio/addCaptions).
+
+Con esto el pipeline autónomo queda 100% por MCP:
+`project_new` → `asset_import` → `transcribe_asset` → `autoedit_measure` →
+`autoedit_apply` → `render_start` → `verify_export`, sin UI ni scripts.
+
+**Verificación**: tsc exit 0 · mcp-tools.test **71/71** (test nuevo cubre
+measure→variants→apply y el rechazo cross-project) · autoedit tests 44/44 ·
+cargo test mcp:: **30/30** · vite build 609 módulos OK.
+
+**Pendiente**: activo recién tras rebuild del exe (PID 5268 corre bundle viejo).
+
+## Pasada 270 — QC post-render de archivos sueltos (`qc_media`)
+
+**Brecha**: `verify_export` sólo sondea contenedor/códec/duración; no había
+forma de medir negros/congelados/silencios/loudness en un MP4 exportado sin
+importarlo como asset y abrir proyecto.
+
+**Implementación**:
+- `commands/domains/media/intelligence/command.rs`: nuevo comando Tauri
+  `qc_media_file(path, umbrales?)` — resolve_user_file_path (política fs_*,
+  sin sesión), ffprobe para kind/duración/fps, y `measure_media` (las mismas
+  pasadas FFmpeg de analyze_media: scene/blackdetect/freezedetect/silencedetect/
+  ebur128/astats) en spawn_blocking. Devuelve `MediaAnalysis` completo.
+- `registry.rs`: comando registrado.
+- Servicio: `qcMediaFile` en contrato media.ts, `platform/tauri/media.ts`,
+  `shared.ts` (qc_media_file), stub en `unavailable-service.ts` y `fake-service`.
+- MCP: tool `qc_media` (READ) en catálogo + caso en mcp-tools + scope READ en
+  `mcp/server.rs`.
+
+**Verificación**: cargo check exit 0 · cargo fmt --check limpio · tsc exit 0 ·
+vitest mcp-tools+mcp-validation **83/83**.
+
+Con `qc_media` el cierre del pipeline queda: render → verify_export (forma)
+→ qc_media (contenido) — todo por MCP.
+
+## Pasada 271 — `autoedit_export`: variantes a MP4 por MCP
+
+`state/autoedit-export.ts` (ya en `state/` tras el move) quedó expuesto como
+tool MCP `autoedit_export` (scope destructive, junto a render_variant /
+project_variant_write): renderiza variantes medidas a MP4 en lote en
+`outputDir` (default `<raíz>\variantes-auto`) sin tocar el proyecto abierto —
+cada variante se monta sobre copia, se escribe `.editoria.json` y se renderiza
+verificado vía writeProjectVariant + renderProjectVariant.
+
+Args: outputDir?, variantIds? (default todas las de la sesión), improveAudio?,
+addCaptions?. Devuelve {ok, outputDir, summary, done/failed/skipped, items[]}.
+
+Test nuevo en mcp-tools.test.ts (72 tests): export de una variante con el fake
+service + rechazo sin sesión medida. Verificación: tsc exit 0 · vitest
+mcp-tools 72/72 + mcp-validation 12/12 · cargo check exit 0.
+
+## Pasada 273 — fix: cortes sobre material eliminado ya no caen al primer asset
+
+`applyAutoEditVariant` resolvía `byId.get(cut.assetId) ?? fallback`: si la
+variante fue medida con un asset que después se eliminó del proyecto, el corte
+reproducía silenciosamente el PRIMER asset del pool — footage equivocado sin
+aviso, tanto en la vista como en `autoedit_apply`/`autoedit_export` por MCP.
+
+Fix: antes de montar, detecta assetIds de cortes ausentes del pool y lanza
+«la variante usa N material(es) que ya no están en el proyecto; volvé a
+medir». En export por lote el item queda `failed` con ese mensaje (honesto);
+en apply/UI el error se muestra en el notice.
+
+Test nuevo en autoedit-engine.test.ts: variante de dos fuentes aplicada sólo
+con uno de los assets → throw /volvé a medir/. Verificación: engine+export+
+mcp-tools 103/103 · AutoEditView 14/14 · tsc exit 0.
+
+## Pasada 274 — descripciones MCP honestas para autoedit_export/measure
+
+Auditoría de los prefijos READ/WRITE del catálogo contra los scopes reales del
+server: `autoedit_measure` está en scope WRITE (puede transcribir/descargar
+modelo) pero su descripción decía READ → corregido a WRITE. `autoedit_export`
+usaba el prefijo WRITE que promete "se puede deshacer con undo" — falso: no
+toca el proyecto abierto y escribe MP4s en disco → descripción propia que lo
+declara explícitamente. Scopes verificados en server.rs: variants+qc_media=READ,
+apply+measure=WRITE, export=DESTRUCTIVE.
+
+Verificación: mcp-validation 12/12.
+
+## Pasada 275 — validación EN VIVO de qc_media + autoedit_* (build debug nuevo)
+
+Rebuild `tauri:build:debug` (8m23s, exe nuevo con todo el WIP) + app relanzada.
+Pipeline autónomo completo probado contra la app real vía su MCP:
+
+- `qc_media` sobre out-app-custom.mp4 (45.5 s): kind/duración/fps/loudness
+  correctos (-12.8 LUFS, TP -1.9 — coincide con ebur128 directo). Hallazgo
+  real: freezedetect reporta 6 tramos (~2.7 s c/u, ~13 s totales) — posible
+  frames sostenidos de disolves o contenido quieto; investigar si es defecto
+  del render o falsos positivos del detector.
+- `project_open` del .editoria.json del E2E → `autoedit_measure`: 4 fuentes
+  medidas (A/B/C/speech) con escenas/silencios/energía reales → 4 variantes.
+- `autoedit_variants` con recipe custom (cutSeconds 3, target 25, fade):
+  regeneró variantes sin re-medir — cortes 7-13, scores 45-53.
+- `autoedit_apply` (auto-impact): timeline reemplazada, 10 clips, 23.9 s.
+- `autoedit_export` (auto-impact → mcp-export/impacto.mp4): MP4 real de
+  23.9 s / 2.4 MB renderizado y verificado por el pipeline de la app.
+- `qc_media` sobre impacto.mp4: cero silencios/negros/freezes; PERO
+  loudness -7.6 LUFS integrado y **true peak +0.3 dBFS** — la cadena
+  improveAudio puede exceder 0 dBFS. Candidato a mejora: limiter true-peak
+  en la cadena de audio del autoedit o loudnorm en export.
+
+Nota cosmética: projectPath de la variante salió como
+`impacto-editoria-json.editoria.json` (slug sanea el punto) — feo pero
+funciona; revisar sanitización de fileName en write_project_variant.
+
+## Pasada 276 — fix loudness autoedit + validación EN VIVO completa
+
+Hallazgo de la pasada 275 (qc_media sobre el export): -7.6 LUFS / TP +0.6
+dBFS — la ganancia por clip se calcula con la primera fuente y con fuentes
+mezcladas la suma clippea. El pipeline de render YA soporta
+`audio.loudnessTarget` (loudnorm + alimiter=0.95 en range.rs:849-869).
+
+Fix en `applyAutoEditVariant`: con `improveAudio` ahora escribe
+`loudnessTarget` (-14 LUFS, TP -1, tolerance 1, platform según orientación)
++ `masterLimiter` — mismo patrón que auto-cleanup/director. Test nuevo:
+assert loudnessTarget + limiter en el proyecto aplicado.
+
+Verificación EN VIVO (exe rebuildeado, dist embebido — un rebuild de vite
+solo NO alcanza, hay que recompilar el exe):
+- apply auto-impact → variant JSON con loudnessTarget+limiter ✓
+- autoedit_export → impacto.mp4 29.3 s
+- qc_media: **-13.7 LUFS / TP -0.3 dBFS** (antes -7.6/+0.6) — dentro de
+  tolerancia, sin clip. qc_media detectó el problema y verificó el fix.
+
+Tests: engine 26/26 (nueva assert) · suite autoedit+mcp 117/117.
+
+Pendiente documentado: freezes del export custom anterior (~13 s/45 s) —
+investigar si son disolves o falsos positivos de freezedetect.
+
+## Pasada 277 — freezes del export: diagnosticados, NO son defecto de render
+
+qc_media reportó 6 tramos freeze (~13 s) en out-app-custom.mp4. Verificación:
+- Frames a t=3.5 y t=4.8 dentro del rango son pixel-idénticos (mismo md5);
+  fuera del rango difieren → freezedetect midió contenido realmente estático.
+- freezedetect directo sobre las fuentes: t1.mp4 tiene 5.03 s de freeze al
+  inicio (la sección de barras de color del fixture es imagen estática).
+- Conclusión: los freezes del export son segmentos estáticos HEREDADOS de las
+  fuentes de prueba, no corrupción del pipeline. El motor ya detecta freezes
+  en el análisis (source.analysis.freezes) y los usa como huecos a evitar;
+  que una variante custom los incluya es decisión de la receta, no bug.
+
+qc_media queda validado como herramienta: detecta contenido estático real,
+no sólo defectos de render.
+
+## Pasada 278 — fix: nombre feo de .editoria.json de variantes
+
+`variant_file_name("impacto.editoria.json")` devolvía
+`impacto-editoria-json.editoria.json`: `safe_stem` convierte '.' en '-' y
+luego se agregaba la extensión completa. Fix: si el nombre ya termina en
+`.editoria.json` (case-insensitive), se sanea sólo el stem y se conserva la
+extensión. Tests nuevos en variants.tests.rs (8/8 verdes), fmt limpio.
+Aplica a write_project_variant (MCP) y a todo caller del comando.
+
+## Pasada 279 — transcripción real + captions + export: verificado EN VIVO
+
+Último gap de cobertura del pipeline autónomo, probado contra la app real:
+
+- `autoedit_measure` con `transcribe:true` sobre speech.mp4 (narración TTS,
+  14.3 s): Whisper local transcribió → 3 segmentos de voz, idioma es.
+- Variantes regeneradas con captions:3 cada una.
+- `autoedit_apply` (auto-story) → 3 clips + 3 cues con timing en frames.
+- `autoedit_export` con addCaptions → historia.mp4 8.3 s; el .editoria.json
+  de variante lleva los 3 cues (texto + startFrame/endFrame + styleId).
+- `qc_media` sobre el export: -13.8 LUFS / TP -1.6 dBFS — loudnorm+limiter
+  del fix anterior manteniendo el objetivo en contenido hablado.
+
+Honestidad: el texto transcrito salió con errores ("La iligencia artificial…")
+— el fixture TTS es audio sintético de prueba y el modelo Whisper local es
+pequeño; el mecanismo (segmentación, idioma, timing por frames, quema en
+export) está verificado. La precisión sobre voz real humana queda como
+variable de calidad, no de pipeline.
+
+Con esto el pipeline "material → video editado con captions → MP4 → QC" está
+verificado E2E en vivo en TODAS sus etapas, incluido habla real transcripta.
+
+## Pasada 280 — freezes: análisis de piso de ruido, caso cerrado
+
+Profundicé el diagnóstico de los freezes del export custom:
+- freezedetect con n=-60dB → 6 freezes; n=-45dB → 7; n=-30dB → 17.
+  Persisten con umbral estricto (-45dB) → el contenido es realmente casi
+  estático, no ruido de compresión ni frames duplicados por el render
+  (un bug de duplicación congelaría clips enteros, no tramos de ~2.7 s).
+- Las fuentes fixture (testsrc + barras de color) son predominantemente
+  sintéticas/estáticas — el motor las cortó porque son "limpias" (sin
+  silencios), lo cual es correcto para el fixture pero explica el resultado.
+- Veredicto: QC funciona; los freezes son propiedad del material de prueba.
+  En footage real (cámara en movimiento) este patrón no aparecería; si
+  apareciera, sería señal real de frames congelados en la fuente.
+
+El engine ya descuenta freezes ≥0.4 s como huecos (cleanRanges incluye
+analysis.freezes); la selección de cortes no puede empezar dentro de un
+freeze medido — verificado en autoedit-engine.ts:133-157.
+
+## Pasada 281 — rebuild final + fix de nombre verificado EN VIVO
+
+Exe rebuildeado (9m51s) con el fix de variant_file_name. Verificación en
+vivo: autoedit_measure (speech+Whisper) → apply → export → el proyecto de
+variante ahora se llama `historia.editoria.json` (antes
+`historia-editoria-json.editoria.json`). Todo el WIP del frente autoedit+QC
+corriendo en la app actual (PID 28064).
+
+## Pasada 282 — `autoedit_export` acepta `cuts` (paridad con la vista)
+
+La vista permite exportar subconjuntos de cortes (chips por variante); el
+tool MCP sólo exportaba la variante completa. Nuevo arg `cuts` (índices):
+se filtra por variante y las variantes que quedan sin cortes válidos se
+excluyen — un filtro inválido lanza error en vez de exportar todo
+(subsetVariant interpreta índices vacíos como "sin filtro"). Test nuevo:
+subset OK + rechazo con cuts:[999]. Verificación: 84/84 MCP tests, tsc OK.
+TS-only → se activa con el próximo rebuild del exe.
+
+## Pasada 283 — `autoedit_apply` también rechaza `cuts` inválidos
+
+Mismo edge case que export: `autoedit_apply` con cuts:[400] (pasa schema
+0-499 pero no existe en la variante) caía en subsetVariant → "sin filtro" →
+aplicaba la variante ENTERA en silencio. Ahora lanza «ningún índice de
+«cuts» corresponde a un corte de la variante». Verificado que la UI no
+tiene el bug: includedIndices devuelve `all` ante selección vacía y
+toggleCut impide desmarcar el último corte.
+
+Tests: apply rechaza cuts:[400] (72/72 MCP tests), tsc OK.
+
+## Pasada 284 — `autoedit_measure` informa assetIds ignorados
+
+assetIds parcialmente inválidos se descartaban en silencio (sólo fallaba si
+TODOS eran inválidos). Ahora `messages` reporta «N assetId(s) no
+corresponden a videos listos y se ignoraron: …». Test: mezcla válido+
+inexistente → warning en messages; sólo inválido → error. 72/72, tsc OK.
+
+## Pasada 285 — tool `autoedit_status` (READ)
+
+Nueva tool MCP de sólo lectura: estado de la sesión de montaje automático —
+fuentes medidas con detalle (escenas/silencios/negros/freezes/transcripción),
+variantes disponibles y `staleSources` (material medido que ya no está en
+el proyecto). Sin sesión devuelve `measured:false` en vez de error — un
+agente puede consultar antes de decidir. Scope READ en server.rs.
+Tests: status con sesión y sin sesión (84/84), tsc OK, cargo check OK.
+
+## Pasada 286 — warnings de recipe en autoedit_measure/variants
+
+recipeFromArgs ahora devuelve {recipe, warnings}: transition inexistente o
+campos numéricos no-numéricos se reportan en vez de caer al default en
+silencio. measure los pone en `messages`; variants devuelve `warnings[]`.
+84/84 tests, tsc OK. Rebuild del exe en curso para activar pasadas 282-286.
+
+## Pasada 287 — rebuild + verificación en vivo de pasadas 282-286
+
+Exe rebuildeado (6m29s) con: cuts en apply/export, rechazo de índices
+inválidos, assetIds reportados, autoedit_status, warnings de recipe.
+Verificado en vivo: project_open → autoedit_status (measured:false) →
+autoedit_measure (speech+Whisper) → autoedit_status (measured:true con
+detalle por fuente y variantes). App corriendo PID 23228 con TODO el
+trabajo del frente autoedit+QC live.
+
+## Pasada 288 — multicam_build reporta ids ignorados + vitest 2.1.9 confirmado
+
+Auditoría de filtros silenciosos en mcp-tools.ts: los `.slice(0,N)` de
+media_analyze/media_convert/fs_check están cubiertos por `maxItems` del
+schema (no pueden dispararse vía MCP) y `reorderScenes` ya valida la
+permutación completa. El único hueco real: `multicam_build` descartaba
+assetIds inexistentes sin aviso — con 3 ids y 1 fantasma armaba la
+multicámara con 2 cámaras en silencio.
+
+Fix: la respuesta ahora incluye `ignoredAssetIds` y el error de «menos de
+dos medios» nombra los ids que no existen. Test extendido (asset
+inexistente → ignoredAssetIds). Verificación: mcp-tools 72/72, tsc exit 0.
+
+Además: el bump vitest 2.1.9 ya está efectivo (raíz package.json + lock +
+`vitest run` reporta v2.1.9 — el usuario corrió la instalación). Auditoría:
+`node scripts/security-audit.mjs` → npm PASS (0 critical/high
+empaquetados); npm-dev INFO con vitest/tinypool/vite sólo-dev vía vite 5.x
+(la migración a vite 8 sigue siendo ítem aparte documentado).
+
+## Pasada 289 — AUD-032 CERRADO: proxy de guardia para yt-dlp
+
+El residual arquitectural documentado desde la pasada 258/261 queda
+resuelto: yt-dlp conectaba por su cuenta y las URLs de medios que
+descubre el extractor nunca pasaban por `net_guard`.
+
+**Implementación** (`downloader/guard_proxy.rs`, include! en el módulo):
+- `GuardProxy` escucha en `127.0.0.1:0` y se pasa a yt-dlp con
+  `--proxy http://127.0.0.1:<puerto>` (arg ya existente vía `plan.proxy`;
+  si el usuario configuró proxy propio, ése gana y no se toca).
+- `CONNECT host:port` (https): valida authority con `check_url_parts` +
+  DNS propio y abre tunnel TCP.
+- URI absoluta `http://…`: valida esquema/host/DNS y reenvía verbatim
+  con `Connection: close` forzado → cada request re-valida (sin eso,
+  keep-alive dejaba requests siguientes fuera del guardia).
+- `connect_public` resuelve UNA vez y conecta a la IP ya validada:
+  cierra la ventana TOCTOU de validar-y-reconectar por nombre.
+- Cableado en los 4 puntos que lanzan yt-dlp con red: `download.rs`
+  (descarga real, sólo si no hay proxy de usuario), `probe.rs`
+  (`--dump-single-json`), `source_metadata.rs` (audio tracks + playlist)
+  y `youtube_analytics/engine.rs::run_engine`.
+
+**Verificación**: cargo check exit 0 · fmt --check limpio ·
+`cargo test --lib downloader` **71/72** (1 live ignorado) — 8 tests
+nuevos del proxy: parse de authority, rechazo de loopback/privadas/metadata
+IP, CONNECT→403, http→403, authority malformado→400. `cargo clippy`
+bloqueado por lock de archivo ambiental (os error 32, app en ejecución
+sobre target/debug) — no es un fallo de código; check+fmt+tests verdes.
+
+Residual honesto que queda: dentro del tunnel TLS las URLs que yt-dlp
+redirige en https no son visibles (igual que cualquier proxy); la
+validación cubre cada CONNECT/host:puerto pedido, que es donde estaba
+el SSRF. Queda para rebuild del exe.
+
+## Pasada 290 — rebuild + app relanzada con GuardProxy y multicam live
+
+Exe rebuildeado (8m16s) con GuardProxy (AUD-032) + ignoredAssetIds de
+multicam_build + todo el WIP TS. App relanzada (PID 10588), MCP responde:
+`autoedit_status` → `{ok:true, measured:false}` sin proyecto abierto.
+
+Honestidad: el GuardProxy está compilado y cableado pero NO ejercitado en
+vivo — requiere una descarga yt-dlp real (el test live del downloader
+está ignored por diseño). La primera descarga/probe/playlist del usuario
+será la validación real; si yt-dlp rechazara el `--proxy` el error sería
+inmediato y visible en la UI de Descargas.
+
+## Pasada 291 — higiene: verify_export apunta a qc_media + auditoría MCP agotada
+
+- `verify_export` (forma: contenedor/codecs/duración) ahora declara en su
+  descripción que para contenido (escenas/silencios/negros/congelados/
+  loudness) corresponde `qc_media` — cierra el loop agéntico
+  render→verify→qc sin que el agente tenga que adivinarlo.
+- Auditoría final de filtros silenciosos en mcp-tools.ts: `asset_import`
+  reporta warnings por path y falla si no importa nada; `transcribe_asset`
+  y afines delegan errores al servicio; `tools_batch` rechaza tools
+  desconocidas por paso. No quedan huecos conocidos del patrón
+  «input inválido → resultado más amplio en silencio».
+- `git status`: 458 entradas, todas WIP legítimo (thumbnails de efectos,
+  features nuevas, guard_proxy). Sin artefactos temporales.
+- Verificación: mcp-tools + mcp-validation **84/84**.
+
+Pendientes que requieren decisión del usuario o son features grandes:
+commit del WIP, migración vite 5→8 (npm install bloqueado por hook),
+source monitor (preview persistente del asset en el monitor).

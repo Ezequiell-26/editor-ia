@@ -2,6 +2,7 @@ import type {
   CaptionCue,
   CaptionMotion,
   CaptionStyle,
+  Clip,
   ProjectDocument,
 } from '@editor-ia/project-schema';
 import {
@@ -15,7 +16,9 @@ import {
   cloneProject,
   findGap,
   fpsOf,
+  isWindowed,
   newId,
+  speedOf,
   touch,
 } from './project-actions-core';
 
@@ -324,15 +327,21 @@ export function importSubtitleCues(
   return { project: next, added, skipped, trackId: setup.trackId };
 }
 
+/**
+ * Segment de transcripción tal como lo devuelve `transcribeAsset`: tiempos en
+ * segundos absolutos del archivo de media (0 = inicio del asset).
+ */
+export interface TranscriptionSegmentInput {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+  readonly words?: readonly { start: number; end: number; word: string }[];
+}
+
 export function addTranscriptionCues(
   project: ProjectDocument,
   clipId: string,
-  segments: readonly {
-    start: number;
-    end: number;
-    text: string;
-    words?: readonly { start: number; end: number; word: string }[];
-  }[],
+  segments: readonly TranscriptionSegmentInput[],
   replaceExisting = true,
   options: CaptionPlannerOptions & { readonly safeArea?: boolean | undefined } = {},
 ): {
@@ -632,4 +641,96 @@ export function updateCaptionStyle(
   if (patch.position !== undefined) style.position = patch.position;
   touch(next);
   return next;
+}
+
+/**
+ * Clips que «Subtitular proyecto» puede transcribir: video/audio montados desde
+ * un asset con ventana `inFrame`/`outFrame` cuyo asset existe y es de tipo
+ * `video` o `audio`. Los kinds image/freeze/graphic/adjustment/compound no
+ * tienen audio propio transcribible (una imagen no suena; un compuesto ya fue
+ * transcripto clip a clip si corresponde). Se incluyen clips deshabilitados o
+ * en pistas muteadas: el subtítulo describe el material fuente y el usuario
+ * puede borrarlo; filtrar por `enabled`/`muted` escondería material que quizá
+ * sí se quiere documentar. Orden de timeline por `startFrame`.
+ */
+export function listTranscribableTimelineClips(project: ProjectDocument): Clip[] {
+  const assets = new Map(project.assets.map((asset) => [asset.id, asset]));
+  return project.timeline.clips
+    .filter((clip) => {
+      if (!isWindowed(clip)) return false;
+      const source = clip.source;
+      if (source.type !== 'asset' || !('inFrame' in source)) return false;
+      const asset = assets.get(source.assetId);
+      return asset?.kind === 'video' || asset?.kind === 'audio';
+    })
+    .sort((a, b) => a.startFrame - b.startFrame || a.id.localeCompare(b.id));
+}
+
+export type ClipTranscriptionPlan =
+  | { readonly status: 'ready'; readonly segments: TranscriptionSegmentInput[] }
+  | { readonly status: 'unsupported'; readonly reason: string }
+  | { readonly status: 'empty' };
+
+/**
+ * Convierte segmentos en tiempo de asset (lo que devuelve `transcribeAsset`,
+ * 0 = inicio del archivo) a segundos relativos al INICIO DEL CLIP, que es lo
+ * que espera `addTranscriptionCues` (`clipStart + seg * fps`).
+ *
+ * Esto corrige la limitación del flujo por clip del Inspector, que pasaba los
+ * segmentos crudos: un clip con `inFrame > 0` recibía subtítulos corridos (el
+ * segmento en t=0 del asset caía en el inicio del clip en vez de en `inFrame`).
+ * Acá la ventana `[inFrame, outFrame]` está en frames de proyecto y la
+ * velocidad constante estira/achica los tiempos igual que el render (avanza
+ * `speed` frames de fuente por frame de salida). Los segmentos y palabras que
+ * caen fuera de la ventana se recortan o descartan.
+ *
+ * Clips con `reverse` o `speedCurve` no tienen un mapeo lineal fiable (el
+ * orden temporal o la velocidad varía dentro del clip) y se reportan como
+ * `unsupported` para que la UI lo explique en vez de subtitular mal.
+ */
+export function transcriptionSegmentsForClip(
+  segments: readonly TranscriptionSegmentInput[],
+  clip: Clip,
+  fps: number,
+): ClipTranscriptionPlan {
+  if (!isWindowed(clip)) {
+    return { status: 'unsupported', reason: 'el clip no tiene fuente de media con ventana' };
+  }
+  const source = clip.source;
+  if ('reverse' in clip && clip.reverse === true) {
+    return { status: 'unsupported', reason: 'clip invertido (reverse)' };
+  }
+  if (clip.kind === 'video' && clip.speedCurve) {
+    return { status: 'unsupported', reason: 'curva de velocidad' };
+  }
+  const rate = Math.max(1, fps);
+  const speedFactor = speedOf(clip).num / Math.max(1, speedOf(clip).den);
+  const windowStart = source.inFrame / rate;
+  const windowEnd = source.outFrame / rate;
+  const toClipSeconds = (assetSeconds: number): number =>
+    (assetSeconds - windowStart) / Math.max(0.01, speedFactor);
+
+  const mapped: TranscriptionSegmentInput[] = [];
+  for (const segment of segments) {
+    const start = Math.max(segment.start, windowStart);
+    const end = Math.min(segment.end, windowEnd);
+    const text = segment.text.replace(/\s+/g, ' ').trim();
+    if (!text || !(end > start)) continue;
+    const clipStart = toClipSeconds(start);
+    const clipEnd = toClipSeconds(end);
+    const words = segment.words
+      ?.map((word) => ({
+        word: word.word,
+        start: Math.max(clipStart, toClipSeconds(word.start)),
+        end: Math.min(clipEnd, toClipSeconds(word.end)),
+      }))
+      .filter((word) => word.word && word.end > word.start);
+    mapped.push({
+      start: clipStart,
+      end: clipEnd,
+      text,
+      ...(words && words.length > 0 ? { words } : {}),
+    });
+  }
+  return mapped.length > 0 ? { status: 'ready', segments: mapped } : { status: 'empty' };
 }

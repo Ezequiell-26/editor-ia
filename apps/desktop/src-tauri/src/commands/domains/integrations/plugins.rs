@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use tauri::State;
 
 use crate::application::plugins::{self, PluginInfo};
-use crate::projects::service::ProjectError;
+use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
 /// Carpeta de plugins oficiales: los recursos que Tauri copia al instalar.
@@ -42,16 +42,33 @@ pub fn list_plugins(app: tauri::AppHandle) -> Result<Vec<PluginInfo>, ProjectErr
 
 /// Instala copiando la carpeta indicada al directorio de plugins del usuario.
 #[tauri::command]
-pub fn install_plugin(
+pub async fn install_plugin(
     _state: State<'_, AppState>,
     path: String,
 ) -> Result<PluginInfo, ProjectError> {
-    plugins::install_plugin(&path)
+    // Copia recursiva de un directorio arbitrario sin tope de tamaño:
+    // fuera del main thread (AUD-129).
+    tauri::async_runtime::spawn_blocking(move || plugins::install_plugin(&path))
+        .await
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "la instalación del plugin se interrumpió",
+            )
+        })?
 }
 
 #[tauri::command]
-pub fn remove_plugin(_state: State<'_, AppState>, id: String) -> Result<(), ProjectError> {
-    plugins::remove_plugin(&id)
+pub async fn remove_plugin(_state: State<'_, AppState>, id: String) -> Result<(), ProjectError> {
+    // Borra el árbol del plugin instalado: mismo criterio (AUD-129).
+    tauri::async_runtime::spawn_blocking(move || plugins::remove_plugin(&id))
+        .await
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "la desinstalación del plugin se interrumpió",
+            )
+        })?
 }
 
 #[tauri::command]

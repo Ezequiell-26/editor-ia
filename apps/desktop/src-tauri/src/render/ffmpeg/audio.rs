@@ -72,14 +72,20 @@ pub(crate) fn audio_filter(
     track_gain_db: f64,
     track: &Value,
     effects: &Value,
+    source_channels: Option<u32>,
 ) -> String {
     let lead = lead_seconds.max(0.0);
     let gain_db = number(audio, "gainDb").unwrap_or(0.0).clamp(-60.0, 12.0);
-    let mut filters = vec![
-        format!("aresample={}", profile.audio_rate),
-        "aformat=sample_fmts=fltp:channel_layouts=stereo".to_owned(),
-        "asetpts=PTS-STARTPTS".to_owned(),
-    ];
+    let mut filters = vec![format!("aresample={}", profile.audio_rate)];
+    // `aformat` mono→estéreo aplica la ley de rematrix de ffmpeg (−3,01 dB
+    // por canal): una voz en mono exportaba 3 dB más baja de lo esperado.
+    // Para fuentes mono el upmix se hace con `pan` a ganancia unitaria y
+    // `aformat` queda como estéreo→estéreo (sin remix).
+    if source_channels == Some(1) {
+        filters.push("pan=stereo|c0=c0|c1=c0".to_owned());
+    }
+    filters.push("aformat=sample_fmts=fltp:channel_layouts=stereo".to_owned());
+    filters.push("asetpts=PTS-STARTPTS".to_owned());
     if speed_num != speed_den {
         let factor = speed_num as f64 / speed_den as f64;
         let mut remaining = factor;

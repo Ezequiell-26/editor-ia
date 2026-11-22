@@ -57,6 +57,7 @@ include!("timeline_import/edl.rs");
 include!("timeline_import/otio.rs");
 include!("timeline_import/fcpxml.rs");
 include!("timeline_import/fcpxml_parse.rs");
+include!("timeline_import/filmcraft.rs");
 
 #[cfg(test)]
 #[path = "timeline_import.tests.rs"]

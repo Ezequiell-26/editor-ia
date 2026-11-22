@@ -1,8 +1,14 @@
 fn run_direct_image(job_state: Arc<Mutex<Option<BridgeJob>>>, downloads_dir: PathBuf, url: String) {
     let result = (|| -> Result<BridgeFile, ProjectError> {
+        // La URL ya pasó validate_url en la ruta; acá se agrega la resolución
+        // DNS (contexto bloqueante) y la política de redirects anti-SSRF.
+        let parsed = reqwest::Url::parse(&url)
+            .map_err(|_| provider_error("La URL de la imagen no es válida."))?;
+        ensure_public_resolution(&parsed)?;
         let client = reqwest::blocking::Client::builder()
             .user_agent("EditorIA/0.1")
             .timeout(Duration::from_secs(180))
+            .redirect(ssrf_redirect_policy())
             .build()
             .map_err(|_| provider_error("No se pudo preparar la descarga de la imagen."))?;
         let mut response = client

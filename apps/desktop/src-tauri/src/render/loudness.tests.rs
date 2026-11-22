@@ -197,10 +197,15 @@ fn live_ffmpeg_sine_measures_reference_lufs() {
         "error",
         "-f",
         "lavfi",
+        // `sine` de FFmpeg no llega a plena escala (pico ≈ −18 dBFS), así que
+        // `volume=-23dB` dejaba la señal a −44 dB y el medidor leía −44 LUFS
+        // correctamente. `aevalsrc` da amplitud 1.0 explícita en estéreo
+        // directo (`|`): `aformat` upmix mono→stéreo aplicaba −3 dB extra.
+        // Resultado: la misma seno de alineación BS.1770 que el test sintético.
         "-i",
-        "sine=frequency=997:sample_rate=48000:duration=6",
+        "aevalsrc=sin(2*PI*997*t)|sin(2*PI*997*t):s=48000:d=6",
         "-af",
-        "volume=-23dB,aformat=channel_layouts=stereo",
+        "volume=-23dB",
         "-f",
         "f32le",
         "-",

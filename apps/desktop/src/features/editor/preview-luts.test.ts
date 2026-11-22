@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import type { Clip } from '@editor-ia/project-schema';
-import { clipPreviewLuts } from './preview-luts';
+import { clipPreviewLuts, lookLutRequests } from './preview-luts';
 
 function clip(effects: Record<string, unknown> | undefined, id = 'c1'): Clip {
   return {
@@ -71,5 +71,33 @@ describe('clipPreviewLuts', () => {
     expect(requests).toEqual([
       { kind: 'file', path: 'media/luts/look.cube', intensity: 1 },
     ]);
+  });
+});
+
+describe('lookLutRequests · LUT global del project.look', () => {
+  it('sin look o sin lutFile devuelve []', () => {
+    expect(lookLutRequests(undefined)).toEqual([]);
+    expect(lookLutRequests({ contrast: 1.1 } as never)).toEqual([]);
+  });
+
+  it('lutFile del look genera request con intensidad default 1', () => {
+    expect(
+      lookLutRequests({ lutFile: 'media/luts/master.cube' } as never),
+    ).toEqual([{ kind: 'file', path: 'media/luts/master.cube', intensity: 1 }]);
+  });
+
+  it('lutIntensity ~0 no aplica (mismo corte que effects_lut)', () => {
+    expect(
+      lookLutRequests({ lutFile: 'media/luts/x.cube', lutIntensity: 0 } as never),
+    ).toEqual([]);
+    expect(
+      lookLutRequests({ lutFile: 'media/luts/x.cube', lutIntensity: 0.35 } as never),
+    ).toEqual([{ kind: 'file', path: 'media/luts/x.cube', intensity: 0.35 }]);
+  });
+
+  it('cameraProfile del look se ignora (el export tampoco lo lee)', () => {
+    expect(
+      lookLutRequests({ cameraProfile: 'slog3709' } as never),
+    ).toEqual([]);
   });
 });

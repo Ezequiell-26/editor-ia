@@ -26,7 +26,7 @@ pub(crate) fn synthesize_dub_file(
         for (index, cue) in cues.iter().enumerate() {
             let wav = temp.join(format!("cue-{index:04}.wav"));
             synthesize_sapi_wav(powershell, &cue.text, voice, &wav)?;
-            let duration = probe_audio_duration(ffprobe, &wav).ok_or_else(|| {
+            let (duration, channels) = probe_audio_info(ffprobe, &wav).ok_or_else(|| {
                 ProjectError::message(
                     ProjectErrorCode::RenderFailed,
                     "no se pudo medir la voz generada para un subtítulo",
@@ -37,6 +37,7 @@ pub(crate) fn synthesize_dub_file(
                 end: cue.end_seconds,
                 wav,
                 duration,
+                channels,
             });
             if let Some(app) = app {
                 let percent = ((index + 1) as f64 / cues.len() as f64 * 70.0).min(70.0);
@@ -48,7 +49,13 @@ pub(crate) fn synthesize_dub_file(
             .map(|volume| volume.clamp(0.0, 1.0));
         let has_audio = source_has_audio(ffprobe, input);
         let effective_bed = requested_bed.filter(|_| has_audio);
-        let (filter, mut warnings) = build_dub_filter(&segments, end_seconds, effective_bed);
+        let bed_channels = if effective_bed.is_some() {
+            probe_audio_channels(ffprobe, input)
+        } else {
+            None
+        };
+        let (filter, mut warnings) =
+            build_dub_filter(&segments, end_seconds, effective_bed, bed_channels);
         if requested_bed.is_some() && !has_audio {
             warnings
                 .push("El video no tiene audio original; se dobló sin cama musical.".to_owned());

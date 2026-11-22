@@ -12,7 +12,7 @@
    - NO reemplaza componentes ni monta una segunda superficie. Respeta
      ADR-0006 (un solo editor) y mantiene Preview/Timeline/Inspector reales.
    - Es una capa ADDITIVA y ÚLTIMA de la cascada. Debe importarse DESPUÉS de
-     `minimal-editor-scenes.css` en `main.tsx`.
+     `alauk-chrome.css` en `main.tsx`.
    - Sólo actúa con `:root:not([data-editor-skin='full'])`. El botón «Vista»
      de `AlaukTopBar` permite volver al chrome completo sin recargar, para
      no perder el acceso a los controles que la referencia no muestra.

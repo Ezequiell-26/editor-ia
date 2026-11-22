@@ -44,10 +44,7 @@ impl Rng {
 
     /// Devuelve un float en [0,1).
     fn next(&mut self) -> f64 {
-        self.0 = self
-            .0
-            .wrapping_mul(1_664_525)
-            .wrapping_add(1_013_904_223);
+        self.0 = self.0.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
         self.0 as f64 / 4_294_967_296.0
     }
 }
@@ -134,7 +131,11 @@ fn swell_env(t: f64, duration: f64, attack: f64, release: f64) -> f64 {
 /// Renderiza `seconds` de audio. `fn_sample(t, duration)` recibe el tiempo
 /// en segundos del preset (ya estirado si aplica) y la duración del preset
 /// en esas mismas unidades. Aplica fade de 3 ms en los bordes como el JS.
-fn render(seconds: f64, preset_seconds: f64, mut fn_sample: impl FnMut(f64, f64) -> f64) -> Vec<f32> {
+fn render(
+    seconds: f64,
+    preset_seconds: f64,
+    mut fn_sample: impl FnMut(f64, f64) -> f64,
+) -> Vec<f32> {
     let frames = (seconds * SAMPLE_RATE as f64).round() as usize;
     let mut samples = vec![0f32; frames];
     for (i, slot) in samples.iter_mut().enumerate() {
@@ -236,7 +237,8 @@ fn preset_woosh() -> SampleFn {
         let noise = rng.next() * 2.0 - 1.0;
         let noise2 = rng.next() * 2.0 - 1.0;
         let openness = 0.3 + 0.7 * swell_env(t, duration, 0.08, 0.12);
-        let swept = lp.process(noise) * openness + hp.process(noise2) * 0.15 * swell_env(t, duration, 0.08, 0.12);
+        let swept = lp.process(noise) * openness
+            + hp.process(noise2) * 0.15 * swell_env(t, duration, 0.08, 0.12);
         swept * 1.6 * swell_env(t, duration, 0.08, 0.12)
     })
 }
@@ -280,7 +282,9 @@ fn preset_glitch() -> SampleFn {
     let bursts = [0.02, 0.09, 0.14, 0.26, 0.33, 0.41];
     let burst_len = 0.045;
     Box::new(move |t, _duration| {
-        let in_burst = bursts.iter().any(|start| t >= *start && t < start + burst_len);
+        let in_burst = bursts
+            .iter()
+            .any(|start| t >= *start && t < start + burst_len);
         if !in_burst {
             return 0.0;
         }
@@ -307,14 +311,46 @@ fn preset_subdrop() -> SampleFn {
 }
 
 const PRESETS: &[SfxPreset] = &[
-    SfxPreset { id: "sfx-click", seconds: 0.08, build: preset_click },
-    SfxPreset { id: "sfx-pop", seconds: 0.22, build: preset_pop },
-    SfxPreset { id: "sfx-ding", seconds: 0.70, build: preset_ding },
-    SfxPreset { id: "sfx-woosh", seconds: 0.45, build: preset_woosh },
-    SfxPreset { id: "sfx-boom", seconds: 1.20, build: preset_boom },
-    SfxPreset { id: "sfx-riser", seconds: 2.00, build: preset_riser },
-    SfxPreset { id: "sfx-glitch", seconds: 0.50, build: preset_glitch },
-    SfxPreset { id: "sfx-subdrop", seconds: 1.80, build: preset_subdrop },
+    SfxPreset {
+        id: "sfx-click",
+        seconds: 0.08,
+        build: preset_click,
+    },
+    SfxPreset {
+        id: "sfx-pop",
+        seconds: 0.22,
+        build: preset_pop,
+    },
+    SfxPreset {
+        id: "sfx-ding",
+        seconds: 0.70,
+        build: preset_ding,
+    },
+    SfxPreset {
+        id: "sfx-woosh",
+        seconds: 0.45,
+        build: preset_woosh,
+    },
+    SfxPreset {
+        id: "sfx-boom",
+        seconds: 1.20,
+        build: preset_boom,
+    },
+    SfxPreset {
+        id: "sfx-riser",
+        seconds: 2.00,
+        build: preset_riser,
+    },
+    SfxPreset {
+        id: "sfx-glitch",
+        seconds: 0.50,
+        build: preset_glitch,
+    },
+    SfxPreset {
+        id: "sfx-subdrop",
+        seconds: 1.80,
+        build: preset_subdrop,
+    },
 ];
 
 /// Normaliza un nombre de preset: minúsculas, sólo alfanuméricos.
@@ -360,11 +396,7 @@ fn resolve_request_preset(request: &GenerationRequest) -> Option<&'static SfxPre
 }
 
 fn valid_ids() -> String {
-    PRESETS
-        .iter()
-        .map(|p| p.id)
-        .collect::<Vec<_>>()
-        .join(", ")
+    PRESETS.iter().map(|p| p.id).collect::<Vec<_>>().join(", ")
 }
 
 /// `true` si el query nombra un preset conocido (para el dispatch de
@@ -452,8 +484,8 @@ impl ContentGenerator for LocalSfxGenerator {
             .collect();
         let suffix = preset.id.strip_prefix("sfx-").unwrap_or(preset.id);
         let output = dir.join(format!("sfx-{suffix}-{safe_id}.wav"));
-        let mut synth = (preset.build)();
-        let samples = render(seconds, preset.seconds, |t, duration| synth(t, duration));
+        let synth = (preset.build)();
+        let samples = render(seconds, preset.seconds, synth);
         write_wav(&output, &samples).map_err(|e| {
             ProjectError::message(
                 ProjectErrorCode::Io,
@@ -560,7 +592,11 @@ mod tests {
         let bits = u16::from_le_bytes(bytes[34..36].try_into().unwrap());
         assert_eq!(&bytes[36..40], b"data", "falta chunk data");
         let data_size = u32::from_le_bytes(bytes[40..44].try_into().unwrap());
-        assert_eq!(bytes.len() as u32, 44 + data_size, "tamaño RIFF inconsistente");
+        assert_eq!(
+            bytes.len() as u32,
+            44 + data_size,
+            "tamaño RIFF inconsistente"
+        );
         (data_size / 2, rate, channels, bits)
     }
 
@@ -589,7 +625,7 @@ mod tests {
         );
         // El preset boom tiene energía: pico no trivial.
         let mut peak = 0i16;
-        for chunk in bytes[44..].chunks_exact(2) {
+        for chunk in bytes[44..].as_chunks::<2>().0 {
             let v = i16::from_le_bytes([chunk[0], chunk[1]]);
             peak = peak.max(v.abs());
         }
@@ -619,7 +655,10 @@ mod tests {
         let bytes = std::fs::read(dir.join(&result.path)).unwrap();
         let (frames, _, _, _) = wav_header(&bytes);
         let expected = (0.32 * SAMPLE_RATE as f64).round() as u32;
-        assert!(frames.abs_diff(expected) <= 1, "frames {frames} != {expected}");
+        assert!(
+            frames.abs_diff(expected) <= 1,
+            "frames {frames} != {expected}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

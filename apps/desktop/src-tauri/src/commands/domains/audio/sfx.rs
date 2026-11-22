@@ -29,14 +29,62 @@ pub struct SfxItem {
 /// El grupo ordena las tarjetas en secciones colapsables como el panel
 /// «Sons» de AlaukCut (grabación/UX/transiciones → UX/Transiciones/…).
 const CATALOG: &[(&str, &str, &str, f64, &str)] = &[
-    ("sfx-click", "Click Táctil", "Pulsación de interfaz", 0.08, "UX"),
-    ("sfx-pop", "Pop Burbuja", "Aparición de sticker o texto", 0.22, "UX"),
-    ("sfx-ding", "Ding Campana", "Notificación de atención", 0.70, "UX"),
-    ("sfx-woosh", "Woosh Rápido", "Transición dinámica de aire", 0.45, "Transiciones"),
-    ("sfx-riser", "Riser Tensión", "Crescendo para anticipación", 2.00, "Transiciones"),
-    ("sfx-boom", "Impacto Boom", "Golpe grave cinematográfico", 1.20, "Impactos"),
-    ("sfx-subdrop", "Sub-Drop", "Bajo envolvente para clímax", 1.80, "Impactos"),
-    ("sfx-glitch", "Glitch Digital", "Interferencia cibernética", 0.50, "Digital"),
+    (
+        "sfx-click",
+        "Click Táctil",
+        "Pulsación de interfaz",
+        0.08,
+        "UX",
+    ),
+    (
+        "sfx-pop",
+        "Pop Burbuja",
+        "Aparición de sticker o texto",
+        0.22,
+        "UX",
+    ),
+    (
+        "sfx-ding",
+        "Ding Campana",
+        "Notificación de atención",
+        0.70,
+        "UX",
+    ),
+    (
+        "sfx-woosh",
+        "Woosh Rápido",
+        "Transición dinámica de aire",
+        0.45,
+        "Transiciones",
+    ),
+    (
+        "sfx-riser",
+        "Riser Tensión",
+        "Crescendo para anticipación",
+        2.00,
+        "Transiciones",
+    ),
+    (
+        "sfx-boom",
+        "Impacto Boom",
+        "Golpe grave cinematográfico",
+        1.20,
+        "Impactos",
+    ),
+    (
+        "sfx-subdrop",
+        "Sub-Drop",
+        "Bajo envolvente para clímax",
+        1.80,
+        "Impactos",
+    ),
+    (
+        "sfx-glitch",
+        "Glitch Digital",
+        "Interferencia cibernética",
+        0.50,
+        "Digital",
+    ),
 ];
 
 fn resolve_sfx_dir(app: &AppHandle) -> Option<PathBuf> {
@@ -47,9 +95,7 @@ fn resolve_sfx_dir(app: &AppHandle) -> Option<PathBuf> {
     {
         candidates.push(path);
     }
-    candidates.push(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/sfx"),
-    );
+    candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/sfx"));
     candidates.into_iter().find(|dir| dir.is_dir())
 }
 

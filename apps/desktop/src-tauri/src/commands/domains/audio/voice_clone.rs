@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use crate::commands::system::resolve_tools;
 use crate::media::voice_clone::{
-    is_wav, local_engine_url, normalize_language, validate_reference, validate_text,
-    CloneEngine, MAX_AUDIO_BYTES, MAX_OUTPUT_SECONDS, MIN_REFERENCE_SECONDS,
+    is_wav, local_engine_url, normalize_language, validate_reference, validate_text, CloneEngine,
+    MAX_AUDIO_BYTES, MAX_OUTPUT_SECONDS, MIN_REFERENCE_SECONDS,
 };
 use crate::media::{probe_file, resolve_inside_root, MediaKind};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
@@ -227,49 +227,66 @@ pub async fn clone_voice(
     )
     .await?;
     let media_dir = session.root.join("media");
-    std::fs::create_dir_all(&media_dir).map_err(|error| {
+    // Write del WAV + probe_file (ffprobe) + publicación: fuera del
+    // runtime async (AUD-129).
+    let ffprobe_for_clone = ffprobe.clone();
+    let media_dir_for_clone = media_dir.clone();
+    let (final_name, published, duration) = tauri::async_runtime::spawn_blocking(
+        move || -> Result<(String, u64, f64), ProjectError> {
+            std::fs::create_dir_all(&media_dir_for_clone).map_err(|error| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    format!("no se pudo preparar la carpeta media: {error}").as_str(),
+                )
+            })?;
+            let temp = media_dir_for_clone.join(format!(".clone-{}.wav", Uuid::new_v4()));
+            std::fs::write(&temp, &audio).map_err(|error| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    format!("no se pudo guardar el audio clonado: {error}").as_str(),
+                )
+            })?;
+            let measure =
+                probe_file(&ffprobe_for_clone, &temp, MediaKind::Audio).inspect_err(|_error| {
+                    let _ = std::fs::remove_file(&temp);
+                })?;
+            let duration = measure.duration_seconds.unwrap_or(0.0);
+            if !(0.05..=MAX_OUTPUT_SECONDS).contains(&duration) {
+                let _ = std::fs::remove_file(&temp);
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProviderResponse,
+                    "el audio clonado no tiene una duración válida",
+                ));
+            }
+            let final_name = format!("voz-clonada-{}.wav", Uuid::new_v4());
+            let final_path = media_dir_for_clone.join(&final_name);
+            std::fs::rename(&temp, &final_path).map_err(|error| {
+                let _ = std::fs::remove_file(&temp);
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    format!("no se pudo publicar el audio clonado: {error}").as_str(),
+                )
+            })?;
+            let published = std::fs::metadata(&final_path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(audio.len() as u64);
+            Ok((final_name, published, duration))
+        },
+    )
+    .await
+    .map_err(|_| {
         ProjectError::message(
             ProjectErrorCode::Io,
-            format!("no se pudo preparar la carpeta media: {error}").as_str(),
+            "la publicación de la voz clonada se interrumpió",
         )
-    })?;
-    let temp = media_dir.join(format!(".clone-{}.wav", Uuid::new_v4()));
-    std::fs::write(&temp, &audio).map_err(|error| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo guardar el audio clonado: {error}").as_str(),
-        )
-    })?;
-    let measure = probe_file(&ffprobe, &temp, MediaKind::Audio).inspect_err(|_error| {
-        let _ = std::fs::remove_file(&temp);
-    })?;
-    let duration = measure.duration_seconds.unwrap_or(0.0);
-    if !(0.05..=MAX_OUTPUT_SECONDS).contains(&duration) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el audio clonado no tiene una duración válida",
-        ));
-    }
-    let final_name = format!("voz-clonada-{}.wav", Uuid::new_v4());
-    let final_path = media_dir.join(&final_name);
-    std::fs::rename(&temp, &final_path).map_err(|error| {
-        let _ = std::fs::remove_file(&temp);
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo publicar el audio clonado: {error}").as_str(),
-        )
-    })?;
-    let bytes = std::fs::metadata(&final_path)
-        .map(|metadata| metadata.len())
-        .unwrap_or(audio.len() as u64);
+    })??;
     let _ = app.emit(
         "clone-progress",
         json!({ "percent": 100.0, "stage": "Voz clonada lista" }),
     );
     Ok(CloneVoiceResult {
         path: format!("media/{final_name}"),
-        bytes,
+        bytes: published,
         duration_seconds: duration,
         language,
         engine: engine.name().to_owned(),

@@ -734,7 +734,13 @@ export function setClipStabilization(
   project: ProjectDocument,
   clipId: string,
   stabilization:
-    | { smoothing: number; transformFile: string; inFrame: number; outFrame: number }
+    | {
+        smoothing: number;
+        transformFile: string;
+        inFrame: number;
+        outFrame: number;
+        previewProxy?: string;
+      }
     | undefined,
 ): ProjectDocument {
   const next = cloneProject(project);
@@ -753,6 +759,9 @@ export function setClipStabilization(
       transformFile: stabilization.transformFile,
       inFrame: stabilization.inFrame,
       outFrame: stabilization.outFrame,
+      ...(stabilization.previewProxy !== undefined
+        ? { previewProxy: stabilization.previewProxy }
+        : {}),
     };
   }
   touch(next);

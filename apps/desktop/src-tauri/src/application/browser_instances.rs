@@ -66,10 +66,7 @@ pub fn validate_proxy(proxy: &str) -> Result<(), ProjectError> {
         return Err(invalid());
     }
     // Autoridad = hasta el primer '/', '?', '#' o fin.
-    let authority = scheme_len
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or("");
+    let authority = scheme_len.split(['/', '?', '#']).next().unwrap_or("");
     if authority.is_empty() {
         return Err(invalid());
     }

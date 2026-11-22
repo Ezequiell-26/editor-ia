@@ -618,12 +618,7 @@ fn polygon_drawing(shape: &str, width: f64, height: f64) -> String {
         // curva implícita que la máscara `heart`, escalados ×0.52 a la caja.
         "heart" => HEART_POINTS
             .iter()
-            .map(|(u, v)| {
-                (
-                    (0.5 + u * 0.52) * width,
-                    (0.5 + v * 0.52) * height,
-                )
-            })
+            .map(|(u, v)| ((0.5 + u * 0.52) * width, (0.5 + v * 0.52) * height))
             .collect(),
         // Mano señalando (`maozinha`): vértices 0..1 escalados a la caja.
         "hand" => HAND_POINTS
@@ -754,9 +749,19 @@ fn stroke_perimeter_point(
         line(x0 + w, y0 + r, x0 + w, y0 + h - r),
         arc(x0 + w - r, y0 + h - r, 0.0, std::f64::consts::FRAC_PI_2),
         line(x0 + w - r, y0 + h, x0 + r, y0 + h),
-        arc(x0 + r, y0 + h - r, std::f64::consts::FRAC_PI_2, std::f64::consts::PI),
+        arc(
+            x0 + r,
+            y0 + h - r,
+            std::f64::consts::FRAC_PI_2,
+            std::f64::consts::PI,
+        ),
         line(x0, y0 + h - r, x0, y0 + r),
-        arc(x0 + r, y0 + r, std::f64::consts::PI, std::f64::consts::PI * 1.5),
+        arc(
+            x0 + r,
+            y0 + r,
+            std::f64::consts::PI,
+            std::f64::consts::PI * 1.5,
+        ),
     ];
     let total: f64 = segs.iter().map(|seg| seg.len).sum();
     let mut remaining = s.rem_euclid(total.max(1e-6));
@@ -929,20 +934,16 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                 let alpha = ((1.0 - opacity) * 255.0).round().clamp(0.0, 255.0) as u8;
                 let draw_seconds = number(&layer, "drawSeconds").unwrap_or(0.0).max(0.0);
                 // Largo total del perímetro (líneas + 4 cuartos de arco).
-                let perimeter =
-                    2.0 * (rw - 2.0 * r).max(0.0) + 2.0 * (rh - 2.0 * r).max(0.0) + 2.0 * std::f64::consts::PI * r;
+                let perimeter = 2.0 * (rw - 2.0 * r).max(0.0)
+                    + 2.0 * (rh - 2.0 * r).max(0.0)
+                    + 2.0 * std::f64::consts::PI * r;
                 for index in 0..STROKE_SEGMENTS {
                     let s0 = perimeter * index as f64 / STROKE_SEGMENTS as f64;
                     let s1 = perimeter * (index + 1) as f64 / STROKE_SEGMENTS as f64;
                     let p0 = stroke_perimeter_point(half, half, rw, rh, r, s0);
                     let p1 = stroke_perimeter_point(half, half, rw, rh, r, s1);
-                    let drawing = stroke_segment_drawing(
-                        p0,
-                        p1,
-                        half + rw / 2.0,
-                        half + rh / 2.0,
-                        half,
-                    );
+                    let drawing =
+                        stroke_segment_drawing(p0, p1, half + rw / 2.0, half + rh / 2.0, half);
                     let offset = if draw_seconds > 0.0 {
                         draw_seconds * stroke_ease_inverse(index as f64 / STROKE_SEGMENTS as f64)
                     } else {
@@ -1007,12 +1008,10 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                                 .clamp(0.0, 1.0);
                             let shadow_alpha =
                                 ((1.0 - shadow_opacity) * 255.0).round().clamp(0.0, 255.0) as u8;
-                            let blur = (shadow
-                                .get("blurPx")
-                                .and_then(Value::as_f64)
-                                .unwrap_or(0.0)
-                                * scale)
-                                .clamp(0.0, 64.0);
+                            let blur =
+                                (shadow.get("blurPx").and_then(Value::as_f64).unwrap_or(0.0)
+                                    * scale)
+                                    .clamp(0.0, 64.0);
                             let blur_tag = if blur > 0.05 {
                                 format!("\\be{blur:.1}")
                             } else {
@@ -1050,8 +1049,7 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                 let drawing = if is_line {
                     shape_vertices(&layer, width, height, 2)
                         .map(|vertices| {
-                            let thickness = (number(&layer, "strokeWidth")
-                                .unwrap_or(0.0)
+                            let thickness = (number(&layer, "strokeWidth").unwrap_or(0.0)
                                 * width.min(height))
                             .max(1.0);
                             polyline_drawing(&vertices, thickness)
@@ -1059,16 +1057,21 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                         .unwrap_or_else(|| rect_drawing(width, height))
                 } else {
                     match text_field(&layer, "shape") {
-                        Some("ellipse") | Some("triangle") | Some("diamond") | Some("star")
-                        | Some("pentagon") | Some("hexagon") | Some("arrow")
-                        | Some("parallelogram") | Some("trapezoid") | Some("heart")
-                        | Some("hand") => {
-                            polygon_drawing(
-                                text_field(&layer, "shape").unwrap_or("ellipse"),
-                                width,
-                                height,
-                            )
-                        }
+                        Some("ellipse")
+                        | Some("triangle")
+                        | Some("diamond")
+                        | Some("star")
+                        | Some("pentagon")
+                        | Some("hexagon")
+                        | Some("arrow")
+                        | Some("parallelogram")
+                        | Some("trapezoid")
+                        | Some("heart")
+                        | Some("hand") => polygon_drawing(
+                            text_field(&layer, "shape").unwrap_or("ellipse"),
+                            width,
+                            height,
+                        ),
                         Some("custom") => custom_shape_vertices(&layer, width, height)
                             .map(|vertices| drawing_commands(&vertices))
                             .unwrap_or_else(|| rect_drawing(width, height)),
@@ -1088,9 +1091,7 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                                 .or_else(|| text_field(&layer, "color"))
                                 .unwrap_or("#000000"),
                         ),
-                        ((1.0 - number(&layer, "strokeOpacity")
-                            .unwrap_or(opacity))
-                            .clamp(0.0, 1.0)
+                        ((1.0 - number(&layer, "strokeOpacity").unwrap_or(opacity)).clamp(0.0, 1.0)
                             * 255.0)
                             .round()
                             .clamp(0.0, 255.0) as u8,
@@ -1101,16 +1102,15 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                 let stroke_width = number(&layer, "strokeWidth").unwrap_or(0.0);
                 if !is_line && stroke_width > 0.0 {
                     let px = (stroke_width * width.min(height)).max(0.5);
-                    let stroke_color = override_color(
-                        text_field(&layer, "strokeColor").unwrap_or("#ffffff"),
-                    );
-                    let stroke_opacity =
-                        number(&layer, "strokeOpacity").unwrap_or(1.0).clamp(0.0, 1.0);
+                    let stroke_color =
+                        override_color(text_field(&layer, "strokeColor").unwrap_or("#ffffff"));
+                    let stroke_opacity = number(&layer, "strokeOpacity")
+                        .unwrap_or(1.0)
+                        .clamp(0.0, 1.0);
                     let stroke_alpha =
                         ((1.0 - stroke_opacity) * 255.0).round().clamp(0.0, 255.0) as u8;
-                    stroke_tags = format!(
-                        "\\bord{px:.1}\\3c{stroke_color}\\3a&H{stroke_alpha:02X}&"
-                    );
+                    stroke_tags =
+                        format!("\\bord{px:.1}\\3c{stroke_color}\\3a&H{stroke_alpha:02X}&");
                 }
                 // Sombra paralela (`sombra` de `formas.js`): `\4c`/`\4a`
                 // fijan color y alfa, y `\xshad`/`\yshad` el desplazamiento
@@ -1140,12 +1140,10 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                                 .clamp(0.0, 1.0);
                             let shadow_alpha =
                                 ((1.0 - shadow_opacity) * 255.0).round().clamp(0.0, 255.0) as u8;
-                            let blur = (shadow
-                                .get("blurPx")
-                                .and_then(Value::as_f64)
-                                .unwrap_or(0.0)
-                                * scale)
-                                .clamp(0.0, 64.0);
+                            let blur =
+                                (shadow.get("blurPx").and_then(Value::as_f64).unwrap_or(0.0)
+                                    * scale)
+                                    .clamp(0.0, 64.0);
                             let blur_tag = if blur > 0.05 {
                                 format!("\\be{blur:.1}")
                             } else {
@@ -1629,8 +1627,7 @@ mod tests {
     fn text_shadow_emits_shadow_color_and_vertical_offset() {
         let project = project_with_graphic();
         let mut plan = plans();
-        plan["clip-g"]["layers"][1]["shadow"] =
-            json!({"color": "#000000", "offsetPx": 8});
+        plan["clip-g"]["layers"][1]["shadow"] = json!({"color": "#000000", "offsetPx": 8});
         let ass = build_motion_ass(input(&project, &plan)).expect("ass");
         assert!(ass.contains("\\4c"), "ass: {ass}");
         assert!(ass.contains("\\xshad0"), "ass: {ass}");

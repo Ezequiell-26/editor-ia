@@ -34,11 +34,7 @@ pub fn escape_drawtext(text: &str) -> String {
 }
 
 /// Filtro `drawtext` completo para la marca de agua.
-pub fn watermark_filter(
-    font: &Path,
-    text: &str,
-    position: &str,
-) -> Result<String, ProjectError> {
+pub fn watermark_filter(font: &Path, text: &str, position: &str) -> Result<String, ProjectError> {
     let (x, y) = watermark_position(position.trim()).ok_or_else(|| {
         ProjectError::message(
             ProjectErrorCode::InvalidProject,
@@ -54,19 +50,55 @@ pub fn watermark_filter(
     ))
 }
 
+/// Entrada de merge con lo que ffprobe pudo medir: si trae pista de audio
+/// y su duración (necesaria para sintetizar silencio cuando falta).
+pub struct MergeInput {
+    pub path: PathBuf,
+    pub has_audio: bool,
+    pub duration_seconds: f64,
+}
+
 /// Argumentos de `merge_videos`: entradas `-i`, `concat` y el tail de
 /// codificación. `codec_args` trae `-c:v` + rate control del encoder que el
 /// binario tenga (la capa de comandos lo resuelve: este módulo no lanza
 /// procesos). El comando agrega `-y` y la salida.
-pub fn merge_video_args(inputs: &[PathBuf], codec_args: &[String]) -> Vec<String> {
+///
+/// AUD-130: un video sin pista de audio rompia el `concat a=1` porque cada
+/// segmento exige `[i:a]`. Ahora los inputs sin audio reciben una entrada
+/// `anullsrc` adicional con su duración y TODA la audio pasa por
+/// `aformat` a 48 kHz estéreo — concat también exige sample rate y layout
+/// iguales entre segmentos.
+pub fn merge_video_args(inputs: &[MergeInput], codec_args: &[String]) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
-    for input in inputs {
-        args.push("-i".into());
-        args.push(input.to_string_lossy().into_owned());
-    }
+    let mut lavfi_index = inputs.len();
     let mut filter = String::new();
-    for (index, _) in inputs.iter().enumerate() {
-        filter.push_str(&format!("[{index}:v:0][{index}:a:0]"));
+    for (index, input) in inputs.iter().enumerate() {
+        args.push("-i".into());
+        args.push(input.path.to_string_lossy().into_owned());
+        // Video y audio se normalizan a pads etiquetados: los pads sin
+        // etiqueta se conectarían al siguiente filtro del grafo.
+        filter.push_str(&format!("[{index}:v:0]null[v{index}];"));
+        if input.has_audio {
+            // La audio real se normaliza a 48 kHz estéreo para que el
+            // concat no falle por sample rate/layout distinto.
+            filter.push_str(&format!(
+                "[{index}:a:0]aformat=sample_rates=48000:channel_layouts=stereo[a{index}];"
+            ));
+        } else {
+            args.push("-f".into());
+            args.push("lavfi".into());
+            args.push("-t".into());
+            args.push(format!("{:.3}", input.duration_seconds.max(0.001)));
+            args.push("-i".into());
+            args.push("anullsrc=r=48000:cl=stereo".into());
+            filter.push_str(&format!(
+                "[{lavfi_index}:a:0]aformat=sample_rates=48000:channel_layouts=stereo[a{index}];"
+            ));
+            lavfi_index += 1;
+        }
+    }
+    for index in 0..inputs.len() {
+        filter.push_str(&format!("[v{index}][a{index}]"));
     }
     filter.push_str(&format!("concat=n={}:v=1:a=1[outv][outa]", inputs.len()));
     args.push("-filter_complex".into());

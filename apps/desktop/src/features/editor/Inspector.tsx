@@ -50,7 +50,7 @@ import { CurveEditor } from './CurveEditor';
 import { SilenceCutsSection } from './SilenceCutsSection';
 import { SpeechCutsSection } from './SpeechCutsSection';
 import { SpeakersSection } from './SpeakersSection';
-import { COLOR_LOOKS } from './color-looks';
+import { COLOR_LOOKS } from '../../state/color-looks';
 import {
   addAsset,
   addCaptionCue,
@@ -106,6 +106,7 @@ import {
   splitClipAtFrames,
   splitClipsAtMarkers,
   splitTrackAtFrames,
+  transcriptionSegmentsForClip,
   trimClip,
   updateAssetLabel,
   updateAssetMetadata,
@@ -1182,9 +1183,21 @@ function RegularClipInspector({
         return;
       }
       const result = await store.service.transcribeAsset(asset.id, project?.language, 'small');
+      // Los segmentos vienen en tiempo de asset; hay que llevarlos a segundos
+      // relativos al inicio del clip y recortar la ventana inFrame..outFrame
+      // (mismo helper que usa «Subtitular proyecto»).
+      const plan = transcriptionSegmentsForClip(result.segments, clip, fps);
+      if (plan.status === 'unsupported') {
+        store.setNotice(`No se pudo subtitular el clip: ${plan.reason}.`);
+        return;
+      }
+      if (plan.status === 'empty') {
+        store.setNotice('El clip no tiene voz dentro de su ventana recortada.');
+        return;
+      }
       let stats = { added: 0, overCps: 0 };
       const inserted = store.update((current) => {
-        const planned = addTranscriptionCues(current, clip.id, result.segments);
+        const planned = addTranscriptionCues(current, clip.id, plan.segments);
         stats = { added: planned.added, overCps: planned.overCps };
         return planned.project;
       });
@@ -1330,7 +1343,7 @@ function RegularClipInspector({
     );
     if (applied) {
       store.setNotice(
-        `Rampa por pulsos aplicada: ${rampSuggest.dips} ventana(s) de cámara lenta. La preview no la simula; verificá el MP4 exportado.`,
+        `Rampa por pulsos aplicada: ${rampSuggest.dips} ventana(s) de cámara lenta. La preview reproduce la curva en vivo; verificá el MP4 exportado para el resultado final.`,
       );
       setRampSuggest(null);
       setRampSuggestInfo(null);
@@ -1356,10 +1369,15 @@ function RegularClipInspector({
           transformFile: result.path,
           inFrame: result.inFrame,
           outFrame: result.outFrame,
+          ...(result.previewProxy !== undefined
+            ? { previewProxy: result.previewProxy }
+            : {}),
         }),
       );
       store.setNotice(
-        `Estabilización analizada (suavizado ${result.smoothing}). Se hornea en el MP4; la preview no la simula.`,
+        result.previewProxy !== undefined
+          ? `Estabilización analizada (suavizado ${result.smoothing}). La preview muestra el proxy horneado; el MP4 usa el mismo filtro vid.stab.`
+          : `Estabilización analizada (suavizado ${result.smoothing}). Se hornea en el MP4; la preview no la simula.`,
       );
     } catch (error) {
       setStabilizeInfo(
@@ -1582,6 +1600,45 @@ function RegularClipInspector({
     }
   }
 
+  async function pixelateFace(): Promise<void> {
+    if (
+      !project ||
+      !asset ||
+      asset.kind !== 'video' ||
+      clip.kind !== 'video' ||
+      !windowedSource ||
+      faceBlurBusy
+    ) {
+      return;
+    }
+    if (faceCenterBlockReason) {
+      store.setNotice(faceCenterBlockReason);
+      return;
+    }
+    setFaceBlurBusy(true);
+    try {
+      const track = await store.service.analyzeFaceTrack({
+        path: asset.source.path,
+        startSeconds: windowedSource.inFrame / fps,
+        endSeconds: windowedSource.outFrame / fps,
+      });
+      store.update((current) =>
+        applyFaceBlurOverlay(current, clip.id, track.samples, {
+          kind: 'pixelate',
+        }).project,
+      );
+      store.setNotice(
+        `Pixelado de privacidad sobre el rostro con ${track.samples.length} muestras en la pista superior.`,
+      );
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo aplicar el pixelado de rostro',
+      );
+    } finally {
+      setFaceBlurBusy(false);
+    }
+  }
+
   async function maskFace(): Promise<void> {
     if (
       !project ||
@@ -1781,18 +1838,6 @@ function RegularClipInspector({
       return;
     }
     store.update((current) => action(current, clip.id, trimDelta));
-  }
-  function setWheel(
-    kind: 'lift' | 'gamma' | 'gain' | 'offset',
-    channel: 'r' | 'g' | 'b',
-    value: number,
-  ): void {
-    const current = effects[kind] ?? { r: 0, g: 0, b: 0 };
-    setEffect(kind, { ...current, [channel]: value });
-  }
-  function patchHsl(patch: Partial<NonNullable<ClipEffects['hsl']>>): void {
-    const current = effects.hsl ?? { hue: 0, saturation: 0, intensity: 0 };
-    setEffect('hsl', { ...current, ...patch });
   }
   function applyCreativePreset(preset: EffectPreset): void {
     const next = applyEffectPreset(effects, preset);
@@ -2683,8 +2728,8 @@ function RegularClipInspector({
             <span>Reproducir al revés</span>
           </label>
           <p className="fine-print">
-            El video y su audio se invierten en el render con `reverse`/`areverse`. La preview
-            reproduce hacia adelante; verificá el MP4 antes de publicar.
+            La preview invierte el video cuadro a cuadro (flipbook) y el audio con un buffer
+            invertido por Web Audio — puede sentirse menos fluido que el MP4 en clips largos.
           </p>
           <div className="keyframe-panel">
             <div className="production-card-head">
@@ -2958,8 +3003,8 @@ function RegularClipInspector({
             energía y propone una curva continua que baja la velocidad en cada golpe dentro de
             la ventana del clip. No es un modelo de IA ni analiza la imagen: un golpe de audio
             no garantiza que la acción visual caiga ahí. Requiere clip de video sin keyframes,
-            Ken Burns, reverse, estabilización ni transición de entrada; la preview no simula
-            la curva y el MP4 la hornea por frame al exportar.
+            Ken Burns, reverse, estabilización ni transición de entrada; la preview reproduce
+            la curva en vivo y el MP4 la hornea por frame al exportar.
           </p>
         </Section>
       ) : null}
@@ -3052,7 +3097,8 @@ function RegularClipInspector({
           {stabilizeInfo ? <p className="fine-print">{stabilizeInfo}</p> : null}
           <p className="fine-print">
             vidstab analiza el movimiento del tramo y el render lo compensa con recorte negro.
-            Se hornea en el MP4; la vista previa no la simula.
+            El MP4 usa el mismo filtro; cuando el análisis hornea el proxy, la vista previa lo
+            reproduce (si el bake falla, la preview queda sin estabilizar).
           </p>
         </Section>
       ) : null}
@@ -3090,6 +3136,20 @@ function RegularClipInspector({
               }
             >
               {faceBlurBusy ? 'Analizando rostro…' : 'Blur que sigue al rostro'}
+            </button>
+            <button
+              type="button"
+              className="small"
+              onClick={() => void pixelateFace()}
+              disabled={
+                faceBlurBusy ||
+                !asset ||
+                asset.kind !== 'video' ||
+                faceCenterBlockReason !== null
+              }
+              title="Overlay pixelado que sigue al rostro: oculta la identidad mejor que el desenfoque"
+            >
+              {faceBlurBusy ? 'Analizando rostro…' : 'Pixelar rostro'}
             </button>
             <button
               type="button"
@@ -3730,7 +3790,7 @@ function RegularClipInspector({
       ) : null}
 
       {isAdjustment ? (
-        <Section title="Capa de ajuste" group="color" subtab="basic">
+        <Section title="Capa de ajuste" group="video" subtab="basic">
           <p className="inspector-meta">
             {track.label} · {formatTimecode(clip.startFrame, fps)} →{' '}
             {formatTimecode(clip.startFrame + clip.durationFrames, fps)}
@@ -3757,7 +3817,7 @@ function RegularClipInspector({
       ) : null}
 
       {isAdjustment ? (
-        <Section title="Espectro de audio" group="color" subtab="basic">
+        <Section title="Espectro de audio" group="video" subtab="basic">
           <p className="fine-print">
             Dibuja el espectro de la mezcla de audio sobre el video dentro de este tramo
             (paridad de los efectos espectro de AlaukCut). Sólo responde donde hay sonido.
@@ -3853,7 +3913,7 @@ function RegularClipInspector({
 
       {visual || isAdjustment ? (
         <>
-        <Section title="Color y efectos" group="color" subtab="basic">
+        <Section title="Color y efectos" group="style" subtab="effects">
           <div className="inspector-grid">
             <NumberField
               label="Brillo"
@@ -3970,8 +4030,8 @@ function RegularClipInspector({
               onCommit={(value) => setEffect('denoise', value)}
             />
             <p className="fine-print inspector-full">
-              La reducción de ruido se aplica en el export (hqdn3d temporal); la
-              preview no la simula.
+              La preview aproxima la reducción con un blur leve; el export aplica
+              hqdn3d (temporal + espacial), que atenúa el ruido más que la preview.
             </p>
             <NumberField
               label="Desenfoque"
@@ -3998,8 +4058,7 @@ function RegularClipInspector({
               onCommit={(value) => setLens({ k2: value })}
             />
             <p className="fine-print">
-              Lente K1/K2 corrige la distorsión en el MP4; la preview no la simula y
-              los bordes sin datos quedan negros.
+              Lente K1/K2 corrige la distorsión en la preview y en el MP4; los bordes sin datos quedan negros.
             </p>
             {!isAdjustment ? (
               <>
@@ -4073,8 +4132,8 @@ function RegularClipInspector({
               </div>
             ) : null}
             <p className="fine-print">
-              El halo se calcula en el render con las zonas que superan el umbral. La
-              preview CSS no lo simula; usá Frame real para verlo.
+              La preview aproxima el halo con un filtro SVG; el render calcula el blend
+              screen por zonas sobre el umbral. Verificá el MP4 para el resultado exacto.
             </p>
           </div>
           <div className="keyframe-panel">
@@ -4127,170 +4186,7 @@ function RegularClipInspector({
             </>
           ) : null}
         </Section>
-        <Section title="Ruedas cromáticas" group="color" subtab="wheels">
-          <div className="color-wheels">
-            {(
-              [
-                ['lift', 'Sombras'],
-                ['gamma', 'Medios'],
-                ['gain', 'Luces'],
-                ['offset', 'Offset'],
-              ] as const
-            ).map(([kind, label]) => (
-              <fieldset className="color-wheel" key={kind}>
-                <legend>{label}</legend>
-                {(['r', 'g', 'b'] as const).map((channel) => (
-                  <NumberField
-                    key={channel}
-                    label={channel.toUpperCase()}
-                    value={effects[kind]?.[channel] ?? 0}
-                    min={-1}
-                    max={1}
-                    step={0.02}
-                    onCommit={(value) => setWheel(kind, channel, value)}
-                  />
-                ))}
-              </fieldset>
-            ))}
-          </div>
-          <div className="actions compact">
-            <button
-              type="button"
-              className="small ghost"
-              onClick={() => {
-                setEffect('lift', undefined);
-                setEffect('gamma', undefined);
-                setEffect('gain', undefined);
-                setEffect('offset', undefined);
-              }}
-            >
-              Neutralizar ruedas
-            </button>
-          </div>
-          <p className="fine-print">
-            Sombras y luces usan `colorbalance`; medios usa gamma en `eq`. La preview es
-            aproximada, el MP4 aplica los valores exactos.
-          </p>
-        </Section>
-        <Section title="HSL selectivo" group="color" subtab="hsl">
-          <div className="keyframe-panel">
-            <div className="production-card-head">
-              <div>
-                <p className="eyebrow">HSL selectivo</p>
-                <span className="fine-print">Tono, saturación e intensidad por rango</span>
-              </div>
-            </div>
-            <div className="inspector-grid">
-              <NumberField
-                label="Tono HSL"
-                value={effects.hsl?.hue ?? 0}
-                min={-180}
-                max={180}
-                onCommit={(value) => patchHsl({ hue: value })}
-              />
-              <NumberField
-                label="Saturación HSL"
-                value={effects.hsl?.saturation ?? 0}
-                min={-1}
-                max={1}
-                step={0.05}
-                onCommit={(value) => patchHsl({ saturation: value })}
-              />
-              <NumberField
-                label="Intensidad HSL"
-                value={effects.hsl?.intensity ?? 0}
-                min={-1}
-                max={1}
-                step={0.05}
-                onCommit={(value) => patchHsl({ intensity: value })}
-              />
-            </div>
-            <div className="color-range-list">
-              {(
-                [
-                  ['r', 'Rojos'],
-                  ['y', 'Amarillos'],
-                  ['g', 'Verdes'],
-                  ['c', 'Cianes'],
-                  ['b', 'Azules'],
-                  ['m', 'Magentas'],
-                ] as const
-              ).map(([key, label]) => {
-                const ranges = effects.hsl?.colors ?? ['r', 'y', 'g', 'c', 'b', 'm'];
-                return (
-                  <label className="check" key={key}>
-                    <input
-                      type="checkbox"
-                      checked={ranges.includes(key)}
-                      onChange={() => {
-                        const next = ranges.includes(key)
-                          ? ranges.filter((value) => value !== key)
-                          : [...ranges, key];
-                        if (next.length === 0) return;
-                        patchHsl({
-                          colors:
-                            next.length === 6
-                              ? undefined
-                              : (next as NonNullable<ClipEffects['hsl']>['colors']),
-                        });
-                      }}
-                    />
-                    <span>{label}</span>
-                  </label>
-                );
-              })}
-            </div>
-            <p className="fine-print">
-              Usa `huesaturation` con lightness preservada. La selección de rangos se aplica en
-              el MP4; la preview aproxima el efecto sobre toda la imagen.
-            </p>
-          </div>
-        </Section>
-        <Section title="Curvas tonales" group="color" subtab="curves">
-          <div className="keyframe-panel">
-            <div className="production-card-head">
-              <div>
-                <p className="eyebrow">Curva de tono</p>
-                <span className="fine-print">
-                  Preset o puntos propios por canal; las curvas propias ganan al preset
-                </span>
-              </div>
-            </div>
-            <label className="field inline">
-              <span>Preset</span>
-              <select
-                value={effects.curvePreset ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setEffect(
-                    'curvePreset',
-                    value === ''
-                      ? undefined
-                      : (value as NonNullable<ClipEffects['curvePreset']>),
-                  );
-                }}
-              >
-                <option value="">Lineal</option>
-                <option value="contrast-soft">Contraste suave</option>
-                <option value="contrast-medium">Contraste medio</option>
-                <option value="contrast-strong">Contraste fuerte</option>
-                <option value="vintage">Vintage</option>
-                <option value="cross-process">Cross process</option>
-                <option value="darker">Más oscuro</option>
-                <option value="lighter">Más claro</option>
-              </select>
-            </label>
-            <CurveEditor
-              curves={effects.curves}
-              onChange={(next) => setEffect('curves', next)}
-            />
-            <p className="fine-print">
-              Arrastrá los puntos del gráfico; las anclas negro/blanco quedan fijas. El MP4
-              aplica `curves` de FFmpeg con los puntos exactos.
-            </p>
-          </div>
-        </Section>
-        <Section title="Color avanzado" group="color" subtab="basic">
+        <Section title="Color avanzado" group="style" subtab="effects">
           {!isAdjustment ? (
           <div className="keyframe-panel">
             <div className="production-card-head">
@@ -4370,97 +4266,6 @@ function RegularClipInspector({
               />
               <span>Sepia</span>
             </label>
-          </div>
-          <div className="keyframe-panel">
-            <div className="production-card-head">
-              <div>
-                <p className="eyebrow">LUT 3D (.cube)</p>
-                <span className="fine-print">
-                  {effects.lutFile ? effects.lutFile : 'Sin LUT aplicado'}
-                </span>
-              </div>
-              <div className="actions compact">
-                <button
-                  type="button"
-                  className="small"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        const lut = await store.service.importLut();
-                        if (!lut) return;
-                        store.update((current) =>
-                          updateClip(current, clip.id, {
-                            effects: { ...effects, lutFile: lut.path },
-                          }),
-                        );
-                        store.setNotice(`LUT importado: ${lut.name}`);
-                      } catch (error) {
-                        store.setNotice(
-                          error instanceof Error ? error.message : 'no se pudo importar el LUT',
-                        );
-                      }
-                    })();
-                  }}
-                >
-                  Cargar .cube
-                </button>
-                {effects.lutFile ? (
-                  <button
-                    type="button"
-                    className="small ghost"
-                    onClick={() =>
-                      store.update((current) =>
-                        updateClip(current, clip.id, {
-                          effects: { ...effects, lutFile: undefined, lutIntensity: undefined },
-                        }),
-                      )
-                    }
-                  >
-                    Quitar LUT
-                  </button>
-                ) : null}
-              </div>
-            </div>
-            {effects.lutFile ? (
-              <div className="inspector-grid">
-                <NumberField
-                  label="Intensidad LUT (%)"
-                  value={Math.round((effects.lutIntensity ?? 1) * 100)}
-                  min={0}
-                  max={100}
-                  step={5}
-                  onCommit={(value) => setEffect('lutIntensity', value / 100)}
-                />
-              </div>
-            ) : null}
-            <label className="field">
-              <span>Perfil de cámara (log → Rec.709)</span>
-              <select
-                value={effects.cameraProfile ?? ''}
-                onChange={(event) =>
-                  setEffect(
-                    'cameraProfile',
-                    event.target.value
-                      ? (event.target.value as NonNullable<ClipEffects['cameraProfile']>)
-                      : undefined,
-                  )
-                }
-              >
-                <option value="">Sin perfil (rec.709)</option>
-                <option value="vlog709">Panasonic V-Log → Rec.709</option>
-                <option value="slog3709">Sony S-Log3 / S-Gamut3.Cine → Rec.709</option>
-                <option value="slog3cinema">Sony S-Log3 cine (más cine)</option>
-                <option value="nlog709">Nikon N-Log → Rec.709</option>
-                <option value="nlogcinema">Nikon N-Log cine (más cine)</option>
-                <option value="gplog709">GoPro GP-Log → Rec.709</option>
-                <option value="dlog709">DJI D-Log → Rec.709</option>
-                <option value="clog3709">Canon C-Log3 / Cinema Gamut → Rec.709</option>
-              </select>
-            </label>
-            <p className="fine-print">
-              El archivo se copia a `media/luts` del proyecto y FFmpeg lo mezcla con el original
-              después del color. La preview no simula el LUT; revisá el MP4.
-            </p>
           </div>
           <div className="keyframe-panel">
             <div className="production-card-head">
@@ -6230,7 +6035,7 @@ function ProjectInspector() {
           ) : null}
           <p className="fine-print">
             Se copia a `media/luts` del proyecto y FFmpeg lo mezcla al final del grade global.
-            La preview no simula el LUT; revisá el MP4.
+            La preview lo muestra por capa (aproximación del post-composite del MP4).
           </p>
         </div>
         <div className="actions compact">

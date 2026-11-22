@@ -101,6 +101,42 @@ fn h264_software_video_args(ffmpeg: &std::path::Path, crf: u32) -> Result<Vec<St
     Ok(args)
 }
 
+/// Args `-c:v …` según el encoder elegido ("x264"|"nvenc"|"qsv"|"amf"|"mf").
+/// "x264" y cualquier valor desconocido caen al mejor H.264 de software
+/// disponible — los NVENC/QSV/AMF/MF son atajos de hardware que liberan CPU.
+fn h264_encoder_video_args(
+    ffmpeg: &std::path::Path,
+    encoder: &str,
+    crf: u32,
+) -> Result<Vec<String>, String> {
+    let to_args = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+    Ok(match encoder {
+        "nvenc" => to_args(&[
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p4",
+            "-cq",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        "qsv" => to_args(&[
+            "-c:v",
+            "h264_qsv",
+            "-global_quality",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+        ]),
+        "amf" => to_args(&[
+            "-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23",
+        ]),
+        "mf" => to_args(&["-c:v", "h264_mf", "-rate_control", "quality"]),
+        _ => h264_software_video_args(ffmpeg, crf)?,
+    })
+}
+
 fn dshow_video_args(device: &str) -> Vec<String> {
     vec![
         "-f".to_owned(),

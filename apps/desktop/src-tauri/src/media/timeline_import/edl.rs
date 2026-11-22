@@ -81,9 +81,11 @@ pub(crate) fn detect_format(path: &Path) -> Result<&'static str, ProjectError> {
         "edl" => Ok("edl"),
         "otio" => Ok("otio"),
         "fcpxml" | "xml" => Ok("fcpxml"),
+        "aaf" => Ok("aaf"),
+        "omf" | "omfi" => Ok("omf"),
         _ => Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
-            "el archivo no es una timeline .edl, .otio o .fcpxml/.xml",
+            "el archivo no es una timeline .edl, .otio, .fcpxml/.xml, .aaf u .omf",
         )),
     }
 }

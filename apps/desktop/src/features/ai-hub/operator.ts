@@ -10,6 +10,7 @@ export type OperatorAction =
   | { readonly kind: 'export' }
   | { readonly kind: 'create'; readonly topic: string }
   | { readonly kind: 'new_project'; readonly name: string }
+  | { readonly kind: 'open_project' }
   | { readonly kind: 'import_file'; readonly path: string }
   | { readonly kind: 'download_url'; readonly url: string }
   | { readonly kind: 'add_clip'; readonly asset: string; readonly atPlayhead: boolean }
@@ -410,6 +411,11 @@ export function parseOperatorCommand(
   if (/^(estado|resumen|donde estoy|dónde estoy)/.test(text)) {
     return { kind: 'status' };
   }
+  // «Abrir proyecto» abre el diálogo nativo del sistema; no debe confundirse
+  // con «abrir Proyectos», que sólo navega a la vista de proyectos.
+  if (/^(?:abrir|abre|abri|abrime|cargar|carga)\s+(?:el\s+|un\s+)?proyecto(?:\s+existente)?$/.test(text)) {
+    return { kind: 'open_project' };
+  }
   // El cerebro de edición se dispara por intención, no por acción suelta: el
   // usuario pide "mejorá el ritmo" y la app decide los cortes.
   if (/^(analiza|analizá|diagnostica|diagnosticá|informe|reporte)\b.*\b(cerebro|timeline|ritmo|edicion|edición)/.test(text)) {
@@ -661,4 +667,4 @@ export function parseOperatorCommand(
 }
 
 export const OPERATOR_HELP =
-  'Podés pedirme: abrir <vista> · nueva proyecto <nombre> · importar <ruta> · usar la carpeta <nombre> de descargas · descargar <url> · agregá el clip <material> · cortá acá · borrá lo seleccionado · andá al segundo 30 · subtítulo <texto> durante 3 segundos · velocidad 2x · volumen +3 · silenciá el clip · cortá los silencios [del proyecto] [umbral -40] · subtitulá el clip [o todo el proyecto] · cortá las pausas [entre frases] · limpiá el video [sin zoom] · crear un video sobre <tema> · crear título <texto> · crear lower third <nombre, rol> · crear cierre <texto> · crear dato <valor, etiqueta> · reproducir, pausar, guardar, exportar, deshacer, rehacer y estado. La edición de timeline corre local y se puede deshacer.';
+  'Podés pedirme: abrir proyecto · abrir <vista> · nuevo proyecto <nombre> · importar <ruta> · usar la carpeta <nombre> de descargas · descargar <url> · agregá el clip <material> · cortá acá · borrá lo seleccionado · andá al segundo 30 · subtítulo <texto> durante 3 segundos · velocidad 2x · volumen +3 · silenciá el clip · cortá los silencios [del proyecto] [umbral -40] · subtitulá el clip [o todo el proyecto] · cortá las pausas [entre frases] · limpiá el video [sin zoom] · crear un video sobre <tema> · crear título <texto> · crear lower third <nombre, rol> · crear cierre <texto> · crear dato <valor, etiqueta> · reproducir, pausar, guardar, exportar, deshacer, rehacer y estado. La edición de timeline corre local y se puede deshacer.';

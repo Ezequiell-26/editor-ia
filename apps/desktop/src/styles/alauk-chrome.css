@@ -1,0 +1,305 @@
+/*
+ * Chrome AlaukCut del editor unificado (antes §9/§10 de minimal-editor.css).
+ *
+ * Superficie VIVA del editor: `.editor-workspace.alaukcut-chrome` define las
+ * variables --alauk-* y --color-* de la paleta, `.alauk-*` estila la barra
+ * superior/pie reales (AlaukChrome.tsx) y las reglas `:has(.alaukcut-chrome)`
+ * retiran el cromo clásico del AppShell. Se aplica en TODOS los modos del
+ * editor; el toggle «Vista completa» (data-editor-skin='full') es el
+ * escape hatch.
+ *
+ * La réplica `.minimal-editor`/`.me-*` (shell paralelo del editor) se retiró
+ * con MinimalEditor: ~1900 líneas de CSS muerto eliminadas en la limpieza
+ * del un-solo-editor. Los `.me-*` que usan otros componentes viven en sus
+ * propias hojas (home.css, filmora.css, views.css, …).
+ */
+
+/* ── 9 · Chrome AlaukCut dentro de EditorWorkspace (P6 + P8) ─────────────
+   Mismo lenguaje visual que `.me-topbar`/`.me-footer` pero con clases
+   propias (`.alauk-*`) y variables locales: no depende del scope
+   `.minimal-editor` ni del grid del shell réplica.
+   P8: `.alaukcut-chrome` se aplica en TODOS los modos; `.alaukcut` (la
+   geometría de tres columnas de alaukcut-reference.css) sigue acotada al
+   modo timeline, donde la grilla de herramientas no compite con ella. */
+
+.editor-workspace.alaukcut-chrome {
+  --alauk-bg: #101014;
+  --alauk-panel: #17161b;
+  --alauk-panel-2: #1f1e25;
+  --alauk-border: #26252c;
+  --alauk-text: #e9e9ee;
+  --alauk-muted: #8a8993;
+  --alauk-faint: #5d5c66;
+  --alauk-accent: #2adaba;
+  --alauk-accent-ink: #06231f;
+  /* P7 · tema AlaukCut por VARIABLES: los componentes del editor consumen
+     `--color-*` (tokens.css + presets data-theme/data-preset del usuario).
+     Re-definirlas dentro del workspace aplica la paleta AlaukCut a TODO
+     el cromo (monitor, transporte, timeline, inspector, rail) sin tocar
+     el tema del usuario fuera del editor. */
+  --color-bg: #101014;
+  --color-surface: #17161b;
+  --color-panel: #17161b;
+  --color-panel-2: #1f1e25;
+  --color-panel-3: #26252c;
+  --color-panel-raised: #24232b;
+  --color-surface-raised: #1f1e25;
+  --color-border: #26252c;
+  --color-border-strong: #2a2931;
+  --color-text: #e9e9ee;
+  --color-text-muted: #8a8993;
+  --color-text-secondary: #6f6e78;
+  --color-text-faint: #5d5c66;
+  --color-empty: #5d5c66;
+  --color-accent: #2adaba;
+  --color-accent-light: #4fe8d4;
+  --color-accent-strong: #1ec7ae;
+  --color-accent-ink: #06231f;
+  --color-cta: #2adaba;
+  /* Aliases de tema (filmora/comercial/olyvia) que algunas reglas
+     `!important` consumen directo — el preset custom del usuario los
+     fija en rojo; dentro del editor mandan los valores AlaukCut. */
+  --fm-accent: #2adaba;
+  --fm-accent-hover: #4fe8d4;
+  --fm-accent-ink: #06231f;
+  --fm-bar: #17161b;
+  --fm-bar-2: #17161b;
+  --fm2-canvas: #17161b;
+  --chrome-2: #17161b;
+  --commercial-accent: #2adaba;
+  --olyvia-accent: #2adaba;
+  --olyvia-panel: #17161b;
+  /* Hijos del workspace en CUALQUIER modo: [AlaukTopBar, EditorModeTabs
+     (oculto en immersive), editor-grid o editor-mode-panel, AlaukFooter,
+     avisos]. Filas explícitas para que topbar/footer no caigan en filas
+     implícitas del grid base. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+/* Grilla de 3 columnas: la del medio reserva el lugar del nombre del
+   proyecto, así el título centrado nunca se monta sobre los botones de
+   los costados (antes era absolute y solapaba con topbars angostas). */
+.alauk-topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  padding: 0 10px 0 8px;
+  background: var(--alauk-bg);
+  border-bottom: 1px solid #0b0a0e;
+  flex: none;
+}
+.alauk-topbar-left,
+.alauk-topbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.alauk-projects-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  /* WCAG 2.5.8: objetivo táctil mínimo 24 px (antes 22). */
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid #2a2931;
+  border-radius: 4px;
+  background: #1c1b22;
+  color: #b7b6bf;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.alauk-projects-btn:hover { background: #24232b; color: #e6e6ec; }
+/* 9 px exige ≥4.5:1: --alauk-faint (#5d5c66) daba ~3.9:1 sobre #101014;
+   el texto de estado usa --alauk-muted (#8a8993, ~5.5:1). */
+.alauk-save-state { color: var(--alauk-muted); font-size: 9px; white-space: nowrap; }
+.alauk-topbar-project {
+  min-width: 0;
+  max-width: min(480px, 40vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  color: #b9b8c0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+.alauk-topbar-right { justify-content: flex-end; gap: 8px; }
+.alauk-text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid #2a2931;
+  border-radius: 4px;
+  background: #1c1b22;
+  color: #b7b6bf;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.alauk-text-btn:hover { background: #24232b; color: #e6e6ec; }
+/* «Modo IA» activo: mismo acento que la exportación, versión tenue. */
+.alauk-text-btn.active {
+  border-color: var(--alauk-accent);
+  color: var(--alauk-accent);
+  background: color-mix(in srgb, var(--alauk-accent) 12%, transparent);
+}
+.alauk-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--alauk-accent);
+  color: var(--alauk-accent-ink);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.alauk-export:hover { background: #3ae9c7; }
+.alauk-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--alauk-muted);
+  cursor: pointer;
+}
+.alauk-icon-btn:hover:not(:disabled) { background: #24232b; color: var(--alauk-text); }
+.alauk-icon-btn:disabled { opacity: 0.4; cursor: default; }
+/* Los controles de ventana (.window-controls) traen su propio estilo;
+   acá sólo se les da aire dentro de la barra de 32 px. */
+.alauk-topbar-right .window-controls { margin-left: 4px; }
+
+/* P8 · el chrome del AppShell se retira en TODOS los modos y estados: el
+   chrome AlaukCut es la única barra del editor. AlaukTopBar absorbe sus
+   acciones esenciales (undo/redo/save/buscar/ajustes/herramientas/export/
+   ventana); el resto del menú clásico sigue alcanzable por Ctrl+K y atajos.
+
+   P8-b · antes esto sólo cubría `.topbar`, y `.editor-immersive` (que oculta
+   rail + statusbar) exigía un proyecto abierto. Resultado: sin proyecto la
+   app arrancaba con el rail clásico y DOS barras de estado — la única
+   superficie de edición convivía con el cromo viejo. Se ocultan acá los tres
+   elementos y se colapsa la columna del rail, con o sin proyecto. NO se
+   fuerza `editor-immersive`: esa clase además oculta las pestañas de modos
+   en timeline, que sin proyecto son la única forma de llegar a las
+   herramientas (ADR-0006 §3).
+
+   El toggle «Vista» (`data-editor-skin='full'`) es el escape hatch: en modo
+   completo el cromo clásico vuelve a estar disponible. Por eso estas reglas
+   se acotan a `:root:not([data-editor-skin='full'])`; ninguna función de la
+   app queda huérfana dentro del editor unificado. */
+:root:not([data-editor-skin='full']) .app-shell:has(.editor-workspace.alaukcut-chrome) > .topbar,
+:root:not([data-editor-skin='full']) .app-shell:has(.editor-workspace.alaukcut-chrome) > .app-body > .sidebar,
+:root:not([data-editor-skin='full']) .app-shell:has(.editor-workspace.alaukcut-chrome) > .app-statusbar {
+  display: none !important;
+}
+:root:not([data-editor-skin='full']) .app-shell:has(.editor-workspace.alaukcut-chrome) > .app-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.alauk-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--alauk-bg);
+  border-top: 1px solid #0b0a0e;
+  color: var(--alauk-muted);
+  font-size: 10px;
+  flex: none;
+}
+.alauk-footer-save { color: var(--alauk-muted); font-size: 9px; white-space: nowrap; }
+
+/* ── 10 · Tema AlaukCut del monitor + transporte (P6-b) ──────────────────
+   Sólo recolorea el chrome existente dentro de `.editor-workspace.alaukcut-chrome`
+   (modo timeline): paleta #17161b/#1f1e25 + acento #2adaba. No toca
+   geometría ni funcionalidad — el Transport real conserva scrub, rate y
+   readout (superset del pie de AlaukCut). */
+
+/* `!important` sólo donde el tema `data-theme='dark'` de capcut-ui.css
+   fija literales con !important (monitor #1a1a1a, colores de transporte).
+   El resto del cromo ya toma la paleta de las variables --color-* del
+   bloque `.alaukcut`. */
+.app-shell .editor-workspace.alaukcut-chrome .preview-panel,
+.app-shell .editor-workspace.alaukcut-chrome .preview-stage {
+  background: #0d0c0f !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport {
+  background: #17161b !important;
+  border-top: 1px solid #0b0a0e;
+  padding: 6px 10px;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-button {
+  color: #8a8993 !important;
+  border-radius: 4px;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-button:hover:not(:disabled) {
+  color: #e9e9ee !important;
+  background: #24232b !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-button.primary-transport {
+  background: #2adaba !important;
+  border-color: transparent;
+  color: #06231f !important;
+  box-shadow: none;
+}
+.app-shell .editor-workspace.alaukcut-chrome .primary-transport:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-rate {
+  background: #1f1e25;
+  border-color: #26252c;
+  color: #8a8993;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-rate:hover {
+  color: #e9e9ee;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-time,
+.app-shell .editor-workspace.alaukcut-chrome .transport-frames {
+  color: #8a8993;
+}
+.app-shell .editor-workspace.alaukcut-chrome .transport-scrub {
+  background: #2a2931 !important;
+}
+/* Superficies del cromo: capcut-ui fija #262626/#303030 con !important
+   bajo `data-theme='dark'` — el tema AlaukCut los reemplaza con la
+   misma precedencia (más especificidad + más tarde en la cascada). */
+.app-shell .editor-workspace.alaukcut-chrome .asset-rail,
+.app-shell .editor-workspace.alaukcut-chrome .rail-main,
+.app-shell .editor-workspace.alaukcut-chrome .rail-stage,
+.app-shell .editor-workspace.alaukcut-chrome .inspector,
+.app-shell .editor-workspace.alaukcut-chrome .inspector-head,
+.app-shell .editor-workspace.alaukcut-chrome .inspector-tabs-wrap {
+  background: #17161b !important;
+  color: #e9e9ee !important;
+  border-color: #26252c !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .rail-tabs,
+.app-shell .editor-workspace.alaukcut-chrome .rail-module-bar {
+  background: #1f1e25 !important;
+  border-bottom-color: #0b0a0e !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .timeline-panel,
+.app-shell .editor-workspace.alaukcut-chrome .timeline-surface,
+.app-shell .editor-workspace.alaukcut-chrome .timeline-scroll {
+  background: #17161b !important;
+  border-color: #26252c !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .inspector-head {
+  color: #8a8993 !important;
+}
+.app-shell .editor-workspace.alaukcut-chrome .timeline-panel {
+  border-top: 1px solid #0b0a0e;
+}

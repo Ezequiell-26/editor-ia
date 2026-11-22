@@ -14,8 +14,8 @@
 //!   queda instalada sólo si su SHA-256 es el de la tabla.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The repository the mirror lives on (Concat's, public on GitHub).
 pub const REPO: &str = "jub0t/Concat";
@@ -101,11 +101,26 @@ pub(crate) fn fetch_model(
         })
     };
     if let Some(chosen) = take_supplied(file) {
-        return adopt(&chosen, file, partial, sha256, cancel, "download cancelled", &mut inner);
+        return adopt(
+            &chosen,
+            file,
+            partial,
+            sha256,
+            cancel,
+            "download cancelled",
+            &mut inner,
+        );
     }
     let mut last = String::new();
     for url in sources(file, upstream) {
-        match attempt(&url, partial, estimate, cancel, "download cancelled", &mut inner) {
+        match attempt(
+            &url,
+            partial,
+            estimate,
+            cancel,
+            "download cancelled",
+            &mut inner,
+        ) {
             Ok(totals) => {
                 verify(partial, sha256).inspect_err(|_| {
                     let _ = std::fs::remove_file(partial);
@@ -361,7 +376,10 @@ mod tests {
         let list = sources("ggml-tiny.bin", upstream);
         assert_eq!(list[0], mirror("ggml-tiny.bin"));
         assert_eq!(list[1], upstream);
-        assert_eq!(list[2], "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/abc/ggml-tiny.bin");
+        assert_eq!(
+            list[2],
+            "https://hf-mirror.com/ggerganov/whisper.cpp/resolve/abc/ggml-tiny.bin"
+        );
         assert_eq!(sources("f", "https://example.com/f").len(), 2);
     }
 
@@ -396,7 +414,8 @@ mod tests {
             }
         });
         let url = format!("http://127.0.0.1:{port}/model.bin");
-        let partial = std::env::temp_dir().join(format!("speech-min-partial-{}", std::process::id()));
+        let partial =
+            std::env::temp_dir().join(format!("speech-min-partial-{}", std::process::id()));
         // Half of it is already here, as a dropped connection leaves it.
         std::fs::write(&partial, &body[..600_000]).expect("a partial");
         let cancel = AtomicBool::new(false);
@@ -406,8 +425,16 @@ mod tests {
         })
         .expect("the rest arrives");
         assert_eq!((received, total), (body.len() as u64, body.len() as u64));
-        assert_eq!(std::fs::read(&partial).expect("the file"), body, "the halves join up");
-        assert_eq!(reports[0], (600_000, body.len() as u64), "progress starts where the partial ended");
+        assert_eq!(
+            std::fs::read(&partial).expect("the file"),
+            body,
+            "the halves join up"
+        );
+        assert_eq!(
+            reports[0],
+            (600_000, body.len() as u64),
+            "progress starts where the partial ended"
+        );
         let _ = std::fs::remove_file(&partial);
     }
 

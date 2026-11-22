@@ -23,7 +23,7 @@ import { GradeControlsPanel } from './GradeControlsPanel';
 import {
   createBuiltinLooks, deleteGradePreset, getGradeClipboard, hasGradeClipboard,
   loadGradePresets, saveGradePreset, setGradeClipboard, type GradePreset,
-} from './grade-presets';
+} from '../../state/grade-presets';
 import { buildGradeMask, livePreviewMedia, loadStill } from './grade-mask';
 import './color.css';
 

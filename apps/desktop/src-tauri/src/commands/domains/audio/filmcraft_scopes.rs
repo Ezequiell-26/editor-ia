@@ -38,66 +38,74 @@ pub struct ScopeFrameResult {
 }
 
 #[tauri::command]
-pub fn analyze_scopes_frame(
+pub async fn analyze_scopes_frame(
     _state: State<'_, AppState>,
     request: ScopeFrameRequest,
 ) -> Result<ScopeFrameResult, ProjectError> {
-    let path = crate::application::fs::resolve_user_file_path(&request.path)?;
-    if !path.is_file() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::NotFound,
-            "el frame para los scopes no está en disco",
-        ));
-    }
-    let image = image::open(&path).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el frame para los scopes no es una imagen válida",
-        )
-    })?;
-    let (width, height) = (image.width(), image.height());
-    if width == 0 || height == 0 || width > 16_384 || height > 16_384 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el frame tiene dimensiones fuera de rango para los scopes",
-        ));
-    }
-    let rgba = image.to_rgba8();
-    let signal = Signal::from_rgba8(width as usize, height as usize, rgba.as_raw());
-    if signal.is_empty() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProject,
-            "el frame no tiene píxeles para analizar",
-        ));
-    }
-    let params = Params::default();
-    let luma = waveform(&signal, WaveformType::Luma, &params);
-    let luma_grid = luma.trace("Y").ok_or_else(|| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "FilmCraft no devolvió la traza de luma",
-        )
-    })?;
-    let vectors = vectorscope_yuv(&signal, &params);
-    let hist = histogram(&signal, &params);
-    Ok(ScopeFrameResult {
-        width,
-        height,
-        samples: signal.len(),
-        waveform: ScopeGrid {
-            columns: luma_grid.cols,
-            rows: luma_grid.rows,
-            data: luma_grid.data.clone(),
-        },
-        vectorscope: ScopeGrid {
-            columns: vectors.size,
-            rows: vectors.size,
-            data: vectors.data.clone(),
-        },
-        histogram: [hist.r, hist.g, hist.b],
-        histogram_y: hist.y,
-        mean_cb_cr: vectors.mean,
+    // Decode de imagen (hasta 16384² ≈ 1 GB RGBA) + DSP por píxel:
+    // segundos de CPU que un comando sync correría en el main thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = crate::application::fs::resolve_user_file_path(&request.path)?;
+        if !path.is_file() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::NotFound,
+                "el frame para los scopes no está en disco",
+            ));
+        }
+        let image = image::open(&path).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "el frame para los scopes no es una imagen válida",
+            )
+        })?;
+        let (width, height) = (image.width(), image.height());
+        if width == 0 || height == 0 || width > 16_384 || height > 16_384 {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "el frame tiene dimensiones fuera de rango para los scopes",
+            ));
+        }
+        let rgba = image.to_rgba8();
+        let signal = Signal::from_rgba8(width as usize, height as usize, rgba.as_raw());
+        if signal.is_empty() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "el frame no tiene píxeles para analizar",
+            ));
+        }
+        let params = Params::default();
+        let luma = waveform(&signal, WaveformType::Luma, &params);
+        let luma_grid = luma.trace("Y").ok_or_else(|| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "FilmCraft no devolvió la traza de luma",
+            )
+        })?;
+        let vectors = vectorscope_yuv(&signal, &params);
+        let hist = histogram(&signal, &params);
+        Ok(ScopeFrameResult {
+            width,
+            height,
+            samples: signal.len(),
+            waveform: ScopeGrid {
+                columns: luma_grid.cols,
+                rows: luma_grid.rows,
+                data: luma_grid.data.clone(),
+            },
+            vectorscope: ScopeGrid {
+                columns: vectors.size,
+                rows: vectors.size,
+                data: vectors.data.clone(),
+            },
+            histogram: [hist.r, hist.g, hist.b],
+            histogram_y: hist.y,
+            mean_cb_cr: vectors.mean,
+        })
     })
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "el análisis de scopes se interrumpió")
+    })?
 }
 
 #[cfg(test)]

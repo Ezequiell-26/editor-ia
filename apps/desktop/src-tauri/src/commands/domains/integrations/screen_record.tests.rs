@@ -45,7 +45,16 @@ fn gdigrab_args_window_y_region_llevan_sus_parametros() {
     let win = gdigrab_input_args("window", Some("Editor"), None, None, None, None, 60, true);
     assert!(win.iter().any(|a| a == "title=Editor"));
 
-    let reg = gdigrab_input_args("region", None, Some(10), Some(20), Some(640), Some(360), 30, true);
+    let reg = gdigrab_input_args(
+        "region",
+        None,
+        Some(10),
+        Some(20),
+        Some(640),
+        Some(360),
+        30,
+        true,
+    );
     assert!(reg.windows(2).any(|w| w == ["-video_size", "640x360"]));
     assert!(reg.windows(2).any(|w| w == ["-offset_x", "10"]));
     assert!(reg.windows(2).any(|w| w == ["-offset_y", "20"]));

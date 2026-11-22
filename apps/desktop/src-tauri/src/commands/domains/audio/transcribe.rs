@@ -260,7 +260,9 @@ fn run_native_blocking(
         });
         native_download_finish(model_id, outcome.as_ref().err().map(String::as_str));
         if let Err(error) = outcome {
-            return NativeRun::Failed(format!("no se pudo descargar el modelo {model_id}: {error}"));
+            return NativeRun::Failed(format!(
+                "no se pudo descargar el modelo {model_id}: {error}"
+            ));
         }
     }
     if timed_out.load(Ordering::Relaxed) {
@@ -272,10 +274,7 @@ fn run_native_blocking(
     let (duration, _rate) = match crate::commands::audio::probe_audio(ffprobe, source) {
         Ok(probed) => probed,
         Err(error) => {
-            return NativeRun::Failed(format!(
-                "FFprobe no pudo medir el audio: {}",
-                error.message
-            ))
+            return NativeRun::Failed(format!("FFprobe no pudo medir el audio: {}", error.message))
         }
     };
     if duration > NATIVE_MAX_SECONDS {
@@ -296,22 +295,17 @@ fn run_native_blocking(
     }
 
     // 4. whisper.cpp in-process. `language`: `None` = autodetectar.
-    let segments = match transcriber.transcribe_samples(
-        models_dir,
-        model_id,
-        language,
-        &samples,
-        |_| {},
-    ) {
-        Ok(segments) => segments,
-        Err(error) => {
-            return if timed_out.load(Ordering::Relaxed) {
-                NativeRun::TimedOut
-            } else {
-                NativeRun::Failed(format!("whisper.cpp no pudo transcribir: {error}"))
-            };
-        }
-    };
+    let segments =
+        match transcriber.transcribe_samples(models_dir, model_id, language, &samples, |_| {}) {
+            Ok(segments) => segments,
+            Err(error) => {
+                return if timed_out.load(Ordering::Relaxed) {
+                    NativeRun::TimedOut
+                } else {
+                    NativeRun::Failed(format!("whisper.cpp no pudo transcribir: {error}"))
+                };
+            }
+        };
     if timed_out.load(Ordering::Relaxed) {
         return NativeRun::TimedOut;
     }
@@ -590,10 +584,7 @@ pub async fn whisper_model_download(
                 ProjectErrorCode::AlreadyExists,
                 &format!(
                     "ya hay una descarga de modelo en curso ({})",
-                    tracker
-                        .model_id
-                        .as_deref()
-                        .unwrap_or("desconocido")
+                    tracker.model_id.as_deref().unwrap_or("desconocido")
                 ),
             ));
         }
@@ -812,8 +803,7 @@ pub async fn transcribe_asset(
     let (ffmpeg, ffprobe, _) = resolve_tools(&settings);
     let models_dir = crate::vendor_concat::whisper_models_dir(&state.config_dir);
     let native_model = native_model_id(&model);
-    let native_supported =
-        native_model.is_some() && ffmpeg.is_some() && ffprobe.is_some();
+    let native_supported = native_model.is_some() && ffmpeg.is_some() && ffprobe.is_some();
     let engines = engine_plan(native_supported, python.is_some());
     if engines.is_empty() {
         return Err(ProjectError::message(
@@ -857,9 +847,8 @@ pub async fn transcribe_asset(
                 {
                     NativeRun::Done(result) => return Ok(result),
                     NativeRun::Skip => {
-                        failures.push(
-                            "el motor nativo no cubre archivos de más de 30 min".to_owned(),
-                        );
+                        failures
+                            .push("el motor nativo no cubre archivos de más de 30 min".to_owned());
                     }
                     NativeRun::Failed(error) => {
                         failures.push(format!("motor nativo (whisper.cpp): {error}"));
@@ -967,7 +956,11 @@ mod tests {
         assert_eq!(decode_timeout_for(7200.0), Duration::from_secs(1800));
     }
 
-    fn download_progress(received: u64, total: u64, done: bool) -> crate::vendor_concat::speech::DownloadProgress {
+    fn download_progress(
+        received: u64,
+        total: u64,
+        done: bool,
+    ) -> crate::vendor_concat::speech::DownloadProgress {
         crate::vendor_concat::speech::DownloadProgress {
             id: "base".to_owned(),
             received,

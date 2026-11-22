@@ -27,7 +27,10 @@ pub(crate) fn download_blocking(
     if control.is_cancelled() {
         return Err(provider_error("Descarga cancelada."));
     }
-    let validated = validate_url(&request.url)?;
+    // Literal + DNS: corre dentro de spawn_blocking/hilo dedicado.
+    // Residual honesto: yt-dlp resuelve y sigue URLs de medios por su cuenta;
+    // no hay forma de fijar la IP de conexión del subproceso.
+    let validated = validate_url_network(&request.url)?;
     // Validación y normalización pura del request (application::download_plan).
     let plan = normalize_download_request(&request)?;
     // Chequeos que dependen del runtime: binarios y archivo en disco.
@@ -60,6 +63,18 @@ pub(crate) fn download_blocking(
         download_output_template(&directory, plan.filename_template.as_deref())
             .map_err(|message| invalid_error(&message))?;
 
+    // Proxy de guardia (cierre AUD-032): si el usuario no configuró proxy
+    // propio, yt-dlp pasa por un proxy local que valida cada destino con
+    // net_guard — las URLs que descubre el extractor ya no bypasean la
+    // política anti-SSRF. Vive hasta que termina la descarga.
+    let guard_proxy = if plan.proxy.is_none() {
+        Some(
+            GuardProxy::start()
+                .map_err(|message| provider_error(format!("proxy de guardia: {message}")))?,
+        )
+    } else {
+        None
+    };
     let mut command = Command::new(engine);
     command.args([
         "--no-warnings",
@@ -82,6 +97,8 @@ pub(crate) fn download_blocking(
     ]);
     if let Some(proxy) = plan.proxy.as_deref() {
         command.args(["--proxy", proxy]);
+    } else if let Some(guard) = guard_proxy.as_ref() {
+        command.args(["--proxy", guard.proxy_url().as_str()]);
     }
     if let Some(limit_rate) = plan.limit_rate.as_deref() {
         command.args(["--limit-rate", limit_rate]);

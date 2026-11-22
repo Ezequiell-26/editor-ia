@@ -4,7 +4,6 @@ import { addAsset, fpsOf, markAssetReady, newId } from '../../state/project-acti
 import { useProjectStore } from '../../state/project-store';
 import { LottiePreview } from './LottiePreview';
 import {
-  createLottieRasterizer,
   extractLottieZip,
   LOTTIE_MAX_FILE_BYTES,
   LOTTIE_MAX_FRAMES,
@@ -12,7 +11,8 @@ import {
   parseLottieDocument,
   planLottieExport,
   type LottieDocument,
-} from './lottie';
+} from '../../state/lottie';
+import { createLottieRasterizer } from './lottie';
 
 
 const BATCH_SIZE = 8;

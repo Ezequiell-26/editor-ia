@@ -138,7 +138,11 @@ mod tests {
             "tool": "probe",
             "args": {"api_key": "sk-supersecreta", "path": "ok.mp4"}
         });
-        std::fs::write(&path, format!("{}\n", serde_json::to_string(&line).unwrap())).unwrap();
+        std::fs::write(
+            &path,
+            format!("{}\n", serde_json::to_string(&line).unwrap()),
+        )
+        .unwrap();
 
         let result = tail(&path, 10).expect("tail ok");
         assert_eq!(result.entries.len(), 1);

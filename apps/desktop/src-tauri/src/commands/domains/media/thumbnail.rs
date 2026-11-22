@@ -111,7 +111,22 @@ fn unique_path(dir: &Path, stem: &str) -> PathBuf {
 
 /// Guarda la miniatura como PNG y devuelve la ruta publicada.
 #[tauri::command]
-pub fn save_thumbnail(
+pub async fn save_thumbnail(
+    request: ThumbnailExportRequest,
+) -> Result<ThumbnailExportResult, ProjectError> {
+    // Decode de data-url (hasta 64 MB) + decode/encode de imagen:
+    // trabajo de CPU+IO que un comando sync correría en el main thread.
+    tauri::async_runtime::spawn_blocking(move || save_thumbnail_impl(request))
+        .await
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "el guardado de la miniatura se interrumpió",
+            )
+        })?
+}
+
+fn save_thumbnail_impl(
     request: ThumbnailExportRequest,
 ) -> Result<ThumbnailExportResult, ProjectError> {
     // Carpeta de destino elegida por el usuario: política de escritura de
@@ -237,12 +252,12 @@ mod tests {
             output_dir: dir.to_string_lossy().into_owned(),
             file_name: Some("mi:miniatura".to_owned()),
         };
-        let first = save_thumbnail(request.clone()).expect("primera");
+        let first = save_thumbnail_impl(request.clone()).expect("primera");
         assert_eq!((first.width, first.height), (1, 1));
         assert!(first.bytes > 0);
         assert!(Path::new(&first.path).is_file());
         assert!(first.path.ends_with("mi-miniatura.png"));
-        let second = save_thumbnail(request).expect("segunda");
+        let second = save_thumbnail_impl(request).expect("segunda");
         assert!(second.path.ends_with("mi-miniatura-2.png"));
         assert_ne!(first.path, second.path);
         let _ = std::fs::remove_dir_all(&dir);
@@ -310,7 +325,7 @@ mod tests {
             output_dir: dir.to_string_lossy().into_owned(),
             file_name: None,
         };
-        let error = save_thumbnail(request).expect_err("debió rechazar");
+        let error = save_thumbnail_impl(request).expect_err("debió rechazar");
         assert!(error.message.contains("dimensiones"));
         let _ = std::fs::remove_dir_all(&dir);
     }

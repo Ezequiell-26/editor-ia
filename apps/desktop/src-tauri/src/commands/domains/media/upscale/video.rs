@@ -65,7 +65,20 @@ pub async fn upscale_video(
         .map(|value| value.clamp(0.5, 3600.0))
         .filter(|value| value.is_finite());
 
-    let measure = probe_file(&ffprobe, &input, MediaKind::Video)?;
+    let measure = {
+        let ffprobe = ffprobe.clone();
+        let input_probe = input.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            probe_file(&ffprobe, &input_probe, MediaKind::Video)
+        })
+        .await
+        .map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo medir el video: {error}").as_str(),
+            )
+        })??
+    };
     let (width, height) = (measure.width.unwrap_or(0), measure.height.unwrap_or(0));
     if width == 0 || height == 0 {
         return Err(ProjectError::message(

@@ -283,11 +283,7 @@ pub fn convert_file(
     }
     // El "kind" lo decide el contenido vía ffprobe: video si hay pista de
     // video, audio si sólo audio, imagen en otro caso.
-    let probe = probe_file_json(
-        deps.media_runner,
-        ffprobe.as_deref(),
-        &input_path,
-    )?;
+    let probe = probe_file_json(deps.media_runner, ffprobe.as_deref(), &input_path)?;
     let streams = probe["streams"].as_array();
     let has_video = streams.is_some_and(|items| {
         items
@@ -334,14 +330,8 @@ pub fn convert_file(
         ..ConvertOptions::simple(quality_clamp(quality), max_width)
     };
     let hardware = deps.hardware.detect(&ffmpeg);
-    let (args, encoder_used) = build_args(
-        &input_path,
-        &temp_path,
-        target,
-        kind,
-        options,
-        &hardware,
-    )?;
+    let (args, encoder_used) =
+        build_args(&input_path, &temp_path, target, kind, options, &hardware)?;
     let (bytes, duration_seconds, format_name) = deps.runner.run(
         &ffmpeg,
         ffprobe.as_deref(),

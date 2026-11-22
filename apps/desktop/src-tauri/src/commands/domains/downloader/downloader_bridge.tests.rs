@@ -56,8 +56,14 @@ fn http_head_parses_method_path_and_body_bounds() {
     let head = parse_http_head(raw).expect("head válido");
     assert_eq!(head.method, "POST");
     assert_eq!(head.path, "/v1/probe");
-    assert_eq!(head.headers.get("host").map(String::as_str), Some("127.0.0.1"));
-    assert_eq!(head.body_start, raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4);
+    assert_eq!(
+        head.headers.get("host").map(String::as_str),
+        Some("127.0.0.1")
+    );
+    assert_eq!(
+        head.body_start,
+        raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4
+    );
     assert_eq!(head.content_length, 4);
     // Sin el terminador aún no hay head.
     assert!(parse_http_head(b"GET / HTTP/1.1\r\n").is_none());
@@ -72,7 +78,10 @@ fn direct_image_probe_builds_synthetic_dto() {
     assert_eq!(probe.kind, "image");
     assert_eq!(probe.title, "foto.png");
     assert_eq!(probe.entry_count, 1);
-    assert_eq!(probe.thumbnail.as_deref(), Some("https://cdn.example.com/foto.png?size=large"));
+    assert_eq!(
+        probe.thumbnail.as_deref(),
+        Some("https://cdn.example.com/foto.png?size=large")
+    );
 }
 
 #[test]

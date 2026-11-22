@@ -224,11 +224,21 @@ fn export_short_blocking(
             let _ = progress_app.emit("short-progress", serde_json::json!({ "percent": percent }));
         }
     });
+    // AUD-122: stderr se drena en paralelo con `wait()`. Si se leyera
+    // después, un FFmpeg que llene el pipe (~64 KiB en Windows) se
+    // bloquearía escribiendo y el wait sería circular. Buffer acotado:
+    // sólo se usa la última línea para el error.
+    let stderr_thread = child.stderr.take().map(|mut handle| {
+        thread::spawn(move || {
+            let mut buf = String::new();
+            let _ = std::io::Read::take(&mut handle, 1 << 20).read_to_string(&mut buf);
+            buf
+        })
+    });
     let status = child.wait();
-    let mut stderr = String::new();
-    if let Some(mut handle) = child.stderr.take() {
-        let _ = handle.read_to_string(&mut stderr);
-    }
+    let stderr = stderr_thread
+        .and_then(|handle| handle.join().ok())
+        .unwrap_or_default();
     let _ = progress_thread.join();
 
     if !matches!(status, Ok(status) if status.success()) {

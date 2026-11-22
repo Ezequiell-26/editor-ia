@@ -58,6 +58,20 @@ apps/desktop/src-tauri/resources/piper/*
 .serena/
 .workbuddy-ai/
 
+# Artefactos de runtime del proyecto de prueba en la raíz del repo:
+# autosaves, exports renderizados y assets del fixture CDP (binarios).
+/.olyvia-history/
+/exports/
+/media/
+# `> nul` en Git Bash crea un archivo literal `nul` (nombre reservado de
+# Windows) en vez de descartar la salida — no es fuente del proyecto.
+/nul
+# Proyecto de prueba CDP: estado local de verificación en vivo, no fuente.
+/test-cdp.editoria.json
+# Scripts one-off de sesiones de agente (codemods `_batch_*`, dispatchers
+# `_disp_*`): trabajo ya aplicado, no fuente del proyecto.
+/scripts/_*.mjs
+
 # Video de benchmark del harness de LUT (19 MB, se genera aparte)
 apps/desktop/e2e/lut-harness/*.mp4
 

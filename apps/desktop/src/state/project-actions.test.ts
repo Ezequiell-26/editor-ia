@@ -1531,6 +1531,40 @@ describe('seguimiento de rostro', () => {
     ).toThrow(/transformación|movimiento/);
   });
 
+  it('applyFaceBlurOverlay con kind pixelate escribe stylize.pixelate en el stack', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 150,
+    });
+    const result = applyFaceBlurOverlay(
+      added.project,
+      added.clipId,
+      [
+        { time: 0, centerX: 0.4, centerY: 0.45, size: 0.2 },
+        { time: 1, centerX: 0.6, centerY: 0.55, size: 0.22 },
+        { time: 2, centerX: 0.5, centerY: 0.5, size: 0.2 },
+      ],
+      { kind: 'pixelate', pixelSize: 24, smoothing: 0 },
+    );
+    const next = validated(result.project);
+    const overlay = next.timeline.clips.find((item) => item.id === result.clipId);
+    if (overlay?.kind !== 'video') throw new Error('se esperaba overlay de video');
+    // Pixelate va por el stack declarativo (preview WebGL + receta ffmpeg
+    // pixelize), no por effects.blur.
+    expect(overlay.effects?.blur).toBeUndefined();
+    const stack = overlay.effects?.stack ?? [];
+    expect(stack).toHaveLength(1);
+    expect(stack[0]).toMatchObject({
+      effectId: 'stylize.pixelate',
+      enabled: true,
+    });
+    expect(stack[0]!.params.size).toBe(24);
+    expect(overlay.mask?.shape).toBe('ellipse');
+    expect((overlay.mask?.keyframes ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(overlay.audio?.muted).toBe(true);
+  });
+
   it('applyMaskTrack escribe la máscara elíptica con keyframes en el clip', () => {
     const asset = videoAsset(300);
     const added = addClipFromAsset(addAsset(base(), asset), asset, {

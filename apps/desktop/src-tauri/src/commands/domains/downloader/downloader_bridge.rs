@@ -21,8 +21,8 @@ use tauri::{AppHandle, Manager, State};
 use uuid::Uuid;
 
 use crate::commands::downloader::{
-    download_blocking, folder_from_file_name, platform_folder, probe_with_engine, resolve_engine,
-    validate_url, DownloadRequest,
+    download_blocking, ensure_public_resolution, folder_from_file_name, platform_folder,
+    probe_with_engine, resolve_engine, ssrf_redirect_policy, validate_url, DownloadRequest,
 };
 use crate::commands::system::resolve_tools;
 use crate::projects::service::{ProjectError, ProjectErrorCode};

@@ -14,8 +14,9 @@ use uuid::Uuid;
 use crate::application::media::confirm_generated_rights;
 use crate::media::import_file;
 use crate::media::timeline_import::{
-    detect_format, ensure_track, parse_edl, parse_fcpxml, parse_otio, project_fps, resolve_media,
-    seconds_to_frames, TrackKind, MAX_CLIPS, MAX_MEDIA, MAX_TIMELINE_BYTES,
+    detect_format, ensure_track, parse_edl, parse_fcpxml, parse_interchange, parse_otio,
+    project_fps, resolve_media, seconds_to_frames, TrackKind, MAX_CLIPS, MAX_MEDIA,
+    MAX_TIMELINE_BYTES,
 };
 use crate::ports::media::TimelineImportResult;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
@@ -30,23 +31,52 @@ pub fn import_timeline_file(
     let size = std::fs::metadata(path)
         .map(|metadata| metadata.len())
         .unwrap_or(0);
-    if size > MAX_TIMELINE_BYTES {
+    // AAF/OMF son binarios y pueden superar el tope de los formatos de texto;
+    // el importador de filmcraft los lee como bytes de todos modos.
+    let binary = matches!(format, "aaf" | "omf");
+    let max_bytes = if binary {
+        256 * 1024 * 1024
+    } else {
+        MAX_TIMELINE_BYTES
+    };
+    if size > max_bytes {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
-            "el archivo de timeline supera los 32 MB; verificá que sea un EDL, OTIO o FCPXML",
+            if binary {
+                "el archivo de timeline supera los 256 MB; verificá que sea un AAF u OMF"
+            } else {
+                "el archivo de timeline supera los 32 MB; verificá que sea un EDL, OTIO o FCPXML"
+            },
         ));
     }
-    let text = std::fs::read_to_string(path).map_err(|error| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo leer la timeline: {error}").as_str(),
-        )
-    })?;
     let (fps_num, fps_den, fps) = project_fps(project)?;
-    let mut parsed = match format {
-        "edl" => parse_edl(&text, fps),
-        "otio" => parse_otio(&text, fps)?,
-        _ => parse_fcpxml(&text, fps)?,
+    let mut result_format = format.to_owned();
+    let mut parsed = if binary {
+        let bytes = std::fs::read(path).map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo leer la timeline: {error}").as_str(),
+            )
+        })?;
+        parse_interchange(&bytes, path, fps)?
+    } else {
+        let text = std::fs::read_to_string(path).map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo leer la timeline: {error}").as_str(),
+            )
+        })?;
+        match format {
+            "edl" => parse_edl(&text, fps),
+            "otio" => parse_otio(&text, fps)?,
+            // FCP7 XML (xmeml) comparte extensión .xml con FCPXML: se detecta
+            // por contenido y se parsea con filmcraft-interchange.
+            _ if text.contains("<xmeml") => {
+                result_format = "fcp7xml".to_owned();
+                parse_interchange(text.as_bytes(), path, fps)?
+            }
+            _ => parse_fcpxml(&text, fps)?,
+        }
     };
     let timeline_dir = path.parent().unwrap_or(root);
     if let Some(source_fps) = parsed.fps {
@@ -331,7 +361,7 @@ pub fn import_timeline_file(
     });
     let imported_clips = clips.len();
     Ok(TimelineImportResult {
-        format: format.to_owned(),
+        format: result_format,
         path: path.to_string_lossy().into_owned(),
         new_assets: new_assets.len(),
         reused_assets: reused_ids.len(),

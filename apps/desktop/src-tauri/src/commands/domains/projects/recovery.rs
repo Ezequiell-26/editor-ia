@@ -77,8 +77,7 @@ pub async fn relink_asset(
     let session = state.project_session();
     let documents = state.project_documents();
     let recovery = state.project_asset_recovery();
-    let result =
-        use_cases::relink_asset(&session, &documents, &recovery, &asset_id, &new_path)?;
+    let result = use_cases::relink_asset(&session, &documents, &recovery, &asset_id, &new_path)?;
     // Si el relink dejó el asset apuntando fuera del proyecto (sin copia),
     // su preview por asset:// necesita el archivo concedido al scope.
     if result.ok {

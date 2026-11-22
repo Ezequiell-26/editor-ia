@@ -49,8 +49,7 @@ fn missing_env_path_is_reported_and_path_python_still_works() {
 
 #[test]
 fn no_engine_reports_how_to_install_it() {
-    let status =
-        resolve_python_with(None, &[PathBuf::from("python")], &|_| PythonProbe::Missing);
+    let status = resolve_python_with(None, &[PathBuf::from("python")], &|_| PythonProbe::Missing);
     assert!(!status.available());
     let reason = status.reason.expect("motivo");
     assert!(reason.contains("faster-whisper"), "{reason}");
@@ -111,14 +110,8 @@ fn engine_plan_prefiere_nativo_y_cae_a_python() {
         engine_plan(true, true),
         vec![TranscriptionEngine::Native, TranscriptionEngine::Python]
     );
-    assert_eq!(
-        engine_plan(true, false),
-        vec![TranscriptionEngine::Native]
-    );
-    assert_eq!(
-        engine_plan(false, true),
-        vec![TranscriptionEngine::Python]
-    );
+    assert_eq!(engine_plan(true, false), vec![TranscriptionEngine::Native]);
+    assert_eq!(engine_plan(false, true), vec![TranscriptionEngine::Python]);
     assert!(engine_plan(false, false).is_empty());
 }
 
@@ -196,7 +189,11 @@ fn native_whisper_models_maps_crate_status_with_paths() {
     assert_eq!(models.len(), 2);
     assert_eq!(models[0].id, "tiny");
     assert!(models[0].downloaded);
-    assert!(models[0].path.as_deref().unwrap().ends_with("ggml-tiny.bin"));
+    assert!(models[0]
+        .path
+        .as_deref()
+        .unwrap()
+        .ends_with("ggml-tiny.bin"));
     assert_eq!(models[1].id, "base.en");
     assert!(!models[1].downloaded);
     assert!(models[1].path.is_none(), "sin descarga no hay path");

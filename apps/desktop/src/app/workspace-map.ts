@@ -95,7 +95,7 @@ export const WORKSPACE_GROUPS: readonly WorkspaceGroup[] = [
     hint: 'Timeline, audio, efectos y piezas de publicación',
     views: [
       'editor', 'text-edit', 'multicam', 'mixer', 'vfx', 'nodes', 'motion',
-      'visuals', 'factory', 'creator', 'thumbnails', 'localization',
+      'visuals', 'teleprompter', 'factory', 'creator', 'thumbnails', 'localization',
     ],
   },
   {

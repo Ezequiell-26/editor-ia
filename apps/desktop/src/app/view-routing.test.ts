@@ -54,6 +54,7 @@ describe('rutas canónicas', () => {
       'nodes',
       'motion',
       'visuals',
+      'teleprompter',
     ] as const) {
       expect(resolveViewRoute(mode)).toEqual({ view: 'editor', editorMode: mode });
     }

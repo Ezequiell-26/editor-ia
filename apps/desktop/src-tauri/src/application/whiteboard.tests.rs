@@ -17,7 +17,10 @@ fn duration_defaults_to_eight_seconds() {
 #[test]
 fn duration_rejects_non_finite_and_non_positive_values() {
     for bad in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-        assert!(validate_duration(Some(bad)).is_err(), "{bad} debería fallar");
+        assert!(
+            validate_duration(Some(bad)).is_err(),
+            "{bad} debería fallar"
+        );
     }
 }
 

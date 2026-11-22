@@ -98,6 +98,18 @@ pub fn merge_stream_url(endpoint: &str, key: &str) -> String {
     format!("{}/{}", endpoint.trim_end_matches('/'), key)
 }
 
+/// Valida una URL RTMP(S) completa (con o sin clave) para grabación o
+/// sesión de switching. Límite 2048 chars y scheme `rtmp://`/`rtmps://`.
+pub fn validate_stream_url(url: &str) -> Result<(), ProjectError> {
+    if !(url.starts_with("rtmp://") || url.starts_with("rtmps://")) || url.len() > 2048 {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "streamUrl debe ser una URL rtmp:// o rtmps:// válida",
+        ));
+    }
+    Ok(())
+}
+
 pub fn read_scenes(config_dir: &Path) -> Result<Vec<ObsScene>, ProjectError> {
     let path = scenes_path(config_dir);
     if !path.exists() {

@@ -825,11 +825,7 @@ impl crate::ports::media::MediaRunner for ProbeRunner {
     ) -> Result<Output, ProjectError> {
         unimplemented!()
     }
-    fn run_ffprobe(
-        &self,
-        _ffprobe: &Path,
-        _args: &[String],
-    ) -> Result<Output, ProjectError> {
+    fn run_ffprobe(&self, _ffprobe: &Path, _args: &[String]) -> Result<Output, ProjectError> {
         unimplemented!()
     }
     fn run_ffmpeg_with_timeout(
@@ -885,6 +881,7 @@ fn loose_file_fixture() -> (PathBuf, PathBuf, PathBuf) {
     (dir, input, output)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn loose_file_deps<'a>(
     session: &'a NoSession,
     docs: &'a NoDocs,
@@ -938,16 +935,8 @@ fn convert_file_rechaza_rutas_fuera_de_la_politica() {
     std::fs::create_dir_all(&ssh).expect("ssh");
     let key = ssh.join("clip.mp4");
     std::fs::write(&key, b"x").expect("key");
-    let err = convert_file(
-        &deps,
-        &key.to_string_lossy(),
-        "mp3",
-        &out,
-        None,
-        None,
-        None,
-    )
-    .expect_err("ruta con credenciales debe fallar");
+    let err = convert_file(&deps, &key.to_string_lossy(), "mp3", &out, None, None, None)
+        .expect_err("ruta con credenciales debe fallar");
     assert!(err.message.contains("credenciales"), "{}", err.message);
 
     // Absoluta pero inexistente: pasa la política y cae en el chequeo de
@@ -1056,12 +1045,14 @@ fn compress_any_file_rechaza_rutas_fuera_de_la_politica() {
     std::fs::create_dir_all(&ssh).expect("ssh");
     let key = ssh.join("clip.mp4");
     std::fs::write(&key, b"x").expect("key");
-    let err = compress_any_file(&deps, &request(key.to_string_lossy().into_owned(), out.clone()))
-        .expect_err("ruta con credenciales debe fallar");
+    let err = compress_any_file(
+        &deps,
+        &request(key.to_string_lossy().into_owned(), out.clone()),
+    )
+    .expect_err("ruta con credenciales debe fallar");
     assert!(err.message.contains("credenciales"), "{}", err.message);
     let err = compress_any_file(&deps, &request("clip.mp4".to_owned(), out))
         .expect_err("ruta relativa debe fallar");
     assert!(err.message.contains("absoluta"), "{}", err.message);
     let _ = std::fs::remove_dir_all(&dir);
 }
-

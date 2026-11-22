@@ -50,6 +50,9 @@ export function createStudioService(call: NativeCall): DesktopServiceStudio {
     async catalogSearch(query) {
       return (await call(STUDIO_COMMANDS.catalogSearch, { query })) as readonly CatalogEntry[];
     },
+    async studioCapabilities() {
+      return (await call(STUDIO_COMMANDS.studioCapabilities)) as Record<string, unknown>;
+    },
     async catalogGet(id) {
       return (await call(STUDIO_COMMANDS.catalogGet, { id })) as CatalogEntry | null;
     },

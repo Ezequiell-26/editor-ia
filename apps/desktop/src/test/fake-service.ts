@@ -708,6 +708,26 @@ export function createFakeService(): FakeService {
         warnings: [],
       };
     },
+    async importMediaBytes(input) {
+      calls.import += 1;
+      return {
+        assets: [
+          readyAsset({
+            id: newId(),
+            label: input.fileName.replace(/\.[^.]+$/, ''),
+            kind: 'audio',
+            status: 'unverified',
+            source: { type: 'local', path: `media/${input.fileName}` },
+            rights: {
+              license: { id: 'unknown', commercialUse: 'unknown' },
+              provenance: { origin: 'user-imported', acquiredAt: NOW },
+            },
+            media: { sampleRate: 48_000, channels: 2, durationFrames: 150 },
+          }),
+        ],
+        warnings: [],
+      };
+    },
     async listMediaFolder() {
       return { directory: '', files: [] };
     },
@@ -1305,6 +1325,9 @@ export function createFakeService(): FakeService {
     async catalogSearch() {
       return [] as readonly CatalogEntry[];
     },
+    async studioCapabilities() {
+      return { providers: [], sources: [], stages: [], ffmpeg: { available: true } };
+    },
     async catalogGet() {
       return null;
     },
@@ -1359,10 +1382,11 @@ export function createFakeService(): FakeService {
       smoothing: number,
     ) {
       return {
-        path: 'media/stabilized-preview.mp4',
+        path: 'media/stabilizers/fake.trf',
         smoothing,
         inFrame,
         outFrame,
+        previewProxy: 'media/stabilizers/fake-preview.mp4',
       };
     },
     async analyzeMedia(
@@ -1392,6 +1416,10 @@ export function createFakeService(): FakeService {
         saturationAverage: 42,
         warnings: [],
       };
+    },
+    async qcMediaFile(path: string) {
+      const base = await this.analyzeMedia('qc');
+      return { ...base, assetId: path };
     },
     async writeProjectVariant(input) {
       return {
@@ -1574,6 +1602,84 @@ export function createFakeService(): FakeService {
     },
     async audioScopeAnalyzeAsset() {
       return fakeAudioScopeData();
+    },
+    async audioEffectsList() {
+      return [];
+    },
+    async audioEffectsRender(_path, _output, _chain, _speed) {
+      return _output;
+    },
+    async audioLoudnessAnalyze() {
+      return {
+        integratedLufs: -14,
+        loudnessRangeLu: 5,
+        maxMomentaryLufs: -12,
+        maxShortTermLufs: -13,
+        samplePeakDbfs: -1,
+        truePeakDbtp: -0.5,
+        durationSeconds: 10,
+      };
+    },
+    async audioLoudnessNormalize(_path, output) {
+      return { output, measuredLufs: -20, targetLufs: -14, gainDb: 6 };
+    },
+    async textFontsList() {
+      return [
+        { family: 'Inter', styles: ['Regular', 'Medium', 'SemiBold', 'Bold', 'Italic'] },
+        { family: 'JetBrains Mono', styles: ['Regular'] },
+        { family: 'Noto Serif', styles: ['Regular'] },
+      ];
+    },
+    async textRenderPreview(request: { output: string }) {
+      return { path: request.output, width: 640, height: 360, lines: 1, textBounds: [0, 0, 640, 360] };
+    },
+    async mediaProbeColor() {
+      return {
+        width: 1920, height: 1080, pixFmt: 'yuv420p',
+        colorSpace: 'bt709', colorTransfer: 'bt709', colorPrimaries: 'bt709',
+        hdr: 'sdr', wideGamut: false, cameraProfiles: [], suggestion: null,
+      };
+    },
+    async audioSyncOffset() {
+      return {
+        lagSamples: 0,
+        lagSeconds: 0,
+        lagFineSeconds: 0,
+        confidence: 10,
+        distinct: 2,
+        inverted: false,
+        reliable: true,
+      };
+    },
+    async audioTimeStretch(_path, output, _speed) {
+      return output;
+    },
+    async audioRemixAnalyze() {
+      return { durationSeconds: 60, bpm: 120, beatCount: 120, beatsSeconds: [0, 0.5, 1] };
+    },
+    async audioRemixRender(_path, output) {
+      return output;
+    },
+    async audioDuckPlan() {
+      return {
+        durationSeconds: 30,
+        regions: [[1, 2.5]],
+        keyframes: [[0, 0], [0.85, 0], [1, -12], [2.5, -12], [2.65, 0]],
+        envelopeDb: [-40, -20, -10, -12, -40],
+        thresholdDb: -35,
+      };
+    },
+    async ttsVoices() {
+      return [
+        { id: 'basic-female', name: 'Basic Female', language: 'en-US', gender: 'female', engine: 'basic', description: 'Voz formant built-in', license: 'MIT OR Apache-2.0' },
+        { id: 'basic-male', name: 'Basic Male', language: 'en-US', gender: 'male', engine: 'basic', description: 'Voz formant built-in', license: 'MIT OR Apache-2.0' },
+      ];
+    },
+    async ttsSynthesize(_text, output) {
+      return output;
+    },
+    async audioChannelsConvert(_path, output) {
+      return output;
     },
     async onLoudnessAnalysisProgress() {
       return () => {};
@@ -2093,6 +2199,17 @@ export function createFakeService(): FakeService {
         meanCbCr: [0, 0],
       };
     },
+    async lutProbe() {
+      return {
+        format: 'cube',
+        title: 'fake',
+        entries: 32768,
+        gridSize: 32,
+        hasShaper: false,
+        domainMin: [0, 0, 0],
+        domainMax: [1, 1, 1],
+      };
+    },
     async exportLookLut(request) {
       return {
         path: `${request.outputDir}\look.cube`,
@@ -2113,6 +2230,9 @@ export function createFakeService(): FakeService {
     },
     async exportFcpxml(request) {
       return { path: `${request.outputDir}\timeline.fcpxml`, bytes: 3072, clips: 3, warnings: [] };
+    },
+    async exportTimelineInterchange(request) {
+      return { output: request.output, bytes: 128, format: request.format ?? 'aaf', warnings: [] };
     },
     async importTimeline(request) {
       calls.timelineImports += 1;
@@ -2293,6 +2413,12 @@ export function createFakeService(): FakeService {
     },
     async onLipSyncProgress() {
       return () => {};
+    },
+    async subtitlesInspectFile() {
+      return { format: 'srt', formatName: 'SubRip (SRT)', cueCount: 2, durationSeconds: 6, warnings: [], preview: [[1,3.5,'Hola'],[4,6,'Chau']] };
+    },
+    async subtitlesConvertFile(_input, output) {
+      return output;
     },
     async exportShort(request) {
       return {
@@ -2650,6 +2776,59 @@ export function createFakeService(): FakeService {
       return {
         ok: true,
         path: 'C:\\fake\\obs-previews\\preview-test.png',
+        width: 1920,
+        height: 1080,
+      };
+    },
+    async obsTransitionRecord() {
+      return {
+        ok: true,
+        output: 'C:\\fake\\transition-test.mp4',
+        bytes: 1024,
+        durationSecs: 5,
+        width: 1920,
+        height: 1080,
+        hasAudio: false,
+      };
+    },
+    async obsSwitchStart() {
+      return {
+        active: true,
+        sceneId: 'scene-1',
+        segmentScenes: [],
+        segments: 0,
+        elapsedSecs: 0,
+        outputDir: 'C:\\fake\\switch',
+      };
+    },
+    async obsSwitchScene() {
+      return {
+        active: true,
+        sceneId: 'scene-2',
+        segmentScenes: ['scene-1'],
+        segments: 1,
+        elapsedSecs: 12,
+        outputDir: 'C:\\fake\\switch',
+      };
+    },
+    async obsSwitchStop() {
+      return {
+        ok: true,
+        output: 'C:\\fake\\switch-test.mp4',
+        bytes: 2048,
+        durationSecs: 20,
+        width: 1920,
+        height: 1080,
+        hasAudio: false,
+      };
+    },
+    async obsSwitchStatus() {
+      return { active: false, segments: 0 };
+    },
+    async obsSwitchPreview() {
+      return {
+        ok: true,
+        path: 'C:\\fake\\obs-previews\\preview-live.png',
         width: 1920,
         height: 1080,
       };

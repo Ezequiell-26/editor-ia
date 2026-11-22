@@ -212,8 +212,21 @@ fn download_image(generator: &RemoteImageGenerator, url: &str) -> Result<Vec<u8>
             "la URL de imagen del proveedor debe usar https",
         ));
     }
-    let client = reqwest::blocking::Client::builder()
-        .timeout(IMAGE_TIMEOUT)
+    // AUD-032 residual: para proveedores remotos la URL de la imagen es
+    // dato no confiable — un `https://192.168.x.x` o `https://169.254.x.x`
+    // del proveedor sería un SSRF. Se exige resolución pública y redirects
+    // revalidados. Los endpoints locales (Ollama & cía.) son
+    // configurados por el usuario y legítimamente viven en loopback/LAN.
+    if !local {
+        crate::application::net_guard::ensure_public_resolution(&parsed).map_err(|reason| {
+            ProjectError::message(ProjectErrorCode::InvalidProviderResponse, reason)
+        })?;
+    }
+    let mut builder = reqwest::blocking::Client::builder().timeout(IMAGE_TIMEOUT);
+    if !local {
+        builder = builder.redirect(crate::application::net_guard::ssrf_redirect_policy());
+    }
+    let client = builder
         .build()
         .map_err(|_| provider_error("no se pudo preparar la descarga de la imagen"))?;
     let mut request = client.get(parsed).header("Accept", "image/*");

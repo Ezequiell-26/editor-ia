@@ -18,6 +18,10 @@ use crate::state::AppState;
 /// A package carries JSON, CSV, SRT and a readme, never media. 64 MB leaves
 /// room for a project with thousands of clips without allowing a runaway IPC.
 const MAX_PACKAGE_BYTES: usize = 64 * 1024 * 1024;
+/// Largo máximo del base64 que puede decodificar a <= MAX_PACKAGE_BYTES
+/// (mismo patrón que `decode_import_bytes`, AUD-142): un payload IPC
+/// sobredimensionado se rechaza por longitud antes de reservar el Vec.
+const MAX_PACKAGE_BASE64_CHARS: usize = MAX_PACKAGE_BYTES.div_ceil(3) * 4 + 8;
 const ZIP_MAGIC: [u8; 4] = [0x50, 0x4b, 0x03, 0x04];
 
 fn invalid(message: &str) -> ProjectError {
@@ -56,6 +60,12 @@ fn sanitize_file_name(value: &str) -> Result<String, ProjectError> {
 fn decode_package(encoded: &str) -> Result<Vec<u8>, ProjectError> {
     if encoded.trim().is_empty() {
         return Err(invalid("el paquete llegó vacío"));
+    }
+    // AUD-071: rechazar por largo codificado antes de decodificar — el
+    // STANDARD.decode reservaba el buffer completo antes del chequeo de
+    // MAX_PACKAGE_BYTES.
+    if encoded.len() > MAX_PACKAGE_BASE64_CHARS {
+        return Err(invalid("el paquete supera 64 MB"));
     }
     let bytes = STANDARD
         .decode(encoded)
@@ -220,6 +230,15 @@ mod tests {
         assert!(decode_package("no-es-base64!!").is_err());
         assert!(decode_package(&encoded(b"PK")).is_err());
         assert!(decode_package(&encoded(b"not a zip at all")).is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_base64_before_decoding() {
+        // AUD-071: el rechazo por largo codificado ocurre antes de
+        // STANDARD.decode — 'A' repetido es base64 válido, así que sólo
+        // el tope de tamaño puede rechazarlo.
+        let oversized = "A".repeat(MAX_PACKAGE_BASE64_CHARS + 1);
+        assert!(decode_package(&oversized).is_err());
     }
 
     #[test]

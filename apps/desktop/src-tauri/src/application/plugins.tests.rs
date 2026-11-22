@@ -47,7 +47,11 @@ fn install_plugin_aplica_politica_de_lectura_a_la_fuente() {
     let root = std::env::temp_dir().join(format!("olyvia-plugin-{}", uuid::Uuid::new_v4()));
     let ssh = root.join(".ssh").join("plugin");
     std::fs::create_dir_all(&ssh).unwrap();
-    std::fs::write(ssh.join(MANIFEST), r#"{"id":"demo","name":"D","version":"1"}"#).unwrap();
+    std::fs::write(
+        ssh.join(MANIFEST),
+        r#"{"id":"demo","name":"D","version":"1"}"#,
+    )
+    .unwrap();
     assert!(install_plugin(&ssh.to_string_lossy()).is_err());
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -71,11 +75,7 @@ fn corrupt_state_fails_safe_and_backup_recovers() {
     assert!(state.map.is_empty());
 
     // Con backup válido: se recupera la lista de deshabilitados.
-    std::fs::write(
-        dir.join(STATE_BACKUP),
-        r#"{"disabled":["mi-plugin"]}"#,
-    )
-    .unwrap();
+    std::fs::write(dir.join(STATE_BACKUP), r#"{"disabled":["mi-plugin"]}"#).unwrap();
     let state = read_state_in(&dir);
     assert!(!state.corrupted);
     let disabled: Vec<&str> = state

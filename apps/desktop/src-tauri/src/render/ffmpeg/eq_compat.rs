@@ -41,11 +41,7 @@ fn find_eq_start(haystack: &str) -> Option<usize> {
     let mut search_from = 0;
     while let Some(found) = haystack[search_from..].find("eq=") {
         let idx = search_from + found;
-        let boundary = idx == 0
-            || matches!(
-                haystack.as_bytes()[idx - 1],
-                b',' | b';' | b']'
-            );
+        let boundary = idx == 0 || matches!(haystack.as_bytes()[idx - 1], b',' | b';' | b']');
         if boundary {
             return Some(idx);
         }
@@ -121,7 +117,10 @@ fn translate_eq_segment(segment: &str) -> Option<String> {
 /// (`i/255` con punto medio 0.5).
 fn eq_plane_expr(contrast: f64, brightness: f64, gamma: f64, gamma_weight: f64) -> String {
     // v = contrast*(val-127.5)+127.5+brightness*255  (en unidades 0-255)
-    let linear = format!("({contrast:.6}*(val-127.5)+127.5+{:.6})", brightness * 255.0);
+    let linear = format!(
+        "({contrast:.6}*(val-127.5)+127.5+{:.6})",
+        brightness * 255.0
+    );
     // eq: v<=0 → 0; si no, v = v*(1-w) + pow(v,1/g)*w  (v normalizado);
     // v>=1 → 1. gamma_weight=1 → lw=0 → sólo la potencia.
     let positive = format!("clip({linear},0,255)");
@@ -177,7 +176,8 @@ mod tests {
 
     #[test]
     fn multiple_eq_en_filter_complex() {
-        let graph = "[0:v]eq=brightness=0.5[seg0];[1:v]eq=contrast=1.4[seg1];[seg0][seg1]concat=n=2:v=1[v]";
+        let graph =
+            "[0:v]eq=brightness=0.5[seg0];[1:v]eq=contrast=1.4[seg1];[seg0][seg1]concat=n=2:v=1[v]";
         let out = rewrite_eq_filters(graph);
         assert_eq!(out.matches("lutyuv=").count(), 2, "{out}");
         assert!(!out.contains("eq="), "{out}");
@@ -186,7 +186,8 @@ mod tests {
 
     #[test]
     fn preserva_enable_con_comas_dentro_de_comillas() {
-        let graph = "eq=brightness=0.1:contrast=1:saturation=1.1:enable='between(t,0.800000,2.000000)'";
+        let graph =
+            "eq=brightness=0.1:contrast=1:saturation=1.1:enable='between(t,0.800000,2.000000)'";
         let out = rewrite_eq_filters(graph);
         assert!(out.starts_with("lutyuv="), "{out}");
         assert!(

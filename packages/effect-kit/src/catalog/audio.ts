@@ -167,6 +167,41 @@ const DEFS: readonly AudioDef[] = [
     params: [f('width', 'Ancho', 0, 4, 2, { step: 0.05 })],
     chain: ['extrastereo=m={width}'],
   },
+  {
+    id: 'audio.haas',
+    name: 'Doubling Haas',
+    category: 'space',
+    description:
+      'Retardo cruzado entre canales: el clásico efecto de escenario que abre la imagen sin chorus evidente.',
+    keywords: ['haas', 'doubling', 'delay', 'stereo', 'escenario', 'ancho'],
+    params: [
+      f('leftDelay', 'Retardo izquierdo', 0, 40, 9, { unit: 'ms', step: 0.5 }),
+      f('rightDelay', 'Retardo derecho', 0, 40, 15, { unit: 'ms', step: 0.5 }),
+      f('gain', 'Ganancia', 0.5, 2, 1, { step: 0.05 }),
+    ],
+    chain: [
+      'haas=level_in=1:level_out=1:left_delay={leftDelay}:right_delay={rightDelay}:side_gain={gain}',
+    ],
+    fidelity: 'approximate',
+    note: 'haas mezcla L/R retardados; en mono la imagen se reduce a un delay simple.',
+  },
+  {
+    id: 'audio.reverb',
+    name: 'Reverberación',
+    category: 'space',
+    description:
+      'Estancia simulada con ecos tempranos y cola amortiguada: convierte una voz seca en sala o hangar.',
+    keywords: ['reverb', 'reverberacion', 'sala', 'eco', 'espacio', 'hangar'],
+    params: [
+      f('decay', 'Decaimiento', 0, 1, 0.35, { step: 0.01 }),
+      f('dark', 'Oscuridad', 1500, 12000, 6000, { unit: 'Hz', step: 100 }),
+    ],
+    chain: [
+      'aecho=0.8:0.7:45|90|180:{decay}|{decay}|{decay},lowpass=f={dark}',
+    ],
+    fidelity: 'approximate',
+    note: 'Tres taps fijos (45/90/180 ms) con el mismo decaimiento + lowpass; no es una IR convolución pero da cuerpo de sala.',
+  },
 
   // ── Textura ────────────────────────────────────────────────────────────────
   {
@@ -407,8 +442,73 @@ const DEFS: readonly AudioDef[] = [
     ],
     chain: ['alimiter=limit={limit}:attack={attack}:release={release}:level=0'],
   },
+  {
+    id: 'audio.loudnorm',
+    name: 'Normalizador loudness',
+    category: 'utility',
+    description:
+      'Normaliza al estándar EBU R128: la voz suena igual de fuerte en cualquier clip, con techo de pico real.',
+    keywords: ['loudnorm', 'lufs', 'ebu r128', 'normalizar', 'volumen', 'master'],
+    params: [
+      f('lufs', 'Sonoridad objetivo', -24, -9, -16, { unit: 'LUFS', step: 1 }),
+      f('tp', 'Techo de pico', -3, 0, -1.5, { unit: 'dBTP', step: 0.5 }),
+      f('lra', 'Rango dinámico', 1, 20, 11, { unit: 'LU', step: 1 }),
+    ],
+    chain: ['loudnorm=I={lufs}:TP={tp}:LRA={lra}'],
+    fidelity: 'approximate',
+    note: 'Modo dinámico de una pasada; el modo lineal de dos pasadas necesita medir el clip primero.',
+  },
+  {
+    id: 'audio.speechnorm',
+    name: 'Nivelador de voz',
+    category: 'utility',
+    description:
+      'Empareja la voz frase a frase: expande lo bajo y comprime lo alto hasta un techo de pico.',
+    keywords: ['speechnorm', 'voz', 'nivel', 'estabilizar', 'locucion'],
+    params: [
+      f('expansion', 'Expansión', 1, 8, 2.5, { step: 0.1 }),
+      f('compression', 'Compresión', 1, 8, 2, { step: 0.1 }),
+      f('threshold', 'Umbral', 0, 0.5, 0.05, { step: 0.01 }),
+      f('peak', 'Pico', 0.5, 1, 0.95, { step: 0.01 }),
+    ],
+    chain: ['speechnorm=e={expansion}:c={compression}:t={threshold}:p={peak}'],
+    fidelity: 'approximate',
+    note: 'speechnorm trabaja por ventanas cortas; no reemplaza un compresor de mezcla.',
+  },
+  {
+    id: 'audio.denoise',
+    name: 'Reducción de ruido',
+    category: 'utility',
+    description:
+      'Quita ruido de fondo por FFT con perfil de ruido blanco, vinilo o shellac.',
+    keywords: ['denoise', 'ruido', 'noise', 'limpieza', 'fft', 'estatica'],
+    params: [
+      f('amount', 'Intensidad', 1, 40, 12, { unit: 'dB', step: 1 }),
+      f('floor', 'Piso de ruido', -60, -30, -50, { unit: 'dB', step: 1 }),
+      en('noiseType', 'Perfil', ['white', 'vinyl', 'shellac'], 0),
+    ],
+    chain: ['afftdn=nr={amount}:nf={floor}:nt={noiseType}'],
+    fidelity: 'approximate',
+    note: 'afftdn recorta bandas ruidosas; en ruido no estacionario conviene el denoise de dos etapas.',
+  },
 
   // ── Voz ────────────────────────────────────────────────────────────────────
+  {
+    id: 'audio.dialogue',
+    name: 'Realce de diálogo',
+    category: 'voice',
+    description:
+      'Aísla y potencia la voz sobre el ambiente. La herramienta de limpieza de locución y entrevistas.',
+    keywords: ['dialogo', 'voz', 'locucion', 'entrevista', 'claridad', 'limpieza'],
+    params: [
+      f('original', 'Centro original', 0, 1, 0.7, { step: 0.05 }),
+      f('enhance', 'Realce', 0, 3, 1.5, { step: 0.1 }),
+      f('voice', 'Detección', 2, 32, 4, { step: 1 }),
+    ],
+    chain: ['dialoguenhance=original={original}:enhance={enhance}:voice={voice}'],
+    fidelity: 'approximate',
+    note: 'dialoguenhance asume voz dominante; en música o efectos fuertes puede bombear el centro.',
+  },
   {
     id: 'audio.voice_alien',
     name: 'Voz alien',
@@ -482,6 +582,95 @@ const DEFS: readonly AudioDef[] = [
       f('trem', 'Trémolo', 0, 1, 0.25, { step: 0.01 }),
     ],
     chain: ['vibrato=f={rate}:d={depth},tremolo=f={rate}:d={trem}'],
+  },
+  {
+    id: 'audio.vibrato',
+    name: 'Vibrato',
+    category: 'texture',
+    description:
+      'Modulación de tono periódica: el vibrato natural de cuerdas, vientos y voces.',
+    keywords: ['vibrato', 'trémolo', 'tono', 'modulacion', 'instrumento'],
+    params: [
+      f('rate', 'Velocidad', 0.5, 15, 5.5, { unit: 'Hz', step: 0.1 }),
+      f('depth', 'Profundidad', 0, 1, 0.5, { step: 0.01 }),
+    ],
+    chain: ['vibrato=f={rate}:d={depth}'],
+  },
+  {
+    id: 'audio.tone',
+    name: 'Graves y agudos',
+    category: 'utility',
+    description:
+      'Estantes de graves y agudos: el control de tono clásico para engordar o limpiar el audio.',
+    keywords: ['bass', 'treble', 'graves', 'agudos', 'tono', 'eq'],
+    params: [
+      f('bass', 'Graves', -15, 15, 0, { unit: 'dB', step: 0.5 }),
+      f('bassFreq', 'Freq. graves', 60, 400, 120, { unit: 'Hz', step: 10 }),
+      f('treble', 'Agudos', -15, 15, 0, { unit: 'dB', step: 0.5 }),
+      f('trebleFreq', 'Freq. agudos', 1000, 8000, 3000, { unit: 'Hz', step: 100 }),
+    ],
+    chain: ['bass=g={bass}:f={bassFreq},treble=g={treble}:f={trebleFreq}'],
+  },
+  {
+    id: 'audio.swap',
+    name: 'Invertir canales',
+    category: 'utility',
+    description:
+      'Intercambia el canal izquierdo con el derecho: corrige audio de cámara o grabadora grabado al revés.',
+    keywords: ['swap', 'canales', 'invertir', 'stereo', 'izquierdo', 'derecho', 'l/r'],
+    params: [],
+    chain: ['pan=stereo|c0=c1|c1=c0'],
+  },
+  {
+    id: 'audio.softclip',
+    name: 'Soft clip',
+    category: 'utility',
+    description:
+      'Saturación suave tipo consola de grabación: redondea los picos sin el chisporroteo del hard clip.',
+    keywords: ['softclip', 'clip', 'saturacion', 'peaks', 'glue', 'calidez', 'drive'],
+    params: [
+      en('type', 'Curva', ['Tanh', 'Atan', 'Cúbica', 'Exponencial', 'Alg.', 'Quíntica', 'Seno', 'Error'], 0),
+      f('threshold', 'Umbral', 0.05, 1, 0.7, { step: 0.01 }),
+    ],
+    chain: ['asoftclip=type={type}:threshold={threshold}:oversample=4'],
+    fidelity: 'approximate',
+    note: 'Las 8 curvas de asoftclip se indexan directo (0=tanh…7=erf); oversample fijo en 4.',
+  },
+  {
+    id: 'audio.stutter',
+    name: 'Stutter',
+    category: 'texture',
+    description:
+      'Repite un tramo del audio varias veces en la posición elegida: el hit de scratch de DJ y glitch.',
+    keywords: ['stutter', 'repetir', 'loop', 'glitch', 'scratch', 'hit', 'truncate'],
+    params: [
+      f('at', 'Posición', 0, 60, 0, { unit: 's', step: 0.1 }),
+      f('ms', 'Ventana', 30, 500, 120, { unit: 'ms', step: 10 }),
+      f('loops', 'Repeticiones', 2, 8, 4, { step: 1 }),
+    ],
+    chain: ['aloop=loop={loops}:size=%RATE%*{ms}/1000:start=%RATE%*{at}'],
+    fidelity: 'exact',
+    note: 'aloop repite la ventana `ms` en la posición `at` (en segundos) `loops` veces; si el audio termina antes, no hace nada.',
+  },
+  {
+    id: 'audio.reverse',
+    name: 'Revertir',
+    category: 'utility',
+    description:
+      'Reproduce el audio al revés: efectos de glitch, ocultismo y transiciones surrealistas.',
+    keywords: ['reverse', 'revertir', 'invertir', 'glitch', 'backwards'],
+    params: [],
+    chain: ['areverse'],
+  },
+  {
+    id: 'audio.dual_mono',
+    name: 'Mono dual',
+    category: 'utility',
+    description:
+      'Mezcla izquierda y derecha en ambos canales: el archivo sigue estéreo pero suena igual en cualquier parlante.',
+    keywords: ['mono', 'dual', 'downmix', 'stereo', 'compatibilidad', 'medios'],
+    params: [],
+    chain: ['pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1'],
   },
 ];
 

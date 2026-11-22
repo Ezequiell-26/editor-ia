@@ -25,7 +25,11 @@ pub const MAX_CONTEXT_CHARS: usize = 3_000;
 pub const MAX_REPLY_CHARS: usize = 2_000;
 pub const MAX_ASSISTANT_ACTIONS: usize = 5;
 pub const MAX_ASSISTANT_MCP_ARGS_BYTES: usize = 12 * 1024;
-pub const MAX_ASSISTANT_MCP_CATALOG_BYTES: usize = 48 * 1024;
+// El catálogo viaja como índice compacto (nombre + descripción breve +
+// marcas h): con 400+ herramientas el JSON Schema completo superaría los
+// 200 KB por mensaje. El modelo pide el esquema exacto con la tool
+// `mcp_tool_schema` antes de invocar una herramienta.
+pub const MAX_ASSISTANT_MCP_CATALOG_BYTES: usize = 96 * 1024;
 pub const MAX_ASSISTANT_MCP_ARG_FIELDS: usize = 48;
 
 pub const VIEWS: [&str; 33] = [
@@ -457,15 +461,18 @@ pub fn assistant_system_prompt(context: &str) -> String {
         "Podés proponer entre 1 y 5 acciones ordenadas; se ejecutan en secuencia. ",
         "Usá varias sólo cuando el pedido requiera pasos dependientes; no repitas acciones. ",
         "El borrado siempre espera confirmación explícita. ",
-        "El catálogo de herramientas con nombres, descripciones y JSON Schema está en la sección ",
-        "CATALOGO_MCP_JSON del contexto; si dice CATALOGO PARCIAL, sólo esas herramientas están ",
-        "disponibles. ",
+        "El catálogo de herramientas es un índice en la sección ",
+        "CATALOGO_MCP_JSON del contexto (nombre, descripción breve y marcas h); ",
+        "si dice CATALOGO PARCIAL, sólo esas herramientas están disponibles. ",
+        "El índice no incluye los parámetros: antes de invocar una herramienta, ",
+        "pedí su ficha completa con {\"kind\":\"mcp_call\",\"tool\":\"mcp_tool_schema\",",
+        "\"arguments\":{\"name\":\"nombre_exacto\"}} y respetá el inputSchema devuelto; ",
+        "la app rechazará herramientas desconocidas o argumentos inválidos. ",
         "Las marcas h del catalogo: r=solo lectura, d=destructiva, o=efecto externo; ",
         "se pueden combinar. Si falta una letra, no atribuyas esa condicion. ",
         "Llamá una herramienta con ",
         "{\"kind\":\"mcp_call\",\"tool\":\"nombre_exacto\",\"arguments\":{...}}. ",
-        "Elegí sólo herramientas presentes en ese catálogo y respetá inputSchema; ",
-        "la app rechazará herramientas desconocidas o argumentos inválidos. ",
+        "Elegí sólo herramientas presentes en ese catálogo. ",
         "Las consultas read-only no requieren confirmación; las escrituras destructivas ",
         "o las operaciones sobre archivos/servicios externos se detienen para autorización. ",
         "Acciones permitidas: {\"kind\":\"navigate\",\"view\":\"home|projects|script|assets|production|editor|download|director|auto-edit|youtube|factory|creator|compliance|convert|compare|compress|denoise|sharpen|thumbnails|localization|ai-hub|motion|visuals|background|upscale|text-edit|multicam|mixer|vfx|lab|learn|mcp|settings\"}, ",
@@ -585,7 +592,7 @@ pub fn assistant_context(context: Option<&Value>) -> String {
         match pack_mcp_catalog(tools) {
             Some((catalog, omitted)) => {
                 let mut section =
-                    format!("CATALOGO_MCP_JSON (nombres, descripciones y JSON Schema):\n{catalog}");
+                    format!("CATALOGO_MCP_JSON (índice: nombres, descripciones breves y marcas h):\n{catalog}");
                 if omitted > 0 {
                     let total = tools.len();
                     let included = total - omitted;

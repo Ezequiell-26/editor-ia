@@ -1,5 +1,6 @@
 import type { ClipMaskKeyframe, ProjectDocument } from '@editor-ia/project-schema';
 import { MAX_TRANSFORM_KEYFRAMES } from '@editor-ia/project-schema';
+import { createInstance, effectRegistry } from '@editor-ia/effect-kit';
 import {
   ProjectActionError,
   addTrack,
@@ -315,6 +316,14 @@ export interface FaceBlurOverlayOptions {
   readonly feather?: number;
   /** Suavizado temporal de las muestras (0=off, ~0.4 recomendado). */
   readonly smoothing?: number;
+  /**
+   * Efecto de privacidad del overlay: `blur` (default, `effects.blur`)
+   * o `pixelate` (`stylize.pixelate` en `effects.stack`, más efectivo
+   * para ocultar identidad que el desenfoque).
+   */
+  readonly kind?: 'blur' | 'pixelate';
+  /** Lado del bloque del pixelado en px de salida (2–96, sólo `pixelate`). */
+  readonly pixelSize?: number;
 }
 
 const MAX_MASK_KEYFRAMES_APPLIED = 32;
@@ -414,7 +423,9 @@ export function applyFaceBlurOverlay(
   samples: readonly FaceBlurSample[],
   options: FaceBlurOverlayOptions = {},
 ): { project: ProjectDocument; clipId: string; trackId: string } {
+  const kind = options.kind ?? 'blur';
   const blur = Math.min(50, Math.max(0, options.blur ?? 14));
+  const pixelSize = Math.min(96, Math.max(2, Math.round(options.pixelSize ?? 18)));
   const margin = Math.min(3, Math.max(1, options.margin ?? 1.15));
   const feather = Math.min(1, Math.max(0, options.feather ?? 0.18));
   const next = cloneProject(project);
@@ -490,10 +501,24 @@ export function applyFaceBlurOverlay(
   overlay.id = newId();
   overlay.trackId = track.id;
   overlay.startFrame = start;
-  overlay.effects = {
-    ...(clip.effects ?? {}),
-    blur,
-  };
+  if (kind === 'pixelate') {
+    const manifest = effectRegistry.get('stylize.pixelate');
+    if (!manifest) {
+      throw new ProjectActionError('el efecto de pixelado no está disponible');
+    }
+    const instance = createInstance(manifest, { params: { size: pixelSize } });
+    const effects = overlay.effects ?? {};
+    const stack = [...(effects.stack ?? []), instance];
+    overlay.effects = {
+      ...effects,
+      stack: stack.slice(-32) as NonNullable<typeof effects.stack>,
+    };
+  } else {
+    overlay.effects = {
+      ...(clip.effects ?? {}),
+      blur,
+    };
+  }
   overlay.mask = {
     shape: 'ellipse',
     x: first.x ?? 0,

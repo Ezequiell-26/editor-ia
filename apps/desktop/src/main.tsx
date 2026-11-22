@@ -72,14 +72,11 @@ import './styles/editor-clarity.css';
 // recortes y controles deshabilitados legibles.
 import './styles/visual-polish.css';
 
-// Superficie mínima del editor (réplica AlaukCut). Namespace propio `.me-`:
-// no afecta a las demás vistas. Última del cascade.
-import './styles/minimal-editor.css';
-// Escenas completas medidas sobre las capturas 146–160 (biblioteca, monitor,
-// inspector de vídeo/cor/HSL, asistente, legendas, tutorial y overlays).
-// Va DESPUÉS de minimal-editor.css: flexibiliza los paneles sin tocar la
-// geometría base ya validada (32 / 1fr / 260 / 37 · 366 | 1fr | 312).
-import './styles/minimal-editor-scenes.css';
+// Chrome AlaukCut del editor unificado: variables --alauk-*/--color-*,
+// barra superior/pie (`.alauk-*`) y retirada del cromo clásico del AppShell.
+// Se aplica en TODOS los modos; «Vista completa» (data-editor-skin='full')
+// lo desactiva en caliente. Última del cascade.
+import './styles/alauk-chrome.css';
 // Composición de referencia (capturas 146–160) sobre el editor productivo.
 // ADDITIVA y ÚLTIMA de la cascada: sólo actúa en modo timeline con proyecto
 // y se desactiva en caliente con «Vista completa» (data-editor-skin='full').

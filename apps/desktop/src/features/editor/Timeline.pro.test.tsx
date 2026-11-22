@@ -196,9 +196,11 @@ describe('Timeline pro · fluidez y multi-selección', () => {
     const { container } = renderTimeline(twoClipProject());
     expect(container.querySelectorAll('.timeline-clip')).toHaveLength(2);
     expect(container.querySelector('.timeline-overview')).toBeNull();
-    // Contrato: cada clip conserva clase y atributo de accesibilidad.
+    // Contrato: cada clip conserva clase y atributo de accesibilidad. El
+    // clip es role="group" (contiene sliders/separadores propios: anidarlos
+    // en un role="button" es ARIA inválido).
     for (const clip of container.querySelectorAll('.timeline-clip')) {
-      expect(clip.getAttribute('role')).toBe('button');
+      expect(clip.getAttribute('role')).toBe('group');
       expect(clip.getAttribute('aria-label')).toBeTruthy();
     }
   });

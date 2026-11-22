@@ -20,6 +20,19 @@ import { useProjectPlaying, useProjectStore } from '../state/project-store';
 import { collectSearchDocuments, createGlobalSearch, destinationOfHit, searchGlobal, type GlobalSearchDocument, type GlobalSearchHit, type GlobalSearchIndex } from '../state/global-search';
 import { recordViewVisit } from '../state/learning-progress';
 import { SHORTCUTS_CHANGED_EVENT, bindingMatches, eventToBinding, isActivatableTarget, loadShortcuts, normalizeBinding, type ShortcutId, type ShortcutMap } from '../state/shortcuts';
+import { getAiOnly, toggleAiMode, useAiOnly } from '../state/ai-mode';
+import { AssistantDock } from '../features/assistant/AssistantDock';
+import { ReviewDialog } from '../features/editor/ReviewDialog';
+import { HistoryDialog } from '../features/editor/HistoryDialog';
+import { CriticDialog } from '../features/editor/CriticDialog';
+import { MenuNewsDialog } from './menu-news-dialog';
+import { registerLottieRasterizer } from '../state/lottie';
+import { createLottieRasterizer as createLottieRasterizerDom } from '../features/motion/lottie';
+
+// El rasterizador Lottie necesita DOM (lottie-web + canvas): se registra aquí,
+// en el composition root, para que state/mcp-tools pueda usarlo sin importar
+// features/ (regla de capas).
+registerLottieRasterizer(createLottieRasterizerDom);
 
 
 
@@ -69,6 +82,7 @@ export function Shell({ initialView = 'editor', onReturnToStart }: ShellProps) {
   const openTour = useCallback(() => setTourOpen(true), []);
   const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
   const store = useProjectStore();
+  const aiOnly = useAiOnly();
   const project = store.state.project;
   const hasProject = project !== null;
   // UN SOLO EDITOR: con o sin proyecto, las vistas de flujo y las
@@ -494,6 +508,14 @@ export function Shell({ initialView = 'editor', onReturnToStart }: ShellProps) {
         case 'edit.deselect':
           store.setSelection({ kind: 'none' });
           return;
+        case 'view.aiMode':
+          // «Modo IA»: alterna la vista reducida del editor; persiste en
+          // state/ai-mode y aplica al volver a la superficie de edición.
+          event.preventDefault();
+          // Con la superficie IA-only no hay modo que alternar; el atajo queda
+          // sin efecto para no dejar un control que "no hace nada visible".
+          if (!getAiOnly()) toggleAiMode();
+          return;
         case 'playback.playPause':
           if (!store.state.project) return;
           // Fase 2 de accesibilidad (H16): si el foco estÃ¡ sobre un control
@@ -599,6 +621,15 @@ export function Shell({ initialView = 'editor', onReturnToStart }: ShellProps) {
         onOpenShortcuts={openShortcuts}
         onOpenToolMap={openToolMap}
         editorSurface={editorSurface}
+        assistantDock={
+          <AssistantDock activeId={activeId} onSelect={navigate} docked={aiOnly} />
+        }
+        menuFeatureDialogs={{
+          review: ReviewDialog,
+          history: HistoryDialog,
+          critic: CriticDialog,
+          news: MenuNewsDialog,
+        }}
         banner={
           browserMode ? (
             <BrowserModeBanner

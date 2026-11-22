@@ -752,7 +752,12 @@ pub(crate) fn zoom_rapido_frozen_filter(progress: f64) -> String {
     zoom_rapido_geq(&format!("{progress:.6}"), "1")
 }
 
-pub(crate) fn has_audio_stream(ffprobe: &Path, path: &Path) -> bool {
+/// Canales de la primera pista de audio (`a:0`) de un archivo:
+/// `None` = sin pista de audio, `Some(None)` = audio sin campo `channels`,
+/// `Some(Some(n))` = n canales. Reemplaza a `has_audio_stream` sumando la
+/// medición de canales que el upmix mono→estéreo necesita (la ley de
+/// rematrix de `aformat` baja 3 dB si no se compensa).
+pub(crate) fn probe_audio_stream(ffprobe: &Path, path: &Path) -> Option<Option<u32>> {
     let mut command = Command::new(ffprobe);
     command
         .args([
@@ -761,7 +766,7 @@ pub(crate) fn has_audio_stream(ffprobe: &Path, path: &Path) -> bool {
             "-select_streams",
             "a:0",
             "-show_entries",
-            "stream=index",
+            "stream=index,channels",
             "-of",
             "csv=p=0",
         ])
@@ -773,10 +778,22 @@ pub(crate) fn has_audio_stream(ffprobe: &Path, path: &Path) -> bool {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
-    command
-        .output()
-        .map(|output| output.status.success() && !output.stdout.is_empty())
-        .unwrap_or(false)
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let line = text.lines().next()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+    // csv=p=0 → "<index>,<channels>"; el campo channels puede venir vacío.
+    let mut fields = line.split(',');
+    fields.next()?;
+    let channels = fields
+        .next()
+        .and_then(|value| value.trim().parse::<u32>().ok());
+    Some(channels)
 }
 
 pub(crate) fn sanitize_filter_number(value: f64) -> f64 {

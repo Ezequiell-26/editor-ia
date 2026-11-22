@@ -70,9 +70,7 @@ pub fn proportional_media_timeout(total_seconds: f64) -> Duration {
     const FACTOR: f64 = 20.0;
     const FLOOR_SECS: f64 = 30.0 * 60.0;
     const CEILING_SECS: f64 = 24.0 * 60.0 * 60.0;
-    Duration::from_secs_f64(
-        (total_seconds.max(0.0) * FACTOR).clamp(FLOOR_SECS, CEILING_SECS),
-    )
+    Duration::from_secs_f64((total_seconds.max(0.0) * FACTOR).clamp(FLOOR_SECS, CEILING_SECS))
 }
 
 /// La política de deadlines de análisis vive en `ports::media` (la usan
@@ -85,10 +83,7 @@ pub use crate::ports::media::{
 /// Espera al hijo hasta `timeout`, drenando ambas tuberías en paralelo.
 /// Si vence el plazo se hace `kill()` y se devuelven las salidas parciales
 /// con `timed_out = true` (el caller decide cómo reportarlo).
-pub fn output_with_timeout(
-    command: &mut Command,
-    timeout: Duration,
-) -> io::Result<TimedOutput> {
+pub fn output_with_timeout(command: &mut Command, timeout: Duration) -> io::Result<TimedOutput> {
     let mut child = command
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -96,17 +91,13 @@ pub fn output_with_timeout(
     let mut stdout_pipe = child.stdout.take();
     let mut stderr_pipe = child.stderr.take();
 
-    let stdout_reader = std::thread::spawn(move || {
-        match stdout_pipe.as_mut() {
-            Some(pipe) => drain_capped(pipe),
-            None => Vec::new(),
-        }
+    let stdout_reader = std::thread::spawn(move || match stdout_pipe.as_mut() {
+        Some(pipe) => drain_capped(pipe),
+        None => Vec::new(),
     });
-    let stderr_reader = std::thread::spawn(move || {
-        match stderr_pipe.as_mut() {
-            Some(pipe) => drain_capped(pipe),
-            None => Vec::new(),
-        }
+    let stderr_reader = std::thread::spawn(move || match stderr_pipe.as_mut() {
+        Some(pipe) => drain_capped(pipe),
+        None => Vec::new(),
     });
 
     let deadline = Instant::now() + timeout;
@@ -168,8 +159,7 @@ mod tests {
             command
         };
         let started = Instant::now();
-        let timed = output_with_timeout(&mut command, Duration::from_secs(30))
-            .expect("spawn");
+        let timed = output_with_timeout(&mut command, Duration::from_secs(30)).expect("spawn");
         assert!(!timed.timed_out);
         let status = timed.status.expect("status");
         assert!(status.success());
@@ -182,8 +172,7 @@ mod tests {
         let mut command = sleeper();
         command.stdin(Stdio::null());
         let started = Instant::now();
-        let timed = output_with_timeout(&mut command, Duration::from_millis(300))
-            .expect("spawn");
+        let timed = output_with_timeout(&mut command, Duration::from_millis(300)).expect("spawn");
         assert!(timed.timed_out);
         assert!(timed.status.is_none());
         // El kill tiene que ser rápido: no puede quedar esperando los ~30 s
@@ -238,7 +227,10 @@ mod tests {
             proportional_media_timeout(10.0 * 3600.0),
             Duration::from_secs(24 * 3600)
         );
-        assert_eq!(proportional_media_timeout(0.0), Duration::from_secs(30 * 60));
+        assert_eq!(
+            proportional_media_timeout(0.0),
+            Duration::from_secs(30 * 60)
+        );
     }
 
     #[test]

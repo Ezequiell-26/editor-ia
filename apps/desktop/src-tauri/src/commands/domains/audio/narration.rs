@@ -132,7 +132,17 @@ pub(crate) async fn sapi_voices(state: &AppState) -> Result<Vec<VoiceInfo>, Proj
             "Windows PowerShell no está disponible para enumerar las voces",
         ));
     };
-    let raw = run_powershell(&powershell, VOICES_SCRIPT, &[], None)?;
+    let powershell = powershell.clone();
+    let raw = tauri::async_runtime::spawn_blocking(move || {
+        run_powershell(&powershell, VOICES_SCRIPT, &[], None)
+    })
+    .await
+    .map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudieron enumerar las voces: {error}").as_str(),
+        )
+    })??;
     Ok(parse_voices(&raw))
 }
 
@@ -205,18 +215,35 @@ pub async fn synthesize_narration(
     let output = media_dir.join(format!("narracion-{}.wav", Uuid::new_v4()));
     let voice_name = resolve_voice_name(voice.as_deref(), settings.tts_voice.as_deref());
     let voice_arg = voice_name.clone().unwrap_or_default();
-    if let Err(error) = synthesize_sapi_wav(&powershell, trimmed, &voice_arg, temp.path()) {
-        return Err(error);
-    }
-
-    let measure = probe_file(&ffprobe, temp.path(), MediaKind::Audio)?;
-    let (sha256, bytes) = sha256_file(temp.path())?;
-    std::fs::rename(temp.path(), &output).map_err(|error| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo publicar la narración: {error}").as_str(),
-        )
-    })?;
+    // La síntesis SAPI puede tardar segundos por texto largo y el hash
+    // recorre el WAV entero: todo fuera del runtime async (AUD-129).
+    let (measure, sha256, bytes) = {
+        let powershell = powershell.clone();
+        let ffprobe = ffprobe.clone();
+        let text_owned = trimmed.to_string();
+        let voice_owned = voice_arg.clone();
+        let temp_path = temp.path().to_path_buf();
+        let publish_path = output.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            synthesize_sapi_wav(&powershell, &text_owned, &voice_owned, &temp_path)?;
+            let measure = probe_file(&ffprobe, &temp_path, MediaKind::Audio)?;
+            let (sha256, bytes) = sha256_file(&temp_path)?;
+            std::fs::rename(&temp_path, &publish_path).map_err(|error| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    format!("no se pudo publicar la narración: {error}").as_str(),
+                )
+            })?;
+            Ok::<_, ProjectError>((measure, sha256, bytes))
+        })
+        .await
+        .map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo sintetizar la narración: {error}").as_str(),
+            )
+        })??
+    };
     temp.keep();
     let relative = format!(
         "media/{}",

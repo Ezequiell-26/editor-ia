@@ -21,6 +21,7 @@ import { SettingsWindow } from'../../components/SettingsWindow';
 import { AppUpdaterModal } from'../updater/AppUpdaterModal';
 import { CURRENT_APP_VERSION } from'../../app/version';
 import { HomePromoCard, NewProjectTip } from'../editor/FilmoraStates';
+import { intentConfig, PROJECT_INTENTS, type ProjectIntentId } from'./project-intent';
 
 const SettingsHome = lazy(() =>
   import('../settings/SettingsHome').then((module) => ({ default: module.SettingsHome })),
@@ -219,6 +220,9 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   const [fpsId, setFpsId] = useState('30');
   const [fpsNum, setFpsNum] = useState(30);
   const [fpsDen, setFpsDen] = useState(1);
+  // Intención del asistente: precarga formato+fps recomendados. Si el usuario
+  // toca formato o fps a mano, la intención se desmarca (queda «personalizado»).
+  const [intentId, setIntentId] = useState<ProjectIntentId | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recovering, setRecovering] = useState(false);
@@ -237,6 +241,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
     : '';
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const createDialogRef = useRef<HTMLDivElement | null>(null);
+  const onboardingDialogRef = useRef<HTMLDivElement | null>(null);
 
   // Trampa de foco (auditoría de accesibilidad, H1/H2) para el diálogo de
   // nuevo proyecto: guarda el disparador (la tarjeta"Crear proyecto"), enfoca
@@ -246,6 +251,18 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
     containerRef: createDialogRef,
     active: showCreateModal,
     onClose: () => setShowCreateModal(false),
+  });
+
+  // Misma trampa para el onboarding de primer arranque (auditoría UX):
+  // foco inicial en la primera opción, Tab atrapado y Escape = «Saltar»
+  // (persiste la elección para no volver a mostrarlo en cada arranque).
+  useDialogFocus({
+    containerRef: onboardingDialogRef,
+    active: onboardingOpen,
+    onClose: () => {
+      window.localStorage.setItem(ONBOARDING_KEY,'skipped');
+      setOnboardingOpen(false);
+    },
   });
 
   // Portadas de los proyectos recientes: se piden de a una para no lanzar
@@ -287,6 +304,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   useEffect(() => {
     if (showCreateModal) {
       setName(getDefaultProjectName());
+      setIntentId(null);
       setError(null);
       window.setTimeout(() => {
         nameInputRef.current?.select();
@@ -299,7 +317,19 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   // guarda de descarga en curso). El efecto único que cerraba ambos a la vez
   // se retiró: cerraba el actualizador aun mientras descargaba.
 
+  function applyIntent(id: ProjectIntentId) {
+    setIntentId(id);
+    const config = intentConfig(id);
+    setFormatId(config.formatId);
+    setWidth(config.width);
+    setHeight(config.height);
+    setFpsId(config.fpsId);
+    setFpsNum(config.fpsNum);
+    setFpsDen(config.fpsDen);
+  }
+
   function pickFormat(id: string) {
+    setIntentId(null);
     setFormatId(id);
     const preset = FORMAT_PRESETS.find((f) => f.id === id);
     if (preset) {
@@ -309,6 +339,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   }
 
   function pickFps(id: string) {
+    setIntentId(null);
     setFpsId(id);
     const preset = FPS_PRESETS.find((f) => f.id === id);
     if (preset) {
@@ -341,45 +372,65 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
     }
     setError(null);
     setBusy(true);
-    const ok = await store.createProject({
-      name: trimmed,
-      width: evenDimension(width),
-      height: evenDimension(height),
-      fpsNum: Math.max(1, Math.round(fpsNum || 30)),
-      fpsDen: Math.max(1, Math.round(fpsDen || 1)),
-    });
-    setBusy(false);
-    if (ok) {
-      setShowCreateModal(false);
-      transitionOut('editor');
+    try {
+      const ok = await store.createProject({
+        name: trimmed,
+        width: evenDimension(width),
+        height: evenDimension(height),
+        fpsNum: Math.max(1, Math.round(fpsNum || 30)),
+        fpsDen: Math.max(1, Math.round(fpsDen || 1)),
+      });
+      if (ok) {
+        setShowCreateModal(false);
+        transitionOut('editor');
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'no se pudo crear el proyecto');
+    } finally {
+      setBusy(false);
     }
   }
 
   async function handleQuickTemplate(tpl: (typeof QUICK_TEMPLATES)[number]): Promise<void> {
     setBusy(true);
-    const ok = await store.createProject({
-      name: `${tpl.label} · ${new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short'})}`,
-      width: tpl.width,
-      height: tpl.height,
-      fpsNum: tpl.fpsNum,
-      fpsDen: tpl.fpsDen,
-    });
-    setBusy(false);
-    if (ok) transitionOut('editor');
+    try {
+      const ok = await store.createProject({
+        name: `${tpl.label} · ${new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short'})}`,
+        width: tpl.width,
+        height: tpl.height,
+        fpsNum: tpl.fpsNum,
+        fpsDen: tpl.fpsDen,
+      });
+      if (ok) transitionOut('editor');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'no se pudo crear el proyecto');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleOpenProject(): Promise<void> {
     setBusy(true);
-    const ok = await store.openProject();
-    setBusy(false);
-    if (ok) transitionOut('editor');
+    try {
+      const ok = await store.openProject();
+      if (ok) transitionOut('editor');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'no se pudo abrir el proyecto');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleOpenRecent(recent: RecentProject): Promise<void> {
     setBusy(true);
-    const ok = await store.openProjectAt(recent.path);
-    setBusy(false);
-    if (ok) transitionOut('editor');
+    try {
+      const ok = await store.openProjectAt(recent.path);
+      if (ok) transitionOut('editor');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'no se pudo abrir el proyecto');
+    } finally {
+      setBusy(false);
+    }
   }
 
   /**
@@ -408,6 +459,15 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
 
   function handleDeleteRecent(e: React.MouseEvent, path: string) {
     e.stopPropagation();
+    // Quitar de recientes no borra el archivo, pero sin deshacer conviene
+    // confirmar: mismo window.confirm que el resto de acciones destructivas
+    // de la app (ProjectHome).
+    const recent = recents.find((item) => item.path === path);
+    const confirmed = window.confirm(
+      `Se quita «${recent?.name ?? 'este proyecto'}» de los recientes; ` +
+        'el archivo del proyecto no se borra del disco. ¿Continuar?',
+    );
+    if (!confirmed) return;
     const updated = forgetRecent(path);
     setRecents(updated);
   }
@@ -443,15 +503,20 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
     const baseName = first?.name.replace(/\.[^/.]+$/,'') ||'Nuevo proyecto importado';
 
     setBusy(true);
-    const ok = await store.createProject({
-      name: baseName,
-      width: 1920,
-      height: 1080,
-      fpsNum: 30,
-      fpsDen: 1,
-    });
-    setBusy(false);
-    if (ok) transitionOut('editor');
+    try {
+      const ok = await store.createProject({
+        name: baseName,
+        width: 1920,
+        height: 1080,
+        fpsNum: 30,
+        fpsDen: 1,
+      });
+      if (ok) transitionOut('editor');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'no se pudo crear el proyecto');
+    } finally {
+      setBusy(false);
+    }
   }
 
   const filteredRecents = useMemo(() => {
@@ -663,7 +728,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 </div>
                 <div className="start-action-text">
                   <strong className="start-action-title">Abrir archivo</strong>
-                  <span className="start-action-desc">Cargar proyecto .editoria</span>
+                  <span className="start-action-desc">Cargar proyecto .editoria.json</span>
                 </div>
               </button>
             </div>
@@ -741,7 +806,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 <span className="start-section-title">Servicios</span>
               </div>
               <div className="start-services">
-                {['Editor IA Cloud','Centro de creadores','Caja de herramientas','Invita Amigos'].map(
+                {['Olyvia Cloud','Centro de creadores','Caja de herramientas','Invita Amigos'].map(
                   (label) => (
                     <button
                       key={label}
@@ -830,6 +895,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                     type="text"
                     className="start-search-input"
                     placeholder="Buscar proyectos…"
+                    aria-label="Buscar proyectos"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -872,16 +938,12 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               {filteredRecents.length > 0 ? (
                 <div className="start-projects-grid">
                   {filteredRecents.map((project) => (
-                    <div
-                      key={project.path}
-                      className="start-project-card"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => void handleOpenRecent(project)}
-                      onKeyDown={(e) => {
-                        if (e.key ==='Enter') void handleOpenRecent(project);
-                      }}
-                    >
+                    // La card no es un role="button" con botones anidados: el
+                    // botón de abrir es un <button> real que cubre toda la
+                    // tarjeta (.start-project-open, position absolute) y el de
+                    // quitar queda como hermano por encima. Así Enter Y
+                    // Espacio funcionan de forma nativa.
+                    <div key={project.path} className="start-project-card">
                       <div className={`start-thumb-box${recentThumbs[project.path] ? 'has-image': ''}`}>
                         {recentThumbs[project.path] ? (
                           <img
@@ -922,9 +984,15 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
 
                       <button
                         type="button"
+                        className="start-project-open"
+                        aria-label={`Abrir ${project.name}`}
+                        onClick={() => void handleOpenRecent(project)}
+                      />
+                      <button
+                        type="button"
                         className="start-card-delete"
-                        title="Eliminar de recientes"
-                        aria-label={`Eliminar ${project.name} de recientes`}
+                        title="Quitar de recientes"
+                        aria-label={`Quitar ${project.name} de recientes`}
                         onClick={(e) => handleDeleteRecent(e, project.path)}
                       >
                         <Icon name="trash"size={12} />
@@ -1033,6 +1101,39 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 void handleCreateProject();
               }}
             >
+              {/* Asistente de intención: radios nativos dentro de un fieldset
+                  para que el grupo tenga nombre accesible («¿Para qué es el
+                  video?»). Precargan formato+fps; los valores quedan editables
+                  con los selectores de abajo. */}
+              <fieldset className="start-field start-intent">
+                <legend className="start-label">¿Para qué es el video?</legend>
+                <div className="start-intent-grid">
+                  {PROJECT_INTENTS.map((intent) => (
+                    <label
+                      key={intent.id}
+                      className={`start-intent-option${intentId === intent.id ? ' active': ''}`}
+                    >
+                      <input
+                        type="radio"
+                        name="project-intent"
+                        value={intent.id}
+                        checked={intentId === intent.id}
+                        onChange={() => applyIntent(intent.id)}
+                      />
+                      <span className="start-intent-text">
+                        <span className="start-intent-name">{intent.label}</span>
+                        <span className="start-intent-summary">{intent.summary}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <p className="start-intent-help" aria-live="polite">
+                  {intentId
+                    ? intentConfig(intentId).help
+                    : 'Elegí una intención para precargar el formato y los fps recomendados; después podés ajustarlos.'}
+                </p>
+              </fieldset>
+
               {/* Project Name */}
               <label className="start-field">
                 <span className="start-label">Nombre del proyecto</span>
@@ -1074,7 +1175,9 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               <div className="start-field">
                 <span className="start-label">Tasa de cuadros (FPS)</span>
                 <div className="start-fps-grid">
-                  {FPS_PRESETS.slice(0, 6).map((f) => (
+                  {/* Todos los presets: las intenciones recomiendan 24/30/60 y
+                      cortar la lista dejaría el fps activo sin chip visible. */}
+                  {FPS_PRESETS.map((f) => (
                     <button
                       key={f.id}
                       type="button"
@@ -1139,8 +1242,8 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
           el resto directo al editor. No es un modal decorativo. */}
       {onboardingOpen ? (
         <div className="start-onboarding-backdrop"role="presentation">
-          <div className="start-onboarding"role="dialog"aria-modal="true"aria-label="Selecciona el producto que más uses">
-            <div className="start-onboarding-brand">Editor IA</div>
+          <div className="start-onboarding"ref={onboardingDialogRef}role="dialog"aria-modal="true"aria-label="Selecciona el producto que más uses">
+            <div className="start-onboarding-brand">Olyvia</div>
             <h2>Selecciona el producto que más uses</h2>
             <p>Personalizaremos tu experiencia en función de lo que elijas</p>
             <div className="start-onboarding-options"role="radiogroup"aria-label="Producto habitual">

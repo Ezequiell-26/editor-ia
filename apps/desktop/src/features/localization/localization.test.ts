@@ -21,7 +21,7 @@ const cue = (text: string, start = 0) => ({
 });
 
 describe('Localization Studio helpers', () => {
-  it('ofrece los diecisiete idiomas del backend y encuentra uno por código', () => {
+  it('ofrece los idiomas del backend y encuentra uno por código', () => {
     expect(LOCALIZATION_LANGUAGES.map((language) => language.code)).toEqual([
       'es',
       'en',
@@ -40,11 +40,36 @@ describe('Localization Studio helpers', () => {
       'pl',
       'nl',
       'cs',
+      'uk',
+      'sv',
+      'da',
+      'no',
+      'fi',
+      'el',
+      'he',
+      'ro',
+      'hu',
+      'id',
+      'vi',
+      'th',
+      'fa',
+      'ur',
+      'tl',
+      'ca',
+      'hr',
+      'sr',
+      'sk',
+      'bg',
     ]);
+    expect(LOCALIZATION_LANGUAGES).toHaveLength(37);
     expect(localizationLanguage('ar')?.direction).toBe('rtl');
+    expect(localizationLanguage('he')?.direction).toBe('rtl');
+    expect(localizationLanguage('ur')?.direction).toBe('rtl');
+    expect(localizationLanguage('fa')?.direction).toBe('rtl');
     expect(localizationLanguage('ja')?.native).toBe('日本語');
     expect(localizationLanguage('ko')?.native).toBe('한국어');
-    expect(localizationLanguage('tl')).toBeNull();
+    expect(localizationLanguage('tl')?.native).toBe('Tagalog');
+    expect(localizationLanguage('xx')).toBeNull();
   });
 
   it('el doblaje SAPI cubre los 17 y la clonación excluye bengalí', () => {

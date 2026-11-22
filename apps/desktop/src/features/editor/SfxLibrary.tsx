@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SfxItem } from '../../services/contracts';
 import { useProjectStore } from '../../state/project-store';
-import { addSfxToTimeline } from './sfx-actions';
+import { addSfxToTimeline } from '../../state/sfx-actions';
 import { Icon } from '../../components/Icon';
 
 /**

@@ -65,16 +65,74 @@ pub(crate) fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<S
         if points.len() < 3 {
             return None;
         }
+        // `width`/`height` escalan el polígono alrededor del centro de su
+        // bounding box (1.0 = identidad): `cx + (px-cx)*w + offset`. Así las
+        // claves de máscara pueden agrandar/achicar la forma — p. ej. una
+        // máscara de seguimiento facial que acompaña el acercamiento del
+        // sujeto. El pivote coincide con el centro de la cara cuando el
+        // polígono la rodea simétricamente.
+        let (mut lo_x, mut hi_x, mut lo_y, mut hi_y) = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for (point_x, point_y) in &points {
+            lo_x = lo_x.min(*point_x);
+            hi_x = hi_x.max(*point_x);
+            lo_y = lo_y.min(*point_y);
+            hi_y = hi_y.max(*point_y);
+        }
+        let center_x = (lo_x + hi_x) / 2.0;
+        let center_y = (lo_y + hi_y) / 2.0;
+        // Con escala identidad (sin keyframes width/height y máscara 1×1) se
+        // emite la transformación corta original `p + offset`: el geq inline
+        // pesa ~4× menos y los grafos de muchos puntos no se acercan al
+        // límite de línea de comandos cuando viajan por `-vf`.
+        let unit_scale = width == "1.000000" && height == "1.000000";
+        // rotationDeg positivo = horario en pantalla (convención CSS/SVG/NLE).
+        let rotated = rotation != "0.000000";
+        let transform = |px_value: f64, py_value: f64| -> (String, String) {
+            if unit_scale && !rotated {
+                (
+                    format!("({px_value:.6}+({x}))"),
+                    format!("({py_value:.6}+({y}))"),
+                )
+            } else if !rotated {
+                (
+                    format!(
+                        "({center_x:.6}+((({px_value:.6})-({center_x:.6}))*({width}))+({x}))"
+                    ),
+                    format!(
+                        "({center_y:.6}+((({py_value:.6})-({center_y:.6}))*({height}))+({y}))"
+                    ),
+                )
+            } else {
+                // Escala → rotación horaria → offset. Las unidades x (fracción
+                // del ancho) e y (fracción del alto) se igualan con (H/W)/(W/H)
+                // igual que en la rama SDF. El pivote es el centro del bbox.
+                let cos = format!("cos(({rotation})*PI/180)");
+                let sin = format!("sin(({rotation})*PI/180)");
+                let dx = format!("((({px_value:.6})-({center_x:.6}))*({width}))");
+                let dy = format!("((({py_value:.6})-({center_y:.6}))*({height}))");
+                (
+                    format!(
+                        "({center_x:.6}+({cos})*({dx})-({sin})*({dy})*(H/W)+({x}))"
+                    ),
+                    format!(
+                        "({center_y:.6}+({sin})*({dx})*(W/H)+({cos})*({dy})+({y}))"
+                    ),
+                )
+            }
+        };
         let px = "(X/W)".to_owned();
         let py = "(Y/H)".to_owned();
         let mut crossings = Vec::new();
         for index in 0..points.len() {
             let (x1, y1) = points[index];
             let (x2, y2) = points[(index + 1) % points.len()];
-            let x1 = format!("({x1:.6}+({x}))");
-            let y1 = format!("({y1:.6}+({y}))");
-            let x2 = format!("({x2:.6}+({x}))");
-            let y2 = format!("({y2:.6}+({y}))");
+            let (x1, y1) = transform(x1, y1);
+            let (x2, y2) = transform(x2, y2);
             let crosses_y = format!(
                 "(if(gt({y1},{py}),1,0)*if(lte({y2},{py}),1,0))+(if(gt({y2},{py}),1,0)*if(lte({y1},{py}),1,0))"
             );
@@ -89,32 +147,18 @@ pub(crate) fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<S
         // to every segment in frame-height units, then sign it with the
         // even/odd point-in-polygon result. Feather is relative to the
         // polygon's smaller bounding-box dimension, matching the other shapes.
-        let min_x = points
-            .iter()
-            .map(|point| point.0)
-            .fold(f64::INFINITY, f64::min);
-        let max_x = points
-            .iter()
-            .map(|point| point.0)
-            .fold(f64::NEG_INFINITY, f64::max);
-        let min_y = points
-            .iter()
-            .map(|point| point.1)
-            .fold(f64::INFINITY, f64::min);
-        let max_y = points
-            .iter()
-            .map(|point| point.1)
-            .fold(f64::NEG_INFINITY, f64::max);
+        let min_x = lo_x;
+        let max_x = hi_x;
+        let min_y = lo_y;
+        let max_y = hi_y;
         let span_x = (max_x - min_x).max(0.0001);
         let span_y = (max_y - min_y).max(0.0001);
         let mut edge_distances = Vec::with_capacity(points.len());
         for index in 0..points.len() {
             let (x1_value, y1_value) = points[index];
             let (x2_value, y2_value) = points[(index + 1) % points.len()];
-            let x1 = format!("({x1_value:.6}+({x}))");
-            let y1 = format!("({y1_value:.6}+({y}))");
-            let x2 = format!("({x2_value:.6}+({x}))");
-            let y2 = format!("({y2_value:.6}+({y}))");
+            let (x1, y1) = transform(x1_value, y1_value);
+            let (x2, y2) = transform(x2_value, y2_value);
             let vx = format!("(({x2})-({x1}))*(W/H)");
             let vy = format!("(({y2})-({y1}))");
             let wx = format!("(({px})-({x1}))*(W/H)");
@@ -162,11 +206,13 @@ pub(crate) fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<S
         } else {
             // Rotate in pixel space even though the centre and size are
             // normalised: H/W converts the vertical component before mixing.
+            // Signo horario (positivo = CW en pantalla) — paridad con la
+            // rotación CSS/SVG del preview; antes giraba al revés.
             let cos = format!("cos(({rotation})*PI/180)");
             let sin = format!("sin(({rotation})*PI/180)");
             (
-                format!("((({cos})*({dx})+({sin})*({dy})*(H/W))/(({w})/2))"),
-                format!("((({cos})*({dy})-({sin})*({dx})*(W/H))/(({h})/2))"),
+                format!("((({cos})*({dx})-({sin})*({dy})*(H/W))/(({w})/2))"),
+                format!("((({sin})*({dx})*(W/H)+({cos})*({dy}))/(({h})/2))"),
             )
         };
         if expand != 0.0 {
@@ -339,6 +385,50 @@ mod polygon_feather_tests {
         let filter = mask_filter(&polygon(0.0, false), 30.0, 0.0).expect("hard polygon");
         assert!(filter.contains("if(lte((0.000000),0.0001)"));
         assert!(filter.contains("mod(("));
+    }
+
+    #[test]
+    fn polygon_width_height_keyframes_scale_around_the_bbox_center() {
+        // Las claves width/height escalan el polígono alrededor del centro de
+        // su bounding box (0.5, 0.5 para el fixture): la máscara de tracking
+        // facial puede crecer/encoger con la distancia del sujeto.
+        let mut clip = polygon(0.0, false);
+        clip["mask"]["keyframes"] = serde_json::json!([
+            { "frame": 0, "width": 1.0, "height": 1.0 },
+            { "frame": 30, "width": 1.5, "height": 1.5 }
+        ]);
+        let filter = mask_filter(&clip, 30.0, 0.0).expect("polygon filter");
+        // El pivote es el centro del bbox y el factor viene de la expresión
+        // de keyframes (1.5000 aparece como valor interpolado).
+        assert!(filter.contains("0.500000+((("));
+        assert!(filter.contains("1.5000"));
+        assert!(filter.contains("(W/H)"));
+    }
+
+    #[test]
+    fn polygon_without_scale_keyframes_keeps_the_short_identity_transform() {
+        // Sin escala (width/height identidad) el geq usa la forma corta
+        // `vértice + offset`: ~4× menos caracteres que la forma escalada, así
+        // los polígonos de muchos puntos no superan el límite de `-vf` en
+        // Windows. La semántica es idéntica: escala 1 = sin deformación.
+        let filter = mask_filter(&polygon(0.0, false), 30.0, 0.0).expect("polygon filter");
+        assert!(filter.contains("(0.200000+("));
+        assert!(!filter.contains("0.500000+((("));
+    }
+
+    #[test]
+    fn polygon_rotation_degrees_emit_cw_rotation_with_aspect_correction() {
+        // rotationDeg=90 sobre el fixture (bbox centrado en 0.5,0.5): la
+        // expresión debe llevar cos/sin, corrección de aspecto (H/W)/(W/H)
+        // y el offset x/y — paridad con la rotación horaria del preview.
+        let mut clip = polygon(0.0, false);
+        clip["mask"]["rotationDeg"] = serde_json::json!(90.0);
+        let filter = mask_filter(&clip, 30.0, 0.0).expect("rotated polygon filter");
+        assert!(filter.contains("cos((90.000000)*PI/180)"));
+        assert!(filter.contains("sin((90.000000)*PI/180)"));
+        assert!(filter.contains("(H/W)"));
+        assert!(filter.contains("(W/H)"));
+        assert!(filter.contains("0.500000+("));
     }
 
     #[test]

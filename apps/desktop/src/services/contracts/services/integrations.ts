@@ -1,4 +1,4 @@
-import type { BrowserInstanceInfo, CaptureDevices, CursorOverlaySpec, WebcamChromaSpec, ExtensionInstallStatus, FlowBrowserStatus, FlowEmbedStatus, McpAuditTail, McpAutoconnectResult, McpCallResult, McpDetectedClient, McpProbeResult, McpServerConfig, McpServerInfo, McpServerInput, McpSessionInfo, ObsScene, ObsSceneInput, PluginInfo, ScreenRecordPreview, ScreenRecordResult, ScreenRecordStatus, StickmanKeyframeInput, StickmanRenderResult, WebSessionsStatus, WhiteboardRenderResult, WhiteboardStatus } from '../integrations';
+import type { BrowserInstanceInfo, CaptureDevices, CursorOverlaySpec, WebcamChromaSpec, ExtensionInstallStatus, FlowBrowserStatus, FlowEmbedStatus, McpAuditTail, McpAutoconnectResult, McpCallResult, McpDetectedClient, McpProbeResult, McpServerConfig, McpServerInfo, McpServerInput, McpSessionInfo, ObsScene, ObsSceneInput, ObsSwitchStartInput, ObsSwitchStatus, ObsTransitionInput, PluginInfo, ScreenRecordPreview, ScreenRecordResult, ScreenRecordStatus, StickmanKeyframeInput, StickmanRenderResult, WebSessionsStatus, WhiteboardRenderResult, WhiteboardStatus } from '../integrations';
 import type { FlowGenerateResult } from '../media';
 import type { SystemInfo } from '../providers';
 import type { UnlistenFn } from '../events';
@@ -171,6 +171,24 @@ obsSceneStart(id: string, outputDir: string): Promise<ScreenRecordStatus>;
 
 obsScenePreview(id: string): Promise<ScreenRecordPreview>;
 
+/** Render finito de transición OBS entre dos escenas de pantalla (MP4). */
+  obsTransitionRecord(input: ObsTransitionInput): Promise<ScreenRecordResult>;
+
+  /** Abre una sesión de switching OBS en vivo (escena activa = segmento 0). */
+  obsSwitchStart(input: ObsSwitchStartInput): Promise<ObsSwitchStatus>;
+
+  /** Cambia la escena activa: cierra el segmento y abre uno nuevo. */
+  obsSwitchScene(sceneId: string): Promise<ObsSwitchStatus>;
+
+  /** Detiene la sesión y cose todos los segmentos con transiciones (MP4). */
+  obsSwitchStop(): Promise<ScreenRecordResult>;
+
+  /** Estado de la sesión de switching OBS (si hay una abierta). */
+  obsSwitchStatus(): Promise<ObsSwitchStatus>;
+
+  /** Frame PNG del programa en vivo (escena activa de la sesión). */
+  obsSwitchPreview(): Promise<ScreenRecordPreview>;
+
 stickmanRender(input: {
     outputPath: string;
     action?: 'idle' | 'walk' | 'run' | 'wave' | 'jump' | 'custom';
@@ -183,11 +201,12 @@ stickmanRender(input: {
     boneHex?: string;
     bgHex?: string;
     particles?: {
-      kind?: 'confetti' | 'snow' | 'sparks' | 'bounce';
+      kind?: 'confetti' | 'snow' | 'sparks' | 'bounce' | 'tumble';
       count?: number;
       colorHex?: string;
       gravity?: number;
       bounce?: number;
+      spin?: number;
     };
   }): Promise<StickmanRenderResult>;
 

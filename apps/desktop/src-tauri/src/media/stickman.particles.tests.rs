@@ -1,12 +1,17 @@
 use super::*;
 
 fn spec(kind: &str) -> ParticleSpec {
+    spec_for(kind)
+}
+
+fn spec_for(kind: &str) -> ParticleSpec {
     ParticleSpec {
         kind: kind.into(),
         count: 200,
         color_hex: Some("#ffcc00".into()),
         gravity: None,
         bounce: None,
+        spin: None,
     }
 }
 
@@ -90,8 +95,59 @@ fn particles_are_deterministic_across_frames() {
 }
 
 #[test]
+fn tumble_particles_are_deterministic_and_rotate() {
+    let spec = ParticleSpec {
+        spin: Some(2.0),
+        ..spec_for("tumble")
+    };
+    // Mismo instante → misma posición y mismo ángulo.
+    let (x1, y1, _, a1) = tumble_pos(7, 1.5, 640.0, 360.0, &spec);
+    let (x2, y2, _, a2) = tumble_pos(7, 1.5, 640.0, 360.0, &spec);
+    assert_eq!((x1, y1, a1), (x2, y2, a2));
+    // Cayendo, el cuerpo gira: el ángulo a 0.5s difiere del inicial.
+    let (_, _, _, a_early) = tumble_pos(7, 0.5, 640.0, 360.0, &spec);
+    assert_ne!(a_early, 0.0, "tumble debe rotar mientras cae");
+    // Asentada, conserva un ángulo estable y queda en el piso.
+    let (_, late, radius, _) = tumble_pos(7, 30.0, 640.0, 360.0, &spec);
+    let floor = 360.0 - radius - 1.0;
+    assert!(
+        (late - floor).abs() < 0.01,
+        "a los 30s debe estar en el piso, y={late} floor={floor}"
+    );
+    // spin=0 congela la rotación inicial pero no la física.
+    let still = ParticleSpec {
+        spin: Some(0.0),
+        ..spec_for("tumble")
+    };
+    let (_, _, _, a_still) = tumble_pos(7, 0.5, 640.0, 360.0, &still);
+    let (_, _, _, a_still2) = tumble_pos(7, 2.0, 640.0, 360.0, &still);
+    assert_eq!(a_still, a_still2, "spin=0 no debe cambiar el ángulo");
+}
+
+#[test]
+fn tumble_kind_renders_pixels() {
+    let rgb = render_frame(
+        &stand_pose(),
+        200,
+        120,
+        [255, 255, 255],
+        [0, 0, 0],
+        Some(&spec("tumble")),
+        5,
+        24,
+    );
+    let gold = rgb
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .filter(|p| p[0] > 200 && p[1] > 150)
+        .count();
+    assert!(gold > 30, "tumble debe dibujar partículas, hay {gold}");
+}
+
+#[test]
 fn each_particle_kind_renders_pixels() {
-    for kind in ["confetti", "snow", "sparks", "bounce"] {
+    for kind in ["confetti", "snow", "sparks", "bounce", "tumble"] {
         let rgb = render_frame(
             &stand_pose(),
             200,

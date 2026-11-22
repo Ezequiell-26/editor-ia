@@ -70,6 +70,13 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 filmcraft-audio-dsp = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-audio-dsp" }
 filmcraft-color = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-color" }
 filmcraft-scopes = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-scopes" }
+filmcraft-tts = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-tts" }
+filmcraft-text = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-text" }
+filmcraft-captions = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-captions" }
+filmcraft-interchange = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-interchange" }
+filmcraft-project = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-project" }
+filmcraft-media = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-media" }
+filmcraft-time = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-time" }
 # Crates del engine de Concat vendorados (AGPL-3.0-or-later, ver
 # vendor/concat/NOTICE.md). Sólo se declaran los que tienen consumidor
 # productivo directo; concat-core/concat-project entran igual por

@@ -56,4 +56,6 @@ export interface DesktopServiceStudio {
 
   catalogSearch(query: CatalogQuery): Promise<readonly CatalogEntry[]>;
   catalogGet(id: string): Promise<CatalogEntry | null>;
+  /** Inventario de capacidades del estudio (providers, fuentes, ffmpeg). */
+  studioCapabilities(): Promise<Record<string, unknown>>;
 }

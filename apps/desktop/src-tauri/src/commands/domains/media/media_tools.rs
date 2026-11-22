@@ -16,9 +16,9 @@ use uuid::Uuid;
 use crate::commands::system::resolve_tools;
 use crate::media::resolve_inside_root;
 use crate::media::toolbox::{
-    choose_subtitle_stream, metadata_args, merge_video_args, ready_output_dir, resolve_asset,
+    choose_subtitle_stream, merge_video_args, metadata_args, ready_output_dir, resolve_asset,
     subtitle_extract_args, trim_video_args, unique_path, watermark_filter, watermark_position,
-    watermark_video_args,
+    watermark_video_args, MergeInput,
 };
 use crate::media::{probe_file, MediaKind};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
@@ -46,38 +46,54 @@ fn find_font() -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
-fn run_ffmpeg(
+/// FFmpeg puede tardar minutos (merge/recorte/marka de agua): el `.output()`
+/// bloqueante va a `spawn_blocking` para no congelar el runtime async de los
+/// comandos Tauri (AUD-129).
+async fn run_ffmpeg(
     ffmpeg: &Path,
     args: &[String],
     root: &Path,
     what: &str,
 ) -> Result<(), ProjectError> {
-    let mut command = Command::new(ffmpeg);
-    command
-        .arg("-hide_banner")
-        .arg("-nostats")
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    crate::commands::hide_console(&mut command);
-    let output = command.output().map_err(|_| {
+    let ffmpeg = ffmpeg.to_path_buf();
+    let args = args.to_vec();
+    let root = root.to_path_buf();
+    let what = what.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let mut command = Command::new(&ffmpeg);
+        command
+            .arg("-hide_banner")
+            .arg("-nostats")
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        crate::commands::hide_console(&mut command);
+        let output = command.output().map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo iniciar FFmpeg para {what}"),
+            )
+        })?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                &format!(
+                    "FFmpeg no pudo {what}: {}",
+                    sanitize_log(&stderr, &root, 300)
+                ),
+            ));
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|_| {
         ProjectError::message(
-            ProjectErrorCode::Io,
-            &format!("no se pudo iniciar FFmpeg para {what}"),
-        )
-    })?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
-            &format!(
-                "FFmpeg no pudo {what}: {}",
-                sanitize_log(&stderr, root, 300)
-            ),
-        ));
-    }
-    Ok(())
+            "el proceso de FFmpeg se interrumpió",
+        )
+    })?
 }
 
 /// Args de códec de video para las herramientas: resuelve el primer encoder
@@ -85,7 +101,28 @@ fn run_ffmpeg(
 /// no trae `libx264`) y arma los flags según su familia. Las dimensiones
 /// del input alimentan el bitrate de los fallback sin CRF; si ffprobe no
 /// puede medir, se asumen 1080p30 (bitrate conservador ~13 Mbps).
-fn tool_video_codec_args(
+/// `resolve_encoder` y `probe_file` lanzan procesos: van a `spawn_blocking`.
+async fn tool_video_codec_args(
+    ffmpeg: &Path,
+    ffprobe: Option<&Path>,
+    input: &Path,
+) -> Result<Vec<String>, ProjectError> {
+    let ffmpeg = ffmpeg.to_path_buf();
+    let ffprobe = ffprobe.map(Path::to_path_buf);
+    let input = input.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        tool_video_codec_args_blocking(&ffmpeg, ffprobe.as_deref(), &input)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "la preparación del video falló",
+        )
+    })?
+}
+
+fn tool_video_codec_args_blocking(
     ffmpeg: &Path,
     ffprobe: Option<&Path>,
     input: &Path,
@@ -166,15 +203,57 @@ pub async fn merge_videos(
         }
         inputs.push(path);
     }
+    // AUD-130: concat exige audio en TODOS los segmentos. Se mide cada
+    // input con ffprobe (spawn_blocking: lanza procesos) para saber cuáles
+    // traen pista y su duración — los silenciosos reciben anullsrc.
+    let ffprobe = ffprobe.ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "ffprobe no está disponible para detectar las pistas de audio",
+        )
+    })?;
+    let probe = ffprobe.to_path_buf();
+    let paths = inputs.clone();
+    let measured = tokio::task::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|path| probe_file(&probe, path, MediaKind::Video))
+            .collect::<Result<Vec<_>, _>>()
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "la medición de los videos falló",
+        )
+    })??;
+    let merge_inputs: Vec<MergeInput> = inputs
+        .iter()
+        .zip(measured.iter())
+        .map(|(path, measure)| MergeInput {
+            path: path.clone(),
+            has_audio: measure.channels.is_some() || measure.sample_rate.is_some(),
+            duration_seconds: measure.duration_seconds.unwrap_or(0.0),
+        })
+        .collect();
+    if merge_inputs
+        .iter()
+        .any(|input| !input.has_audio && input.duration_seconds <= 0.0)
+    {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "un video sin audio no tiene duración medible; no se puede unir",
+        ));
+    }
     // concat exige mismas dimensiones: el bitrate del fallback usa las del
     // primer input (inputs tiene >= 2 elementos por la validación previa).
-    let codec_args = tool_video_codec_args(&ffmpeg, ffprobe.as_deref(), &inputs[0])?;
+    let codec_args = tool_video_codec_args(&ffmpeg, Some(&ffprobe), &inputs[0]).await?;
 
-    let mut args = merge_video_args(&inputs, &codec_args);
+    let mut args = merge_video_args(&merge_inputs, &codec_args);
     let final_path = unique_path(&out_dir, "union", "mp4");
     args.push("-y".into());
     args.push(final_path.to_string_lossy().into_owned());
-    run_ffmpeg(&ffmpeg, &args, &session.root, "unir los videos")?;
+    run_ffmpeg(&ffmpeg, &args, &session.root, "unir los videos").await?;
     finish(&final_path, "videos unidos en un solo MP4")
 }
 
@@ -223,10 +302,10 @@ pub async fn trim_video(
         ));
     }
 
-    let codec_args = tool_video_codec_args(&ffmpeg, ffprobe.as_deref(), &input)?;
+    let codec_args = tool_video_codec_args(&ffmpeg, ffprobe.as_deref(), &input).await?;
     let final_path = unique_path(&out_dir, "recorte", "mp4");
     let args = trim_video_args(&input, start_seconds, end_seconds, &codec_args, &final_path);
-    run_ffmpeg(&ffmpeg, &args, &session.root, "recortar el video")?;
+    run_ffmpeg(&ffmpeg, &args, &session.root, "recortar el video").await?;
     finish(
         &final_path,
         &format!("recorte de {start_seconds:.1}s a {end_seconds:.1}s"),
@@ -286,10 +365,10 @@ pub async fn watermark_video(
         ));
     }
 
-    let codec_args = tool_video_codec_args(&ffmpeg, ffprobe.as_deref(), &input)?;
+    let codec_args = tool_video_codec_args(&ffmpeg, ffprobe.as_deref(), &input).await?;
     let final_path = unique_path(&out_dir, "marca-de-agua", "mp4");
     let args = watermark_video_args(&input, &filter, &codec_args, &final_path);
-    run_ffmpeg(&ffmpeg, &args, &session.root, "aplicar la marca de agua")?;
+    run_ffmpeg(&ffmpeg, &args, &session.root, "aplicar la marca de agua").await?;
     finish(&final_path, &format!("marca de agua «{text}» aplicada"))
 }
 
@@ -336,7 +415,7 @@ pub async fn set_metadata(
 
     let final_path = unique_path(&out_dir, "con-metadatos", &extension);
     let args = metadata_args(&input, &title, &artist, &comment, &final_path);
-    run_ffmpeg(&ffmpeg, &args, &session.root, "editar los metadatos")?;
+    run_ffmpeg(&ffmpeg, &args, &session.root, "editar los metadatos").await?;
     finish(&final_path, "metadatos actualizados")
 }
 
@@ -378,29 +457,44 @@ pub async fn extract_subtitles(
         ));
     };
 
-    let mut probe = Command::new(&ffprobe);
-    probe
-        .args([
-            "-v",
-            "error",
-            "-select_streams",
-            "s",
-            "-show_entries",
-            "stream=index:stream_tags=language,title",
-            "-of",
-            "json",
-        ])
-        .arg(&input)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    crate::commands::hide_console(&mut probe);
-    let probed = probe.output().map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo consultar los subtítulos del video",
-        )
-    })?;
+    // ffprobe y ffmpeg pueden tardar: `.output()` bloqueante va a
+    // `spawn_blocking` (AUD-129), igual que `run_ffmpeg`.
+    let probed = {
+        let ffprobe = ffprobe.clone();
+        let input = input.clone();
+        tokio::task::spawn_blocking(move || -> Result<std::process::Output, ProjectError> {
+            let mut probe = Command::new(&ffprobe);
+            probe
+                .args([
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "s",
+                    "-show_entries",
+                    "stream=index:stream_tags=language,title",
+                    "-of",
+                    "json",
+                ])
+                .arg(&input)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null());
+            crate::commands::hide_console(&mut probe);
+            probe.output().map_err(|_| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    "no se pudo consultar los subtítulos del video",
+                )
+            })
+        })
+        .await
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo consultar los subtítulos del video",
+            )
+        })?
+    }?;
     if !probed.status.success() {
         return Ok(None);
     }
@@ -421,19 +515,32 @@ pub async fn extract_subtitles(
 
     let temp = std::env::temp_dir().join(format!("editoria-subs-{}.srt", Uuid::new_v4()));
     let args = subtitle_extract_args(&input, chosen, &temp);
-    let mut command = Command::new(&ffmpeg);
-    command
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    crate::commands::hide_console(&mut command);
-    let output = command.output().map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo iniciar FFmpeg para extraer subtítulos",
-        )
-    })?;
+    let output = {
+        let ffmpeg = ffmpeg.clone();
+        let args = args.clone();
+        tokio::task::spawn_blocking(move || -> Result<std::process::Output, ProjectError> {
+            let mut command = Command::new(&ffmpeg);
+            command
+                .args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped());
+            crate::commands::hide_console(&mut command);
+            command.output().map_err(|_| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    "no se pudo iniciar FFmpeg para extraer subtítulos",
+                )
+            })
+        })
+        .await
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo iniciar FFmpeg para extraer subtítulos",
+            )
+        })?
+    }?;
     if !output.status.success() {
         let _ = std::fs::remove_file(&temp);
         let detail = String::from_utf8_lossy(&output.stderr);

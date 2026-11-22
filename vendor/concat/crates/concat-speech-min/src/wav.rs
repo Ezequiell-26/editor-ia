@@ -153,7 +153,11 @@ fn sample_at(bytes: &[u8], format: u16, bits: u16) -> Result<f32, String> {
         (1, 16) => i16::from_le_bytes([bytes[0], bytes[1]]) as f32 / 32768.0,
         (1, 24) => {
             let v = (bytes[0] as i32) | ((bytes[1] as i32) << 8) | ((bytes[2] as i32) << 16);
-            let v = if v & 0x80_0000 != 0 { v | !0xFF_FFFF } else { v };
+            let v = if v & 0x80_0000 != 0 {
+                v | !0xFF_FFFF
+            } else {
+                v
+            };
             v as f32 / 8_388_608.0
         }
         (1, 32) => i32::from_le_bytes(bytes[..4].try_into().unwrap()) as f32 / 2_147_483_648.0,
@@ -257,7 +261,11 @@ mod tests {
         assert_eq!(decoded.len(), 8_000);
         // The window's first sample is the source's at frame 2000.
         let expected = 2000f32 * 4.0 / 32768.0;
-        assert!((decoded[0] - expected).abs() < 1e-3, "{} vs {expected}", decoded[0]);
+        assert!(
+            (decoded[0] - expected).abs() < 1e-3,
+            "{} vs {expected}",
+            decoded[0]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

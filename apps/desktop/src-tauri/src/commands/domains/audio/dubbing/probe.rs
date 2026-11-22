@@ -10,7 +10,7 @@ fn probe_json(ffprobe: &Path, path: &Path) -> Option<serde_json::Value> {
             "-v",
             "error",
             "-show_entries",
-            "stream=width,height,codec_type:format=duration",
+            "stream=width,height,codec_type,channels:format=duration",
             "-of",
             "json",
         ])
@@ -27,12 +27,37 @@ fn probe_json(ffprobe: &Path, path: &Path) -> Option<serde_json::Value> {
     serde_json::from_slice(&output.stdout).ok()
 }
 
-pub(crate) fn probe_audio_duration(ffprobe: &Path, path: &Path) -> Option<f64> {
+/// Duración y canales de la primera pista de audio del archivo.
+pub(crate) fn probe_audio_info(ffprobe: &Path, path: &Path) -> Option<(f64, Option<u32>)> {
     let value = probe_json(ffprobe, path)?;
-    value["format"]["duration"]
+    let duration = value["format"]["duration"]
         .as_str()
         .and_then(|text| text.parse::<f64>().ok())
-        .filter(|value| value.is_finite() && *value > 0.0)
+        .filter(|value| value.is_finite() && *value > 0.0)?;
+    let channels = value["streams"]
+        .as_array()
+        .and_then(|streams| {
+            streams.iter().find(|stream| {
+                stream["codec_type"].as_str() == Some("audio")
+            })
+        })
+        .and_then(|stream| stream["channels"].as_u64())
+        .and_then(|count| u32::try_from(count).ok());
+    Some((duration, channels))
+}
+
+/// Canales de la primera pista de audio (para el lecho `[0:a]` del input).
+pub(crate) fn probe_audio_channels(ffprobe: &Path, path: &Path) -> Option<u32> {
+    let value = probe_json(ffprobe, path)?;
+    value["streams"]
+        .as_array()
+        .and_then(|streams| {
+            streams
+                .iter()
+                .find(|stream| stream["codec_type"].as_str() == Some("audio"))
+        })
+        .and_then(|stream| stream["channels"].as_u64())
+        .and_then(|count| u32::try_from(count).ok())
 }
 
 fn probe_video(ffprobe: &Path, path: &Path) -> (Option<u32>, Option<u32>, Option<f64>) {

@@ -282,7 +282,20 @@ pub fn save_project_as(
     };
 
     match documents.save(&path, project) {
-        Ok(_) => open_and_adopt(documents, environment, session, &path).map(Some),
+        Ok(_) => {
+            // AUD-069: la sesión pudo cambiar mientras la persona elegía
+            // destino o se copiaban assets. El documento ya quedó escrito;
+            // sólo se adopta si la sesión sigue siendo la del proyecto.
+            let adoptable = session
+                .require()
+                .map(|live| ensure_session_project(&live, project).is_ok())
+                .unwrap_or(false);
+            if adoptable {
+                open_and_adopt(documents, environment, session, &path).map(Some)
+            } else {
+                describe_at(environment, documents, &path).map(Some)
+            }
+        }
         Err(error) => {
             asset_files.remove_files(&copied);
             Err(error)

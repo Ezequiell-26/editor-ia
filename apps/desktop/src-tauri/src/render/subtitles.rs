@@ -68,9 +68,7 @@ fn caption_chars_per_line(width: u32, font_size: f64) -> usize {
 }
 
 fn caption_display_width(text: &str) -> usize {
-    text.chars()
-        .map(|c| if c.is_ascii() { 1 } else { 2 })
-        .sum()
+    text.chars().map(|c| if c.is_ascii() { 1 } else { 2 }).sum()
 }
 
 /// Salto de línea automático en borde de palabra — paridad de
@@ -94,8 +92,8 @@ fn wrap_caption_text(text: &str, limit: usize) -> String {
     let est_lines = |width: usize| width.div_ceil(limit);
     let mut prefix = vec![0usize; words.len() + 1];
     for (index, word) in words.iter().enumerate() {
-        prefix[index + 1] = prefix[index] + caption_display_width(word)
-            + if index == 0 { 0 } else { 1 };
+        prefix[index + 1] =
+            prefix[index] + caption_display_width(word) + if index == 0 { 0 } else { 1 };
     }
     let total = prefix[words.len()];
     let mut best: Option<(usize, usize, usize)> = None;
@@ -106,18 +104,14 @@ fn wrap_caption_text(text: &str, limit: usize) -> String {
         }
         let w2 = total - w1 - 1;
         let score = (est_lines(w1) + est_lines(w2), w1.abs_diff(w2));
-        if best.is_none_or(|(_, lines, bal)| {
-            (score.0, score.1) < (lines, bal)
-        }) {
+        if best.is_none_or(|(_, lines, bal)| (score.0, score.1) < (lines, bal)) {
             best = Some((split, score.0, score.1));
         }
     }
     match best {
-        Some((split, _, _)) => format!(
-            "{}\n{}",
-            words[..split].join(" "),
-            words[split..].join(" ")
-        ),
+        Some((split, _, _)) => {
+            format!("{}\n{}", words[..split].join(" "), words[split..].join(" "))
+        }
         None => trimmed.to_owned(),
     }
 }
@@ -412,9 +406,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             .find(|(id, _)| id == style_id)
             .map(|(_, limit)| *limit)
             .unwrap_or(fallback_limit);
-        let wrap_text = |raw: &str| {
-            escape_text(&wrap_caption_text(raw, char_limit))
-        };
+        let wrap_text = |raw: &str| escape_text(&wrap_caption_text(raw, char_limit));
         let word_count = cue["words"].as_array().map_or(0, |words| words.len());
         let reveal = cue["wordReveal"].as_bool().unwrap_or(false) && word_count > 1;
         let style_position = styles
@@ -812,15 +804,13 @@ mod tests {
     fn karaoke_words_wrap_into_lines() {
         let mut value = project();
         // ~12 palabras de 8 cols ≈ 107 > límite (~63 a 1920/54 px).
-        value["captions"]["cues"][0]["words"] = serde_json::json!(
-            (0..12)
-                .map(|i| serde_json::json!({
-                    "text": format!("palabra{i:02}"),
-                    "startFrame": i * 2,
-                    "endFrame": i * 2 + 2
-                }))
-                .collect::<Vec<_>>()
-        );
+        value["captions"]["cues"][0]["words"] = serde_json::json!((0..12)
+            .map(|i| serde_json::json!({
+                "text": format!("palabra{i:02}"),
+                "startFrame": i * 2,
+                "endFrame": i * 2 + 2
+            }))
+            .collect::<Vec<_>>());
         value["captions"]["cues"][0]["endFrame"] = serde_json::json!(30);
         let ass = build_ass(CaptionInput {
             project: &value,

@@ -6,12 +6,12 @@
 
 use std::path::PathBuf;
 
-use crate::media::download_filters::{cinematic_focus, delogo_corner};
 use super::downloads::{
     audio_language, cookies_browser, playlist_items, sponsorblock_categories,
     sponsorblock_category_list, subtitle_languages, valid_format_id, AutoRouteDecision,
     DelogoManualRect, DownloadRequest, MAX_HEIGHT,
 };
+use crate::media::download_filters::{cinematic_focus, delogo_corner};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 
 fn invalid_error(message: impl Into<String>) -> ProjectError {

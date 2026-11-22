@@ -39,20 +39,22 @@ export function NumberField({
    * acelerada al mantener (primer tick a los 400 ms, luego 130 ms →
    * -14 ms por tick, mínimo 25 ms). Cada paso commitea en vivo como el
    * `input`+`change` del original. */
+  /** Un paso del stepper con el mismo redondeo y clamp que el spinner. */
+  function stepValue(base: number, direction: 1 | -1): number {
+    const p = step || 1;
+    const raw = base + p * direction;
+    const rounded = Math.round(raw / p) * p;
+    return min !== undefined || max !== undefined
+      ? Math.max(min ?? -Infinity, Math.min(max ?? Infinity, rounded))
+      : rounded;
+  }
   function startSpin(direction: 1 | -1): void {
     if (disabled) return;
     spinBase.current = Number.isFinite(Number(draft)) ? Number(draft) : value;
     const stepOnce = (): void => {
-      const p = step || 1;
-      const raw = spinBase.current + p * direction;
-      const rounded = Math.round(raw / p) * p;
-      const clamped =
-        min !== undefined || max !== undefined
-          ? Math.max(min ?? -Infinity, Math.min(max ?? Infinity, rounded))
-          : rounded;
-      spinBase.current = clamped;
-      setDraft(String(clamped));
-      onCommit(clamped);
+      spinBase.current = stepValue(spinBase.current, direction);
+      setDraft(String(spinBase.current));
+      onCommit(spinBase.current);
     };
     stepOnce();
     let ritmo = 130;
@@ -95,7 +97,28 @@ export function NumberField({
             if (event.key === 'Enter') {
               event.preventDefault();
               commit();
+              return;
             }
+            // Stepper accesible por teclado: las flechas (y PgUp/PgDn ×10)
+            // mueven el valor con el mismo clamp que los botones ▲▼, que
+            // siguen siendo pointer-only dentro del campo. La repetición al
+            // mantener la tecla la da el keydown repetido de forma nativa.
+            const direction =
+              event.key === 'ArrowUp' || event.key === 'PageUp'
+                ? 1
+                : event.key === 'ArrowDown' || event.key === 'PageDown'
+                  ? -1
+                  : 0;
+            if (direction === 0 || disabled) return;
+            event.preventDefault();
+            const base = Number.isFinite(Number(draft)) ? Number(draft) : value;
+            const times = event.key === 'PageUp' || event.key === 'PageDown' ? 10 : 1;
+            let next = base;
+            for (let index = 0; index < times; index += 1) {
+              next = stepValue(next, direction);
+            }
+            setDraft(String(next));
+            onCommit(next);
           }}
         />
         <span className="num-spin" aria-hidden="true">

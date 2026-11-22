@@ -666,6 +666,19 @@
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
 }
 
+/* Botón real que cubre la tarjeta entera: la card no es role="button" (tenía
+ * un <button> de borrado anidado). Misma regla en premium/launcher.css. */
+.start-project-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
 .start-thumb-box {
   position: relative;
   width: 100%;
@@ -837,20 +850,25 @@
   position: absolute;
   top: 3px;
   right: 3px;
+  z-index: 2;
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  /* Mínimo de target 24 px (capa premium lo sube a 28). */
+  width: 24px;
+  height: 24px;
   border: 0;
   background: var(--color-panel);
   color: var(--color-text-muted);
   opacity: 0;
+  pointer-events: none;
   cursor: pointer;
   transition: opacity 0.1s ease, background 0.1s ease, color 0.1s ease;
 }
 
-.start-project-card:hover .start-card-delete {
+.start-project-card:hover .start-card-delete,
+.start-project-card:focus-within .start-card-delete {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .start-card-delete:hover {
@@ -1111,6 +1129,78 @@
   border-color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 12%, var(--color-panel-2));
   color: var(--color-accent);
+}
+
+/* Asistente de intención: fieldset sin caja propia (el legend usa .start-label)
+   con cuatro opciones en 2×2. El input radio queda visible: es el control
+   real y el foco se nota con :focus-within en la tarjeta. */
+.start-intent {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.start-intent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.start-intent-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.start-intent-option:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.start-intent-option.active {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-panel-2));
+  color: var(--color-text);
+}
+
+.start-intent-option:focus-within {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.start-intent-option input[type='radio'] {
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.start-intent-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.start-intent-name {
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.start-intent-summary {
+  font-family: var(--font-mono, monospace);
+  font-size: 8.5px;
+  color: var(--color-empty);
+}
+
+.start-intent-help {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
 }
 
 .start-error-notice {

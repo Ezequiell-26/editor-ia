@@ -47,11 +47,13 @@ import {
   createCompound,
   cutSideAtPlayhead,
   deleteClip,
+  detachAudio,
   expandCompound,
   magneticMoveClip,
   duplicateClip,
   formatTimecode,
   fpsOf,
+  listTranscribableTimelineClips,
   moveClip,
   pasteClip,
   pasteTransformKeyframesAtPlayhead,
@@ -84,7 +86,9 @@ import {
 } from '../../state/markers';
 import { useProjectPlayback, useProjectStore } from '../../state/project-store';
 import type { SfxItem } from '../../services/contracts';
-import { addSfxToTimeline } from './sfx-actions';
+import { addSfxToTimeline } from '../../state/sfx-actions';
+import { VoiceoverRecorder } from './VoiceoverRecorder';
+import { transcribeProjectClips } from '../../state/transcribe-project';
 import {
   SHORTCUTS_CHANGED_EVENT,
   bindingMatches,
@@ -94,6 +98,7 @@ import {
 } from '../../state/shortcuts';
 import { updateEditorPreferences } from '../../state/editor-preferences';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
+import { useAiMode } from '../../state/ai-mode';
 import { TimelineOverview } from './TimelineOverview';
 import { createRafCoalescer } from './timeline-raf';
 import {
@@ -105,9 +110,12 @@ import {
   type ToolbarToolRun,
 } from './FilmoraStates';
 import {
+  clipSupportsInspectorTab,
   openClipInspectorTab,
   type ClipInspectorTab,
 } from '../../state/inspector-tab-command';
+import type { ViewId } from '../../app/navigation';
+import type { EditorModeId } from '../../app/view-routing';
 import {
   deleteClips,
   moveClipsBy,
@@ -797,12 +805,61 @@ function ClipBlockView({
     );
   }
 
+  /** Recorte por teclado de un separador de trim: mueve el borde `frames`
+   * en la dirección del gesto (derecha = hacia adelante en la línea). */
+  function nudgeTrim(edge: 'start' | 'end', frames: number): void {
+    if (track.locked) return;
+    store.update((current) => {
+      const live = current.timeline.clips.find((item) => item.id === clip.id);
+      if (!live) return current;
+      const target =
+        edge === 'start'
+          ? live.startFrame + frames
+          : live.startFrame + live.durationFrames + frames;
+      return trimClip(current, clip.id, edge, target) ?? current;
+    });
+  }
+
+  function onTrimKeyDown(event: ReactKeyboardEvent, edge: 'start' | 'end'): void {
+    const unit = event.shiftKey ? 10 : 1;
+    const delta =
+      event.key === 'ArrowRight' || event.key === 'ArrowUp'
+        ? unit
+        : event.key === 'ArrowLeft' || event.key === 'ArrowDown'
+          ? -unit
+          : 0;
+    if (delta === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    nudgeTrim(edge, delta);
+  }
+
+  // Techo del rango del separador «fin»: el final del proyecto, no del clip.
+  const docFrames = project
+    ? totalFrames(project)
+    : clip.startFrame + clip.durationFrames;
+
+  /** Paso de teclado de un slider de fade horizontal: flechas (Shift = ×10)
+   * y PageUp/PageDown (×10). null si la tecla no aplica. */
+  function fadeKeyDelta(event: ReactKeyboardEvent): number | null {
+    const unit = event.shiftKey ? 10 : 1;
+    if (event.key === 'ArrowUp' || event.key === 'ArrowRight') return unit;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') return -unit;
+    if (event.key === 'PageUp') return 10;
+    if (event.key === 'PageDown') return -10;
+    return null;
+  }
+
   return (
     <>
     <div
       className={`timeline-clip kind-${clip.kind}${selected ? ' selected' : ''}${dimmed ? ' dimmed' : ''}${clip.enabled === false ? ' disabled' : ''}${track.locked ? ' locked' : ''}${activePreview ? ' dragging' : ''}`}
       style={{ left, width }}
-      role="button"
+      // role="group" y no "button": el clip contiene controles interactivos
+      // propios (sliders de fade, separadores de trim, chip de transición) y
+      // anidarlos dentro de un botón es ARIA inválido. El grupo conserva el
+      // foco y Enter/Espacio para seleccionar; los hijos son focuseables.
+      role="group"
       tabIndex={0}
       aria-label={`${clipLabel} en ${track.label}, desde ${formatTimecode(clip.startFrame, project ? fpsOf(project) : 30)}${clip.enabled === false ? ' (desactivado)' : ''}`}
       onPointerDown={(event) => {
@@ -825,6 +882,10 @@ function ClipBlockView({
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
+          // El clip ya no es role="button" (los sliders/trims hijos hacían el
+          // anidado inválido): sin stopPropagation el Space llega al listener
+          // global y dispara play/pause además de seleccionar.
+          event.stopPropagation();
           onSelect(event as unknown as ReactPointerEvent);
         }
       }}
@@ -919,22 +980,38 @@ function ClipBlockView({
           <span
             className="trim-handle start"
             role="separator"
+            aria-orientation="vertical"
             aria-label="Recortar el inicio"
+            aria-valuemin={0}
+            aria-valuemax={Math.max(0, clip.startFrame + clip.durationFrames - 1)}
+            aria-valuenow={clip.startFrame}
+            aria-valuetext={`Inicio en el frame ${clip.startFrame} (${formatTimecode(clip.startFrame, markFps)})`}
+            title="Recortar el inicio · ←/→ mueven el corte (Mayús = ×10)"
+            tabIndex={0}
             onPointerDown={(event) => {
               event.stopPropagation();
               onSelect(event);
               onDrag(event, 'trim-start');
             }}
+            onKeyDown={(event) => onTrimKeyDown(event, 'start')}
           />
           <span
             className="trim-handle end"
             role="separator"
+            aria-orientation="vertical"
             aria-label="Recortar el final"
+            aria-valuemin={clip.startFrame + 1}
+            aria-valuemax={docFrames}
+            aria-valuenow={clip.startFrame + clip.durationFrames}
+            aria-valuetext={`Final en el frame ${clip.startFrame + clip.durationFrames} (${formatTimecode(clip.startFrame + clip.durationFrames, markFps)})`}
+            title="Recortar el final · ←/→ mueven el corte (Mayús = ×10)"
+            tabIndex={0}
             onPointerDown={(event) => {
               event.stopPropagation();
               onSelect(event);
               onDrag(event, 'trim-end');
             }}
+            onKeyDown={(event) => onTrimKeyDown(event, 'end')}
           />
         </>
       ) : null}
@@ -950,12 +1027,15 @@ function ClipBlockView({
             aria-valuemin={0}
             aria-valuemax={clip.durationFrames}
             aria-valuenow={fade.inFrames}
-            title={`Fade de entrada: ${fade.inFrames} frames`}
+            aria-valuetext={`${fade.inFrames} frames (${(fade.inFrames / markFps).toFixed(2)} s)`}
+            title={`Fade de entrada: ${fade.inFrames} frames · ←/→ ajustan (Mayús = ×10, PgUp/PgDn = ±10)`}
             onPointerDown={(event) => beginFade(event, 'in')}
             onKeyDown={(event) => {
-              if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+              const delta = fadeKeyDelta(event);
+              if (delta === null) return;
               event.preventDefault();
-              nudgeFade('in', (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 10 : 1));
+              event.stopPropagation();
+              nudgeFade('in', delta);
             }}
           />
           <span
@@ -968,12 +1048,17 @@ function ClipBlockView({
             aria-valuemin={0}
             aria-valuemax={clip.durationFrames}
             aria-valuenow={fade.outFrames}
-            title={`Fade de salida: ${fade.outFrames} frames`}
+            aria-valuetext={`${fade.outFrames} frames (${(fade.outFrames / markFps).toFixed(2)} s)`}
+            title={`Fade de salida: ${fade.outFrames} frames · ←/→ ajustan (Mayús = ×10, PgUp/PgDn = ±10)`}
             onPointerDown={(event) => beginFade(event, 'out')}
             onKeyDown={(event) => {
-              if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+              const delta = fadeKeyDelta(event);
+              if (delta === null) return;
               event.preventDefault();
-              nudgeFade('out', (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 10 : 1));
+              event.stopPropagation();
+              // En «out» el delta de gesto va invertido (el fade crece hacia
+              // la izquierda): se niega para que → siempre aumente el valor.
+              nudgeFade('out', -delta);
             }}
           />
         </>
@@ -1114,32 +1199,93 @@ function clampTimelineHeight(value: number): number {
   return Math.min(TIMELINE_MAX, Math.max(TIMELINE_MIN, Math.round(value)));
 }
 
-const PENDING_CONTEXT_ACTIONS: readonly string[] = [
-  'Sugerencias de edición inteligente',
-  'Herramienta de montaje preliminar',
-  'Edición de atributos',
-  'Recortar y Zoom',
-  'Separar audio',
-  'Eliminador de voz con IA',
-  'Voz a texto',
-  'Traducción con IA',
-  'Crear clip compuesto',
-  'Reemplazar clip',
+/** Destino real de una acción del menú contextual: pestaña del inspector,
+ *  vista global del editor o modo del workspace. Nada de esto es una
+ *  promesa: cada ítem abre la superficie donde la función ya existe. */
+type ContextToolRun =
+  | { readonly kind: 'inspector'; readonly tab: ClipInspectorTab; readonly subTab?: string }
+  | { readonly kind: 'view'; readonly id: ViewId }
+  | { readonly kind: 'mode'; readonly id: EditorModeId }
+  | 'compound'
+  | 'separate-audio';
+
+interface ContextToolItem {
+  readonly label: string;
+  readonly run: ContextToolRun;
+  /** El ítem se deshabilita cuando el clip del menú no lo admite
+   *  (p. ej. separar audio sólo aplica a clips de video). */
+  readonly enabled?: ((clip: Clip) => boolean) | undefined;
+}
+
+const CONTEXT_TOOLS: readonly ContextToolItem[] = [
+  {
+    label: 'Sugerencias de edición inteligente',
+    run: { kind: 'mode', id: 'brain' },
+  },
+  {
+    label: 'Herramienta de montaje preliminar',
+    run: { kind: 'view', id: 'auto-edit' },
+  },
+  {
+    label: 'Recortar y Zoom',
+    run: { kind: 'inspector', tab: 'all' },
+  },
+  {
+    label: 'Separar audio',
+    run: 'separate-audio',
+    enabled: (clip) => clip.kind === 'video',
+  },
+  {
+    label: 'Aislar voz (IA)',
+    run: { kind: 'inspector', tab: 'audio', subTab: 'noise' },
+    enabled: (clip) => clipSupportsInspectorTab(clip, 'audio'),
+  },
+  {
+    label: 'Voz a texto',
+    run: { kind: 'inspector', tab: 'audio' },
+    enabled: (clip) => clipSupportsInspectorTab(clip, 'audio'),
+  },
+  {
+    label: 'Traducción con IA',
+    run: { kind: 'view', id: 'localization' },
+  },
+  {
+    label: 'Crear clip compuesto',
+    run: 'compound',
+    enabled: (clip) =>
+      clip.kind === 'video' || clip.kind === 'image' || clip.kind === 'freeze',
+  },
 ];
+
+/** Comandos del menú «Más herramientas»: reutiliza los botones reales de la
+ *  toolbar por `aria-label`, abre pestañas del inspector o navega a la vista
+ *  donde la función ya existe (nada queda «pendiente» sin destino real). */
+type OverflowRun =
+  | ToolbarToolRun
+  | 'transcribe-project'
+  | 'open-keyframes'
+  | 'open-silence'
+  | 'open-beats'
+  | 'open-transcribe'
+  | 'open-tracking'
+  | 'goto-production'
+  | 'goto-text-edit'
+  | 'goto-localization'
+  | 'goto-multicam'
+  | 'goto-vfx'
+  | 'goto-factory'
+  | 'goto-teleprompter';
 
 interface OverflowTool {
   readonly label: string;
   /** `aria-label` del botón real de la toolbar que se dispara por DOM. */
   readonly aria?: string;
-  /** Comando directo que no tiene botón de toolbar (p. ej. abrir una
-   *  pestaña del inspector). */
-  readonly run?: 'open-palette';
+  /** Comando directo: inspector, proyecto o navegación a una vista real. */
+  readonly run?: OverflowRun;
   readonly shortcut?: string;
   readonly needsClip?: boolean;
   readonly needsClipboard?: boolean;
 }
-/** Reutiliza los botones REALES de la toolbar por `aria-label`: el menú de
- *  desborde no duplica lógica de edición, sólo dispara el control existente. */
 const OVERFLOW_TOOLS: readonly OverflowTool[] = [
   { label: 'Velocidad · dividir en playhead', aria: 'Dividir en playhead', needsClip: true },
   { label: 'Marcador', aria: 'Agregar o quitar marcador', shortcut: 'M' },
@@ -1152,19 +1298,29 @@ const OVERFLOW_TOOLS: readonly OverflowTool[] = [
   { label: 'Agregar capa de ajuste', aria: 'Agregar capa de ajuste en el playhead' },
   { label: 'Ajustar zoom a la duración', aria: 'Ajustar zoom a la duración' },
   { label: 'Paleta de colores', run: 'open-palette', needsClip: true },
-];
-const OVERFLOW_PENDING: readonly string[] = [
-  'Duración', 'Fotogramas Clave', 'Editar >', 'Detección de Silencio',
-  'Editar Dispositivos', 'Detección de ritmo', 'Voz a texto', 'Texto a Voz',
-  'Extensión con IA', 'Extensión de audio', 'Generación de música ambiental inteligente',
-  'Herramientas de recorte de IA >', 'Eliminador de objetos con IA',
-  'Herramientas de seguimiento con IA >', 'Edición basada en texto',
-  'Traducción con IA', 'Sincronización automática',
-  'Imagen a video', 'Texto a video',
+  { label: 'Subtitular proyecto', run: 'transcribe-project' },
+  { label: 'Duración', run: 'open-duration', needsClip: true },
+  { label: 'Fotogramas clave', run: 'open-keyframes', needsClip: true },
+  { label: 'Editar', run: 'open-edit', needsClip: true },
+  { label: 'Detección de silencio', run: 'open-silence', needsClip: true },
+  { label: 'Detección de ritmo', run: 'open-beats', needsClip: true },
+  { label: 'Voz a texto', run: 'open-transcribe', needsClip: true },
+  { label: 'Grabar voz', aria: 'Grabar voz' },
+  { label: 'Teleprompter', run: 'goto-teleprompter' },
+  { label: 'Seguimiento (inspector)', run: 'open-tracking', needsClip: true },
+  { label: 'Texto a voz', run: 'goto-production' },
+  { label: 'Música ambiental', run: 'goto-production' },
+  { label: 'Edición por texto', run: 'goto-text-edit' },
+  { label: 'Traducción con IA', run: 'goto-localization' },
+  { label: 'Sincronización automática', run: 'goto-multicam' },
+  { label: 'Texto a video', run: 'goto-factory' },
+  { label: 'Rotoscopía y máscaras (VFX)', run: 'goto-vfx' },
 ];
 
 export const Timeline = memo(function Timeline({
   onRequestInspectorTab,
+  onNavigate,
+  onSwitchEditorMode,
 }: {
   /** Pide al inspector del editor que abra una pestaña (y opcionalmente una
    *  subpestaña) del clip seleccionado: «Paleta de colores» → color/palette,
@@ -1173,6 +1329,11 @@ export const Timeline = memo(function Timeline({
   readonly onRequestInspectorTab?:
     | ((tab: ClipInspectorTab, subTab?: string) => void)
     | undefined;
+  /** Navegación global del shell: abre una vista real (Producción, Texto,
+   *  Localización, Multicámara, VFX, Fábrica) sin salir del editor. */
+  readonly onNavigate?: ((id: ViewId) => void) | undefined;
+  /** Cambio de modo del workspace (p. ej. «Cerebro» para sugerencias). */
+  readonly onSwitchEditorMode?: ((mode: EditorModeId) => void) | undefined;
 } = {}) {
   const store = useProjectStore();
   // La línea del playhead, el overview y el seguimiento sí necesitan el frame
@@ -1180,6 +1341,10 @@ export const Timeline = memo(function Timeline({
   const playback = useProjectPlayback();
   const project = store.state.project;
   const preferences = useEditorPreferences();
+  // «Modo IA»: la toolbar se reduce a lo esencial para revisar el resultado
+  // (zoom y duración); las herramientas manuales se ocultan pero siguen
+  // operables por teclado/menú — es una vista, no un bloqueo.
+  const aiMode = useAiMode();
   const selectedClipId =
     store.state.selection.kind === 'clip' ? store.state.selection.id : null;
   const selectedCueId =
@@ -1200,6 +1365,115 @@ export const Timeline = memo(function Timeline({
     else if (run === 'open-duration') openInspectorTab('speed');
     else if (run === 'open-edit') openInspectorTab('all');
     else openInspectorTab('color', 'palette');
+  };
+
+  // Destinos que no son pestañas del inspector: vistas reales del editor y
+  // modos del workspace. Sin callback del host se avisa en vez de fingir.
+  const openSurface = (id: ViewId): void => {
+    if (onNavigate) onNavigate(id);
+    else store.setNotice('Esa herramienta se abre desde la navegación del editor.');
+  };
+  const openEditorMode = (mode: EditorModeId): void => {
+    if (onSwitchEditorMode) onSwitchEditorMode(mode);
+    else store.setNotice('Ese modo se abre desde las pestañas del editor.');
+  };
+
+  // «Subtitular proyecto»: transcribe todos los clips de video/audio de la
+  // timeline en una sola pasada (ver transcribe-project.ts).
+  const [transcribeBusy, setTranscribeBusy] = useState(false);
+  const transcribableCount = useMemo(
+    () => (project ? listTranscribableTimelineClips(project).length : 0),
+    [project],
+  );
+  const runTranscribeProject = async () => {
+    if (transcribeBusy) return;
+    setTranscribeBusy(true);
+    try {
+      const summary = await transcribeProjectClips(store, {
+        onProgress: (done, total, label) => {
+          store.setNotice(
+            label
+              ? `Subtitular proyecto: ${done}/${total} · ${label}`
+              : `Subtitular proyecto: ${done}/${total}`,
+          );
+        },
+      });
+      const parts = [
+        `Subtitular proyecto: ${summary.cuesAdded} subtítulo(s) en ${summary.clips} clip(s) · ${summary.assetsTranscribed} medio(s) transcritos.`,
+      ];
+      const uniqueReasons = (items: readonly { reason: string }[]) => [
+        ...new Set(items.map((item) => item.reason)),
+      ];
+      if (summary.skipped.length > 0) {
+        parts.push(
+          `${summary.skipped.length} clip(s) omitido(s): ${uniqueReasons(summary.skipped).join(' · ')}`,
+        );
+      }
+      if (summary.failed.length > 0) {
+        parts.push(
+          `${summary.failed.length} clip(s) fallaron: ${uniqueReasons(summary.failed).join(' · ')}`,
+        );
+      }
+      store.setNotice(parts.join(' '));
+    } finally {
+      setTranscribeBusy(false);
+    }
+  };
+
+  /** «Más herramientas»: cada comando abre la superficie real de la
+   *  función — inspector, acción de proyecto o vista/modo del editor. */
+  const runOverflowCommand = (run: OverflowRun): void => {
+    switch (run) {
+      case 'open-palette':
+        openInspectorTab('color', 'palette');
+        return;
+      case 'transcribe-project':
+        void runTranscribeProject();
+        return;
+      case 'open-keyframes':
+        // «Transformación» (grupo video/basic) concentra los keyframes.
+        openInspectorTab('video');
+        return;
+      case 'open-silence':
+        // «Cortar silencios» vive en la pestaña Audio del inspector.
+        openInspectorTab('audio');
+        return;
+      case 'open-beats':
+        // «Ritmo» (Analizar ritmo / Cortar video al ritmo) está en audio/custom.
+        openInspectorTab('audio', 'custom');
+        return;
+      case 'open-transcribe':
+        // «Transcribir a subtítulos» del clip está en audio/basic.
+        openInspectorTab('audio');
+        return;
+      case 'open-tracking':
+        // Estabilización y seguimiento de rostro: video/tracking.
+        openInspectorTab('video', 'tracking');
+        return;
+      case 'goto-production':
+        openSurface('production');
+        return;
+      case 'goto-text-edit':
+        openSurface('text-edit');
+        return;
+      case 'goto-localization':
+        openSurface('localization');
+        return;
+      case 'goto-multicam':
+        openSurface('multicam');
+        return;
+      case 'goto-vfx':
+        openSurface('vfx');
+        return;
+      case 'goto-factory':
+        openSurface('factory');
+        return;
+      case 'goto-teleprompter':
+        openSurface('teleprompter');
+        return;
+      default:
+        runToolbarTool(run);
+    }
   };
   // El zoom y el imán arrancan con lo elegido en Ajustes → Editor; después el
   // usuario manda con los controles de la barra de la timeline.
@@ -2204,6 +2478,53 @@ export const Timeline = memo(function Timeline({
     setContextMenu(null);
     store.setSelection({ kind: 'none' });
     store.setPlayhead(Math.min(playback.frame, nextDuration));
+  }
+
+  /** Ítems de «Edición con IA»: cada uno abre la superficie real de la
+   *  función sobre el clip del menú (o la vista/modo global correspondiente). */
+  function runContextTool(item: ContextToolItem): void {
+    const clip = contextClip;
+    if (!clip) return;
+    setContextMenu(null);
+    const run = item.run;
+    if (run === 'compound') {
+      const result = store.mutate((current) => {
+        const grouped = createCompound(current, clip.id);
+        return {
+          project: grouped.project,
+          compoundClipId: grouped.compoundClipId,
+          grouped: grouped.grouped,
+        };
+      });
+      if (result) {
+        store.setSelection({ kind: 'clip', id: result.compoundClipId });
+        store.setNotice(`Compuesto creado con ${result.grouped} clip(s).`);
+      } else {
+        store.setNotice('No se pudo agrupar: revisá la selección.');
+      }
+      return;
+    }
+    if (run === 'separate-audio') {
+      const result = store.mutate((current) => detachAudio(current, clip.id));
+      if (result) {
+        store.setSelection({ kind: 'clip', id: result.clipId });
+        store.setNotice(
+          result.createdTrack
+            ? 'Audio separado en una pista nueva; el video quedó en silencio.'
+            : 'Audio separado a una pista libre; el video quedó en silencio.',
+        );
+      }
+      return;
+    }
+    if (run.kind === 'inspector') {
+      openInspectorTab(run.tab, run.subTab);
+      return;
+    }
+    if (run.kind === 'view') {
+      openSurface(run.id);
+      return;
+    }
+    openEditorMode(run.id);
   }
 
   useEffect(() => {
@@ -3318,8 +3639,11 @@ export const Timeline = memo(function Timeline({
       />
       <div className="timeline-toolbar">
         <div className="timeline-tools">
-          {/* Captura 127: selector de herramienta al inicio de la barra. */}
-          <ToolSelectorMenu value={toolSelector} onChange={changeToolSelector} />
+          {/* Captura 127: selector de herramienta al inicio de la barra.
+              En modo IA las herramientas manuales se ocultan: queda el zoom. */}
+          {!aiMode ? (
+            <ToolSelectorMenu value={toolSelector} onChange={changeToolSelector} />
+          ) : null}
           <button
             type="button"
             className="icon-button"
@@ -3363,6 +3687,8 @@ export const Timeline = memo(function Timeline({
             <Icon name="fit" size={13} />
             <span className="tool-label">Ajustar</span>
           </button>
+          {!aiMode ? (
+            <>
           <button
             type="button"
             className={panMode ? 'small ghost pan-toggle active' : 'small ghost pan-toggle'}
@@ -3393,6 +3719,10 @@ export const Timeline = memo(function Timeline({
           {panMode ? (
             <span className="zoom-readout pan-hint">Arrastrá para mover</span>
           ) : null}
+            </>
+          ) : null}
+          {!aiMode ? (
+            <>
           <button
             type="button"
             className={snapEnabled ? 'small ghost snap-toggle active' : 'small ghost snap-toggle'}
@@ -3440,7 +3770,12 @@ export const Timeline = memo(function Timeline({
               {beatState ? `Beats · ${beatState.frames.length}` : 'Beats'}
             </span>
           </button>
+          {/* Grabación de voz directa a la pista de narración (paridad CapCut). */}
+          <VoiceoverRecorder />
+            </>
+          ) : null}
         </div>
+        {!aiMode ? (
         <div className="timeline-tools timeline-tools-filters">
           <label
             className="color-filter-field"
@@ -3490,6 +3825,8 @@ export const Timeline = memo(function Timeline({
             />
           </label>
         </div>
+        ) : null}
+        {!aiMode ? (
         <div className="timeline-tools">
           <label className="track-kind-field" title="Tipo de pista nueva">
             <Icon name="layers" size={13} />
@@ -3527,6 +3864,8 @@ export const Timeline = memo(function Timeline({
             <span className="tool-label">Capa</span>
           </button>
         </div>
+        ) : null}
+        {!aiMode ? (
         <div className="timeline-tools">
           <button
             type="button"
@@ -3732,6 +4071,8 @@ export const Timeline = memo(function Timeline({
             <span className="tool-label">Subtítulo</span>
           </button>
         </div>
+        ) : null}
+        {!aiMode ? (
         <div
           className="timeline-tools-overflow"
           ref={toolsMenuRef}
@@ -3775,16 +4116,25 @@ export const Timeline = memo(function Timeline({
               {OVERFLOW_TOOLS.map((item) => {
                 const disabled =
                   (item.needsClip === true && !selectedClip) ||
-                  (item.needsClipboard === true && !clipboardReady);
+                  (item.needsClipboard === true && !clipboardReady) ||
+                  (item.run === 'transcribe-project' &&
+                    (transcribeBusy || transcribableCount === 0));
                 return (
                   <button
                     key={item.label}
                     type="button"
                     role="menuitem"
                     disabled={disabled}
+                    title={
+                      item.run === 'transcribe-project'
+                        ? transcribableCount === 0
+                          ? 'No hay clips de video/audio transcribibles en la timeline'
+                          : 'Transcribir todos los clips de video/audio a subtítulos'
+                        : undefined
+                    }
                     onClick={() => {
-                      if (item.run === 'open-palette') {
-                        openInspectorTab('color', 'palette');
+                      if (item.run) {
+                        runOverflowCommand(item.run);
                       } else if (item.aria) {
                         const target = document.querySelector<HTMLButtonElement>(
                           `.timeline-toolbar button[aria-label="${item.aria}"]`,
@@ -3794,7 +4144,11 @@ export const Timeline = memo(function Timeline({
                       setToolsMenuOpen(false);
                     }}
                   >
-                    <span>{item.label}</span>
+                    <span>
+                      {item.run === 'transcribe-project' && transcribeBusy
+                        ? 'Subtitular proyecto…'
+                        : item.label}
+                    </span>
                     {item.shortcut ? <span className="timeline-menu-hint">{item.shortcut}</span> : null}
                   </button>
                 );
@@ -3813,31 +4167,19 @@ export const Timeline = memo(function Timeline({
                 <span>Personalizar barra de herramientas…</span>
                 <span className="timeline-menu-hint">{quickTools.length}</span>
               </button>
-              <div className="timeline-menu-separator" role="separator" />
-              <p className="timeline-menu-group-title">Herramientas de IA · pendientes</p>
-              {OVERFLOW_PENDING.map((label) => (
-                <button
-                  key={label}
-                  type="button"
-                  role="menuitem"
-                  disabled
-                  title="Estructura preparada · requiere integración de backend (pendiente)"
-                >
-                  <span>{label}</span>
-                  <span className="timeline-menu-hint">Pendiente</span>
-                </button>
-              ))}
             </div>
           ) : null}
         </div>
+        ) : null}
         <span className="timeline-duration">
           {formatTimecode(store.durationFrames, fps)}
           <span className="duration-tracks"> · {project.timeline.tracks.length} pistas</span>
         </span>
       </div>
 
-      {/* Captura 128: fila de herramientas rápidas, personalizable desde 126. */}
-      <QuickToolsBar tools={quickTools} onRun={runToolbarTool} />
+      {/* Captura 128: fila de herramientas rápidas, personalizable desde 126.
+          En modo IA se oculta: la edición manual no es la superficie activa. */}
+      {!aiMode ? <QuickToolsBar tools={quickTools} onRun={runToolbarTool} /> : null}
 
       {overviewVisible ? (
         <TimelineOverview
@@ -4599,19 +4941,24 @@ export const Timeline = memo(function Timeline({
                 <span>Ir al final del clip</span>
               </button>
               <div className="timeline-menu-separator" role="separator" />
-              <p className="timeline-menu-group-title">Edición con IA · pendiente</p>
-              {PENDING_CONTEXT_ACTIONS.map((label) => (
-                <button
-                  key={label}
-                  type="button"
-                  role="menuitem"
-                  disabled
-                  title="Estructura preparada · requiere integración de backend (pendiente)"
-                >
-                  <span>{label}</span>
-                  <span className="timeline-menu-hint">Pendiente</span>
-                </button>
-              ))}
+              <p className="timeline-menu-group-title">Edición con IA</p>
+              {CONTEXT_TOOLS.map((item) => {
+                const mutates = item.run === 'compound' || item.run === 'separate-audio';
+                const disabled =
+                  (mutates && contextLocked) ||
+                  (item.enabled !== undefined && !item.enabled(contextClip));
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    role="menuitem"
+                    disabled={disabled}
+                    onClick={() => runContextTool(item)}
+                  >
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
               <button
                 type="button"
                 role="menuitem"

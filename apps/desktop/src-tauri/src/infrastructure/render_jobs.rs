@@ -171,7 +171,8 @@ impl RenderRuntime for SharedRenderRuntime {
 static OUTPUT_RESERVATIONS: Mutex<Option<std::collections::HashMap<PathBuf, bool>>> =
     Mutex::new(None);
 
-fn reservations() -> std::sync::MutexGuard<'static, Option<std::collections::HashMap<PathBuf, bool>>> {
+fn reservations() -> std::sync::MutexGuard<'static, Option<std::collections::HashMap<PathBuf, bool>>>
+{
     OUTPUT_RESERVATIONS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -233,9 +234,7 @@ impl RenderFiles for LocalRenderFiles {
         let key = self
             .canonical(final_path)
             .unwrap_or_else(|| final_path.to_path_buf());
-        let reserved_existed = reservations()
-            .as_mut()
-            .and_then(|map| map.remove(&key));
+        let reserved_existed = reservations().as_mut().and_then(|map| map.remove(&key));
         if reserved_existed == Some(false) && final_path.exists() {
             return Err(ProjectError::message(
                 ProjectErrorCode::RenderFailed,
@@ -475,12 +474,21 @@ impl RenderVerifier for SystemRenderVerifier {
 fn gpu_failure_hint(log: &str) -> Option<&'static str> {
     let lower = log.to_lowercase();
     const NEEDLES: &[(&str, &str)] = &[
-        ("device lost", "el dispositivo gráfico se desconectó durante el render"),
+        (
+            "device lost",
+            "el dispositivo gráfico se desconectó durante el render",
+        ),
         ("cuda_error", "falló CUDA durante el render"),
         ("nvcuda", "el driver NVIDIA no respondió"),
-        ("no capable devices", "no hay dispositivos de hardware utilizables"),
+        (
+            "no capable devices",
+            "no hay dispositivos de hardware utilizables",
+        ),
         ("out of memory", "la GPU se quedó sin memoria"),
-        ("initializeencoder failed", "el encoder de hardware no pudo inicializarse"),
+        (
+            "initializeencoder failed",
+            "el encoder de hardware no pudo inicializarse",
+        ),
         ("nvenc", "el encoder NVIDIA (NVENC) falló"),
         ("qsv", "el encoder Intel QuickSync falló"),
         ("amf", "el encoder AMD AMF falló"),
@@ -737,7 +745,14 @@ fn run_render_job(
         };
         persist_render_log(&temp_dir, &message, &detail);
         files.remove_dir(&temp_dir);
-        diary("failed", None, None, None, Some(code.to_owned()), Some(message.clone()));
+        diary(
+            "failed",
+            None,
+            None,
+            None,
+            Some(code.to_owned()),
+            Some(message.clone()),
+        );
         events.finished(&finished_failed(
             &job_id,
             started,

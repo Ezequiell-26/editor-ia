@@ -52,16 +52,14 @@ fn decode_pcm(
     ]);
     // stdout+stderr se drenan en threads y hay deadline: nada de deadlock de
     // pipes ni esperas eternas (AUD-028).
-    let timed = crate::commands::output_with_timeout(
-        &mut command,
-        std::time::Duration::from_secs(180),
-    )
-    .map_err(|error| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            &format!("no se pudo decodificar el audio: {error}"),
-        )
-    })?;
+    let timed =
+        crate::commands::output_with_timeout(&mut command, std::time::Duration::from_secs(180))
+            .map_err(|error| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    &format!("no se pudo decodificar el audio: {error}"),
+                )
+            })?;
     if timed.timed_out {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,

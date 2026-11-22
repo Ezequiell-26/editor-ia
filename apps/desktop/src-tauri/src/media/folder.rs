@@ -21,6 +21,22 @@ pub fn sanitize_media_folder_name(folder: &str) -> Option<String> {
     Some(name.to_owned())
 }
 
+/// «Descargas», «Downloads» y el nombre real de la carpeta raíz son alias de
+/// la propia raíz, no subcarpetas suyas. El modelo dice «en Descargas» y debe
+/// listar Descargas, no `Descargas/Descargas`.
+fn is_downloads_alias(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "descargas" | "descarga" | "downloads" | "download"
+    )
+}
+
+fn dir_name_matches(path: &std::path::Path, name: &str) -> bool {
+    path.file_name()
+        .map(|value| value.to_string_lossy().eq_ignore_ascii_case(name))
+        .unwrap_or(false)
+}
+
 use std::path::PathBuf;
 
 use serde::Serialize;
@@ -241,11 +257,10 @@ pub fn resolve_media_folder_dir(
 ) -> Result<PathBuf, ProjectError> {
     let trimmed = folder.trim().trim_matches(['"', '\'', '“', '”', '«', '»']);
     let direct_path = PathBuf::from(trimmed);
+    // Una ruta existente es válida aunque no tenga medios: el llamador debe
+    // poder distinguir «carpeta vacía» de «carpeta inexistente».
     if direct_path.is_dir() {
-        let listing = media_folder_listing(direct_path.clone());
-        if !listing.files.is_empty() {
-            return Ok(direct_path);
-        }
+        return Ok(direct_path);
     }
 
     let name = sanitize_media_folder_name(folder).ok_or_else(|| {
@@ -255,26 +270,31 @@ pub fn resolve_media_folder_dir(
         )
     })?;
     let mut roots: Vec<PathBuf> = Vec::new();
-    if let Some(root) = root.map(|value| value.trim().to_owned()) {
-        if !root.is_empty() {
-            let candidate = PathBuf::from(&root);
-            if candidate.is_dir() {
-                roots.push(candidate);
+    let root_value = root
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    if let Some(ref value) = root_value {
+        let candidate = PathBuf::from(value);
+        if candidate.is_dir() {
+            // «usar la carpeta Descargas de descargas» apunta a la raíz.
+            if dir_name_matches(&candidate, &name) {
+                return Ok(candidate);
             }
+            roots.push(candidate);
         }
     }
-    if let Some(downloads) = downloads_dir {
+    if let Some(downloads) = &downloads_dir {
         if downloads.is_dir() {
-            roots.push(downloads);
+            if is_downloads_alias(&name) || dir_name_matches(downloads, &name) {
+                return Ok(downloads.clone());
+            }
+            roots.push(downloads.clone());
         }
     }
     for root in roots {
         let direct = root.join(&name);
         if direct.is_dir() {
-            let listing = media_folder_listing(direct);
-            if !listing.files.is_empty() {
-                return Ok(listing.directory.into());
-            }
+            return Ok(direct);
         }
         let nested = root.join("Videos descargados");
         if let Ok(entries) = std::fs::read_dir(&nested) {
@@ -284,15 +304,13 @@ pub fn resolve_media_folder_dir(
                 }
                 let candidate = entry.path().join(&name);
                 if candidate.is_dir() {
-                    let listing = media_folder_listing(candidate);
-                    if !listing.files.is_empty() {
-                        return Ok(listing.directory.into());
-                    }
+                    return Ok(candidate);
                 }
             }
         }
     }
-    let message =
-        format!("No encontré la carpeta «{name}» con imágenes, audio o video en Descargas.");
+    let message = format!(
+        "No encontré la carpeta «{name}». Pasá una ruta absoluta, «Descargas» o el nombre de una subcarpeta de Descargas."
+    );
     Err(ProjectError::message(ProjectErrorCode::Io, &message))
 }

@@ -71,7 +71,10 @@ impl ObjectTrackBackend for FfmpegObjectTrackBackend {
         chunk_frames: usize,
         on_chunk: &mut dyn FnMut(Vec<Vec<u8>>) -> Result<(), ProjectError>,
     ) -> Result<(), ProjectError> {
-        let filter = format!("fps={},scale={width}:{height}", crate::media::object_track::SAMPLE_FPS);
+        let filter = format!(
+            "fps={},scale={width}:{height}",
+            crate::media::object_track::SAMPLE_FPS
+        );
         let mut command = Command::new(ffmpeg);
         command
             .args(["-hide_banner", "-loglevel", "error", "-nostdin"])
@@ -89,10 +92,9 @@ impl ObjectTrackBackend for FfmpegObjectTrackBackend {
                 format!("no se pudo lanzar FFmpeg para el seguimiento: {error}").as_str(),
             )
         })?;
-        let mut stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| ProjectError::message(ProjectErrorCode::Io, "FFmpeg no devolvió frames"))?;
+        let mut stdout = child.stdout.take().ok_or_else(|| {
+            ProjectError::message(ProjectErrorCode::Io, "FFmpeg no devolvió frames")
+        })?;
 
         let frame_bytes = (width as usize)
             .checked_mul(height as usize)

@@ -4,6 +4,7 @@
 const BLUR_FIT_MARKER: &str = "__blur_fit__";
 
 #[cfg(test)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn visual_filter(
     input_index: usize,
     clip: &Value,
@@ -988,13 +989,27 @@ pub(crate) fn visual_filter_with_format(
         // sin label para que la cola de filtros la continúe.
         let append_overlays = |graph: &mut String, base: &str| {
             let mut prev = base.to_owned();
+            let texture_follows = texture_input.is_some() && texture_kind.is_some();
             if let Some(frame_index) = frame_input {
-                graph.push_str(&format!(
-                    ";[{frame_index}:v]format=rgba,fps={},setpts=PTS-STARTPTS[mff{input_index}];\
-                     [{prev}][mff{input_index}]overlay=0:0[mfo{input_index}]",
-                    profile.fps_arg()
-                ));
-                prev = format!("mfo{input_index}");
+                if texture_follows {
+                    // La textura consume el frame del monitor: la salida
+                    // queda etiquetada como input del siguiente overlay.
+                    graph.push_str(&format!(
+                        ";[{frame_index}:v]format=rgba,fps={},setpts=PTS-STARTPTS[mff{input_index}];\
+                         [{prev}][mff{input_index}]overlay=0:0[mfo{input_index}]",
+                        profile.fps_arg()
+                    ));
+                    prev = format!("mfo{input_index}");
+                } else {
+                    // Último overlay de la cadena: la salida queda SIN
+                    // label para que la cola de filtros y el `[vN]` final
+                    // la continúen (misma convención que texture_overlay_segment).
+                    graph.push_str(&format!(
+                        ";[{frame_index}:v]format=rgba,fps={},setpts=PTS-STARTPTS[mff{input_index}];\
+                         [{prev}][mff{input_index}]overlay=0:0",
+                        profile.fps_arg()
+                    ));
+                }
             }
             if let (Some(texture_index), Some(kind)) = (texture_input, texture_kind) {
                 graph.push_str(&texture_overlay_segment(

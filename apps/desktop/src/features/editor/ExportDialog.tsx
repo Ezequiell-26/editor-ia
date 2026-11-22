@@ -61,7 +61,7 @@ import {
   PRORES_4444_BITS_PER_PIXEL,
   saveExportPreset,
   type SavedExportPreset,
-} from './export-presets';
+} from '../../state/export-presets';
 import {
   validateExportFile,
   validateExportVerification,
@@ -1994,7 +1994,20 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                             <button
                               type="button"
                               className="small"
-                              onClick={() => setQueue((current) => removeEntry(current, entry.id))}
+                              onClick={() => {
+                                // Mismo criterio que clearFinishedQueue: pedir
+                                // confirmación cuando quitar la entrada pierde
+                                // trabajo real (un pendiente aún no renderizado).
+                                if (
+                                  entry.status === 'pending' &&
+                                  !window.confirm(
+                                    `Se va a quitar "${entry.profileName}" de la cola de exportación antes de que se renderice. ¿Continuar?`,
+                                  )
+                                ) {
+                                  return;
+                                }
+                                setQueue((current) => removeEntry(current, entry.id));
+                              }}
                               disabled={running}
                             >
                               Quitar

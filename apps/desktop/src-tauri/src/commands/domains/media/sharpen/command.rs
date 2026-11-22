@@ -93,7 +93,13 @@ pub async fn sharpen_media(
         ));
     };
 
-    let source = probe_media(ffprobe.as_deref(), &input_path);
+    // AUD-129 (resto del dominio media): probe + resolve_encoder (que
+    // prueba encoders reales) + encode completo + publish pueden tardar;
+    // todo va a spawn_blocking.
+    let ffmpeg_path = ffmpeg.clone();
+    let ffprobe_path = ffprobe.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+    let source = probe_media(ffprobe_path.as_deref(), &input_path);
     let filters = clarity_filters(&config, source.height.unwrap_or(0));
     if filters.is_empty() {
         return Err(ProjectError::message(
@@ -103,7 +109,7 @@ pub async fn sharpen_media(
     }
     let filter = filters.join(",");
 
-    let encoder = resolve_encoder(&ffmpeg)?;
+    let encoder = resolve_encoder(&ffmpeg_path)?;
     let output_width = match (source.width, source.height) {
         (Some(width), Some(height)) if height > 0 && config.target_height > 0 => {
             // El mismo redondeo que hace `scale=-2:alto`.
@@ -131,7 +137,7 @@ pub async fn sharpen_media(
         mode.extension()
     ));
 
-    let mut command = Command::new(&ffmpeg);
+    let mut command = Command::new(&ffmpeg_path);
     command
         .arg("-hide_banner")
         .arg("-y")
@@ -251,7 +257,7 @@ pub async fn sharpen_media(
     let bytes = std::fs::metadata(&final_path)
         .map(|meta| meta.len())
         .unwrap_or(0);
-    let rendered = probe_media(ffprobe.as_deref(), &final_path);
+    let rendered = probe_media(ffprobe_path.as_deref(), &final_path);
     let _ = app.emit("sharpen-progress", serde_json::json!({ "percent": 100.0 }));
     Ok(SharpenResult {
         path: final_path.to_string_lossy().into_owned(),
@@ -266,4 +272,12 @@ pub async fn sharpen_media(
         duration_seconds: rendered.duration.or(source.duration),
         preset: request.preset,
     })
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "la definición se interrumpió antes de terminar",
+        )
+    })?
 }

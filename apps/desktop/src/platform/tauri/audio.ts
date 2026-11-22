@@ -1,10 +1,10 @@
 import type { DesktopService } from "../../services/contracts";
 import type { NativeCall } from './shared';
 import * as shared from './shared';
-import type { AudioPeaks, AudioScopeData, CloneProgress, CloneVoiceResult, DialogueProgress, DialogueResult, DiarizeProviderInfo, DiarizeResult, DubProgress, DubResult, FileLoudness, LipSyncProgress, LipSyncResult, LoudnessAnalysisProgress, MixLoudnessReport, NarrationResult, NativeWhisperModel, NativeWhisperStatus, TranscriptionResult, VoiceInfo, VoiceIsolationStatus, WhisperModelDownloadEvent } from "../../services/contracts";
+import type { AudioPeaks, AudioScopeData, CloneProgress, CloneVoiceResult, DialogueProgress, DialogueResult, DiarizeProviderInfo, DiarizeResult, DubProgress, DubResult, AudioEffectInfo, AudioEffectStep, AudioFileLoudness, AudioDuckPlan, AudioLoudnessNormalizeResult, AudioRemixAnalysis, AudioSyncOffset, FileLoudness, LipSyncProgress, LipSyncResult, LoudnessAnalysisProgress, MixLoudnessReport, NarrationResult, NativeWhisperModel, NativeWhisperStatus, TranscriptionResult, VoiceInfo, VoiceIsolationStatus, WhisperModelDownloadEvent } from "../../services/contracts";
 import { listen } from "@tauri-apps/api/event";
 
-export function createAudioService(call: NativeCall): Pick<DesktopService, 'enhanceDialogue' | 'onDialogueProgress' | 'synthesizeDub' | 'onDubProgress' | 'cloneVoice' | 'onCloneProgress' | 'lipSync' | 'onLipSyncProgress' | 'getDiarizeProvider' | 'saveDiarizeProvider' | 'diarizeAudio' | 'audioPeaksPath' | 'measureFileLoudness' | 'audioPeaks' | 'analyzeMixLoudness' | 'audioScopeAnalyze' | 'audioScopeAnalyzeAsset' | 'onLoudnessAnalysisProgress' | 'transcribeAsset' | 'voiceIsolationStatus' | 'voiceIsolateMedia' | 'voiceIsolationPrepare' | 'listVoices' | 'synthesizeNarration' | 'whisperModelStatus' | 'whisperModelDownload' | 'whisperModelDownloadCancel' | 'onWhisperModelDownload'> {
+export function createAudioService(call: NativeCall): Pick<DesktopService, 'enhanceDialogue' | 'onDialogueProgress' | 'synthesizeDub' | 'onDubProgress' | 'cloneVoice' | 'onCloneProgress' | 'lipSync' | 'onLipSyncProgress' | 'getDiarizeProvider' | 'saveDiarizeProvider' | 'diarizeAudio' | 'audioPeaksPath' | 'measureFileLoudness' | 'audioPeaks' | 'analyzeMixLoudness' | 'audioScopeAnalyze' | 'audioScopeAnalyzeAsset' | 'audioEffectsList' | 'audioEffectsRender' | 'audioLoudnessAnalyze' | 'audioLoudnessNormalize' | 'audioRemixAnalyze' | 'audioRemixRender' | 'audioDuckPlan' | 'audioChannelsConvert' | 'ttsVoices' | 'ttsSynthesize' | 'audioSyncOffset' | 'audioTimeStretch' | 'onLoudnessAnalysisProgress' | 'transcribeAsset' | 'voiceIsolationStatus' | 'voiceIsolateMedia' | 'voiceIsolationPrepare' | 'listVoices' | 'synthesizeNarration' | 'whisperModelStatus' | 'whisperModelDownload' | 'whisperModelDownloadCancel' | 'onWhisperModelDownload'> {
   return {
     async enhanceDialogue(request) {
       return (await call(shared.PROJECT_COMMANDS.enhanceDialogue, {
@@ -83,6 +83,93 @@ export function createAudioService(call: NativeCall): Pick<DesktopService, 'enha
         startSeconds: range?.startSeconds ?? null,
         durationSeconds: range?.durationSeconds ?? null,
       })) as AudioScopeData;
+    },
+    async audioEffectsList() {
+      return (await call(shared.PROJECT_COMMANDS.audioEffectsList)) as AudioEffectInfo[];
+    },
+    async audioEffectsRender(path, output, chain, speed) {
+      return (await call(shared.PROJECT_COMMANDS.audioEffectsRender, {
+        path,
+        output,
+        chain: chain.map((step) => ({
+          effect: step.effect,
+          params: step.params ?? [],
+        })),
+        speed: speed ?? null,
+      })) as string;
+    },
+    async audioLoudnessAnalyze(path) {
+      return (await call(shared.PROJECT_COMMANDS.audioLoudnessAnalyze, {
+        path,
+      })) as AudioFileLoudness;
+    },
+    async audioLoudnessNormalize(path, output, targetLufs) {
+      return (await call(shared.PROJECT_COMMANDS.audioLoudnessNormalize, {
+        path,
+        output,
+        targetLufs: targetLufs ?? null,
+      })) as AudioLoudnessNormalizeResult;
+    },
+    async audioRemixAnalyze(path) {
+      return (await call(shared.PROJECT_COMMANDS.audioRemixAnalyze, {
+        path,
+      })) as AudioRemixAnalysis;
+    },
+    async audioRemixRender(path, output, targetSeconds, segments, variations) {
+      return (await call(shared.PROJECT_COMMANDS.audioRemixRender, {
+        path,
+        output,
+        targetSeconds,
+        segments: segments ?? null,
+        variations: variations ?? null,
+      })) as string;
+    },
+    async audioDuckPlan(path, options) {
+      return (await call(shared.PROJECT_COMMANDS.audioDuckPlan, {
+        path,
+        sensitivity: options?.sensitivity ?? null,
+        minOnSeconds: options?.minOnSeconds ?? null,
+        bridgeSeconds: options?.bridgeSeconds ?? null,
+        clipStartSeconds: options?.clipStartSeconds ?? null,
+        clipEndSeconds: options?.clipEndSeconds ?? null,
+        baseDb: options?.baseDb ?? null,
+        reduceDb: options?.reduceDb ?? null,
+        fadeSeconds: options?.fadeSeconds ?? null,
+      })) as AudioDuckPlan;
+    },
+    async ttsVoices() {
+      return (await call(shared.PROJECT_COMMANDS.ttsVoices)) as readonly import('../../services/contracts/audio').TtsVoiceInfo[];
+    },
+    async ttsSynthesize(text, output, voiceId, pace, semitones) {
+      return (await call(shared.PROJECT_COMMANDS.ttsSynthesize, {
+        text,
+        output,
+        voiceId: voiceId ?? null,
+        pace: pace ?? null,
+        semitones: semitones ?? null,
+      })) as string;
+    },
+    async audioChannelsConvert(path, output, toLayout, mixdown, fromLayout) {
+      return (await call(shared.PROJECT_COMMANDS.audioChannelsConvert, {
+        path,
+        output,
+        toLayout,
+        mixdown: mixdown ?? null,
+        fromLayout: fromLayout ?? null,
+      })) as string;
+    },
+    async audioSyncOffset(pathA, pathB) {
+      return (await call(shared.PROJECT_COMMANDS.audioSyncOffset, {
+        pathA,
+        pathB,
+      })) as AudioSyncOffset;
+    },
+    async audioTimeStretch(path, output, speed) {
+      return (await call(shared.PROJECT_COMMANDS.audioTimeStretch, {
+        path,
+        output,
+        speed,
+      })) as string;
     },
     async onLoudnessAnalysisProgress(handler) {
       return listen<LoudnessAnalysisProgress>('loudness-analysis-progress', (event) =>
