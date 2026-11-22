@@ -18555,3 +18555,28 @@ inmediato y visible en la UI de Descargas.
 Pendientes que requieren decisión del usuario o son features grandes:
 commit del WIP, migración vite 5→8 (npm install bloqueado por hook),
 source monitor (preview persistente del asset en el monitor).
+
+## Pasada 292 — commit del WIP + source monitor mínimo (pin del espía)
+
+**Commit `fdf4c226`**: 438 archivos, +45.578/-8.788 — todo el WIP
+verificado de la sesión (pipeline autoedit MCP, qc_media, GuardProxy
+AUD-032, fixes loudness/material/cuts, thumbnails, teleprompter,
+voiceover, ai-mode). Scan de secretos en el diff: limpio. Árbol quedó
+limpio; la rama va 3 commits adelante de origin.
+
+**Source monitor v1** (elegido por el usuario como próximo frente):
+preview persistente del asset en el monitor reutilizando `media-spy`:
+- `pinMediaSpy` nuevo en el store: clic en la tarjeta fija el medio en
+  el monitor; otro clic o Escape lo suelta.
+- Con pin activo, `showMediaSpy` de otros medios se ignora y
+  `scrubMediaSpy` queda limitado al asset fijado (la tarjeta vecina no
+  mueve su tiempo).
+- `MediaSpyOverlay` muestra badge «fijado» + Escape global para soltar.
+- `onPointerLeave` ya no esconde el espía cuando está pinned.
+- Tests: media-spy 6/6 (pin bloquea hover ajeno, alterna, reemplaza,
+  scrub por assetId) + EditorAssets 14/14 · tsc exit 0.
+
+Residual honesto: es frame estático fijado, sin transporte propio
+(play/pausa/scrub del source). El monitor de programa queda tapado
+mientras el pin está activo — diseño deliberado del overlay existente.
+Siguiente iteración natural: transporte del source (play + scrub bar).

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useMediaSpy } from '../../state/media-spy';
+import { hideMediaSpy, useMediaSpy } from '../../state/media-spy';
 import { createRafCoalescer } from './timeline-raf';
 
 function mmss(seconds: number): string {
@@ -54,6 +54,16 @@ export function MediaSpyOverlay() {
     [],
   );
 
+  // Escape suelta el pin (source monitor mínimo).
+  useEffect(() => {
+    if (!spy?.pinned) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') hideMediaSpy();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [spy?.pinned]);
+
   if (!spy) return null;
 
   return (
@@ -70,6 +80,11 @@ export function MediaSpyOverlay() {
         />
       )}
       <span className="media-spy-time">{mmss(spy.timeSeconds)}</span>
+      {spy.pinned ? (
+        <span className="media-spy-pin" title="Preview fijada — clic en la tarjeta o Escape para soltar">
+          fijado
+        </span>
+      ) : null}
     </div>
   );
 }

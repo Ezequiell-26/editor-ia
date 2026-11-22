@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
@@ -11,7 +12,13 @@ import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import { friendlyAssetLabel } from '../../state/asset-labels';
-import { hideMediaSpy, scrubMediaSpy, showMediaSpy } from '../../state/media-spy';
+import {
+  getMediaSpy,
+  hideMediaSpy,
+  pinMediaSpy,
+  scrubMediaSpy,
+  showMediaSpy,
+} from '../../state/media-spy';
 import {
   addAdjustmentLayer,
   addClipFromAsset,
@@ -777,9 +784,26 @@ function RailAsset({
             );
           },
           onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
-            scrubMediaSpy(spyTimeAt(event.clientX, event.currentTarget));
+            scrubMediaSpy(asset.id, spyTimeAt(event.clientX, event.currentTarget));
           },
-          onPointerLeave: () => hideMediaSpy(),
+          onClick: (event: ReactMouseEvent<HTMLElement>) => {
+            // Source monitor mínimo: clic fija el medio en el monitor;
+            // otro clic (o Escape) lo suelta. No interfiere con el
+            // botón de favorito (ese hace stopPropagation).
+            event.stopPropagation();
+            pinMediaSpy(
+              asset.id,
+              store.service.mediaUrl(root, asset.source.path),
+              spy.kind,
+              spy.duration,
+              spyTimeAt(event.clientX, event.currentTarget),
+            );
+          },
+          onPointerLeave: () => {
+            // Con pin activo el espía sobrevive al puntero; sin pin, el
+            // comportamiento hover original se mantiene.
+            if (!getMediaSpy()?.pinned) hideMediaSpy();
+          },
         }
       : {};
 

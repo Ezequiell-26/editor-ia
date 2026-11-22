@@ -2455,6 +2455,18 @@
   font-size: 10px;
   pointer-events: none;
 }
+.media-spy-pin {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(20, 80, 140, 0.85);
+  color: #dcecff;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
 .preview-look {
   position: absolute;
   inset: 0;

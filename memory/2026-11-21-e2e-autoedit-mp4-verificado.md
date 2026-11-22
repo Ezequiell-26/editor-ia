@@ -146,3 +146,9 @@ Tests: 8 nuevos, 71/72 downloader. Pendiente: rebuild exe.
 Exe 8m16s, app PID 10588, MCP verificado (autoedit_status OK). GuardProxy
 compilado y cableado en los 4 call sites de yt-dlp; validación real
 pendiente de la primera descarga del usuario.
+
+## Addendum 14 — commit fdf4c226 + source monitor pin (pasada 292)
+
+WIP completo commiteado (438 archivos). Source monitor v1: pinMediaSpy
+fija el asset en el monitor (clic/Escape), bloquea hover ajeno y scrub
+cruzado. Sin transporte propio todavía. TS-only → próximo rebuild.
