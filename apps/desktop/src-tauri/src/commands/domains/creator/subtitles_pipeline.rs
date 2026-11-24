@@ -337,12 +337,25 @@ pub async fn subtitles_pipeline(
             )
         })?;
     }
-    std::fs::write(&ass_path, &ass).map_err(|e| {
-        ProjectError::message(
+    // Escritura atómica: el .ass es un entregable — un corte a mitad no
+    // debe dejar subtítulos truncados (misma convención que fs_write).
+    let ass_tmp = ass_path.with_file_name(format!(
+        ".{}.tmp-{}",
+        ass_path
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_default(),
+        uuid::Uuid::new_v4()
+    ));
+    let ass_write =
+        std::fs::write(&ass_tmp, &ass).and_then(|()| std::fs::rename(&ass_tmp, &ass_path));
+    if ass_write.is_err() {
+        let _ = std::fs::remove_file(&ass_tmp);
+        return Err(ProjectError::message(
             ProjectErrorCode::Io,
-            &format!("no se pudo escribir el ASS: {e}"),
-        )
-    })?;
+            "no se pudo escribir el ASS",
+        ));
+    }
 
     // 4) Burn opcional con el filtro subtitles (libass).
     let mut output_file: Option<String> = None;

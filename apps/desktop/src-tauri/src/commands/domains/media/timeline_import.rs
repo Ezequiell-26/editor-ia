@@ -79,7 +79,18 @@ pub async fn import_timeline(
         ));
     }
     let project = request.project;
-    tauri::async_runtime::spawn_blocking(move || {
+    // AUD-143: epoch de sesión — la importación copia medios a la raíz
+    // capturada; si el proyecto cambia, no se escribe en la carpeta vieja.
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
+    let imported = tauri::async_runtime::spawn_blocking(move || {
+        if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "el proyecto cambió antes de importar la timeline",
+            ));
+        }
         crate::application::timeline_import::import_timeline_file(&root, &ffprobe, &path, &project)
     })
     .await
@@ -88,5 +99,13 @@ pub async fn import_timeline(
             ProjectErrorCode::Io,
             format!("la importación de la timeline se interrumpió: {error}").as_str(),
         )
-    })?
+    })??;
+    // AUD-143: la sesión pudo cambiar entre el último chequeo y acá.
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la importación; los medios pudieron quedar en la carpeta del proyecto anterior",
+        ));
+    }
+    Ok(imported)
 }

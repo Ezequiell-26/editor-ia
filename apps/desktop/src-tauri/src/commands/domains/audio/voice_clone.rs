@@ -227,6 +227,11 @@ pub async fn clone_voice(
     )
     .await?;
     let media_dir = session.root.join("media");
+    // AUD-143: epoch de sesión — si el proyecto cambia mientras el motor
+    // clona, el WAV no se publica en la carpeta del proyecto viejo.
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
     // Write del WAV + probe_file (ffprobe) + publicación: fuera del
     // runtime async (AUD-129).
     let ffprobe_for_clone = ffprobe.clone();
@@ -258,6 +263,13 @@ pub async fn clone_voice(
                     "el audio clonado no tiene una duración válida",
                 ));
             }
+            if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+                let _ = std::fs::remove_file(&temp);
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    "el proyecto cambió durante el clonado; la voz no se guardó",
+                ));
+            }
             let final_name = format!("voz-clonada-{}.wav", Uuid::new_v4());
             let final_path = media_dir_for_clone.join(&final_name);
             std::fs::rename(&temp, &final_path).map_err(|error| {
@@ -280,6 +292,14 @@ pub async fn clone_voice(
             "la publicación de la voz clonada se interrumpió",
         )
     })??;
+    // AUD-143: la sesión pudo cambiar entre el último chequeo interno y
+    // acá — el WAV ya está publicado en la raíz capturada; se reporta.
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante el clonado; el audio pudo quedar en la carpeta del proyecto anterior",
+        ));
+    }
     let _ = app.emit(
         "clone-progress",
         json!({ "percent": 100.0, "stage": "Voz clonada lista" }),

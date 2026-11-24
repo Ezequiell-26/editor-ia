@@ -5,6 +5,7 @@ import { MARKER_COLORS, MAX_MARKER_NOTE } from '@editor-ia/project-schema';
 import { fpsOf, formatTimecode } from '../../state/project-actions';
 import {
   deleteMarker,
+  formatMarkersCsv,
   markerAtFrame,
   nextMarker,
   previousMarker,
@@ -225,6 +226,17 @@ export function MarkersPanel() {
     if (editingId === markerId) closeEditor();
   }
 
+  function exportCsv(): void {
+    const csv = formatMarkersCsv(markers, fps);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${(project?.name ?? 'marcadores').replace(/[^a-zA-Z0-9-_]+/g, '-') || 'marcadores'}-marcadores.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <section aria-label="Panel de marcadores" style={panelStyle}>
       <header style={headerStyle}>
@@ -251,6 +263,16 @@ export function MarkersPanel() {
             title="Ir al marcador siguiente"
           >
             Siguiente ▶
+          </button>
+          <button
+            type="button"
+            style={navButtonStyle}
+            onClick={exportCsv}
+            disabled={markers.length === 0}
+            aria-label="Exportar marcadores como CSV"
+            title="Exportar marcadores como CSV (timecode, color, nota)"
+          >
+            CSV
           </button>
         </div>
       </header>

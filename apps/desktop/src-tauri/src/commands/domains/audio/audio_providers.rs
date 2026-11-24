@@ -262,6 +262,12 @@ pub(crate) async fn synthesize_elevenlabs(
     let model_id = validate_model_id(&settings.audio_provider.model_id)?;
     let text = validate_text(&text)?;
     let session = state.require_session()?;
+    // AUD-143: epoch de sesión — el request HTTP puede tardar hasta 60s;
+    // si el proyecto cambia mientras tanto, el MP3 no se publica en la
+    // carpeta del proyecto viejo.
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
     let (_, ffprobe, _) = resolve_tools(&settings);
     let Some(ffprobe) = ffprobe else {
         return Err(ProjectError::message(
@@ -319,12 +325,28 @@ pub(crate) async fn synthesize_elevenlabs(
             "ElevenLabs devolvió un audio vacío",
         ));
     }
-    std::fs::write(&output, &bytes).map_err(|_| {
+    if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la síntesis; el audio no se guardó",
+        ));
+    }
+    // Escritura atómica (AUD-148): temp + rename — un fallo no deja un
+    // MP3 truncado en la carpeta media.
+    let temp = media_dir.join(format!(".voz-elevenlabs-{}.tmp", Uuid::new_v4()));
+    std::fs::write(&temp, &bytes).map_err(|_| {
         ProjectError::message(
             ProjectErrorCode::Io,
             "no se pudo escribir el audio generado en el proyecto",
         )
     })?;
+    if let Err(error) = std::fs::rename(&temp, &output) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo publicar el audio generado: {error}"),
+        ));
+    }
 
     let (measure, sha256, byte_count) = {
         let ffprobe = ffprobe.clone();
@@ -349,6 +371,14 @@ pub(crate) async fn synthesize_elevenlabs(
             )
         })??
     };
+    // AUD-143: la sesión pudo cambiar entre el último chequeo y acá — el
+    // MP3 ya está publicado en la raíz capturada; se reporta.
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la síntesis; el audio pudo quedar en la carpeta del proyecto anterior",
+        ));
+    }
     let relative = format!(
         "media/{}",
         output

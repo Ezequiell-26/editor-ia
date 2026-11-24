@@ -90,7 +90,6 @@ export default defineConfig({
           // el aviso de `build.chunkSizeWarningLimit` y se dividen a mano.
           return undefined;
         },
-        inlineDynamicImports: false,
       },
     },
   },

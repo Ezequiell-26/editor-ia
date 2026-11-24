@@ -84,6 +84,82 @@ export type {
   TransformKeyframePatch,
 } from './keyframe-actions';
 export {
+  applyFaceCenteredZoom,
+  computeFaceCenteredOffsets,
+  TALKING_HEAD_DEFAULT_FACE,
+} from './face-zoom';
+export type {
+  ApplyFaceZoomOptions,
+  ApplyFaceZoomResult,
+  FaceCenteredOffsets,
+  FaceFramingMode,
+  FaceTarget,
+  FaceZoomStyle,
+} from './face-zoom';
+export {
+  autoPlaceSfx,
+  ensureSfxAsset,
+  SFX_CATALOG,
+} from './sfx-placer';
+export type {
+  AutoPlaceSfxOptions,
+  AutoPlaceSfxResult,
+  BuiltinSfxId,
+  PlacedSfxEvent,
+  SfxPresetDefinition,
+} from './sfx-placer';
+export {
+  applySemanticBroll,
+  assetKeywords,
+  extractKeywords,
+  planSemanticBroll,
+  scoreBrollMatch,
+} from './broll-matcher';
+export type {
+  ApplySemanticBrollOptions,
+  ApplySemanticBrollResult,
+  KeywordMatchResult,
+  PlannedBrollPlacement,
+  PlanSemanticBrollOptions,
+} from './broll-matcher';
+export {
+  applyMusicDucking,
+  buildDuckingKeyframes,
+  detectPunchlineMoments,
+  modulateCutSeconds,
+  pacingZoneAt,
+  DEFAULT_PACING_ZONES,
+} from './dynamic-pacing';
+export type {
+  ApplyMusicDuckingOptions,
+  ApplyMusicDuckingResult,
+  DuckingKeyframe,
+  PacingZone,
+  PunchlineMoment,
+} from './dynamic-pacing';
+export {
+  addVoxCallout,
+  addVoxCounter,
+  addVoxHighlighter,
+  autoPlaceVoxGraphics,
+  detectVoxMoments,
+} from './vox-motion';
+export type {
+  AddVoxCalloutOptions,
+  AddVoxCounterOptions,
+  AddVoxHighlighterOptions,
+  AutoPlaceVoxOptions,
+  AutoPlaceVoxResult,
+  DetectedVoxMoment,
+  VoxKind,
+} from './vox-motion';
+export { applyAutoZooms, planAutoZooms } from './auto-zoom';
+export type {
+  ApplyAutoZoomsResult,
+  AutoZoomPlanItem,
+  PlanAutoZoomsOptions,
+} from './auto-zoom';
+export {
   addScene,
   applyScenePlan,
   attachNarrationAsset,
@@ -1022,7 +1098,9 @@ export function detachAudio(
     ...(clip.reverse ? { reverse: true } : {}),
     ...(Object.keys(audio).length > 0 ? { audio } : {}),
     ...(clip.colorTag ? { colorTag: clip.colorTag } : {}),
+    linkGroup: clip.linkGroup ?? newId(),
   };
+  clip.linkGroup = detached.linkGroup;
   next.timeline.clips.push(detached);
   clip.audio = { ...(clip.audio ?? {}), muted: true };
   touch(next);
@@ -1031,6 +1109,275 @@ export function detachAudio(
     clipId: detached.id,
     trackId: target.id,
     createdTrack,
+  };
+}
+
+export interface ApplySplitEditOptions {
+  readonly clipId: string;
+  readonly type: 'j-cut' | 'l-cut';
+  readonly frames?: number;
+}
+
+export interface ApplySplitEditResult {
+  readonly project: ProjectDocument;
+  readonly videoClipId: string;
+  readonly audioClipId: string;
+  readonly type: 'j-cut' | 'l-cut';
+  readonly appliedFrames: number;
+}
+
+/**
+ * Aplica un corte dividido (J-cut o L-cut) a un clip de la timeline:
+ * - J-cut: el audio del clip se adelanta a su video (la voz entra antes de que se vea).
+ * - L-cut: el audio del clip se prolonga después de que su video termine (la voz continúa sobre el siguiente plano).
+ *
+ * Si el clip de video aún tiene el audio embebido, se separa primero mediante `detachAudio`.
+ * Si el desplazamiento produce colisión en la pista de audio, se reubica o crea una pista alterna.
+ */
+export function applySplitEdit(
+  project: ProjectDocument,
+  options: ApplySplitEditOptions,
+): ApplySplitEditResult {
+  let next = cloneProject(project);
+  const inputClip = next.timeline.clips.find((c) => c.id === options.clipId);
+  if (!inputClip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+
+  let videoClip: Clip | undefined;
+  let audioClip: Clip;
+
+  if (inputClip.kind === 'video') {
+    videoClip = inputClip;
+    if (!videoClip.audio?.muted) {
+      const detached = detachAudio(next, videoClip.id);
+      next = detached.project;
+      videoClip = next.timeline.clips.find((c) => c.id === inputClip.id)!;
+      audioClip = next.timeline.clips.find((c) => c.id === detached.clipId)!;
+    } else {
+      const found = next.timeline.clips.find(
+        (c) =>
+          c.kind === 'audio' &&
+          c.source.type === 'asset' &&
+          inputClip.source.type === 'asset' &&
+          c.source.assetId === inputClip.source.assetId &&
+          Math.abs(c.startFrame - inputClip.startFrame) <= 30,
+      );
+      if (!found) {
+        throw new ProjectActionError('no se encontró el clip de audio asociado al video');
+      }
+      audioClip = found;
+    }
+  } else if (inputClip.kind === 'audio') {
+    audioClip = inputClip;
+    // El video pareado es opcional: un clip de audio suelto (música,
+    // narración) también admite J/L cut sobre sí mismo.
+    videoClip = next.timeline.clips.find(
+      (c) =>
+        c.kind === 'video' &&
+        c.source.type === 'asset' &&
+        audioClip.source.type === 'asset' &&
+        c.source.assetId === audioClip.source.assetId &&
+        Math.abs(c.startFrame - audioClip.startFrame) <= 30,
+    );
+  } else {
+    throw new ProjectActionError('sólo clips de video o audio pueden aplicar cortes divididos');
+  }
+
+  const audioSource = audioClip.source;
+  const videoSource = videoClip?.source;
+  if (
+    audioSource.type !== 'asset' ||
+    !('inFrame' in audioSource) ||
+    !('outFrame' in audioSource) ||
+    (videoSource !== undefined &&
+      (videoSource.type !== 'asset' ||
+        !('inFrame' in videoSource) ||
+        !('outFrame' in videoSource)))
+  ) {
+    throw new ProjectActionError('el clip no proviene de un material asset ventaneado');
+  }
+
+  const requested = Math.max(1, Math.min(120, options.frames ?? 10));
+  let appliedFrames = 0;
+
+  if (options.type === 'j-cut') {
+    const availableSource = audioSource.inFrame;
+    const availableTimeline = audioClip.startFrame;
+    const shift = Math.min(requested, availableSource, availableTimeline);
+    if (shift <= 0) {
+      throw new ProjectActionError('el clip no tiene fotogramas previos de audio para adelantar (inicio en 0)');
+    }
+    audioSource.inFrame -= shift;
+    audioClip.startFrame -= shift;
+    audioClip.durationFrames += shift;
+    const fadeIn = Math.max(audioClip.audio?.fadeInFrames ?? 0, Math.min(shift, 4));
+    audioClip.audio = { ...(audioClip.audio ?? {}), fadeInFrames: fadeIn };
+    appliedFrames = shift;
+  } else {
+    const asset = next.assets.find((a) => a.id === audioSource.assetId);
+    const mediaFrames =
+      asset && 'media' in asset && asset.media && 'durationFrames' in asset.media
+        ? asset.media.durationFrames
+        : Number.POSITIVE_INFINITY;
+    const availableTail = Math.max(0, mediaFrames - audioSource.outFrame);
+    const extend = Math.min(requested, availableTail);
+    if (extend <= 0) {
+      throw new ProjectActionError('el clip no tiene fotogramas posteriores de audio en el material');
+    }
+    audioSource.outFrame += extend;
+    audioClip.durationFrames += extend;
+    const fadeOut = Math.max(audioClip.audio?.fadeOutFrames ?? 0, Math.min(extend, 6));
+    audioClip.audio = { ...(audioClip.audio ?? {}), fadeOutFrames: fadeOut };
+    appliedFrames = extend;
+  }
+
+  const collides = next.timeline.clips.some(
+    (c) =>
+      c.id !== audioClip.id &&
+      c.trackId === audioClip.trackId &&
+      c.startFrame < audioClip.startFrame + audioClip.durationFrames &&
+      c.startFrame + c.durationFrames > audioClip.startFrame,
+  );
+
+  if (collides) {
+    let target = next.timeline.tracks.find(
+      (t) =>
+        (t.kind === 'audio' || t.kind === 'narration') &&
+        t.id !== audioClip.trackId &&
+        !t.locked &&
+        !t.muted &&
+        !next.timeline.clips.some(
+          (c) =>
+            c.id !== audioClip.id &&
+            c.trackId === t.id &&
+            c.startFrame < audioClip.startFrame + audioClip.durationFrames &&
+            c.startFrame + c.durationFrames > audioClip.startFrame,
+        ),
+    );
+    if (!target) {
+      const order = Math.max(-1, ...next.timeline.tracks.map((t) => t.order)) + 1;
+      target = {
+        id: newId(),
+        kind: 'audio',
+        label: 'Audio Split Edit',
+        order,
+        muted: false,
+        hidden: false,
+        locked: false,
+      };
+      next.timeline.tracks.push(target);
+    }
+    audioClip.trackId = target.id;
+  }
+
+  touch(next);
+  return {
+    project: next,
+    videoClipId: videoClip?.id ?? audioClip.id,
+    audioClipId: audioClip.id,
+    type: options.type,
+    appliedFrames,
+  };
+}
+
+export interface ApplyMorphCutOptions {
+  /** Clip ENTRANTE (video o audio): el corte está justo antes de su inicio. */
+  readonly incomingClipId: string;
+  /** Frames de extensión por lado (default 6 ≈ 200 ms a 30 fps). */
+  readonly frames?: number;
+}
+
+export interface ApplyMorphCutResult {
+  readonly project: ProjectDocument;
+  readonly incomingClipId: string;
+  readonly outgoingClipId: string;
+  readonly jCutFrames: number;
+  readonly lCutFrames: number;
+  readonly audioClipIds: readonly string[];
+}
+
+/**
+ * Morph Cut (paridad Premiere "Align"): en el corte entre dos clips
+ * contiguos de la misma pista, el audio saliente se prolonga bajo el
+ * video entrante (L-cut) Y el audio entrante arranca antes de su video
+ * (J-cut). Como ambas extensiones se solapan alrededor del corte, las dos
+ * voces se cruzan ~2×frames: el jump cut se disimula sin tocar el video.
+ *
+ * Cada lado se aplica de forma independiente: si un clip no tiene handle
+ * de fuente, ese lado se salta y se reporta en 0 frames — no es un error
+ * mientras al menos un lado haya podido extenderse.
+ */
+export function applyMorphCut(
+  project: ProjectDocument,
+  options: ApplyMorphCutOptions,
+): ApplyMorphCutResult {
+  const incoming = project.timeline.clips.find((c) => c.id === options.incomingClipId);
+  if (!incoming) {
+    throw new ProjectActionError('el clip entrante no está en la timeline');
+  }
+  // Video o audio: el mecanismo es el mismo (L del saliente + J del entrante).
+  if (incoming.kind !== 'video' && incoming.kind !== 'audio') {
+    throw new ProjectActionError('el morph cut necesita un clip de video o audio entrante');
+  }
+  const track = project.timeline.tracks.find((t) => t.id === incoming.trackId);
+  if (!track || track.locked) {
+    throw new ProjectActionError('la pista del clip entrante está bloqueada');
+  }
+  const outgoing = project.timeline.clips
+    .filter(
+      (c) =>
+        c.trackId === incoming.trackId &&
+        c.id !== incoming.id &&
+        c.kind === incoming.kind &&
+        c.startFrame + c.durationFrames === incoming.startFrame,
+    )
+    .sort((a, b) => b.startFrame - a.startFrame)[0];
+  if (!outgoing) {
+    throw new ProjectActionError(
+      'no hay un clip contiguo del mismo tipo antes del entrante en la misma pista',
+    );
+  }
+  const outTrack = project.timeline.tracks.find((t) => t.id === outgoing.trackId);
+  if (!outTrack || outTrack.locked) {
+    throw new ProjectActionError('la pista del clip saliente está bloqueada');
+  }
+
+  const frames = Math.max(1, Math.min(60, options.frames ?? 6));
+  let next = project;
+  let lCutFrames = 0;
+  let jCutFrames = 0;
+  const audioClipIds: string[] = [];
+
+  try {
+    const result = applySplitEdit(next, { clipId: outgoing.id, type: 'l-cut', frames });
+    next = result.project;
+    lCutFrames = result.appliedFrames;
+    audioClipIds.push(result.audioClipId);
+  } catch {
+    // Sin cola de material: el lado saliente queda sin extender.
+  }
+  try {
+    const result = applySplitEdit(next, { clipId: incoming.id, type: 'j-cut', frames });
+    next = result.project;
+    jCutFrames = result.appliedFrames;
+    audioClipIds.push(result.audioClipId);
+  } catch {
+    // Sin cabeza de material: el lado entrante queda sin extender.
+  }
+
+  if (lCutFrames === 0 && jCutFrames === 0) {
+    throw new ProjectActionError(
+      'ningún lado pudo extenderse: faltan fotogramas de audio en el material fuente',
+    );
+  }
+  return {
+    project: next,
+    incomingClipId: incoming.id,
+    outgoingClipId: outgoing.id,
+    jCutFrames,
+    lCutFrames,
+    audioClipIds,
   };
 }
 
@@ -1308,6 +1655,10 @@ export function duplicateClip(
     id,
     startFrame,
   } as Clip;
+  // El copión nunca hereda el vínculo del original: si no, pasaría a
+  // arrastrarse/borrarse junto a un grupo que no le corresponde.
+  // `duplicateClipGroup` los re-vincula entre sí cuando corresponde.
+  delete copy.linkGroup;
   if (copy.kind === 'compound') {
     const cloned = cloneCompoundForClip(next, copy.source.compoundId);
     next.compounds = [...(next.compounds ?? []), cloned.compound];
@@ -1324,6 +1675,49 @@ export function duplicateClip(
   return { project: next, clipId: id };
 }
 
+/**
+ * Duplica un clip o, si pertenece a un `linkGroup`, todo el grupo como una
+ * sola unidad — paridad del Ctrl+D / Alt+arrastre de Premiere sobre una
+ * selección vinculada. Los copiones reciben un `linkGroup` NUEVO compartido
+ * entre ellos: nunca heredan el del original. Si alguna pista del grupo está
+ * bloqueada no se duplica nada (pre-chequeo atómico).
+ */
+export function duplicateClipGroup(
+  project: ProjectDocument,
+  clipId: string,
+): { project: ProjectDocument; clipIds: string[] } | null {
+  const anchor = project.timeline.clips.find((item) => item.id === clipId);
+  if (!anchor) return null;
+  const memberIds = anchor.linkGroup
+    ? project.timeline.clips
+        .filter((item) => item.linkGroup === anchor.linkGroup)
+        .map((item) => item.id)
+    : [clipId];
+  for (const memberId of memberIds) {
+    const member = project.timeline.clips.find((item) => item.id === memberId);
+    const track = project.timeline.tracks.find((item) => item.id === member?.trackId);
+    if (!member || track?.locked) return null;
+  }
+  let next = project;
+  const copyIds: string[] = [];
+  for (const memberId of memberIds) {
+    const result = duplicateClip(next, memberId);
+    if (!result) return null;
+    next = result.project;
+    copyIds.push(result.clipId);
+  }
+  if (anchor.linkGroup) {
+    const group = newId();
+    next = cloneProject(next);
+    for (const id of copyIds) {
+      const copy = next.timeline.clips.find((item) => item.id === id);
+      if (copy) copy.linkGroup = group;
+    }
+    touch(next);
+  }
+  return { project: next, clipIds: copyIds };
+}
+
 export function deleteClip(project: ProjectDocument, clipId: string): ProjectDocument {
   const next = cloneProject(project);
   const clip = next.timeline.clips.find((item) => item.id === clipId);
@@ -1333,7 +1727,17 @@ export function deleteClip(project: ProjectDocument, clipId: string): ProjectDoc
   if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
     throw new ProjectActionError('la pista del clip está bloqueada');
   }
+  const linkGroup = clip.linkGroup;
   next.timeline.clips = next.timeline.clips.filter((item) => item.id !== clipId);
+  // Si el clip era miembro de un linkGroup, el grupo no puede quedar con
+  // un solo superviviente: el vínculo se disuelve (mismo criterio que
+  // unlinkClips — sin badges fantasma).
+  if (linkGroup !== undefined) {
+    const survivors = next.timeline.clips.filter((item) => item.linkGroup === linkGroup);
+    if (survivors.length < 2) {
+      for (const survivor of survivors) delete survivor.linkGroup;
+    }
+  }
   if (clip.kind === 'compound') {
     const stillUsed = next.timeline.clips.some(
       (item) =>
@@ -1369,14 +1773,20 @@ export function cutSideAtPlayhead(
   project: ProjectDocument,
   atFrame: number,
   side: 'left' | 'right',
-  onlyClipId?: string,
+  onlyClipId?: string | readonly string[],
 ): {
   project: ProjectDocument;
   keptClipIds: string[];
   removedClipIds: string[];
 } | null {
-  const targets = onlyClipId
-    ? project.timeline.clips.filter((clip) => clip.id === onlyClipId)
+  const only =
+    onlyClipId === undefined
+      ? null
+      : new Set(
+          typeof onlyClipId === 'string' ? [onlyClipId] : [...onlyClipId],
+        );
+  const targets = only
+    ? project.timeline.clips.filter((clip) => only.has(clip.id))
     : project.timeline.clips.filter(
         (clip) =>
           clip.kind !== 'compound' &&
@@ -1452,6 +1862,9 @@ export function pasteClip(
     trackId: target.id,
     startFrame,
   } as Clip;
+  // El portapapeles puede traer un linkGroup viejo: el pegado nunca se une
+  // al grupo del clip original (mismo criterio que duplicateClip).
+  delete copy.linkGroup;
   if (copy.kind === 'compound') {
     const cloned = cloneCompoundForClip(next, copy.source.compoundId);
     next.compounds = [...(next.compounds ?? []), cloned.compound];
@@ -1516,7 +1929,16 @@ export function rippleDeleteClip(
   }
   const end = clip.startFrame + clip.durationFrames;
   const duration = clip.durationFrames;
+  const linkGroup = clip.linkGroup;
   next.timeline.clips = next.timeline.clips.filter((item) => item.id !== clipId);
+  // Mismo criterio que deleteClip: el linkGroup no puede quedar con un
+  // solo superviviente (sin badges fantasma).
+  if (linkGroup !== undefined) {
+    const survivors = next.timeline.clips.filter((item) => item.linkGroup === linkGroup);
+    if (survivors.length < 2) {
+      for (const survivor of survivors) delete survivor.linkGroup;
+    }
+  }
   for (const item of next.timeline.clips) {
     if (item.trackId === clip.trackId && item.startFrame >= end) {
       item.startFrame = Math.max(0, item.startFrame - duration);

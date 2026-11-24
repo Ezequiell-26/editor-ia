@@ -15,8 +15,7 @@ use tauri::State;
 use crate::commands::system::resolve_tools;
 use crate::media::audio_scope::decode_f32_le;
 use crate::media::audio_tools::{
-    self, deinterleave, encode_wav_f32, list_effects, EffectInfoDto, EffectStep, PlanarPcm,
-    TARGET_RATE,
+    self, deinterleave, list_effects, EffectInfoDto, EffectStep, PlanarPcm, TARGET_RATE,
 };
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
@@ -181,8 +180,15 @@ pub async fn audio_effects_render(
             "el procesamiento de audio falló",
         )
     })??;
-    let wav = encode_wav_f32(&pcm, TARGET_RATE);
-    std::fs::write(&dest, wav).map_err(|e| {
+    let dest_write = dest.clone();
+    tokio::task::spawn_blocking(move || {
+        audio_tools::write_wav_atomic(&pcm, TARGET_RATE, &dest_write)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::RenderFailed, "la escritura del WAV falló")
+    })?
+    .map_err(|e| {
         ProjectError::message(
             ProjectErrorCode::Io,
             &format!("no se pudo escribir el WAV: {e}"),
@@ -376,8 +382,15 @@ pub async fn audio_loudness_normalize(
         )
     })??;
     let (pcm, gain_db, measured) = pcm;
-    let wav = encode_wav_f32(&pcm, TARGET_RATE);
-    std::fs::write(&dest, wav).map_err(|e| {
+    let dest_write = dest.clone();
+    tokio::task::spawn_blocking(move || {
+        audio_tools::write_wav_atomic(&pcm, TARGET_RATE, &dest_write)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::RenderFailed, "la escritura del WAV falló")
+    })?
+    .map_err(|e| {
         ProjectError::message(
             ProjectErrorCode::Io,
             &format!("no se pudo escribir el WAV: {e}"),
@@ -425,8 +438,15 @@ pub async fn audio_time_stretch(
     .map_err(|_| {
         ProjectError::message(ProjectErrorCode::RenderFailed, "el time-stretch falló")
     })??;
-    let wav = encode_wav_f32(&pcm, TARGET_RATE);
-    std::fs::write(&dest, wav).map_err(|e| {
+    let dest_write = dest.clone();
+    tokio::task::spawn_blocking(move || {
+        audio_tools::write_wav_atomic(&pcm, TARGET_RATE, &dest_write)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::RenderFailed, "la escritura del WAV falló")
+    })?
+    .map_err(|e| {
         ProjectError::message(
             ProjectErrorCode::Io,
             &format!("no se pudo escribir el WAV: {e}"),

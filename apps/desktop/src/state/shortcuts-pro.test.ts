@@ -35,6 +35,7 @@ import { deleteClips, moveClipsBy } from '../features/editor/timeline-edits';
 import { updateEditorPreferences } from './editor-preferences';
 import { toggleAiMode } from './ai-mode';
 import { addMarker, deleteMarker, markerAtFrame, nextMarker, previousMarker } from './markers';
+import { nextEditPoint, previousEditPoint } from './edit-points';
 import { applyClipAttributes, copyClipAttributes } from './clip-attributes';
 import { ProjectProvider, useProjectStore, type ProjectStoreValue } from './project-store';
 
@@ -126,6 +127,9 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     'timeline.toggleMarker': [addMarker, deleteMarker, markerAtFrame, store.update],
     'timeline.markerNext': [nextMarker, store.setPlayhead],
     'timeline.markerPrev': [previousMarker, store.setPlayhead],
+    // Flechas ↑/↓ como en Premiere/Resolve: salto al borde de clip.
+    'timeline.editNext': [nextEditPoint, store.setPlayhead, Timeline],
+    'timeline.editPrev': [previousEditPoint, store.setPlayhead, Timeline],
     // Q/W de AlaukCut (`cortarLadoDaAgulha`): corte lateral en la aguja.
     'timeline.cutLeft': [cutSideAtPlayhead, splitClip, deleteClip, Timeline],
     'timeline.cutRight': [cutSideAtPlayhead, splitClip, deleteClip, Timeline],
@@ -145,6 +149,7 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     'timeline.zoomIn': [Timeline],
     'timeline.zoomOut': [Timeline],
     'timeline.zoomFit': [Timeline],
+    'timeline.zoomSelection': [Timeline],
     // Edición de clip por teclado (fase 2 de accesibilidad): operan vía el
     // handler de EditorWorkspace.tsx con las mismas acciones de dominio.
     'timeline.clipMoveLeft': [moveClip, store.update],

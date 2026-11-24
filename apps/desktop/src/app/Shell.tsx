@@ -14,7 +14,8 @@ import { WelcomeDialog } from '../components/WelcomeDialog';
 import { buildCommands } from './commands';
 import { MAIN_NAV_VIEWS, NAV_VIEWS, SECONDARY_NAV_VIEWS, type ViewId } from './navigation';
 import { EDITOR_TOOL_HOSTS, editorModeForView, editorToolForView, resolveViewRoute, viewForEditorMode, type EditorModeId } from './view-routing';
-import { duplicateClip, fpsOf, rippleDeleteClip, totalFrames } from '../state/project-actions';
+import { duplicateClipGroup, fpsOf, rippleDeleteClip, totalFrames } from '../state/project-actions';
+import { expandWithLinked } from '../state/clip-links';
 import { detectNativeRuntime } from '../services/project-service';
 import { useProjectPlaying, useProjectStore } from '../state/project-store';
 import { collectSearchDocuments, createGlobalSearch, destinationOfHit, searchGlobal, type GlobalSearchDocument, type GlobalSearchHit, type GlobalSearchIndex } from '../state/global-search';
@@ -480,9 +481,9 @@ export function Shell({ initialView = 'editor', onReturnToStart }: ShellProps) {
           if (selection.kind !== 'clip') return;
           event.preventDefault();
           const copy = store.mutate((current) => {
-            const result = duplicateClip(current, selection.id);
+            const result = duplicateClipGroup(current, selection.id);
             if (!result) throw new Error('no se pudo duplicar el clip');
-            return result;
+            return { project: result.project, clipId: result.clipIds[0] ?? '' };
           });
           if (copy) {
             store.setSelection({ kind: 'clip', id: copy.clipId });
@@ -495,7 +496,14 @@ export function Shell({ initialView = 'editor', onReturnToStart }: ShellProps) {
           const current = store.state.project;
           if (selection.kind !== 'clip' || !current) return;
           event.preventDefault();
-          const applied = store.update((doc) => rippleDeleteClip(doc, selection.id));
+          const applied = store.update((doc) => {
+            // Ripple delete sobre el linkGroup completo: borrar el video de
+            // un par A/V también cierra el hueco de su audio.
+            const ids = expandWithLinked(doc, [selection.id]);
+            let next = doc;
+            for (const id of ids) next = rippleDeleteClip(next, id);
+            return next;
+          });
           if (applied) {
             store.setSelection({ kind: 'none' });
             store.setPlayhead(

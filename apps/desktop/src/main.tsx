@@ -81,6 +81,9 @@ import './styles/alauk-chrome.css';
 // ADDITIVA y ÚLTIMA de la cascada: sólo actúa en modo timeline con proyecto
 // y se desactiva en caliente con «Vista completa» (data-editor-skin='full').
 import './styles/alaukcut-reference.css';
+// Refino final «quiet premium»: resta decoración acumulada y unifica el chat
+// con la paleta cobalt aprobada. Va DESPUÉS de todas las capas visuales.
+import './styles/refinement.css';
 
 // Apply the saved chrome before the first paint so the window never flashes
 // the default palette when a custom one is stored.

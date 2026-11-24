@@ -135,6 +135,11 @@ pub async fn create_video_proxy(
     })?;
     let file_name = format!("proxy-{}.mp4", uuid::Uuid::new_v4());
     let target = directory.join(&file_name);
+    // AUD-143: epoch de sesión — el encode puede tardar minutos; si el
+    // proyecto cambia, el proxy no queda publicado en la carpeta vieja.
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
     // Proxy con GPU si la máquina tiene encoder de hardware; si no, el
     // mejor H.264 de software que el binario declare (el bundle LGPL no
     // trae libx264). Es material de vista previa: la velocidad pesa más
@@ -144,7 +149,13 @@ pub async fn create_video_proxy(
     let ffmpeg_path = ffmpeg.clone();
     let ffprobe_path = ffprobe.clone();
     let source_path = source.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let proxy_created = tauri::async_runtime::spawn_blocking(move || {
+    if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió antes de crear el proxy",
+        ));
+    }
     let detected = crate::render::ffmpeg::detect_hardware_cached(&ffmpeg_path);
     let encoder = detected
         .h264
@@ -198,6 +209,13 @@ pub async fn create_video_proxy(
             &format!("FFmpeg no pudo crear el proxy: {tail}"),
         ));
     }
+    if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        let _ = std::fs::remove_file(&target);
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la creación del proxy; el archivo no se conservó",
+        ));
+    }
     let measure = probe_file(&ffprobe_path, &target, MediaKind::Video)?;
     let width = measure.width.unwrap_or(0);
     let height = measure.height.unwrap_or(0);
@@ -224,7 +242,15 @@ pub async fn create_video_proxy(
             ProjectErrorCode::Io,
             "la creación del proxy se interrumpió antes de terminar",
         )
-    })?
+    })??
+    ;
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la creación del proxy; el archivo pudo quedar en la carpeta del proyecto anterior",
+        ));
+    }
+    Ok(proxy_created)
 }
 
 #[tauri::command]
@@ -263,7 +289,12 @@ pub async fn extract_freeze_frame(
     let ffprobe_path = ffprobe.clone();
     let source_path = source.clone();
     let root_path = session.root.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    // AUD-143: epoch de sesión — la extracción puede tardar y el import
+    // escribe en la raíz capturada; si el proyecto cambió, no se importa.
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
+    let imported = tauri::async_runtime::spawn_blocking(move || {
     let temp = std::env::temp_dir().join(format!("freeze-{}.png", uuid::Uuid::new_v4()));
     let mut command = std::process::Command::new(&ffmpeg_path);
     command
@@ -304,6 +335,13 @@ pub async fn extract_freeze_frame(
             &format!("FFmpeg no pudo extraer el frame: {tail}"),
         ));
     }
+    if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        let _ = std::fs::remove_file(&temp);
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la extracción; el frame no se importó",
+        ));
+    }
     let imported = import_file(
         &root_path,
         &temp,
@@ -320,5 +358,13 @@ pub async fn extract_freeze_frame(
             ProjectErrorCode::Io,
             "la extracción del frame se interrumpió antes de terminar",
         )
-    })?
+    })?;
+    // AUD-143: la sesión pudo cambiar entre el último chequeo y acá.
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la extracción; el frame pudo quedar en la carpeta del proyecto anterior",
+        ));
+    }
+    imported
 }

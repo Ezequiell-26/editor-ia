@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -137,6 +138,11 @@ pub struct AppState {
     /// `None` sólo en tests que construyen `AppState` a mano.
     pub app: Option<AppHandle>,
     pub session: Mutex<Option<Session>>,
+    /// Generación de la sesión de proyecto: sube en cada `set_session`.
+    /// Los comandos que capturan `session.root` la re-verifican dentro de
+    /// `spawn_blocking` para no escribir medios en el proyecto equivocado
+    /// si la sesión cambió mientras el trabajo pesado corría (AUD-143).
+    pub session_epoch: Arc<AtomicU64>,
     pub settings: Mutex<Settings>,
     pub config_dir: PathBuf,
     pub cache_dir: PathBuf,
@@ -172,6 +178,7 @@ impl AppState {
         Self {
             app: Some(app.clone()),
             session: Mutex::new(None),
+            session_epoch: Arc::new(AtomicU64::new(0)),
             settings: Mutex::new(settings),
             config_dir,
             cache_dir,
@@ -242,7 +249,20 @@ impl AppState {
             ProjectError::message(ProjectErrorCode::Io, "el estado interno no está disponible")
         })?;
         *guard = session;
+        self.session_epoch.fetch_add(1, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// Valor actual del epoch de sesión.
+    pub fn session_epoch_value(&self) -> u64 {
+        self.session_epoch.load(Ordering::SeqCst)
+    }
+
+    /// Handle compartible del epoch para chequeos dentro de
+    /// `spawn_blocking`, donde un `&AppState` no puede prestarse con
+    /// lifetime `'static`.
+    pub fn session_epoch_handle(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.session_epoch)
     }
 
     /// Kill every active render and drain its handle. Used when the native
@@ -609,5 +629,49 @@ impl AppState {
     }
     pub fn mcp_factory(&self) -> crate::infrastructure::mcp::StdioMcpTransportFactory {
         crate::infrastructure::mcp::stdio_factory()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bare_state() -> AppState {
+        AppState {
+            app: None,
+            session: Mutex::new(None),
+            session_epoch: Arc::new(AtomicU64::new(0)),
+            settings: Mutex::new(Settings::default()),
+            config_dir: std::env::temp_dir(),
+            cache_dir: std::env::temp_dir(),
+            render_jobs: Arc::new(Mutex::new(HashMap::new())),
+            thumbnails: Mutex::new(HashMap::new()),
+            analysis_cache: Mutex::new(HashMap::new()),
+            downloader_bridge: Mutex::new(None),
+        }
+    }
+
+    /// AUD-143: el epoch sube en cada adopción/cierre de sesión para que
+    /// los comandos que capturan `session.root` detecten el cambio.
+    #[test]
+    fn session_epoch_bumps_on_every_set_session() {
+        let state = bare_state();
+        assert_eq!(state.session_epoch_value(), 0);
+        state
+            .set_session(Some(Session::new(
+                PathBuf::from("proyecto/principal.olyvia"),
+                "proyecto-a".to_owned(),
+            )))
+            .unwrap();
+        assert_eq!(state.session_epoch_value(), 1);
+        state
+            .set_session(Some(Session::new(
+                PathBuf::from("otro/secundario.olyvia"),
+                "proyecto-b".to_owned(),
+            )))
+            .unwrap();
+        assert_eq!(state.session_epoch_value(), 2);
+        state.set_session(None).unwrap();
+        assert_eq!(state.session_epoch_value(), 3);
     }
 }

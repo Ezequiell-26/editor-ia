@@ -2312,13 +2312,6 @@ export function AssistantDock({
             </div>
           ) : null}
 
-          <div className="assistant-quick" role="group" aria-label="Acciones rápidas">
-            <button type="button" onClick={() => quick('abrir editor')}>Editor</button>
-            <button type="button" onClick={() => quick('estado')}>Estado</button>
-            <button type="button" onClick={() => quick('guardar')}>Guardar</button>
-            <button type="button" onClick={() => quick('exportar')}>Exportar</button>
-          </div>
-
           {needsConsent ? (
             <label className="assistant-consent">
               <input
@@ -2330,7 +2323,15 @@ export function AssistantDock({
             </label>
           ) : null}
 
+          {/* Una sola fila de acciones: comandos que rellenan el campo y
+              acciones que se ejecutan, separados por un hairline. Antes había
+              dos bloques duplicados que comían la mitad del panel. */}
           <div className="assistant-quick" role="group" aria-label="Acciones rápidas">
+            <button type="button" onClick={() => quick('abrir editor')}>Editor</button>
+            <button type="button" onClick={() => quick('estado')}>Estado</button>
+            <button type="button" onClick={() => quick('guardar')}>Guardar</button>
+            <button type="button" onClick={() => quick('exportar')}>Exportar</button>
+            <span className="assistant-quick-divider" aria-hidden="true" />
             {QUICK_ACTIONS.map((action) => (
               <button
                 key={action.command}
@@ -2398,10 +2399,6 @@ export function AssistantDock({
           </form>
 
           <footer className="assistant-foot">
-            <span className="assistant-foot-model">
-              <AiBrandMark brand={brand} size={13} />
-              <span>{provider?.model || 'sin modelo'}</span>
-            </span>
             <button type="button" className="link" onClick={() => onSelect('settings')}>
               Configurar proveedor
             </button>

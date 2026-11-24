@@ -336,6 +336,65 @@ describe('herramientas MCP', () => {
     expect(dup.ok).toBe(true);
     expect(dup.clipId).not.toBe(first);
 
+    // Zoom facial inteligente calcula offsets hacia el rostro.
+    const faceZoom = JSON.parse(
+      await executeMcpTool(
+        'clip_face_zoom',
+        { clipId: first, scale: 1.25, style: 'punch-in', faceY: 0.35 },
+        context,
+      ),
+    );
+    expect(faceZoom.ok).toBe(true);
+    expect(faceZoom.peakScale).toBe(1.25);
+    expect(faceZoom.offsetY).toBeGreaterThan(0);
+
+    // Auto-colocación de SFX en la timeline
+    const autoSfx = JSON.parse(
+      await executeMcpTool('timeline_auto_sfx', { hook: true }, context),
+    );
+    expect(autoSfx.ok).toBe(true);
+    expect(typeof autoSfx.placedCount).toBe('number');
+    expect(autoSfx.placedCount).toBeGreaterThan(0);
+
+    // Inserción de B-roll semántico en la timeline
+    const broll = JSON.parse(
+      await executeMcpTool('timeline_apply_broll', {}, context),
+    );
+    expect(broll.ok).toBe(true);
+    expect(typeof broll.placedCount).toBe('number');
+
+    // Ducking de música automático y punchlines
+    const ducking = JSON.parse(
+      await executeMcpTool('timeline_music_ducking', { punchlineMutes: true }, context),
+    );
+    expect(ducking.ok).toBe(true);
+    expect(typeof ducking.keyframeCount).toBe('number');
+    expect(typeof ducking.punchlineCount).toBe('number');
+
+    // Gráfico explicativo estilo Vox individual
+    const voxGraphic = JSON.parse(
+      await executeMcpTool(
+        'timeline_add_vox_graphic',
+        {
+          kind: 'highlighter',
+          atFrame: 45,
+          text: 'Esta frase explica el núcleo del problema.',
+          highlight: 'núcleo del problema',
+        },
+        context,
+      ),
+    );
+    expect(voxGraphic.ok).toBe(true);
+    expect(typeof voxGraphic.clipId).toBe('string');
+    expect(typeof voxGraphic.motionId).toBe('string');
+
+    // Auto-colocación de gráficos estilo Vox en la timeline
+    const autoVox = JSON.parse(
+      await executeMcpTool('timeline_auto_vox_graphics', {}, context),
+    );
+    expect(autoVox.ok).toBe(true);
+    expect(typeof autoVox.placedCount).toBe('number');
+
     // Split múltiple en dos frames.
     const clip = clips().find((item) => item.id === first)!;
     const multi = JSON.parse(
@@ -658,6 +717,36 @@ describe('herramientas MCP', () => {
     const styleId = context.store.state.project!.captions.styles[0]!.id;
     await executeMcpTool('caption_style_update', { styleId, fontSizePx: 64 }, context);
     expect(context.store.state.project!.captions.styles[0]!.fontSizePx).toBe(64);
+  });
+
+  it('multicam_smart_switch corta por hablante usando la diarización', async () => {
+    const { context, assetId } = fixture();
+    const second = readyAsset({ label: 'Cam B', source: { type: 'local', path: 'media/b.mp4' } });
+    const withSecond = addAsset(context.store.state.project!, second);
+    context.store.update(() => withSecond);
+    const built = JSON.parse(
+      await executeMcpTool(
+        'multicam_smart_switch',
+        { assetIds: [assetId, second.id], speakerCameras: { '0': 1 } },
+        context,
+      ),
+    );
+    expect(built.ok).toBe(true);
+    expect(built.trackId).toBeTruthy();
+    expect(built.clips).toBeGreaterThan(0);
+    expect(built.cuts).toBe(1);
+    expect(built.speakers).toBe(1);
+    // El único hablante mapeado a la cámara 1 → todos los clips son de Cam B.
+    const clips = context.store.state.project!.timeline.clips.filter(
+      (clip) => clip.trackId === built.trackId,
+    );
+    expect(clips.length).toBeGreaterThan(0);
+    for (const clip of clips) {
+      expect(clip.source.type).toBe('asset');
+      if (clip.source.type === 'asset') {
+        expect(clip.source.assetId).toBe(second.id);
+      }
+    }
   });
 
   it('fija las rutas de herramientas', async () => {

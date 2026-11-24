@@ -160,7 +160,14 @@ export interface MotionTemplate {
   readonly version: string;
   readonly label: string;
   readonly description: string;
-  readonly category: 'título' | 'identidad' | 'cierre' | 'dato' | 'fondo';
+  readonly category:
+    | 'título'
+    | 'identidad'
+    | 'cierre'
+    | 'dato'
+    | 'fondo'
+    | 'destaque'
+    | 'llamada';
   readonly defaults: Readonly<Record<string, unknown>>;
   readonly fields: readonly MotionField[];
   readonly propsSchema: z.ZodTypeAny;
@@ -3242,6 +3249,316 @@ export const subscribeBellTemplate: MotionTemplate = {
   },
 };
 
+// ── Plantillas explicativas estilo Vox ─────────────────────────────────
+
+const voxHighlighterSchema = z
+  .object({
+    text: z.string().trim().min(1).max(200),
+    highlight: z.string().trim().max(100).default(''),
+    highlighterColor: hexColor.default('#fde047'),
+    textColor: hexColor.default('#0f172a'),
+    cardColor: hexColor.default('#fefce8'),
+    animation: animationSchema.default('wipe'),
+  })
+  .strict();
+type VoxHighlighterProps = z.infer<typeof voxHighlighterSchema>;
+
+export const voxHighlighterTemplate: MotionTemplate = {
+  id: 'vox-highlighter',
+  version: '1.0.0',
+  label: 'Resaltador de texto (Vox)',
+  description: 'Cita o titular con subrayado rotulador fluorescente animado de izquierda a derecha.',
+  category: 'destaque',
+  defaults: {
+    text: 'El 87% de los usuarios abandona antes del minuto dos.',
+    highlight: 'abandona antes del minuto dos',
+    highlighterColor: '#fde047',
+    textColor: '#0f172a',
+    cardColor: '#fefce8',
+    animation: 'wipe',
+  },
+  fields: [
+    { id: 'text', label: 'Texto', kind: 'text' },
+    { id: 'highlight', label: 'Texto a resaltar', kind: 'text' },
+    { id: 'highlighterColor', label: 'Color del marcador', kind: 'color' },
+    { id: 'textColor', label: 'Color del texto', kind: 'color' },
+    { id: 'cardColor', label: 'Fondo tarjeta', kind: 'color' },
+    { id: 'animation', label: 'Animación', kind: 'select', options: ANIMATION_OPTIONS },
+  ],
+  propsSchema: voxHighlighterSchema,
+  buildLayers(raw, context) {
+    const props = raw as VoxHighlighterProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    const anim = animation(props.animation, fps, 0.05);
+
+    const cardW = 0.82;
+    const cardH = 0.32;
+    const cardX = (1 - cardW) / 2;
+    const cardY = 0.34;
+    const fontSize = proFontSize(42, unit);
+
+    const lines = wrapText(props.text, 36, 4);
+    const textLayers = textBlock(context, {
+      lines,
+      x: cardX + 0.04,
+      y: cardY + 0.06,
+      width: cardW - 0.08,
+      fontSizePx: fontSize,
+      weight: 600,
+      color: props.textColor,
+      align: 'left',
+      anim: animation('fade', fps),
+      lineHeight: 1.35,
+    });
+
+    return [
+      rect(
+        cardX,
+        cardY,
+        cardW,
+        cardH,
+        props.cardColor,
+        0.96,
+        animation('fade', fps),
+        'rect',
+        undefined,
+        { color: '#cbd5e1', width: 0.004 },
+        { color: '#000000', offsetPx: 8, opacity: 0.15 },
+      ),
+      // Barra de rotulador fluorescente
+      rect(
+        cardX + 0.035,
+        cardY + 0.14,
+        cardW - 0.07,
+        0.07,
+        props.highlighterColor,
+        0.8,
+        anim,
+      ),
+      ...textLayers,
+    ].slice(0, 16);
+  },
+};
+
+const voxCounterSchema = z
+  .object({
+    value: z.string().trim().min(1).max(40),
+    label: z.string().trim().min(1).max(120),
+    prefix: z.string().trim().max(10).default(''),
+    suffix: z.string().trim().max(20).default(''),
+    accent: hexColor.default('#38bdf8'),
+    cardColor: hexColor.default('#090d16'),
+    animation: animationSchema.default('pop'),
+  })
+  .strict();
+type VoxCounterProps = z.infer<typeof voxCounterSchema>;
+
+export const voxCounterTemplate: MotionTemplate = {
+  id: 'vox-counter',
+  version: '1.0.0',
+  label: 'Contador numérico (Vox)',
+  description: 'Métrica o número dinámico con tipografía masiva, línea de acento y etiqueta moderna.',
+  category: 'dato',
+  defaults: {
+    value: '2.4M',
+    label: 'Visualizaciones en 48 horas',
+    prefix: '+',
+    suffix: '',
+    accent: '#38bdf8',
+    cardColor: '#090d16',
+    animation: 'pop',
+  },
+  fields: [
+    { id: 'value', label: 'Valor', kind: 'text' },
+    { id: 'label', label: 'Etiqueta', kind: 'text' },
+    { id: 'prefix', label: 'Prefijo', kind: 'text' },
+    { id: 'suffix', label: 'Sufijo', kind: 'text' },
+    { id: 'accent', label: 'Color de acento', kind: 'color' },
+    { id: 'cardColor', label: 'Color de fondo', kind: 'color' },
+    { id: 'animation', label: 'Animación', kind: 'select', options: ANIMATION_OPTIONS },
+  ],
+  propsSchema: voxCounterSchema,
+  buildLayers(raw, context) {
+    const props = raw as VoxCounterProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    const anim = animation(props.animation, fps, 0.06);
+
+    const cardW = 0.52;
+    const cardH = 0.36;
+    const cardX = (1 - cardW) / 2;
+    const cardY = 0.32;
+
+    const valSize = proFontSize(100, unit);
+    const lblSize = proFontSize(24, unit);
+    const fullText = `${props.prefix}${props.value}${props.suffix}`;
+
+    return [
+      rect(
+        cardX,
+        cardY,
+        cardW,
+        cardH,
+        props.cardColor,
+        0.92,
+        animation('fade', fps),
+        'rect',
+        undefined,
+        { color: props.accent, width: 0.005 },
+        { color: '#000000', offsetPx: 12, opacity: 0.25 },
+      ),
+      // Línea superior de acento
+      rect(
+        cardX,
+        cardY,
+        cardW,
+        0.012,
+        props.accent,
+        1,
+        anim,
+      ),
+      // Valor métrico masivo
+      ...textBlock(context, {
+        lines: [fullText],
+        x: cardX + 0.04,
+        y: cardY + 0.05,
+        width: cardW - 0.08,
+        fontSizePx: valSize,
+        weight: 800,
+        color: '#ffffff',
+        align: 'center',
+        anim,
+      }),
+      // Etiqueta descriptiva
+      ...textBlock(context, {
+        lines: wrapText(props.label, 28, 2),
+        x: cardX + 0.04,
+        y: cardY + 0.23,
+        width: cardW - 0.08,
+        fontSizePx: lblSize,
+        weight: 500,
+        color: '#94a3b8',
+        align: 'center',
+        anim: animation('fade', fps),
+      }),
+    ].slice(0, 16);
+  },
+};
+
+const voxCalloutSchema = z
+  .object({
+    emoji: z.string().trim().min(1).max(10).default('💡'),
+    headline: z.string().trim().min(1).max(40).default('DATO CLAVE'),
+    text: z.string().trim().min(1).max(120),
+    accent: hexColor.default('#f59e0b'),
+    textColor: hexColor.default('#ffffff'),
+    cardColor: hexColor.default('#1e293b'),
+    animation: animationSchema.default('back'),
+  })
+  .strict();
+type VoxCalloutProps = z.infer<typeof voxCalloutSchema>;
+
+export const voxCalloutTemplate: MotionTemplate = {
+  id: 'vox-callout',
+  version: '1.0.0',
+  label: 'Callout elástico con emoji (Vox)',
+  description: 'Pill flotante con emoji e impacto visual con animación de rebote elástico.',
+  category: 'llamada',
+  defaults: {
+    emoji: '💡',
+    headline: 'DATO CLAVE',
+    text: 'Los primeros 5 segundos determinan el 70% de la retención.',
+    accent: '#f59e0b',
+    textColor: '#ffffff',
+    cardColor: '#1e293b',
+    animation: 'back',
+  },
+  fields: [
+    { id: 'emoji', label: 'Emoji o icono', kind: 'text' },
+    { id: 'headline', label: 'Titular de categoría', kind: 'text' },
+    { id: 'text', label: 'Texto', kind: 'text' },
+    { id: 'accent', label: 'Color de acento', kind: 'color' },
+    { id: 'textColor', label: 'Color del texto', kind: 'color' },
+    { id: 'cardColor', label: 'Fondo de tarjeta', kind: 'color' },
+    { id: 'animation', label: 'Animación', kind: 'select', options: ANIMATION_OPTIONS },
+  ],
+  propsSchema: voxCalloutSchema,
+  buildLayers(raw, context) {
+    const props = raw as VoxCalloutProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    const anim = animation(props.animation, fps, 0.08);
+
+    const cardW = 0.58;
+    const cardH = 0.22;
+    const cardX = (1 - cardW) / 2;
+    const cardY = 0.15;
+
+    const emojiSize = proFontSize(48, unit);
+    const headSize = proFontSize(20, unit);
+    const bodySize = proFontSize(26, unit);
+
+    return [
+      rect(
+        cardX,
+        cardY,
+        cardW,
+        cardH,
+        props.cardColor,
+        0.95,
+        anim,
+        'rect',
+        undefined,
+        { color: props.accent, width: 0.005 },
+        { color: '#000000', offsetPx: 10, opacity: 0.2 },
+      ),
+      rect(
+        cardX + 0.13,
+        cardY + 0.035,
+        0.22,
+        0.05,
+        props.accent,
+        0.9,
+        anim,
+      ),
+      ...textBlock(context, {
+        lines: [props.headline],
+        x: cardX + 0.13,
+        y: cardY + 0.04,
+        width: 0.22,
+        fontSizePx: headSize,
+        weight: 700,
+        color: '#000000',
+        align: 'center',
+        anim,
+      }),
+      ...textBlock(context, {
+        lines: [props.emoji],
+        x: cardX + 0.03,
+        y: cardY + 0.05,
+        width: 0.08,
+        fontSizePx: emojiSize,
+        weight: 400,
+        color: '#ffffff',
+        align: 'center',
+        anim,
+      }),
+      ...textBlock(context, {
+        lines: wrapText(props.text, 32, 2),
+        x: cardX + 0.13,
+        y: cardY + 0.105,
+        width: cardW - 0.16,
+        fontSizePx: bodySize,
+        weight: 600,
+        color: props.textColor,
+        align: 'left',
+        anim,
+      }),
+    ].slice(0, 16);
+  },
+};
+
 export const MOTION_TEMPLATES: readonly MotionTemplate[] = [
   titleCardTemplate,
   freeTextTemplate,
@@ -3268,6 +3585,9 @@ export const MOTION_TEMPLATES: readonly MotionTemplate[] = [
   solidFrameTemplate,
   molduraTemplate,
   subscribeBellTemplate,
+  voxHighlighterTemplate,
+  voxCounterTemplate,
+  voxCalloutTemplate,
 ];
 
 export function templateById(id: string): MotionTemplate | null {

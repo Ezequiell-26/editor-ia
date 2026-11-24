@@ -763,6 +763,18 @@ function RailAsset({
       return { kind: 'video' as const, duration: media.durationFrames / fps };
     }
     if (asset.kind === 'image') return { kind: 'image' as const, duration: 0 };
+    if (asset.kind === 'audio') {
+      const media = asset.media;
+      if (!media || !('durationFrames' in media) || media.durationFrames <= 0) {
+        return null;
+      }
+      // Los frames del audio se midieron a la cadencia del proyecto
+      // (AUD-039): duración en segundos = frames / fps del proyecto.
+      return {
+        kind: 'audio' as const,
+        duration: media.durationFrames / Math.max(1, fps),
+      };
+    }
     return null;
   })();
   const spyTimeAt = (clientX: number, el: HTMLElement): number => {

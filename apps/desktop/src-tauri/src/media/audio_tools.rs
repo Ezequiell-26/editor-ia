@@ -7,6 +7,8 @@
 //! Convención: PCM planar f32 (`Vec<Vec<f32>>`, una entrada por canal, todas
 //! del mismo largo). La tasa de trabajo es 48 kHz estéreo salvo indicación.
 
+use std::path::{Path, PathBuf};
+
 use filmcraft_audio_dsp::{
     create_effect, effect_info, effects, AudioEffect, Category, ParamSpec, Unit,
 };
@@ -306,6 +308,29 @@ pub fn encode_wav_f32(pcm: &PlanarPcm, sample_rate: u32) -> Vec<u8> {
     out.extend_from_slice(&data_size.to_le_bytes());
     out.extend_from_slice(&interleave(pcm));
     out
+}
+
+/// Codifica `pcm` a WAV float32 y lo escribe en `dest` de forma atómica:
+/// primero a `<dest>.<pid>.tmp` y después rename. Si la escritura falla a
+/// mitad nunca queda un WAV truncado en `dest` (AUD-148). Destinado a
+/// correr dentro de `spawn_blocking`: la codificación es CPU-bound.
+pub fn write_wav_atomic(pcm: &PlanarPcm, sample_rate: u32, dest: &Path) -> Result<(), String> {
+    let wav = encode_wav_f32(pcm, sample_rate);
+    let mut tmp_os = dest.as_os_str().to_os_string();
+    tmp_os.push(format!(".tmp{}", std::process::id()));
+    let tmp = PathBuf::from(tmp_os);
+    std::fs::write(&tmp, &wav).map_err(|e| format!("no se pudo escribir el WAV temporal: {e}"))?;
+    // Windows no renombra sobre un destino existente: se remueve antes.
+    // La ventana sin archivo es mínima y preferible a un WAV a medias.
+    if dest.exists() {
+        std::fs::remove_file(dest)
+            .map_err(|e| format!("no se pudo reemplazar el WAV existente: {e}"))?;
+    }
+    if let Err(e) = std::fs::rename(&tmp, dest) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("no se pudo mover el WAV a su destino: {e}"));
+    }
+    Ok(())
 }
 
 /// Mezcla planar → mono (promedio de canales).

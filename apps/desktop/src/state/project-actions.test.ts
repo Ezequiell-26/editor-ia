@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { Asset, ProjectDocument, Scene } from '@editor-ia/project-schema';
+import type { Asset, Clip, ProjectDocument, Scene } from '@editor-ia/project-schema';
 import {
   MAX_TRANSFORM_KEYFRAMES,
   createEmptyProject,
   parseProject,
 } from '@editor-ia/project-schema';
 import { captionMotionPreset } from './caption-motion';
+import { linkClips } from './clip-links';
 import { addMarker, markersFromCuts, markersFromScenes } from './markers';
 import { TITLE_TEMPLATES } from './title-templates';
 import {
@@ -18,6 +19,8 @@ import {
   addTrack,
   applyCompression,
   applyAudioPresetToAll,
+  applyMorphCut,
+  applySplitEdit,
   applyPixelFormat,
   applySpeedCurve,
   applyBreathingLoop,
@@ -47,6 +50,7 @@ import {
   deleteClip,
   detachAudio,
   duplicateClip,
+  duplicateClipGroup,
   ensureDelivery,
   freezeFrameInPlace,
   markAssetReady,
@@ -597,6 +601,30 @@ describe('separar audio', () => {
     expect(audio.audio?.muted).toBeUndefined();
     expect(audio.colorTag).toBe('teal');
     expect(video?.audio?.muted).toBe(true);
+    expect(video?.linkGroup).toBeDefined();
+    expect(audio?.linkGroup).toBe(video?.linkGroup);
+  });
+
+  it('conserva el grupo de vínculo existente del video', () => {
+    const asset = videoAsset(300);
+    const other = videoAsset(300);
+    let doc = addAsset(base(), asset);
+    doc = addAsset(doc, other);
+    const first = addClipFromAsset(doc, asset, { atFrame: 0, durationFrames: 120 });
+    const second = addClipFromAsset(first.project, other, {
+      trackId: first.trackId,
+      atFrame: 300,
+      durationFrames: 120,
+    });
+    const linked = linkClips(second.project, [first.clipId, second.clipId]);
+    const result = detachAudio(linked.project, first.clipId);
+    const next = validated(result.project);
+    const video = next.timeline.clips.find((clip) => clip.id === first.clipId);
+    const audio = next.timeline.clips.find((clip) => clip.id === result.clipId);
+    const partner = next.timeline.clips.find((clip) => clip.id === second.clipId);
+    expect(video?.linkGroup).toBeDefined();
+    expect(audio?.linkGroup).toBe(video?.linkGroup);
+    expect(partner?.linkGroup).toBe(video?.linkGroup);
   });
 
   it('reutiliza una pista libre y rechaza clips que no son video o pistas bloqueadas', () => {
@@ -620,6 +648,203 @@ describe('separar audio', () => {
     expect(() => detachAudio(result.project, result.clipId)).toThrow(ProjectActionError);
     const locked = validated(updateTrack(added.project, added.trackId, { locked: true }));
     expect(() => detachAudio(locked, added.clipId)).toThrow(ProjectActionError);
+  });
+
+  describe('applySplitEdit (J-cut y L-cut)', () => {
+    it('aplica J-cut adelantando el audio respecto al video con fade-in', () => {
+      const asset = videoAsset(300);
+      const added = addClipFromAsset(addAsset(base(), asset), asset, {
+        atFrame: 60,
+        inFrame: 30,
+        outFrame: 120,
+      });
+      const result = applySplitEdit(added.project, {
+        clipId: added.clipId,
+        type: 'j-cut',
+        frames: 12,
+      });
+      expect(result.appliedFrames).toBe(12);
+      validated(result.project);
+
+      const video = result.project.timeline.clips.find((c) => c.id === result.videoClipId);
+      const audio = result.project.timeline.clips.find((c) => c.id === result.audioClipId);
+      expect(video?.startFrame).toBe(60);
+      expect(video?.audio?.muted).toBe(true);
+
+      // Audio se adelanta 12 frames en la timeline y en el source
+      expect(audio?.startFrame).toBe(48);
+      if (audio?.source.type === 'asset' && 'inFrame' in audio.source) {
+        expect(audio.source.inFrame).toBe(18);
+        expect(audio.source.outFrame).toBe(120);
+      }
+      expect(audio?.durationFrames).toBe(102);
+      expect(audio?.audio?.fadeInFrames).toBe(4);
+    });
+
+    it('aplica L-cut prolongando el audio después del video con fade-out', () => {
+      const asset = videoAsset(300);
+      const added = addClipFromAsset(addAsset(base(), asset), asset, {
+        atFrame: 0,
+        inFrame: 0,
+        outFrame: 90,
+      });
+      const result = applySplitEdit(added.project, {
+        clipId: added.clipId,
+        type: 'l-cut',
+        frames: 15,
+      });
+      expect(result.appliedFrames).toBe(15);
+      validated(result.project);
+
+      const video = result.project.timeline.clips.find((c) => c.id === result.videoClipId);
+      const audio = result.project.timeline.clips.find((c) => c.id === result.audioClipId);
+      expect(video?.startFrame).toBe(0);
+      expect(video?.durationFrames).toBe(90);
+
+      // Audio se prolonga 15 frames
+      expect(audio?.startFrame).toBe(0);
+      if (audio?.source.type === 'asset' && 'outFrame' in audio.source) {
+        expect(audio.source.inFrame).toBe(0);
+        expect(audio.source.outFrame).toBe(105);
+      }
+      expect(audio?.durationFrames).toBe(105);
+      expect(audio?.audio?.fadeOutFrames).toBe(6);
+    });
+
+    it('mueve el audio a una pista alterna si hay colisión en el adelanto J-cut', () => {
+      const asset = videoAsset(300);
+      let doc = addAsset(base(), asset);
+      const clip1 = addClipFromAsset(doc, asset, { atFrame: 0, inFrame: 0, outFrame: 60 });
+      doc = clip1.project;
+      const clip2 = addClipFromAsset(doc, asset, { atFrame: 60, inFrame: 30, outFrame: 90 });
+      doc = clip2.project;
+
+      // Desacoplar el audio de clip1
+      const detached1 = detachAudio(doc, clip1.clipId);
+      doc = detached1.project;
+
+      // Aplicar J-cut a clip2: su audio adelantado (a frame 48) colisiona con clip1 audio (0..60)
+      const splitResult = applySplitEdit(doc, {
+        clipId: clip2.clipId,
+        type: 'j-cut',
+        frames: 12,
+      });
+      validated(splitResult.project);
+
+      const audio1 = splitResult.project.timeline.clips.find((c) => c.id === detached1.clipId);
+      const audio2 = splitResult.project.timeline.clips.find((c) => c.id === splitResult.audioClipId);
+      expect(audio1?.trackId).not.toBe(audio2?.trackId);
+      expect(audio2?.startFrame).toBe(48);
+    });
+
+    it('rechaza J-cut si el material no tiene fotogramas previos (inFrame=0)', () => {
+      const asset = videoAsset(300);
+      const added = addClipFromAsset(addAsset(base(), asset), asset, {
+        atFrame: 30,
+        inFrame: 0,
+        outFrame: 90,
+      });
+      expect(() =>
+        applySplitEdit(added.project, {
+          clipId: added.clipId,
+          type: 'j-cut',
+          frames: 10,
+        }),
+      ).toThrow(ProjectActionError);
+    });
+  });
+});
+
+describe('morph cut', () => {
+  function twoAdjacentClips() {
+    const asset = videoAsset(600);
+    let doc = addAsset(base(), asset);
+    const first = addClipFromAsset(doc, asset, {
+      atFrame: 0,
+      inFrame: 60,
+      outFrame: 240,
+    });
+    doc = first.project;
+    const second = addClipFromAsset(doc, asset, {
+      atFrame: 180,
+      inFrame: 300,
+      outFrame: 480,
+    });
+    return { project: second.project, first: first.clipId, second: second.clipId };
+  }
+
+  it('extiende ambos audios alrededor del corte (L + J)', () => {
+    const { project, second } = twoAdjacentClips();
+    const result = applyMorphCut(project, { incomingClipId: second, frames: 10 });
+    validated(result.project);
+    expect(result.lCutFrames).toBe(10);
+    expect(result.jCutFrames).toBe(10);
+    expect(result.outgoingClipId).not.toBe(result.incomingClipId);
+    const audios = result.project.timeline.clips.filter((c) => c.kind === 'audio');
+    expect(audios.length).toBe(2);
+    // L-cut: el audio saliente pasa del frame 180 (fin del video saliente).
+    const lAudio = audios.find((c) => c.startFrame === 0);
+    expect(lAudio?.durationFrames).toBe(190);
+    // J-cut: el audio entrante arranca 10 frames antes de su video (170).
+    const jAudio = audios.find((c) => c.startFrame === 170);
+    expect(jAudio).toBeDefined();
+  });
+
+  it('reporta 0 en el lado sin handle y aplica el otro', () => {
+    const asset = videoAsset(600);
+    let doc = addAsset(base(), asset);
+    // Saliente sin cola: outFrame = fin del material (600) → no hay L-cut.
+    const first = addClipFromAsset(doc, asset, {
+      atFrame: 0,
+      inFrame: 60,
+      outFrame: 600,
+    });
+    doc = first.project;
+    const second = addClipFromAsset(doc, asset, {
+      atFrame: 540,
+      inFrame: 60,
+      outFrame: 240,
+    });
+    const result = applyMorphCut(second.project, {
+      incomingClipId: second.clipId,
+      frames: 8,
+    });
+    validated(result.project);
+    expect(result.lCutFrames).toBe(0);
+    expect(result.jCutFrames).toBe(8);
+  });
+
+  it('falla honesto si no hay clip saliente contiguo', () => {
+    const asset = videoAsset(600);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 60,
+      inFrame: 0,
+      outFrame: 120,
+    });
+    expect(() =>
+      applyMorphCut(added.project, { incomingClipId: added.clipId }),
+    ).toThrow(ProjectActionError);
+  });
+
+  it('falla si ningún lado tiene handle de audio', () => {
+    const asset = videoAsset(200);
+    let doc = addAsset(base(), asset);
+    // Sin handles en ningún lado: el saliente llega al fin del material
+    // (outFrame=200) y el entrante arranca en inFrame=0.
+    const first = addClipFromAsset(doc, asset, {
+      atFrame: 0,
+      inFrame: 100,
+      outFrame: 200,
+    });
+    doc = first.project;
+    const second = addClipFromAsset(doc, asset, {
+      atFrame: 100,
+      inFrame: 0,
+      outFrame: 100,
+    });
+    expect(() =>
+      applyMorphCut(second.project, { incomingClipId: second.clipId, frames: 10 }),
+    ).toThrow(ProjectActionError);
   });
 });
 
@@ -2259,6 +2484,27 @@ describe('velocidad y efectos de clip', () => {
     validated(ripped);
   });
 
+  it('pegar un clip con linkGroup no lo une al grupo del original', () => {
+    const video = videoAsset(300);
+    const audio = audioAsset(150);
+    let doc = addAsset(base(), video);
+    doc = addAsset(doc, audio);
+    const v = addClipFromAsset(doc, video, { atFrame: 0, durationFrames: 90 });
+    const a = addClipFromAsset(v.project, audio, { atFrame: 0, durationFrames: 90 });
+    const linked = linkClips(a.project, [v.clipId, a.clipId]);
+    const source = linked.project.timeline.clips.find((clip) => clip.id === v.clipId);
+    if (!source) throw new Error('se esperaba el clip original');
+    // Simula un portapapeles que serializó el clip con su vínculo.
+    const clipboard = JSON.parse(JSON.stringify(source)) as Clip;
+
+    const pasted = pasteClip(linked.project, clipboard, { startFrame: 200 });
+    const copy = pasted.project.timeline.clips.find((clip) => clip.id === pasted.clipId);
+    const original = pasted.project.timeline.clips.find((clip) => clip.id === v.clipId);
+    expect(copy?.linkGroup).toBeUndefined();
+    expect(original?.linkGroup).toBeDefined();
+    validated(pasted.project);
+  });
+
   it('agrega títulos con plantillas y reutiliza el estilo', () => {
     const template = TITLE_TEMPLATES.find((item) => item.id === 'caja');
     if (!template) throw new Error('falta la plantilla Caja');
@@ -2409,6 +2655,56 @@ describe('velocidad y efectos de clip', () => {
     if (copy?.kind !== 'video') throw new Error('se esperaba un clip de video');
     expect(copy.effects).toEqual({ brightness: 0.1, contrast: 1.1 });
     validated(result!.project);
+  });
+
+  it('duplicateClip no hereda el linkGroup del original', () => {
+    const video = videoAsset(300);
+    const audio = audioAsset(150);
+    let doc = addAsset(base(), video);
+    doc = addAsset(doc, audio);
+    const v = addClipFromAsset(doc, video, { atFrame: 0, durationFrames: 90 });
+    const a = addClipFromAsset(v.project, audio, { atFrame: 0, durationFrames: 90 });
+    const linked = linkClips(a.project, [v.clipId, a.clipId]);
+    const result = duplicateClip(linked.project, v.clipId);
+    expect(result).not.toBeNull();
+    const copy = result!.project.timeline.clips.find((clip) => clip.id === result!.clipId);
+    expect(copy?.linkGroup).toBeUndefined();
+    validated(result!.project);
+  });
+
+  it('duplicateClipGroup duplica el vínculo como unidad con grupo nuevo', () => {
+    const video = videoAsset(300);
+    const audio = audioAsset(150);
+    let doc = addAsset(base(), video);
+    doc = addAsset(doc, audio);
+    const v = addClipFromAsset(doc, video, { atFrame: 0, durationFrames: 90 });
+    const a = addClipFromAsset(v.project, audio, { atFrame: 0, durationFrames: 90 });
+    const linked = linkClips(a.project, [v.clipId, a.clipId]);
+    const originalGroup = linked.project.timeline.clips.find(
+      (clip) => clip.id === v.clipId,
+    )?.linkGroup;
+    expect(originalGroup).toBeDefined();
+
+    const result = duplicateClipGroup(linked.project, v.clipId);
+    expect(result).not.toBeNull();
+    expect(result!.clipIds).toHaveLength(2);
+    const next = validated(result!.project);
+    const originals = next.timeline.clips.filter((clip) =>
+      [v.clipId, a.clipId].includes(clip.id),
+    );
+    const copies = next.timeline.clips.filter((clip) =>
+      result!.clipIds.includes(clip.id),
+    );
+    expect(copies).toHaveLength(2);
+    for (const original of originals) {
+      expect(original.linkGroup).toBe(originalGroup);
+    }
+    const copyGroup = copies[0]?.linkGroup;
+    expect(copyGroup).toBeDefined();
+    expect(copyGroup).not.toBe(originalGroup);
+    for (const copy of copies) {
+      expect(copy.linkGroup).toBe(copyGroup);
+    }
   });
 
   it('agrega un perfil nativo para formatos personalizados', () => {

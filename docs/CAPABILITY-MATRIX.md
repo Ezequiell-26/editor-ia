@@ -25,8 +25,8 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 | Timeline multipista con clips, trim, split, move, slip | OpenCut, OpenTake, avio | ✅ | `packages/project-schema` (52+99 tests), `state/project-actions.ts`, `features/editor/Timeline.tsx` |
 | Edición por frames / timecode | NLEs clásicos | ✅ | `packages/project-schema/src/time.ts` (11 tests) |
 | Undo/redo e historial | Estándar NLE | ✅ | store con `revision`, tests de project-actions |
-| Snap, ripple, multi-selección | Premiere/Resolve | ✅ | `snap-guides.test.ts`, atajos `Shift+R`, `Alt+Shift+←/→` |
-| Marcadores | Estándar NLE | ✅ | `markers.ts`, tools MCP `marker_add/list/delete` |
+| Snap, ripple, multi-selección | Premiere/Resolve | ✅ | `snap-guides.test.ts`, atajos `Shift+R`, `Alt+Shift+←/→`; J/L cut y morph cut (individual + por lote) en menú contextual del clip |
+| Marcadores | Estándar NLE | ✅ | `markers.ts`, tools MCP `marker_add/list/delete/export`, export CSV desde MarkersPanel, copia MP4 con capítulos FFMETADATA desde ExportDialog |
 | Clips anidados / multicam | Resolve | ✅ | `multicam/multicam.ts`, `multicam_build` MCP, auto-cut por actividad |
 | Proxies | Resolve/PR | ✅ | `commands/proxies.rs`, `proxy-ui.test.ts` |
 | EDL / OTIO / FCPXML / DaVinci interchange | Estándar de industria | ✅ | `commands/edl.rs` (incl. drop-frame 29.97/59.94 `FCM: DROP FRAME`), `otio.rs`, `fcpxml.rs` + tests; multicam sincroniza por timecode DF |
@@ -47,14 +47,14 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 | Picture in picture / transform / perspectiva | — | ✅ | `project-schema/perspective.test.ts`, PiP en screen_record |
 | Keyframes | AE | ✅ | `keyframe_add` MCP, `project-schema/motion`, keyframes por parámetro de efecto (◆ en EffectStudio) con export segmentado en FFmpeg |
 | Motion graphics / Lottie | lottie-web (MIT) | ✅ | `commands/lottie.rs`, `features/motion/LottiePanel` |
-| Stickman / personajes 2D riggeados | motion-canvas, manim | ✅ | `commands/stickman.rs`: rig FK 14 huesos, 5 acciones + keyframes, raster+ffmpeg; UI `features/motion/StickmanPanel` + **editor visual del rig** (`StickmanRigEditor`: preview SVG con la misma geometría FK, sliders por hueso y keyframes por frame, acción `custom`). Física de cuerpos rígidos pendiente (ver §7) |
-| Motor de partículas/física 2D | pixijs | ✅ | Partículas en `stickman.rs` (confetti/snow/sparks/bounce con gravedad+restitución+paredes, dt fijo determinista); UI en StickmanPanel |
+| Stickman / personajes 2D riggeados | motion-canvas, manim | ✅ | `commands/stickman.rs`: rig FK 14 huesos, 5 acciones + keyframes, raster+ffmpeg; UI `features/motion/StickmanPanel` + **editor visual del rig** (`StickmanRigEditor`: preview SVG con la misma geometría FK, sliders por hueso y keyframes por frame, acción `custom`). Partículas con física: confetti/snow/sparks/**bounce**/**tumble**/**rigid** (cuerpos rígidos 2D lite: SAT caja-caja, impulso+inercia, fricción, sleep — ver §7) |
+| Motor de partículas/física 2D | pixijs | ✅ | Partículas en `stickman/particles.rs` (confetti/snow/sparks/bounce/tumble/rigid, dt fijo determinista, memoizado por hilo); UI en StickmanPanel |
 
 ## 3. Audio
 
 | Funcionalidad | Referencia | Estado | Evidencia |
 |---|---|---|---|
-| Mezcla multipista, gain, pan, fades, ducking | Tone.js | ✅ | `features/mixer` (MixerView, TrackAutomationPanel, LiveMeters), `audio_mix` MCP |
+| Mezcla multipista, gain, pan, fades, ducking | Tone.js | ✅ | `features/mixer` (MixerView, TrackAutomationPanel, LiveMeters), `audio_mix` MCP; ducking preserva keyframes manuales (`origin: 'auto-duck'`) |
 | Loudness LUFS / true peak | — | ✅ | `commands/loudness.rs`, LoudnessMonitor |
 | Waveforms y picos | howler.js | ✅ | `hooks/useWaveform`, `envelopeFromPeaks` |
 | Scopes de audio (oscilograma/espectro/espectrograma) | Kdenlive audioscopes | ✅ | `commands/audio_scopes.rs` (FFT filmcraft-audio-dsp), `AudioScopesPanel` en Mixer (clip completo o ventana del playhead) y `PreviewAudioScopes`: oscilograma+espectro **en vivo del bus master** Web Audio en el monitor |
@@ -106,13 +106,13 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 ## 7. Gaps honestos priorizados (siguientes fases)
 
 1. ~~**Editor de nodos visual**~~ **HECHO**: `@xyflow/react` integrado con ejecución real sobre la timeline (ver fila de la matriz). Persistencia de grafos en proyecto queda como mejora.
-2. **Motor stickman/rigging 2D**: **HECHO (v1+UI+física+editor visual)** — `commands/stickman.rs`: rig FK con 14 huesos, 5 acciones procedurales + keyframes, partículas (confetti/snow/sparks/**bounce** con gravedad+restitución+paredes, integración determinista a dt fijo con early-exit al asentarse), raster + ffmpeg. **UI real**: `StickmanPanel` en Motion + `StickmanRigEditor` (preview SVG con la geometría FK portada a TS en `stickman-rig.ts`, 11 sliders por hueso en grados, keyframes por frame con interpolación lineal — acción `custom`). Física de cuerpos rígidos queda pendiente.
+2. **Motor stickman/rigging 2D**: **HECHO (v1+UI+física+editor visual)** — `commands/stickman.rs`: rig FK con 14 huesos, 5 acciones procedurales + keyframes, partículas (confetti/snow/sparks/bounce/tumble/**rigid** con gravedad+restitución+paredes, integración determinista a dt fijo con early-exit al asentarse), raster + ffmpeg. **UI real**: `StickmanPanel` en Motion + `StickmanRigEditor` (preview SVG con la geometría FK portada a TS en `stickman-rig.ts`, 11 sliders por hueso en grados, keyframes por frame con interpolación lineal — acción `custom`). Física de cuerpos rígidos queda pendiente.
 3. ~~EQ/compresor por clip~~ — resuelto: el catálogo de audio del effect-kit ya se compila a filtros `-af` por clip y llega al render.
 4. **Escenas OBS**: **HECHO** — `commands/obs_scenes.rs`: presets persistentes (capture target, webcam, mic, RTMP, encoder) en `obs-scenes.json`, `obs_scene_start` delega en el motor real, `obs_scene_preview` captura un frame PNG real de la escena (ver fila de la matriz). Tool MCP `obs_scenes`. Transiciones entre escenas quedan pendientes.
 5. ~~**Scopes en preview nativo**~~ **HECHO** — la pestaña Scopes de la página de Color ahora tiene paridad con el monitor: renderiza el frame del clip gradeado con el mismo `visual_filter` del export (`render_preview_frame`, debounced 400 ms mientras la pestaña está activa) y habilita el análisis nativo FilmCraft (waveform, vectorscope, histograma RGB/Y) sobre ese archivo, además del muestreo canvas en vivo que ya existía. Sin frame disponible (servicio caído) el panel sigue midiendo el canvas.
 6. ~~**Subtítulos traducidos automáticos**~~ **HECHO (v1)** — `subtitles_pipeline.rs`: video → faster-whisper → traducción por proveedor (mock honesto `simulated:true`) → `.ass` con PlayRes real → burn-in FFmpeg con verificación. Tool MCP + servicio + 3 tests.
 7. **Transiciones OBS en vivo**: **PARCIAL (programada + switching por sesión)** — `obs_transition_record` (render finito A→B con `xfade`, 24 tipos, screen+webcam+chroma+cursor) y **`obs_switch_*` (sesión de switching en vivo)**: la escena activa se graba en segmentos MP4 sucesivos; `obs_switch_scene` cierra el segmento y abre otro con la escena nueva; `obs_switch_stop` cierra el último y re-codifica todos con `xfade`/`acrossfade` encadenados (`application/obs_switch.rs`) en un MP4 verificado con ffprobe. Audio por segmento (override de sesión o `audioDevice` de cada escena; silenciosos se rellenan con `anullsrc`). Cursor overlay por segmento (tracker + burn ASS al cerrar, regla escritorio-completo). **Streaming RTMP**: `obs_switch_start.streamUrl` hace que cada segmento escriba a archivo y al RTMP en el mismo proceso ffmpeg (segunda salida `-f flv`); cada cambio de escena renegocia la conexión (gap breve) y el stderr se redacta con la clave (AUD-098). Slot `RECORDING` compartido: un start/stop/transition concurrente se rechaza; `screen_record_stop` rechaza sesiones de switching. Tool MCP `obs_scenes` actions `switch_start`/`switch_scene`/`switch_stop`/`switch_status`. Pendiente honesto: conexión RTMP persistente sin renegociar por escena (mixer propio). ~~Preview de escena~~ **HECHO**: `obs_scene_preview`/`screen_record_snapshot`; ~~preview del programa en vivo~~ **HECHO**: `obs_switch_preview` (frame PNG de la escena activa de la sesión). Encoder por hardware disponible en segmentos y cosido vía `obs_switch_start.encoder` (x264/nvenc/qsv/amf/mf, mismo set que `screen_record_start`).
-8. ~~**Editor visual del rig stickman**~~ **HECHO (2026-11-11)**: `StickmanRigEditor` en la acción `custom` — preview SVG con FK idéntica a Rust (`stickman-rig.ts`), sliders por los 11 huesos editables (grados + `pelvis_dy` en px), captura/carga/borrado de keyframes por frame y scrub de la pose interpolada. La tool MCP `stickman_render` ahora pasa los campos de pose (antes los descartaba). **Física 2D** de cuerpos rígidos: pendiente.
+8. ~~**Editor visual del rig stickman**~~ **HECHO (2026-11-11)**: `StickmanRigEditor` en la acción `custom` — preview SVG con FK idéntica a Rust (`stickman-rig.ts`), sliders por los 11 huesos editables (grados + `pelvis_dy` en px), captura/carga/borrado de keyframes por frame y scrub de la pose interpolada. La tool MCP `stickman_render` ahora pasa los campos de pose (antes los descartaba). **Física 2D** de cuerpos rígidos: **HECHO (lite)** — kind `rigid` en `stickman/particles.rs`: cajas con semi-extents reales, colisiones SAT, impulso con masa+inercia, fricción tangente, gravedad/restitución por spec, sleep por cuerpo con wake por impacto y freeze de la pila al asentarse (tope `RIGID_MAX_BODIES`). Solver propio determinista, no un engine completo (sin juntas, sin polígonos cóncavos, sin continuous collision).
 9. ~~**Grafos de nodos dentro del `.olyp`**~~ **HECHO** — `features/nodes/graph-store.ts`: los grafos se guardan en `x-nodeGraphs` del documento del proyecto (namespace `x-`, compatible con el validador Zod, el de Rust y versiones anteriores); «Guardar» hace upsert por nombre + `saveNow`, la vista restaura el último del documento y conserva el fallback legado `graphs/*.json`. Selector de grafos guardados + nombre editable. 7 tests (`graph-store.test.ts`, incluido el contrato `parseProject`).
 
 ## 8. Dependencias externas clave (licencias verificadas en uso)
@@ -141,3 +141,131 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 - **MCP autoconnect**: `mcp_detect_clients` + `mcp_server_autoconnect` escriben `mcpServers.olyvia` en la config de Claude Desktop / Antigravity con merge no destructivo (`merge_olyvia_entry`, 3 tests nuevos).
 - **Chromium aislado**: `browser_instances.rs` con proxy por instancia, perfil único y stealth JS vía CDP (4 tests).
 - **Cumplimiento eSpeak NG GPL-3.0**: `LICENSE.txt` + `SOURCE.txt` versionados en git (`resources/piper/espeak-ng/`, excepción al ignore de binarios).
+
+## Actualización (2026-11-23 — autoedición estilo YouTube + hardening)
+
+- **Autoedición avanzada** (`state/autoedit-apply.ts` + `project-actions.ts`):
+  split edits J-cut/L-cut/auto en pistas de audio alternas, punch-in con
+  encuadre facial (`face-zoom.ts`, talking-head/face/center), SFX
+  automáticos (`sfx-placer.ts`), B-roll semántico por transcripción
+  (`broll-matcher.ts`), music ducking con punchline mutes, gráficos Vox
+  animados (`vox-motion.ts` + templates `vox-highlighter`/`vox-counter`/
+  `vox-callout`), y `dynamicPacing` en el engine (cortes más cortos en
+  hook/clímax, pausados en cuerpo).
+- **7 tools MCP nuevas**: `clip_split_edit`, `clip_face_zoom`,
+  `timeline_auto_sfx`, `timeline_apply_broll`, `timeline_music_ducking`,
+  `timeline_add_vox_graphic`, `timeline_auto_vox_graphics`.
+- **Física rígida 2D** en stickman (`particles.rs`): cajas OBB con SAT,
+  impulso+inercia, fricción, sleep — verificada E2E vía MCP.
+- **Persistencia**: escrituras atómicas en `fs_write`, `.ass` de
+  subtítulos/cursor y `write_wav_atomic` (AUD-148); epoch de sesión
+  (`session_epoch` en `AppState`) generalizado a los comandos que
+  escriben en `session.root` tras trabajo async (AUD-143).
+- **obs_switch**: verificación de exit-status del cosido (antes un
+  ffmpeg fallido reportaba `ok:true`) y deadline escalado por duración
+  real (antes falso timeout en sesiones largas).
+- El catálogo MCP real ronda las **483+ tools** (la cifra "~108" de la
+  sección 5 quedó vieja — revalidar contra `tools/list` en vivo).
+
+## Actualización (2026-11-23 — smart reframe desde la timeline)
+
+- **«Exportar como Short…»** en el menú contextual del clip de video
+  (`clip-short-export.ts` + `Timeline.tsx`): mapea la ventana fuente
+  del clip a `export_short` (MP4 vertical 1080×1920, smart reframe si
+  el modelo `seeta-face` está descargado). Límites honestos: footage
+  fuente (no el clip compuesto), speed 1×, no reverse, 3–90 s.
+- **Tools MCP**: `clip_export_short` (destructive) y `clip_face_track`
+  (read) — el agente puede analizar el track de caras y exportar el
+  clip como short sin intervención humana.
+- Pendiente honesto: smart reframe sobre la **timeline completa** en
+  el export principal (crop x/y por clip en el filtergraph).
+
+## Actualización (2026-11-23 — zooms automáticos + fix freeze)
+
+- **Orquestador de zooms** (`auto-zoom.ts`): `planAutoZooms`/
+  `applyAutoZooms` deciden dónde van los punch-ins por zona de pacing
+  (hook→punch-in fuerte, cuerpo→snap-settle en planos largos,
+  clímax→punch-in, outro→nada) con topes de densidad. Nunca pisa
+  keyframes existentes ni pistas bloqueadas.
+- **Tool MCP** `timeline_auto_zoom` (write): plan + aplicación
+  reportada por zona/estilo. Botón «Aplicar zooms automáticos» en el
+  Inspector de proyecto.
+- **Fix schema**: `transform.keyframes` y `mask.keyframes` ahora
+  validan en clips `freeze` (el renderer ya los trataba como imagen;
+  las acciones TS ya los aceptaban — el schema era el único que los
+  rechazaba, produciendo proyectos inválidos al reparsear).
+- **SmartSwitch por hablante** (`multicam-speaker.ts` + tool
+  `multicam_smart_switch`): el multicámico corta por quién habla
+  (diarización de una cámara de referencia + mapa hablante→cámara)
+  en vez de sólo por volumen — paridad del feature de Resolve Studio.
+  UI en MulticamView: botón «Por hablante…», mapa hablante→cámara
+  editable y «Generar cortes por hablante».
+- **Morph Cut** (`applyMorphCut` en project-actions + tool MCP
+  `clip_morph_cut`): L-cut del saliente + J-cut del entrante en el
+  mismo corte — las voces se cruzan ~2×frames alrededor del corte y el
+  jump cut se disimula. Paridad del "Align"/Morph Cut de Premiere.
+  UI: ítem «Morph cut» en el menú contextual del clip + lote
+  `applyMorphCutsToAll`/`timeline_morph_cuts` + botón en Inspector.
+- **Remix** (`state/remix.ts` + tool MCP `clip_remix`): acorta un clip
+  a `targetSeconds` conservando tramos con más voz/energía — bordes
+  snappeados a frases, primer/último chunk siempre conservados,
+  eliminación con ripple. Paridad del "Remix" de Premiere.
+  UI: ítem «Remix…» con popover de duración objetivo en el menú
+  contextual del clip.
+- **Vinculación de clips A/V** (`state/clip-links.ts` + campo
+  `linkGroupId` en `clipCommon` + tools MCP `clip_link`/`clip_unlink`):
+  video y audio de la misma fuente se mueven, borran y nudgen juntos.
+  UI: «Vincular selección»/«Desvincular» en el menú contextual, drag
+  de grupo y expansión de selección. Paridad del clip linking de
+  Premiere/Resolve/Kdenlive.
+- **Auto-vínculo al separar audio** (`detachAudio` en project-actions):
+  el clip de audio separado nace vinculado a su video (o se suma al
+  grupo existente) — paridad del link selection por defecto de Premiere.
+- **Link selection** (Timeline `selectClip`): clickear un clip
+  vinculado selecciona el grupo completo; Shift/Ctrl alterna el grupo
+  entero. Paridad del link selection de Premiere.
+- **Badge de vínculo** (Timeline): los clips con `linkGroup` muestran
+  un ícono de eslabón junto a la etiqueta.
+- **Duplicado de grupo vinculado** (`duplicateClipGroup`): Ctrl+D /
+  menú / MCP duplican el linkGroup completo con un grupo nuevo para
+  los copiones — y el copión individual ya no hereda el vínculo
+  (bugfix de corrupción de grupo).
+- **Portapapeles sin vínculo**: copiar/pegar un clip nunca transporta
+  `linkGroup` — el pegado nace independiente (fix de corrupción de
+  grupo, segunda capa tras duplicateClipGroup).
+- **Clipboard multi-clip** (Timeline): Ctrl+C copia la selección
+  completa (incluye linkGroup) y Ctrl+V pega preservando offsets
+  relativos y re-vinculando los grupos con ids nuevos — paridad del
+  copy/paste de Premiere.
+- **Navegación entre cortes** (`state/edit-points.ts` + atajos
+  `timeline.editNext/Prev`): ↑/↓ saltan al borde de clip anterior o
+  siguiente — paridad del "go to edit" de Premiere/Resolve.
+- **Razor linked** (`timeline.splitAtPlayhead` en EditorWorkspace): la
+  tecla S divide todos los miembros del linkGroup que contienen la
+  aguja, cada uno en su tiempo de fuente — paridad del razor con
+  linked selection de Premiere.
+- **Corte lateral linked** (Q/W en Timeline): `cutSideAtPlayhead`
+  acepta multi-id y Timeline le pasa la selección expandida por
+  linkGroup — cortar video+audio vinculados no desincroniza el audio.
+- **Borrado contextual linked**: «Eliminar» del menú contextual borra el
+  linkGroup completo, igual que el borrado por teclado.
+- **División contextual linked**: «Dividir» del menú contextual corta
+  el linkGroup completo en la aguja, igual que la tecla S.
+- **MCP linked-aware**: `clip_delete`/`clip_split` expanden el
+  linkGroup como la UI — los agentes no pueden desincronizar pares
+  A/V por accidente.
+- **Ripple delete linked** (Ctrl+Shift+Delete global): expande el
+  linkGroup y cierra los huecos de todos los miembros.
+- **clip_move linked-aware** (MCP): mueve el linkGroup por delta
+  preservando offsets; `trackId` sigue siendo por clip.
+- **Grupos degenerados**: `unlinkClips` disuelve el linkGroup cuando
+  queda un solo miembro — sin badges fantasma.
+- **Borrado limpio de grupos**: `deleteClip` disuelve el linkGroup
+  cuando queda un solo miembro — sin badges fantasma tras borrar.
+- **Ripple limpio de grupos**: `rippleDeleteClip` también disuelve
+  el linkGroup degenerado — todos los caminos de borrado cubiertos.
+- **Zoom a la selección**: `timeline.zoomSelection` (Shift+F, reasignable)
+  encuadra la selección completa — grupos vinculados incluidos — y
+  centra la vista (paridad «Zoom to Selection» de Premiere).
+- **linkClips idempotente**: re-vincular un grupo existente no muta el
+  documento; los grupos viejos que quedan con 1 miembro se disuelven.

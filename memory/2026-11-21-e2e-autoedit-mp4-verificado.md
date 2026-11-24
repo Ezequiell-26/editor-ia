@@ -158,3 +158,9 @@ cruzado. Sin transporte propio todavía. TS-only → próximo rebuild.
 Pin del spy ahora da controles nativos de video (play/seek/volumen),
 autoplay muteado al fijar y pause() al soltar. pointer-events sólo en
 modo interactivo; timecode vivo por timeupdate. TS-only → rebuild.
+
+## Addendum 16 — source monitor live (pasada 294)
+
+Rebuild 9m57s, app PID 27196. Pin+transport del media-spy activo en el
+bundle actual. Prueba manual: hover tarjeta → clic fija → controles
+nativos → Escape suelta.

@@ -15,6 +15,16 @@ import { peaksForWindow, useWaveform } from '../../hooks/useWaveform';
 import { Icon } from '../../components/Icon';
 import { friendlyAssetLabel } from '../../state/asset-labels';
 import { clipColorHex, CLIP_COLORS, clipMatchesColorFilter } from '../../state/clip-colors';
+import { clipShortExportRange } from '../../state/clip-short-export';
+import { applyMorphCut, applySplitEdit } from '../../state/project-actions';
+import {
+  expandWithLinked,
+  linkClips,
+  linkedClipIds,
+  unlinkClips,
+} from '../../state/clip-links';
+import { applyRemix, planRemixForProject } from '../../state/remix';
+import { nextEditPoint, previousEditPoint } from '../../state/edit-points';
 import { matchesClipSearch } from '../../state/clip-search';
 import { ZOOM_SLIDER_MAX, sliderFromZoom, zoomFromSlider } from './timeline-zoom';
 import {
@@ -50,7 +60,7 @@ import {
   detachAudio,
   expandCompound,
   magneticMoveClip,
-  duplicateClip,
+  duplicateClipGroup,
   formatTimecode,
   fpsOf,
   listTranscribableTimelineClips,
@@ -934,6 +944,24 @@ function ClipBlockView({
             aria-hidden="true"
           />
         ) : null}
+        {clip.linkGroup ? (
+          <svg
+            className="clip-link-badge"
+            viewBox="0 0 16 16"
+            width="9"
+            height="9"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path
+              d="M6.6 9.9a2.6 2.6 0 0 0 3.5.2l1.9-1.9a2.6 2.6 0 0 0-3.5-3.7l-.9.9M9.4 6.1a2.6 2.6 0 0 0-3.5-.2l-1.9 1.9a2.6 2.6 0 0 0 3.5 3.7l.9-.9"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+        ) : null}
         {clipLabel}
       </span>
       {isWindowed ? (
@@ -1565,7 +1593,7 @@ export const Timeline = memo(function Timeline({
     left: number;
     top: number;
   } | null>(null);
-  const clipboardRef = useRef<Clip | null>(null);
+  const clipboardRef = useRef<Clip[] | null>(null);
   // Mapa de atajos vigente: los handlers de teclado leen los bindings desde
   // Ajustes → Atajos en cada pulsación (los listeners se enganchan una vez).
   const shortcutsRef = useRef<ShortcutMap>(loadShortcuts());
@@ -1730,6 +1758,7 @@ export const Timeline = memo(function Timeline({
     y: number;
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const [shortExportBusy, setShortExportBusy] = useState(false);
   // Diálogo «Pegar atributos por grupos» (colarAtributos de AlaukCut):
   // checkboxes por grupo cuando el portapapeles tiene más de uno.
   const [attrPaste, setAttrPaste] = useState<{
@@ -1751,6 +1780,16 @@ export const Timeline = memo(function Timeline({
   const [sfxPreviewing, setSfxPreviewing] = useState<string | null>(null);
   const sfxMenuRef = useRef<HTMLDivElement>(null);
   const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Submenú «Remix…» del menú contextual: pide duración objetivo y acorta el
+  // clip conservando los tramos con más voz/energía (paridad Premiere).
+  const [remixMenu, setRemixMenu] = useState<{
+    clipId: string;
+    x: number;
+    y: number;
+    target: string;
+    busy: boolean;
+  } | null>(null);
+  const remixMenuRef = useRef<HTMLDivElement>(null);
 
   const fps = project ? fpsOf(project) : 30;
   const duration = project ? Math.max(store.durationFrames, Math.round(fps * 4)) : 0;
@@ -1813,12 +1852,23 @@ export const Timeline = memo(function Timeline({
     viewport.clientWidth > 0 && duration > 0 && contentWidth > viewport.clientWidth + 80;
 
   function copySelectedClip(): void {
-    const clip = project?.timeline.clips.find((item) => item.id === selectedClipId);
-    if (!clip) return;
-    clipboardRef.current = JSON.parse(JSON.stringify(clip)) as Clip;
+    if (!project) return;
+    // Copia la selección completa (incluye el linkGroup por link selection,
+    // paridad Ctrl+C de Premiere). El vínculo viaja en el portapapeles para
+    // re-vincular los pegados entre sí con un grupo nuevo.
+    const ids = currentSelectedIds();
+    const clips = project.timeline.clips.filter((item) => ids.includes(item.id));
+    if (clips.length === 0) return;
+    clipboardRef.current = clips.map(
+      (clip) => JSON.parse(JSON.stringify(clip)) as Clip,
+    );
     markClipCopied();
     setClipboardReady(true);
-    store.setNotice(`${clip.label ?? 'Clip'} copiado; usá Pegar para insertarlo.`);
+    store.setNotice(
+      clips.length > 1
+        ? `${clips.length} clips copiados; usá Pegar para insertarlos.`
+        : `${clips[0]!.label ?? 'Clip'} copiado; usá Pegar para insertarlo.`,
+    );
   }
 
   /**
@@ -1854,14 +1904,43 @@ export const Timeline = memo(function Timeline({
   }
 
   function pasteCopiedClip(): void {
-    const clip = clipboardRef.current;
-    if (!clip) return;
-    const result = store.mutate((current) =>
-      pasteClip(current, clip, { startFrame: playback.frame }),
-    );
-    if (result) {
-      store.setSelection({ kind: 'clip', id: result.clipId });
-      store.setNotice('Clip pegado en el primer hueco libre de la pista.');
+    const clips = clipboardRef.current;
+    if (!clips || clips.length === 0) return;
+    // Los clips copiados conservan su offset relativo al más temprano:
+    // un par J/L pegado no se aplana al mismo frame.
+    const baseStart = Math.min(...clips.map((clip) => clip.startFrame));
+    const result = store.mutate((current) => {
+      let doc = current;
+      const pasted: { clipId: string; linkGroup: string | undefined }[] = [];
+      for (const clip of clips) {
+        const res = pasteClip(doc, clip, {
+          startFrame: playback.frame + (clip.startFrame - baseStart),
+        });
+        doc = res.project;
+        pasted.push({ clipId: res.clipId, linkGroup: clip.linkGroup });
+      }
+      // Re-vincula los pegados por cada linkGroup de origen (grupo nuevo,
+      // nunca el del original — pasteClip ya lo descartó al insertar).
+      const byGroup = new Map<string, string[]>();
+      for (const item of pasted) {
+        if (!item.linkGroup) continue;
+        const ids = byGroup.get(item.linkGroup) ?? [];
+        ids.push(item.clipId);
+        byGroup.set(item.linkGroup, ids);
+      }
+      for (const ids of byGroup.values()) {
+        if (ids.length < 2) continue;
+        doc = linkClips(doc, ids).project;
+      }
+      return { project: doc, firstClipId: pasted[0]?.clipId ?? null, count: pasted.length };
+    });
+    if (result && result.firstClipId) {
+      store.setSelection({ kind: 'clip', id: result.firstClipId });
+      store.setNotice(
+        result.count > 1
+          ? `${result.count} clips pegados en el primer hueco libre de sus pistas.`
+          : 'Clip pegado en el primer hueco libre de la pista.',
+      );
     }
   }
 
@@ -1998,21 +2077,28 @@ export const Timeline = memo(function Timeline({
     event?: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean },
   ): void {
     const additive = Boolean(event?.shiftKey || event?.ctrlKey || event?.metaKey);
+    // Con vínculo activo, seleccionar un clip selecciona todo su grupo
+    // (paridad link selection de Premiere): para elegir un solo miembro
+    // hay que desvincularlo primero.
+    const groupIds = project ? expandWithLinked(project, [clipId]) : [clipId];
     if (!additive) {
-      setSelectedClipIds(new Set([clipId]));
+      setSelectedClipIds(new Set(groupIds));
       store.setSelection({ kind: 'clip', id: clipId });
       return;
     }
     const wasSelected = selectedClipIds.has(clipId);
     setSelectedClipIds((current) => {
       const next = new Set(current);
-      if (next.has(clipId)) next.delete(clipId);
-      else next.add(clipId);
+      if (wasSelected) {
+        for (const id of groupIds) next.delete(id);
+      } else {
+        for (const id of groupIds) next.add(id);
+      }
       return next;
     });
     if (wasSelected) {
       // Se quitó el clip: la primaria pasa a otro seleccionado o a ninguna.
-      const remaining = [...selectedClipIds].filter((id) => id !== clipId);
+      const remaining = [...selectedClipIds].filter((id) => !groupIds.includes(id));
       const primary = remaining[remaining.length - 1];
       store.setSelection(primary ? { kind: 'clip', id: primary } : { kind: 'none' });
     } else {
@@ -2317,9 +2403,12 @@ export const Timeline = memo(function Timeline({
   function deleteSelectedClips(ripple: boolean): void {
     const ids = currentSelectedIds();
     if (ids.length === 0) return;
+    // Los grupos de vínculo se borran completos: borrar el video de un par
+    // A/V también borra su audio aunque no esté seleccionado.
+    const expandedIds = project ? expandWithLinked(project, ids) : ids;
     let nextDuration = 0;
     store.update((current) => {
-      const next = deleteClips(current, ids, ripple);
+      const next = deleteClips(current, expandedIds, ripple);
       if (!next) return current;
       nextDuration = totalFrames(next);
       return next;
@@ -2329,8 +2418,8 @@ export const Timeline = memo(function Timeline({
     store.setPlayhead(Math.min(playback.frame, nextDuration));
     store.setNotice(
       ripple
-        ? `${ids.length} clip(s) borrados con ripple.`
-        : `${ids.length} clip(s) borrados.`,
+        ? `${expandedIds.length} clip(s) borrados con ripple.`
+        : `${expandedIds.length} clip(s) borrados.`,
     );
   }
 
@@ -2351,10 +2440,232 @@ export const Timeline = memo(function Timeline({
     !contextLocked &&
     playback.frame > contextClip.startFrame &&
     playback.frame < contextClip.startFrame + contextClip.durationFrames;
+  const contextClipShort =
+    contextClip && project ? clipShortExportRange(project, contextClip) : null;
+  // Morph cut sólo aplica si hay un clip de video contiguo antes en la pista.
+  const contextMorphReady = Boolean(
+    contextClip &&
+      project &&
+      contextClip.kind === 'video' &&
+      !contextLocked &&
+      project.timeline.clips.some(
+        (clip) =>
+          clip.id !== contextClip.id &&
+          clip.trackId === contextClip.trackId &&
+          clip.startFrame + clip.durationFrames === contextClip.startFrame,
+      ),
+  );
+  // J/L cut aplica a video/audio de un asset (la función valida handles
+  // y recorta el desplazamiento a lo disponible).
+  const contextSplitEditReady = Boolean(
+    contextClip &&
+      project &&
+      (contextClip.kind === 'video' || contextClip.kind === 'audio') &&
+      contextClip.source.type === 'asset' &&
+      !contextLocked,
+  );
+  // Vinculación: «Vincular» necesita ≥2 clips seleccionados; «Desvincular»
+  // aplica cuando el clip del menú pertenece a un linkGroup.
+  const contextLinkReady = Boolean(project && currentSelectedIds().length >= 2);
+  const contextUnlinkReady = Boolean(contextClip?.linkGroup);
+  // Remix sólo aplica a video/audio de un asset a velocidad 1×.
+  const contextRemixReady = Boolean(
+    contextClip &&
+      project &&
+      (contextClip.kind === 'video' || contextClip.kind === 'audio') &&
+      contextClip.source.type === 'asset' &&
+      !contextLocked &&
+      (() => {
+        const speed = 'speed' in contextClip ? contextClip.speed : undefined;
+        return !speed || speed.num / Math.max(1, speed.den) === 1;
+      })(),
+  );
+  const remixClip =
+    remixMenu && project
+      ? project.timeline.clips.find((clip) => clip.id === remixMenu.clipId)
+      : undefined;
   const sfxClip =
     sfxMenu && project
       ? project.timeline.clips.find((clip) => clip.id === sfxMenu.clipId)
       : undefined;
+
+  async function exportContextClipAsShort(): Promise<void> {
+    if (!contextClip || !contextClipShort?.ok || shortExportBusy) return;
+    const { range } = contextClipShort;
+    setContextMenu(null);
+    setShortExportBusy(true);
+    try {
+      let smartReframe = false;
+      try {
+        const models = await store.service.listModels();
+        smartReframe = models.some(
+          (model) => model.id === 'seeta-face' && model.downloaded,
+        );
+      } catch {
+        // Sin catálogo de modelos: exportamos con recorte centrado.
+      }
+      const folder = await store.service.chooseDownloadDirectory();
+      if (!folder) return;
+      const result = await store.service.exportShort({
+        path: range.assetPath,
+        outputDir: folder,
+        startSeconds: range.startSeconds,
+        endSeconds: range.endSeconds,
+        label: range.label,
+        smartReframe,
+      });
+      store.setNotice(
+        `Short exportado (${result.reframe === 'smart' ? 'smart reframe' : 'recorte centrado'}): ${result.width}×${result.height}, ${Math.round(result.bytes / 1024 / 1024)} MB.`,
+      );
+    } catch (cause) {
+      store.setNotice(
+        cause instanceof Error ? cause.message : 'no se pudo exportar el short',
+      );
+    } finally {
+      setShortExportBusy(false);
+    }
+  }
+
+  function splitEditContextClip(type: 'j-cut' | 'l-cut'): void {
+    if (!contextClip || !project) return;
+    setContextMenu(null);
+    try {
+      const result = applySplitEdit(project, { clipId: contextClip.id, type });
+      store.update(() => result.project);
+      store.setNotice(
+        `${type === 'j-cut' ? 'J cut' : 'L cut'} aplicado: audio ${
+          type === 'j-cut' ? 'adelantado' : 'prolongado'
+        } ${result.appliedFrames}f.`,
+      );
+    } catch (cause) {
+      store.setNotice(
+        cause instanceof Error ? cause.message : 'no se pudo aplicar el corte dividido',
+      );
+    }
+  }
+
+  function linkContextSelection(): void {
+    if (!project) return;
+    const ids = currentSelectedIds();
+    setContextMenu(null);
+    try {
+      const result = linkClips(project, ids);
+      store.update(() => result.project);
+      store.setNotice(`${ids.length} clips vinculados (se mueven y borran juntos).`);
+    } catch (cause) {
+      store.setNotice(
+        cause instanceof Error ? cause.message : 'no se pudieron vincular los clips',
+      );
+    }
+  }
+
+  function unlinkContextClip(): void {
+    if (!contextClip || !project) return;
+    setContextMenu(null);
+    try {
+      const ids = linkedClipIds(project, contextClip.id);
+      const result = unlinkClips(project, ids);
+      store.update(() => result.project);
+      store.setNotice(
+        result.unlinked > 0
+          ? `${result.unlinked} clip(s) desvinculados.`
+          : 'El clip no tenía vínculo.',
+      );
+    } catch (cause) {
+      store.setNotice(
+        cause instanceof Error ? cause.message : 'no se pudo desvincular el clip',
+      );
+    }
+  }
+
+  function morphCutContextClip(): void {
+    if (!contextClip || !project) return;
+    setContextMenu(null);
+    try {
+      const result = applyMorphCut(project, { incomingClipId: contextClip.id });
+      store.update(() => result.project);
+      store.setNotice(
+        `Morph cut aplicado: audio adelantado ${result.jCutFrames}f, prolongado ${result.lCutFrames}f.`,
+      );
+    } catch (cause) {
+      store.setNotice(
+        cause instanceof Error ? cause.message : 'no se pudo aplicar el morph cut',
+      );
+    }
+  }
+
+  function openRemixMenu(clip: Clip, x: number, y: number): void {
+    setContextMenu(null);
+    const seconds = clip.durationFrames / Math.max(1, fps);
+    setRemixMenu({
+      clipId: clip.id,
+      x,
+      y,
+      target: (seconds * 0.6).toFixed(1),
+      busy: false,
+    });
+  }
+
+  async function applyRemixMenu(): Promise<void> {
+    if (!remixMenu || !remixClip || !project || remixMenu.busy) return;
+    const targetSeconds = Number(remixMenu.target);
+    if (!Number.isFinite(targetSeconds) || targetSeconds <= 0) {
+      store.setNotice('El remix necesita una duración objetivo válida en segundos.');
+      return;
+    }
+    if (remixClip.source.type !== 'asset' || !('assetId' in remixClip.source)) {
+      store.setNotice('El remix sólo funciona con clips de un archivo fuente (asset).');
+      return;
+    }
+    const assetId = remixClip.source.assetId;
+    const clipId = remixClip.id;
+    setRemixMenu((current) => (current ? { ...current, busy: true } : current));
+    try {
+      let speech: { start: number; end: number }[] | null = null;
+      try {
+        const transcript = await store.service.transcribeAsset(assetId);
+        speech = transcript.segments.map((segment) => ({
+          start: segment.start,
+          end: segment.end,
+        }));
+      } catch {
+        speech = null;
+      }
+      let peaks = null;
+      if (!speech || speech.length === 0) {
+        try {
+          peaks = await store.service.audioPeaks(assetId, 400);
+        } catch {
+          peaks = null;
+        }
+      }
+      const plan = planRemixForProject(project, clipId, {
+        targetSeconds,
+        speech,
+        peaks,
+      });
+      if (!plan) {
+        store.setNotice(
+          'No se pudo planear el remix: falta transcripción/picos o el objetivo no es menor que el clip.',
+        );
+        return;
+      }
+      const next = applyRemix(project, clipId, plan);
+      if (next === project) {
+        store.setNotice('El plan resultó vacío o excesivo; no se aplicó ningún cambio.');
+        return;
+      }
+      store.update(() => next);
+      store.setNotice(
+        `Remix aplicado: quedan ${plan.keptSeconds.toFixed(1)}s de ${(
+          remixClip.durationFrames / Math.max(1, fps)
+        ).toFixed(1)}s (señal: ${speech && speech.length > 0 ? 'voz' : 'audio'}).`,
+      );
+      setRemixMenu(null);
+    } finally {
+      setRemixMenu((current) => (current ? { ...current, busy: false } : current));
+    }
+  }
 
   function openSfxMenu(clip: Clip, x: number, y: number): void {
     setContextMenu(null);
@@ -2434,16 +2745,37 @@ export const Timeline = memo(function Timeline({
     if (!contextClip) return;
     const clipId = contextClip.id;
     let rightClipId: string | null = null;
+    let splitCount = 0;
     store.update((current) => {
-      const result = splitClip(current, clipId, playback.frame);
-      if (!result) return current;
-      rightClipId = result.rightClipId;
-      return result.project;
+      // Mismo criterio que la tecla S: el corte alcanza a todo el linkGroup
+      // que contiene la aguja, cada miembro en su propio tiempo de fuente.
+      const ids = expandWithLinked(current, [clipId]);
+      let doc = current;
+      for (const id of ids) {
+        const clip = doc.timeline.clips.find((item) => item.id === id);
+        if (!clip || clip.kind === 'compound') continue;
+        if (
+          playback.frame <= clip.startFrame ||
+          playback.frame >= clip.startFrame + clip.durationFrames
+        ) {
+          continue;
+        }
+        const result = splitClip(doc, id, playback.frame);
+        if (!result) continue;
+        doc = result.project;
+        if (id === clipId) rightClipId = result.rightClipId;
+        splitCount += 1;
+      }
+      return doc;
     });
     setContextMenu(null);
     if (rightClipId) {
       store.setSelection({ kind: 'clip', id: rightClipId });
-      store.setNotice('Clip dividido en el playhead.');
+      store.setNotice(
+        splitCount > 1
+          ? `Grupo de ${splitCount} clips dividido en el playhead.`
+          : 'Clip dividido en el playhead.',
+      );
     } else {
       store.setNotice('Movés el playhead dentro del clip para dividirlo.');
     }
@@ -2453,16 +2785,22 @@ export const Timeline = memo(function Timeline({
     if (!contextClip) return;
     const clipId = contextClip.id;
     let newClipId: string | null = null;
+    let copied = 0;
     store.update((current) => {
-      const result = duplicateClip(current, clipId);
+      const result = duplicateClipGroup(current, clipId);
       if (!result) return current;
-      newClipId = result.clipId;
+      newClipId = result.clipIds[0] ?? null;
+      copied = result.clipIds.length;
       return result.project;
     });
     setContextMenu(null);
     if (newClipId) {
       store.setSelection({ kind: 'clip', id: newClipId });
-      store.setNotice('Clip duplicado en el primer hueco libre.');
+      store.setNotice(
+        copied > 1
+          ? `Grupo de ${copied} clips duplicado en el primer hueco libre.`
+          : 'Clip duplicado en el primer hueco libre.',
+      );
     }
   }
 
@@ -2470,14 +2808,23 @@ export const Timeline = memo(function Timeline({
     if (!contextClip) return;
     const clipId = contextClip.id;
     let nextDuration = 0;
+    let deleted = 0;
     store.update((current) => {
-      const next = deleteClip(current, clipId);
+      // Mismo criterio que el borrado por teclado: el menú elimina el grupo
+      // vinculado completo, no sólo el clip clickeado.
+      const ids = expandWithLinked(current, [clipId]);
+      const next = deleteClips(current, ids, false);
+      if (!next) return current;
+      deleted = ids.length;
       nextDuration = totalFrames(next);
       return next;
     });
     setContextMenu(null);
     store.setSelection({ kind: 'none' });
     store.setPlayhead(Math.min(playback.frame, nextDuration));
+    if (deleted > 1) {
+      store.setNotice(`Grupo de ${deleted} clips eliminado.`);
+    }
   }
 
   /** Ítems de «Edición con IA»: cada uno abre la superficie real de la
@@ -2598,6 +2945,30 @@ export const Timeline = memo(function Timeline({
   }, [sfxMenu]);
 
   useEffect(() => {
+    if (!remixMenu) return;
+    const close = (): void => setRemixMenu(null);
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && remixMenuRef.current?.contains(event.target)) return;
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      close();
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [remixMenu]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
@@ -2625,11 +2996,18 @@ export const Timeline = memo(function Timeline({
         const side = match('timeline.cutLeft') ? 'left' : 'right';
         let keptIds: string[] = [];
         store.update((current) => {
+          // Con selección opera sobre ella expandida por linkGroup: cortar
+          // el video de un par A/V también corta su audio en la aguja.
+          const selected = currentSelectedIds();
+          const only =
+            selected.length > 0
+              ? expandWithLinked(current, selected)
+              : undefined;
           const result = cutSideAtPlayhead(
             current,
             playback.frame,
             side,
-            selectedClipId ?? undefined,
+            only,
           );
           if (!result) return current;
           keptIds = result.keptClipIds;
@@ -2696,6 +3074,22 @@ export const Timeline = memo(function Timeline({
             store.setNotice(`Marcador en ${formatTimecode(marker.frame, fps)}.`);
           } else {
             store.setNotice('No hay otro marcador en esa dirección.');
+          }
+        }
+      } else if (match('timeline.editNext') || match('timeline.editPrev')) {
+        // Flechas ↑/↓ como en Premiere/Resolve: saltan al borde de clip
+        // (inicio/fin) anterior o siguiente al playhead.
+        event.preventDefault();
+        if (project) {
+          const frame = store.getPlayhead();
+          const target = match('timeline.editNext')
+            ? nextEditPoint(project, frame)
+            : previousEditPoint(project, frame);
+          if (target !== null) {
+            store.setPlayhead(target);
+            store.setNotice(`Corte en ${formatTimecode(target, fps)}.`);
+          } else {
+            store.setNotice('No hay otro corte en esa dirección.');
           }
         }
       } else if (match('timeline.markerAdd')) {
@@ -2775,6 +3169,38 @@ export const Timeline = memo(function Timeline({
         store.setNotice(
           `Zoom ${currentScale.toFixed(2)} → ${next.toFixed(2)} px/frame.`,
         );
+      } else if (match('timeline.zoomSelection')) {
+        // «Zoom to Selection» de Premiere: encuadra la selección completa
+        // (grupo vinculado incluido) y centra la vista en su punto medio.
+        event.preventDefault();
+        const ids = project
+          ? expandWithLinked(project, [...selectedClipIds])
+          : [...selectedClipIds];
+        const clips = (project?.timeline.clips ?? []).filter((clip) =>
+          ids.includes(clip.id),
+        );
+        if (clips.length === 0) {
+          store.setNotice('Seleccioná clips para acercar el zoom.');
+        } else {
+          const start = Math.min(...clips.map((clip) => clip.startFrame));
+          const end = Math.max(
+            ...clips.map((clip) => clip.startFrame + clip.durationFrames),
+          );
+          const next = clamp(720 / Math.max(1, end - start), 0.2, 14);
+          setPxPerFrame(next);
+          const element = scrollRef.current;
+          if (element) {
+            const midX =
+              headerWidth() + ((start + end) / 2) * next;
+            element.scrollLeft = Math.max(
+              0,
+              midX - element.clientWidth / 2,
+            );
+          }
+          store.setNotice(
+            `Zoom a la selección: ${clips.length} clip(s), ${next.toFixed(2)} px/frame.`,
+          );
+        }
       } else if (match('timeline.trimIn') || match('timeline.trimOut')) {
         // [ y ]: recortan el borde del clip seleccionado hasta el playhead.
         if (!selectedClipId) return;
@@ -2801,7 +3227,7 @@ export const Timeline = memo(function Timeline({
         event.preventDefault();
         event.stopPropagation();
         const delta = match('timeline.moveGroupRight') ? 1 : -1;
-        const ids = [...selectedClipIds];
+        const ids = project ? expandWithLinked(project, [...selectedClipIds]) : [...selectedClipIds];
         store.update((current) => {
           const next = moveClipsBy(current, ids, delta);
           if (!next) return current;
@@ -3388,8 +3814,18 @@ export const Timeline = memo(function Timeline({
   ): void {
     event.preventDefault();
     const multi = multiSelectionRef.current;
+    // Clips vinculados (linkGroup) se arrastran como una sola unidad en el
+    // tiempo; sin vínculo el arrastre simple conserva el cambio de pista.
+    const baseIds =
+      mode === 'move'
+        ? multi.has(clip.id) && multi.size > 1
+          ? [...multi]
+          : [clip.id]
+        : undefined;
+    const expanded =
+      baseIds && project ? expandWithLinked(project, baseIds) : baseIds;
     const groupIds =
-      mode === 'move' && multi.has(clip.id) && multi.size > 1 ? [...multi] : undefined;
+      expanded && expanded.length > 1 ? expanded : undefined;
     const drag: Drag = {
       kind: 'clip',
       clipId: clip.id,
@@ -4880,6 +5316,108 @@ export const Timeline = memo(function Timeline({
                 <span>Efecto de sonido…</span>
                 <span className="timeline-menu-hint">SFX</span>
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={
+                  shortExportBusy ||
+                  contextClipShort === null ||
+                  !contextClipShort.ok
+                }
+                title={
+                  contextClipShort && !contextClipShort.ok
+                    ? contextClipShort.reason
+                    : 'Exporta la ventana fuente del clip como MP4 vertical 1080×1920'
+                }
+                onClick={() => void exportContextClipAsShort()}
+              >
+                <span>Exportar como Short…</span>
+                <span className="timeline-menu-hint">9:16</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!contextSplitEditReady}
+                title={
+                  contextSplitEditReady
+                    ? 'J cut: el audio entra antes de que aparezca el video'
+                    : 'Sólo clips de video/audio de un archivo fuente'
+                }
+                onClick={() => splitEditContextClip('j-cut')}
+              >
+                <span>J cut</span>
+                <span className="timeline-menu-hint">Audio antes</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!contextSplitEditReady}
+                title={
+                  contextSplitEditReady
+                    ? 'L cut: el audio sigue sonando después de que termine el video'
+                    : 'Sólo clips de video/audio de un archivo fuente'
+                }
+                onClick={() => splitEditContextClip('l-cut')}
+              >
+                <span>L cut</span>
+                <span className="timeline-menu-hint">Audio después</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!contextMorphReady}
+                title={
+                  contextMorphReady
+                    ? 'Cruza el audio del corte anterior (L+J cut): las voces se solapan ~0,4 s alrededor del corte'
+                    : 'Necesita un clip de video contiguo antes en la misma pista'
+                }
+                onClick={morphCutContextClip}
+              >
+                <span>Morph cut</span>
+                <span className="timeline-menu-hint">Audio ×2</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!contextRemixReady}
+                title={
+                  contextRemixReady
+                    ? 'Acorta el clip a una duración objetivo conservando los tramos con más voz'
+                    : 'Sólo clips de video/audio de un archivo fuente a velocidad normal'
+                }
+                onClick={() => openRemixMenu(contextClip, contextMenu.x, contextMenu.y)}
+              >
+                <span>Remix…</span>
+                <span className="timeline-menu-hint">Acortar</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!contextLinkReady}
+                title={
+                  contextLinkReady
+                    ? 'Vincula los clips seleccionados: se mueven, recortan y borran como una unidad (típico video+audio)'
+                    : 'Seleccioná al menos dos clips para vincularlos'
+                }
+                onClick={linkContextSelection}
+              >
+                <span>Vincular selección</span>
+                <span className="timeline-menu-hint">Link</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!contextUnlinkReady}
+                title={
+                  contextUnlinkReady
+                    ? 'Quita el vínculo de todos los clips del grupo'
+                    : 'Este clip no está vinculado'
+                }
+                onClick={unlinkContextClip}
+              >
+                <span>Desvincular</span>
+                <span className="timeline-menu-hint">Unlink</span>
+              </button>
               <div className="timeline-menu-separator" role="separator" />
               <div className="timeline-menu-colors" role="group" aria-label="Color del clip">
                 {CLIP_COLORS.map((color) => (
@@ -5074,6 +5612,52 @@ export const Timeline = memo(function Timeline({
                   </div>
                 ))
               )}
+            </div>
+          ) : null}
+          {remixMenu && remixClip ? (
+            <div
+              ref={remixMenuRef}
+              className="timeline-menu"
+              role="dialog"
+              aria-label={`Remix de ${remixClip.label ?? 'el clip'}`}
+              style={{
+                left: Math.max(8, Math.min(remixMenu.x, document.documentElement.clientWidth - 268)),
+                top: Math.max(8, Math.min(remixMenu.y, document.documentElement.clientHeight - 200)),
+              }}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              <p className="timeline-menu-group-title">
+                Remix · acortar a duración objetivo conservando la voz
+              </p>
+              <label className="timeline-menu-remix-field">
+                <span>Duración objetivo (s)</span>
+                <input
+                  type="number"
+                  min={0.5}
+                  max={remixClip.durationFrames / Math.max(1, fps)}
+                  step={0.5}
+                  value={remixMenu.target}
+                  disabled={remixMenu.busy}
+                  onChange={(event) =>
+                    setRemixMenu((current) =>
+                      current ? { ...current, target: event.target.value } : current,
+                    )
+                  }
+                />
+              </label>
+              <button
+                type="button"
+                role="menuitem"
+                className="primary"
+                disabled={remixMenu.busy}
+                onClick={() => void applyRemixMenu()}
+              >
+                <span>{remixMenu.busy ? 'Analizando…' : 'Aplicar remix'}</span>
+              </button>
+              <p className="timeline-menu-empty">
+                Transcribe el clip y conserva los tramos con más voz; sin
+                transcripción usa la energía de audio.
+              </p>
             </div>
           ) : null}
         </div>

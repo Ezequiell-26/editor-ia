@@ -44,17 +44,45 @@ pub async fn import_assets(
                 .push("Se salteó una selección que no era una ruta local.".to_owned()),
         }
     }
-    let mut outcome = use_cases::import_local_files(
-        &session.root,
-        &ffprobe,
-        files,
-        fps_num,
-        fps_den,
-        false,
-        None,
-        false,
-        ImportLimit::MaxAssets(crate::media::MAX_IMPORT_FILES),
-    );
+    // La copia + sondeo ffprobe de cada archivo puede tardar: fuera del
+    // runtime async (AUD-129) y con epoch de sesión (AUD-143) para no
+    // escribir en la carpeta de un proyecto que ya no es el activo.
+    let session_root = session.root.clone();
+    let ffprobe_path = ffprobe.clone();
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
+    let mut outcome = tauri::async_runtime::spawn_blocking(
+        move || -> Result<ImportOutcome, ProjectError> {
+            if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    "el proyecto cambió durante la importación; los archivos no se guardaron",
+                ));
+            }
+            Ok(use_cases::import_local_files(
+                &session_root,
+                &ffprobe_path,
+                files,
+                fps_num,
+                fps_den,
+                false,
+                None,
+                false,
+                ImportLimit::MaxAssets(crate::media::MAX_IMPORT_FILES),
+            ))
+        },
+    )
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "la importación de medios se interrumpió")
+    })??;
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la importación; los archivos pueden haber quedado en la carpeta del proyecto anterior",
+        ));
+    }
     // Los salteados por no ser ruta local van primero, como en el flujo
     // original donde se evaluaban antes del tope.
     if !skipped.is_empty() {
@@ -89,17 +117,48 @@ pub async fn import_media_paths(
     let provenance_provider = provider
         .map(|value| value.trim().chars().take(80).collect::<String>())
         .filter(|value| !value.is_empty());
-    Ok(use_cases::import_local_files(
-        &session.root,
-        &ffprobe,
-        files,
-        fps_num,
-        fps_den,
-        confirm_rights.unwrap_or(false),
-        provenance_provider.as_deref(),
-        true,
-        ImportLimit::MaxPaths(crate::media::MAX_IMPORT_FILES),
-    ))
+    // spawn_blocking + epoch de sesión: la importación de rutas explícitas
+    // (tool bridges, Google Flow) copia y sondea igual que la del diálogo
+    // y no debe escribir en el proyecto equivocado (AUD-129/AUD-143).
+    let session_root = session.root.clone();
+    let ffprobe_path = ffprobe.clone();
+    let provider_owned = provenance_provider.clone();
+    let confirm = confirm_rights.unwrap_or(false);
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
+    let outcome = tauri::async_runtime::spawn_blocking(
+        move || -> Result<ImportOutcome, ProjectError> {
+            if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    "el proyecto cambió durante la importación; los archivos no se guardaron",
+                ));
+            }
+            Ok(use_cases::import_local_files(
+                &session_root,
+                &ffprobe_path,
+                files,
+                fps_num,
+                fps_den,
+                confirm,
+                provider_owned.as_deref(),
+                true,
+                ImportLimit::MaxPaths(crate::media::MAX_IMPORT_FILES),
+            ))
+        },
+    )
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "la importación de medios se interrumpió")
+    })??;
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la importación; los archivos pueden haber quedado en la carpeta del proyecto anterior",
+        ));
+    }
+    Ok(outcome)
 }
 
 // ─────────────── import_media_bytes ───────────────
@@ -204,6 +263,12 @@ pub async fn import_media_bytes(
     fps_den: u32,
 ) -> Result<ImportOutcome, ProjectError> {
     let session_root = state.require_session()?.root;
+    // AUD-143: epoch de sesión — si el proyecto cambia mientras la
+    // importación corre en spawn_blocking, no se escribe nada en la
+    // carpeta del proyecto viejo (antes quedaba un asset huérfano).
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
     let settings = state.settings_snapshot()?;
     let (_, ffprobe, _) = resolve_tools(&settings);
     let ffprobe = use_cases::require_ffprobe(ffprobe)?;
@@ -214,6 +279,12 @@ pub async fn import_media_bytes(
     // tardar con medios grandes: fuera del runtime async (AUD-129).
     let outcome = tauri::async_runtime::spawn_blocking(
         move || -> Result<ImportOutcome, ProjectError> {
+            if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    "el proyecto cambió durante la importación; el audio no se guardó",
+                ));
+            }
             let temp_dir =
                 std::env::temp_dir().join(format!("olyvia-import-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&temp_dir).map_err(|_| {
@@ -246,6 +317,16 @@ pub async fn import_media_bytes(
     .map_err(|_| {
         ProjectError::message(ProjectErrorCode::Io, "la importación de medios se interrumpió")
     })??;
+    // AUD-143: la sesión pudo cambiar MIENTRAS corría import_local_files —
+    // el chequeo previo no cubre ese tramo. El asset ya está copiado en la
+    // raíz capturada: se reporta el estado real en vez de devolver un
+    // outcome que el frontend montaría en el proyecto equivocado.
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la importación; el audio quedó en la carpeta del proyecto anterior sin montar",
+        ));
+    }
     Ok(outcome)
 }
 

@@ -2946,6 +2946,22 @@ textarea {
   font-size: 11px;
 }
 
+.timeline-menu-remix-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 10px 6px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.timeline-menu-remix-field input {
+  width: 76px;
+  padding: 4px 7px;
+  font-size: 11px;
+}
+
 .timeline-menu-sfx-row {
   display: flex;
   align-items: center;
@@ -3210,6 +3226,15 @@ textarea {
   margin-right: 4px;
   border-radius: 2px;
   vertical-align: baseline;
+}
+
+.clip-link-badge {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 3px;
+  vertical-align: -1px;
+  opacity: 0.85;
 }
 
 .color-chip.active {

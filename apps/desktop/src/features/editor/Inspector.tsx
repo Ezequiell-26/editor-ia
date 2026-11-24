@@ -41,6 +41,7 @@ import {
   type MaskPolygonPresetId,
 } from '../vfx/mask-presets';
 import { captionMotionPreset } from '../../state/caption-motion';
+import { applyMorphCutsToAll } from '../../state/morph-cuts';
 import { CaptionKaraokePreview } from './CaptionKaraokePreview';
 import { parseSubtitles, serializeSrt } from '../../state/subtitles';
 import { EmojiPickerButton } from '../emoji/EmojiPicker';
@@ -60,6 +61,7 @@ import {
   applyFaceBlurOverlay,
   applyFaceCenter,
   applyMaskTrack,
+  applyAutoZooms,
   applyTransitionToCuts,
   importSubtitleCues,
   addTranscriptionCues,
@@ -5313,6 +5315,61 @@ function ProjectInspector() {
     }
   }
 
+  function applyMorphCutsToProject(): void {
+    const current = store.state.project;
+    if (!current) return;
+    try {
+      const result = applyMorphCutsToAll(current);
+      if (result.applied.length === 0) {
+        store.setNotice(
+          result.failed.length > 0
+            ? `No se pudo aplicar morph cut: ${result.failed[0]!.reason}`
+            : 'No hay cortes contiguos de video con audio extensible.',
+        );
+        return;
+      }
+      store.update(() => result.project);
+      store.setNotice(
+        `Morph cut en ${result.applied.length} corte(s): ${result.applied.reduce(
+          (sum, item) => sum + item.jCutFrames + item.lCutFrames,
+          0,
+        )} frames de audio cruzados.${
+          result.failed.length > 0 ? ` ${result.failed.length} corte(s) fallaron.` : ''
+        }`,
+      );
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudieron aplicar los morph cuts',
+      );
+    }
+  }
+
+  function applyAutoZoomsToProject(): void {
+    const current = store.state.project;
+    if (!current) return;
+    try {
+      const result = applyAutoZooms(current);
+      if (result.applied === 0) {
+        store.setNotice(
+          result.plan.length === 0
+            ? 'No hay clips candidatos para zoom automático.'
+            : 'Los clips candidatos ya tienen keyframes o están bloqueados.',
+        );
+        return;
+      }
+      store.update(() => result.project);
+      store.setNotice(
+        `${result.applied} zoom(s) automático(s) aplicados.${
+          result.skipped > 0 ? ` ${result.skipped} omitido(s).` : ''
+        }`,
+      );
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudieron aplicar los zooms',
+      );
+    }
+  }
+
   function cutClipsAtMarkers(): void {    const current = store.state.project;
     if (!current) return;
     try {
@@ -5641,6 +5698,22 @@ function ProjectInspector() {
         <div className="actions compact">
           <button type="button" className="small" onClick={dissolveCuts}>
             Disolver cortes contiguos
+          </button>
+          <button type="button" className="small" onClick={applyMorphCutsToProject}>
+            Morph cuts en todos los cortes
+          </button>
+        </div>
+      </Section>
+
+      <Section title="Zooms automáticos">
+        <p className="fine-print">
+          Punch-ins al rostro estilo YouTube según la zona del video: hook y clímax
+          reciben zoom sostenido, el cuerpo sólo planos largos, y el cierre respira.
+          ~1 zoom por minuto, nunca pisa keyframes existentes ni pistas bloqueadas.
+        </p>
+        <div className="actions compact">
+          <button type="button" className="small" onClick={applyAutoZoomsToProject}>
+            Aplicar zooms automáticos
           </button>
         </div>
       </Section>

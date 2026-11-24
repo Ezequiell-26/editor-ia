@@ -7,6 +7,22 @@
       "reason": "Memory exhaustion validating oversized constrained collections. zod solo parsea documentos del proyecto y configs locales controlados por el usuario; no hay superficie de entrada de red que alimente colecciones hostiles. Revisar al subir zod >=4.6.6.",
       "owner": "editor-ia",
       "expires": "2026-12-31"
+    },
+    {
+      "package": "url",
+      "severity": "unrated",
+      "advisory": "RUSTSEC-2026-0592",
+      "reason": "Stack overflow en Url::origin() con blob: URLs anidados. video-rs 0.12.0 pinea url =2.5.8 y el fix 2.5.9 queda bloqueado upstream; la app parsea URLs de medios locales/remotas propias, sin superficie de blob: hostil conocida. Revisar cuando video-rs actualice el pin.",
+      "owner": "editor-ia",
+      "expires": "2026-12-31"
+    },
+    {
+      "package": "glib",
+      "severity": "unrated",
+      "advisory": "GHSA-wrw7-89jp-8q8g",
+      "reason": "Unsoundness en VariantStrIter. glib/zbus son dependencias transitivas cfg(Linux) del stack D-Bus: no se compilan ni ejecutan en el target Windows de la app. Revisar al actualizar la cadena zbus.",
+      "owner": "editor-ia",
+      "expires": "2026-12-31"
     }
   ]
 }

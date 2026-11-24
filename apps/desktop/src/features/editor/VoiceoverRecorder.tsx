@@ -252,6 +252,16 @@ export function VoiceoverRecorder({
       stream.getTracks().forEach((track) => track.stop());
       return;
     }
+    // AUD-149: el proyecto también pudo cambiar durante el permiso — sin
+    // esta revalidación la grabación arrancaba y finalize la descartaba
+    // entera (micrófono activo grabando audio que se tira).
+    const liveProjectId = store.getProject()?.id ?? store.state.project?.id;
+    if (liveProjectId !== projectIdRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      setPhaseBoth('idle');
+      store.setNotice('El proyecto cambió mientras se pedía el permiso; no se grabó.');
+      return;
+    }
     streamRef.current = stream;
     chunksRef.current = [];
     let recorder: MediaRecorder;

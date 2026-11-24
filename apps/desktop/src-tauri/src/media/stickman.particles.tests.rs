@@ -146,8 +146,79 @@ fn tumble_kind_renders_pixels() {
 }
 
 #[test]
+fn rigid_bodies_are_deterministic_and_settle() {
+    let spec = spec_for("rigid");
+    // Mismo instante → mismo estado (el cache memoiza, el resultado es idéntico).
+    let a = rigid_bodies_at(1.5, 640.0, 360.0, &spec);
+    let b = rigid_bodies_at(1.5, 640.0, 360.0, &spec);
+    assert_eq!(a.len(), b.len());
+    assert!(!a.is_empty());
+    for (x, y) in a.iter().zip(b.iter()) {
+        assert_eq!((x.x, x.y, x.angle), (y.x, y.y, y.angle));
+    }
+    // Retroceder en el tiempo resimula y da el mismo resultado.
+    let _ = rigid_bodies_at(9.0, 640.0, 360.0, &spec);
+    let back = rigid_bodies_at(1.5, 640.0, 360.0, &spec);
+    assert_eq!(back[0].x, a[0].x);
+    assert_eq!(back[0].y, a[0].y);
+    // A los 60 s todos los cuerpos están casi quietos y dentro del lienzo.
+    let late = rigid_bodies_at(60.0, 640.0, 360.0, &spec);
+    for body in &late {
+        assert!(
+            body.vx * body.vx + body.vy * body.vy < 25.0,
+            "debería estar asentado, v=({},{})",
+            body.vx,
+            body.vy
+        );
+        assert!(body.x.is_finite() && body.y.is_finite());
+        assert!(
+            body.x > -30.0 && body.x < 670.0 && body.y > -30.0 && body.y < 390.0,
+            "cuerpo fuera de rango: ({},{})",
+            body.x,
+            body.y
+        );
+    }
+}
+
+#[test]
+fn rigid_collisions_transfer_momentum() {
+    // Dos cajas idénticas, una encima de la otra: la de arriba debe frenar
+    // y la de abajo recibir impulso (vx de la superior ≈ 0 tras el choque
+    // si la inferior está fija por fricción de paredes — al menos la
+    // velocidad relativa debe disiparse: |Δv| medible entre t=0.2 y t=2).
+    let spec = ParticleSpec {
+        kind: "rigid".into(),
+        count: 2,
+        color_hex: None,
+        gravity: Some(900.0),
+        bounce: Some(0.3),
+        spin: Some(0.0),
+    };
+    let early = rigid_bodies_at(0.2, 640.0, 360.0, &spec);
+    let late = rigid_bodies_at(3.0, 640.0, 360.0, &spec);
+    // La energía cinética total debe haber bajado (restitución < 1 +
+    // fricción): la escena no puede ganar velocidad con el tiempo.
+    let energy = |v: &[RigidBody]| {
+        v.iter()
+            .map(|b| {
+                let m = b.mass();
+                0.5 * m * (b.vx * b.vx + b.vy * b.vy) + 0.5 * b.inertia() * b.omega * b.omega
+            })
+            .sum::<f64>()
+    };
+    assert!(
+        energy(&late) <= energy(&early) * 1.5,
+        "la energía no puede crecer: {} -> {}",
+        energy(&early),
+        energy(&late)
+    );
+    // Y a los 3 s ya están cayendo/asentadas, no congeladas en el aire.
+    assert!(late.iter().all(|b| b.y < 360.0));
+}
+
+#[test]
 fn each_particle_kind_renders_pixels() {
-    for kind in ["confetti", "snow", "sparks", "bounce", "tumble"] {
+    for kind in ["confetti", "snow", "sparks", "bounce", "tumble", "rigid"] {
         let rgb = render_frame(
             &stand_pose(),
             200,

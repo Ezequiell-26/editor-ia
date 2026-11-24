@@ -7,7 +7,7 @@ import { StickmanRigEditor } from './StickmanRigEditor';
 import { STAND_POSE, type StickmanKeyframe } from './stickman-rig';
 
 const ACTIONS = ['idle', 'walk', 'run', 'wave', 'jump', 'custom'] as const;
-const PARTICLES = ['none', 'confetti', 'snow', 'sparks', 'bounce', 'tumble'] as const;
+const PARTICLES = ['none', 'confetti', 'snow', 'sparks', 'bounce', 'tumble', 'rigid'] as const;
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'no se pudo renderizar el stickman';
@@ -75,10 +75,10 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
                 kind: particles,
                 count: particleCount,
                 colorHex: particleColor,
-                ...(particles === 'bounce' || particles === 'tumble'
+                ...(particles === 'bounce' || particles === 'tumble' || particles === 'rigid'
                   ? { gravity: particleGravity, bounce: particleBounce }
                   : {}),
-                ...(particles === 'tumble' ? { spin: particleSpin } : {}),
+                ...(particles === 'tumble' || particles === 'rigid' ? { spin: particleSpin } : {}),
               },
             }
           : {}),
@@ -210,7 +210,7 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
                 onChange={(e) => setParticleColor(e.target.value)}
               />
             </label>
-            {particles === 'bounce' || particles === 'tumble' ? (
+            {particles === 'bounce' || particles === 'tumble' || particles === 'rigid' ? (
               <>
                 <label className="field">
                   <span>Gravedad (px/s²)</span>
@@ -239,7 +239,7 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
                 </label>
               </>
             ) : null}
-            {particles === 'tumble' ? (
+            {particles === 'tumble' || particles === 'rigid' ? (
               <label className="field">
                 <span>Giro (−8 a 8)</span>
                 <input

@@ -239,7 +239,19 @@ async fn alpha_frames_to_asset_impl(
     let ffmpeg_path = ffmpeg.clone();
     let ffprobe_path = ffprobe.clone();
     let root_path = session.root.clone();
+    // AUD-143: epoch de sesión — la codificación VP9 puede tardar minutos;
+    // si el proyecto cambia, la secuencia no se importa en la raíz vieja.
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
     let encoded = tauri::async_runtime::spawn_blocking(move || {
+        if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+            let _ = fs::remove_dir_all(&dir);
+            let _ = fs::remove_file(&webm);
+            return Err(invalid(
+                "el proyecto cambió antes de codificar la secuencia",
+            ));
+        }
         let encoded = encode_sequence(
             &ffmpeg_path,
             &dir,
@@ -253,6 +265,13 @@ async fn alpha_frames_to_asset_impl(
             let _ = fs::remove_file(&webm);
             return Err(error);
         }
+        if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+            let _ = fs::remove_dir_all(&dir);
+            let _ = fs::remove_file(&webm);
+            return Err(invalid(
+                "el proyecto cambió durante la codificación; la secuencia no se importó",
+            ));
+        }
         let result = build_asset(&root_path, &webm, &ffprobe_path, &spec);
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_file(&webm);
@@ -260,6 +279,12 @@ async fn alpha_frames_to_asset_impl(
     })
     .await
     .map_err(|_| failure("la conversión de la secuencia se interrumpió"))?;
+    // AUD-143: la sesión pudo cambiar entre el último chequeo y acá.
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(invalid(
+            "el proyecto cambió durante la conversión; el asset pudo quedar en la carpeta del proyecto anterior",
+        ));
+    }
     encoded
 }
 
@@ -448,6 +473,7 @@ mod tests {
                 project_dir.join("sesion.olyvia"),
                 "proyecto-e2e".to_owned(),
             ))),
+            session_epoch: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             settings: Mutex::new(Settings::default()),
             config_dir: root.join("config"),
             cache_dir: root.join("cache"),

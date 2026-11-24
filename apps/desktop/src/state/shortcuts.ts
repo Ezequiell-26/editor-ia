@@ -53,6 +53,8 @@ export type ShortcutId =
   | 'timeline.toggleMarker'
   | 'timeline.markerNext'
   | 'timeline.markerPrev'
+  | 'timeline.editNext'
+  | 'timeline.editPrev'
   | 'timeline.cutLeft'
   | 'timeline.cutRight'
   | 'timeline.compoundClip'
@@ -67,6 +69,7 @@ export type ShortcutId =
   | 'timeline.zoomIn'
   | 'timeline.zoomOut'
   | 'timeline.zoomFit'
+  | 'timeline.zoomSelection'
   // Fase 2 de accesibilidad: mover y recortar el clip seleccionado con el
   // teclado (operan vía el handler propio del editor, como S y M).
   | 'timeline.clipMoveLeft'
@@ -131,6 +134,8 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'timeline.toggleMarker': 'Marcador en el playhead',
   'timeline.markerNext': 'Ir al marcador siguiente',
   'timeline.markerPrev': 'Ir al marcador anterior',
+  'timeline.editNext': 'Ir al corte siguiente',
+  'timeline.editPrev': 'Ir al corte anterior',
   'timeline.cutLeft': 'Cortar en la aguja y borrar lo anterior (Q)',
   'timeline.cutRight': 'Cortar en la aguja y borrar lo posterior (W)',
   'timeline.compoundClip': 'Agrupar en compuesto (Alt+G)',
@@ -145,6 +150,7 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'timeline.zoomIn': 'Acercar timeline',
   'timeline.zoomOut': 'Alejar timeline',
   'timeline.zoomFit': 'Ajustar zoom a la duración',
+  'timeline.zoomSelection': 'Acercar zoom a los clips seleccionados',
   'timeline.clipMoveLeft': 'Mover el clip seleccionado 1 frame a la izquierda (con Shift: 1 s)',
   'timeline.clipMoveRight': 'Mover el clip seleccionado 1 frame a la derecha (con Shift: 1 s)',
   'timeline.clipMoveTrackUp': 'Subir el clip a la pista compatible anterior',
@@ -205,6 +211,8 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'timeline.toggleMarker': 'Timeline',
   'timeline.markerNext': 'Timeline',
   'timeline.markerPrev': 'Timeline',
+  'timeline.editNext': 'Timeline',
+  'timeline.editPrev': 'Timeline',
   'timeline.cutLeft': 'Timeline',
   'timeline.cutRight': 'Timeline',
   'timeline.compoundClip': 'Timeline',
@@ -219,6 +227,7 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'timeline.zoomIn': 'Timeline',
   'timeline.zoomOut': 'Timeline',
   'timeline.zoomFit': 'Timeline',
+  'timeline.zoomSelection': 'Timeline',
   'timeline.clipMoveLeft': 'Timeline',
   'timeline.clipMoveRight': 'Timeline',
   'timeline.clipMoveTrackUp': 'Timeline',
@@ -289,6 +298,9 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   // Shift+M / Ctrl+Shift+M como en AlaukCut (`Marcadores.proximo/anterior`).
   'timeline.markerNext': 'Shift+M',
   'timeline.markerPrev': 'Ctrl+Shift+M',
+  // Flechas como en Premiere/Resolve: salto al borde de clip anterior/siguiente.
+  'timeline.editNext': 'ArrowDown',
+  'timeline.editPrev': 'ArrowUp',
   // Q/W como en AlaukCut (`cortarLadoDaAgulha`): divide en la aguja y borra
   // la mitad anterior/posterior del clip seleccionado o de todos los clips.
   'timeline.cutLeft': 'Q',
@@ -309,6 +321,9 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   'timeline.zoomIn': '+',
   'timeline.zoomOut': '-',
   'timeline.zoomFit': 'F',
+  // Shift+F: libre en el registro (F solo es zoomFit). Como el «Zoom to
+  // Selection» de Premiere, que no trae tecla por defecto.
+  'timeline.zoomSelection': 'Shift+F',
   // Edición de clip por teclado (fase 2 de accesibilidad): Alt mueve el clip
   // (con Shift, de a 1 segundo); Ctrl+Alt recorta el borde que la combinación
   // agarra (entrada sin Shift, salida con Shift). Flechas sin Alt siguen

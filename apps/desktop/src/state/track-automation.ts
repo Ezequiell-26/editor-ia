@@ -194,6 +194,7 @@ export function setTrackGainKeyframe(
   frame: number,
   gainDb: number,
   easing: KeyframeEasing = 'linear',
+  origin?: 'auto-duck',
 ): ProjectDocument {
   if (!Number.isFinite(gainDb) || gainDb < -60 || gainDb > 12) {
     throw new ProjectActionError('la ganancia de pista debe estar entre -60 y 12 dB');
@@ -201,7 +202,12 @@ export function setTrackGainKeyframe(
   const keyframeEasing = easingOrFail(easing, 'volumen');
   const next = cloneProject(project);
   const track = trackOrFail(next, trackId);
-  upsertGain(track, { frame: frameOrFail(frame), gainDb, easing: keyframeEasing });
+  upsertGain(track, {
+    frame: frameOrFail(frame),
+    gainDb,
+    easing: keyframeEasing,
+    ...(origin !== undefined ? { origin } : {}),
+  });
   touch(next);
   return next;
 }

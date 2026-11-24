@@ -24,6 +24,8 @@ import { addSfxToTimeline } from './sfx-actions';
 import { transcribeProjectClips } from './transcribe-project';
 import { runAutoPilot } from './auto-pilot';
 import { runSilenceCuts } from './silence-cuts';
+import { applyRemix, planRemixForProject } from './remix';
+import { applyMorphCutsToAll } from './morph-cuts';
 import { applySpeechCuts, cuesForClip, planSpeechCutsFromCues } from './speech-cuts';
 import { addAiMemory, forgetAiMemory, loadAiMemory } from './ai-memory';
 import {
@@ -46,7 +48,19 @@ import {
   deleteClip,
   deleteTrack,
   detachAudio,
-  duplicateClip,
+  applyMorphCut,
+  applySplitEdit,
+  applyFaceCenteredZoom,
+  applyAutoZooms,
+  autoPlaceSfx,
+  applySemanticBroll,
+  applyMusicDucking,
+  addVoxHighlighter,
+  addVoxCounter,
+  addVoxCallout,
+  autoPlaceVoxGraphics,
+  planSemanticBroll,
+  duplicateClipGroup,
   expandCompound,
   fpsOf,
   freezeFrameInPlace,
@@ -159,13 +173,16 @@ import { deleteCustomSkill, loadCustomSkills, saveCustomSkill } from './custom-s
 import { NAV_VIEWS, type ViewId } from '../app/navigation';
 import { MCP_TOOLS } from './mcp-catalog';
 import { validateMcpToolArguments } from './mcp-validation';
-import { addMarker, clearMarkers, deleteMarker, markersFromCuts, markersFromScenes, updateMarker } from './markers';
+import { clipShortExportRange, FACE_TRACK_LIMITS } from './clip-short-export';
+import { addMarker, clearMarkers, deleteMarker, formatMarkersCsv, markersFromCuts, markersFromScenes, updateMarker } from './markers';
+import { expandWithLinked, linkClips, linkedClipIds, unlinkClips } from './clip-links';
 import { addAsset, ensureDelivery, newId, removeAsset } from './project-actions';
 import { markAssetReady } from './assets-actions';
 import { applyReviewItems, buildReviewItems } from './review-queue';
 import { createOrchestratorJob } from './orchestrator';
 import { FACTORY_JOB_MANAGER } from './mcp-orchestrator-jobs';
-import { autoCutByActivity, buildMulticamProject, envelopeFromPeaks } from './multicam';
+import { autoCutByActivity, buildMulticamProject, envelopeFromPeaks, programDurationFrames } from './multicam';
+import { autoCutBySpeaker, defaultSpeakerCameraMap } from './multicam-speaker';
 import { updateCaptionStyle } from './project-actions';
 import { autoEditApply, autoEditExport, autoEditMeasure, autoEditStatus, autoEditVariants } from './autoedit-mcp';
 
@@ -566,6 +583,106 @@ export async function executeMcpTool(
         cuts: cuts.length,
         durationFrames: built.durationFrames,
         ignoredAssetIds,
+      });
+    }
+
+    case 'multicam_smart_switch': {
+      const project = projectOf(context);
+      const ids = Array.isArray(args.assetIds)
+        ? args.assetIds.filter((item): item is string => typeof item === 'string')
+        : [];
+      const assets = ids
+        .map((id) => project.assets.find((asset) => asset.id === id))
+        .filter((asset): asset is NonNullable<typeof asset> => Boolean(asset));
+      const ignoredAssetIds = ids.filter(
+        (id) => !project.assets.some((asset) => asset.id === id),
+      );
+      if (assets.length < 2) {
+        throw new Error(
+          ignoredAssetIds.length > 0
+            ? `necesito al menos dos medios de video; ids que no existen: ${ignoredAssetIds.join(', ')}`
+            : 'necesito al menos dos medios de video',
+        );
+      }
+      const offsets = (args.offsets && typeof args.offsets === 'object' ? args.offsets : {}) as Record<string, unknown>;
+      const cameras = assets.map((asset) => ({
+        asset,
+        offsetFrames: Math.max(
+          0,
+          Math.round(typeof offsets[asset.id] === 'number' ? (offsets[asset.id] as number) : 0),
+        ),
+      }));
+
+      const fps = fpsOf(project);
+      const totalFrames = programDurationFrames(cameras);
+      if (totalFrames <= 0) {
+        throw new Error('las cámaras no tienen material suficiente para el programa.');
+      }
+
+      // La diarización corre sobre el audio de UNA cámara de referencia:
+      // se asume que todas las cámaras comparten el mismo audio de programa.
+      const refIndex = Math.min(
+        cameras.length - 1,
+        Math.max(0, Math.round(optionalNumber(args, 'referenceCameraIndex') ?? 0)),
+      );
+      const reference = cameras[refIndex]!;
+      const diarized = await context.store.service.diarizeAudio(
+        reference.asset.id,
+        optionalText(args, 'language'),
+      );
+
+      // Segmentos en segundos de fuente → segundos de programa (la cámara
+      // de referencia entra al programa en offsetFrames/fps).
+      const offsetSeconds = reference.offsetFrames / Math.max(1, fps);
+      const programSegments = diarized.segments.map((segment) => ({
+        ...segment,
+        start: segment.start - offsetSeconds,
+        end: segment.end - offsetSeconds,
+      }));
+
+      // Mapa hablante→cámara: explícito o por orden de aparición.
+      const speakerCamerasArg =
+        args.speakerCameras && typeof args.speakerCameras === 'object'
+          ? (args.speakerCameras as Record<string, unknown>)
+          : null;
+      let speakerToCamera: Record<string, number>;
+      const ignoredMappings: string[] = [];
+      if (speakerCamerasArg) {
+        speakerToCamera = {};
+        for (const [speaker, raw] of Object.entries(speakerCamerasArg)) {
+          const index = Math.round(Number(raw));
+          if (Number.isInteger(index) && index >= 0 && index < cameras.length) {
+            speakerToCamera[speaker] = index;
+          } else {
+            ignoredMappings.push(`${speaker}→${String(raw)}`);
+          }
+        }
+      } else {
+        speakerToCamera = defaultSpeakerCameraMap(programSegments, cameras.length);
+      }
+
+      const minShot = optionalNumber(args, 'minShotSeconds');
+      const fallback = optionalNumber(args, 'fallbackCamera');
+      const cuts = autoCutBySpeaker(programSegments, speakerToCamera, totalFrames, fps, {
+        ...(minShot !== undefined ? { minShotSeconds: minShot } : {}),
+        ...(fallback !== undefined
+          ? { fallbackCamera: Math.min(cameras.length - 1, Math.max(0, Math.round(fallback))) }
+          : {}),
+      });
+
+      const built = buildMulticamProject(project, cameras, cuts);
+      apply(context, built.project);
+      return JSON.stringify({
+        ok: true,
+        trackId: built.trackId,
+        clips: built.clipCount,
+        cuts: cuts.length,
+        durationFrames: built.durationFrames,
+        speakers: Object.keys(speakerToCamera).length,
+        speakerSegments: programSegments.length,
+        referenceCameraIndex: refIndex,
+        ...(ignoredMappings.length > 0 ? { ignoredMappings } : {}),
+        ...(ignoredAssetIds.length > 0 ? { ignoredAssetIds } : {}),
       });
     }
 
@@ -1828,6 +1945,54 @@ export async function executeMcpTool(
       );
     }
 
+    case 'clip_export_short': {
+      const project = projectOf(context);
+      const clipId = text(args, 'clipId');
+      const clip = project.timeline.clips.find((item) => item.id === clipId);
+      if (!clip) throw new Error(`no existe el clip «${clipId}»`);
+      const eligibility = clipShortExportRange(project, clip);
+      if (!eligibility.ok) throw new Error(eligibility.reason);
+      const { range } = eligibility;
+      let smartReframe = optionalBoolean(args, 'smartReframe');
+      if (smartReframe === undefined) {
+        try {
+          const models = await context.store.service.listModels();
+          smartReframe = models.some(
+            (model) => model.id === 'seeta-face' && model.downloaded,
+          );
+        } catch {
+          smartReframe = false;
+        }
+      }
+      const label = optionalText(args, 'label') ?? range.label;
+      const result = await context.store.service.exportShort({
+        path: range.assetPath,
+        outputDir: outputDir(context, args),
+        startSeconds: range.startSeconds,
+        endSeconds: range.endSeconds,
+        label,
+        smartReframe,
+      });
+      return JSON.stringify({ ok: true, ...result });
+    }
+
+    case 'clip_face_track': {
+      const project = projectOf(context);
+      const clipId = text(args, 'clipId');
+      const clip = project.timeline.clips.find((item) => item.id === clipId);
+      if (!clip) throw new Error(`no existe el clip «${clipId}»`);
+      const eligibility = clipShortExportRange(project, clip, FACE_TRACK_LIMITS);
+      if (!eligibility.ok) throw new Error(eligibility.reason);
+      const { range } = eligibility;
+      return JSON.stringify(
+        await context.store.service.analyzeFaceTrack({
+          path: range.assetPath,
+          startSeconds: range.startSeconds,
+          endSeconds: range.endSeconds,
+        }),
+      );
+    }
+
     case 'analyze_face_track': {
       return JSON.stringify(
         await context.store.service.analyzeFaceTrack({
@@ -2870,14 +3035,23 @@ export async function executeMcpTool(
       const boneHex = optionalText(args, 'boneHex');
       const bgHex = optionalText(args, 'bgHex');
       const rawParticles = args.particles;
-      const particles =
+      const particles:
+        | {
+            kind?: 'confetti' | 'snow' | 'sparks' | 'bounce' | 'tumble' | 'rigid';
+            count?: number;
+            colorHex?: string;
+            gravity?: number;
+            bounce?: number;
+            spin?: number;
+          }
+        | undefined =
         typeof rawParticles === 'object' && rawParticles !== null
           ? (() => {
               const p = rawParticles as Record<string, unknown>;
               const kind = p.kind;
               return {
-                ...(kind === 'confetti' || kind === 'snow' || kind === 'sparks' || kind === 'bounce' || kind === 'tumble'
-                  ? { kind }
+                ...(kind === 'confetti' || kind === 'snow' || kind === 'sparks' || kind === 'bounce' || kind === 'tumble' || kind === 'rigid'
+                  ? { kind: kind as 'confetti' | 'snow' | 'sparks' | 'bounce' | 'tumble' | 'rigid' }
                   : {}),
                 ...(typeof p.count === 'number' ? { count: p.count } : {}),
                 ...(typeof p.colorHex === 'string' ? { colorHex: p.colorHex } : {}),
@@ -2918,6 +3092,7 @@ export async function executeMcpTool(
         ...(height !== undefined ? { height } : {}),
         ...(boneHex ? { boneHex } : {}),
         ...(bgHex ? { bgHex } : {}),
+        ...(particles && Object.keys(particles).length > 0 ? { particles } : {}),
         ...(keyframes && keyframes.length > 0 ? { keyframes } : {}),
       });
       return JSON.stringify(result);
@@ -2933,6 +3108,15 @@ export async function executeMcpTool(
           color: marker.color ?? null,
         })),
       );
+
+    case 'markers_export': {
+      const project = projectOf(context);
+      const fps = fpsOf(project);
+      return JSON.stringify({
+        count: project.markers.length,
+        csv: formatMarkersCsv(project.markers, fps),
+      });
+    }
 
     case 'marker_add': {
       const project = projectOf(context);
@@ -3544,34 +3728,80 @@ export async function executeMcpTool(
       const clipId = text(args, 'clipId');
       const startFrame = frame(args, 'startFrame');
       const trackId = optionalText(args, 'trackId');
-      if (!project.timeline.clips.some((clip) => clip.id === clipId)) {
+      const anchor = project.timeline.clips.find((clip) => clip.id === clipId);
+      if (!anchor) {
         throw new Error('el clip no existe');
       }
-      const next = moveClip(project, clipId, startFrame, trackId);
-      if (!next) {
-        throw new Error(
-          'no se pudo mover el clip: solapamiento con otro clip, pista bloqueada o tipo incompatible con la pista destino',
-        );
+      // Con vínculo y sin cambio de pista explícito, el grupo se mueve como
+      // una unidad preservando offsets (paridad link selection). Un trackId
+      // es una operación por clip: mueve sólo ese miembro.
+      const ids =
+        !trackId && anchor.linkGroup ? expandWithLinked(project, [clipId]) : [clipId];
+      const delta = startFrame - anchor.startFrame;
+      let next = project;
+      const movedClipIds: string[] = [];
+      for (const id of ids) {
+        const member = next.timeline.clips.find((item) => item.id === id);
+        if (!member) continue;
+        const target = id === clipId ? startFrame : member.startFrame + delta;
+        const moved =
+          id === clipId
+            ? moveClip(next, id, target, trackId ?? undefined)
+            : moveClip(next, id, target);
+        if (!moved) {
+          throw new Error(
+            'no se pudo mover el clip: solapamiento con otro clip, pista bloqueada o tipo incompatible con la pista destino',
+          );
+        }
+        next = moved;
+        movedClipIds.push(id);
       }
       apply(context, next);
-      return JSON.stringify({ ok: true, clipId, startFrame });
+      return JSON.stringify({ ok: true, clipId, startFrame, movedClipIds });
     }
 
     case 'clip_delete': {
       const project = projectOf(context);
       const clipId = text(args, 'clipId');
-      apply(context, deleteClip(project, clipId));
-      return JSON.stringify({ ok: true, clipId });
+      // Paridad con la UI: borrar un clip vinculado borra el linkGroup
+      // completo (desvincular antes con clip_unlink si se quiere uno solo).
+      const ids = expandWithLinked(project, [clipId]);
+      let next = project;
+      for (const id of ids) next = deleteClip(next, id);
+      apply(context, next);
+      return JSON.stringify({ ok: true, clipId, deletedClipIds: ids });
     }
 
     case 'clip_split': {
       const project = projectOf(context);
       const clipId = text(args, 'clipId');
       const atFrame = frame(args, 'atFrame');
-      const result = splitClip(project, clipId, atFrame);
-      if (!result) throw new Error('el clip no existe o no se puede dividir en ese frame');
-      apply(context, result.project);
-      return JSON.stringify({ ok: true, clipId, rightClipId: result.rightClipId });
+      // Paridad con la tecla S: el corte alcanza a los miembros del
+      // linkGroup que contienen el frame, cada uno en su tiempo de fuente.
+      const ids = expandWithLinked(project, [clipId]);
+      let next = project;
+      const rightClipIds: string[] = [];
+      for (const id of ids) {
+        const clip = next.timeline.clips.find((item) => item.id === id);
+        if (!clip || clip.kind === 'compound') continue;
+        if (atFrame <= clip.startFrame || atFrame >= clip.startFrame + clip.durationFrames) {
+          continue;
+        }
+        const result = splitClip(next, id, atFrame);
+        if (!result) continue;
+        next = result.project;
+        rightClipIds.push(result.rightClipId);
+      }
+      if (rightClipIds.length === 0) {
+        throw new Error('el clip no existe o no se puede dividir en ese frame');
+      }
+      apply(context, next);
+      return JSON.stringify({
+        ok: true,
+        clipId,
+        rightClipId: rightClipIds[0],
+        rightClipIds,
+      });
     }
 
     case 'clip_slip': {
@@ -3687,12 +3917,474 @@ export async function executeMcpTool(
       return JSON.stringify({ ok: true, clipId: result.clipId, trackId: result.trackId });
     }
 
+    case 'clip_split_edit': {
+      const project = projectOf(context);
+      const framesArg = args.frames ? Number(args.frames) : undefined;
+      const result = applySplitEdit(project, {
+        clipId: text(args, 'clipId'),
+        type: text(args, 'type') as 'j-cut' | 'l-cut',
+        ...(framesArg !== undefined ? { frames: framesArg } : {}),
+      });
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        videoClipId: result.videoClipId,
+        audioClipId: result.audioClipId,
+        type: result.type,
+        appliedFrames: result.appliedFrames,
+      });
+    }
+
+    case 'timeline_morph_cuts': {
+      const project = projectOf(context);
+      const framesArg = args.frames ? Number(args.frames) : undefined;
+      const clipIdsArg = Array.isArray(args.clipIds)
+        ? args.clipIds.filter((item): item is string => typeof item === 'string')
+        : undefined;
+      const result = applyMorphCutsToAll(project, {
+        ...(framesArg !== undefined ? { frames: framesArg } : {}),
+        ...(clipIdsArg ? { clipIds: clipIdsArg } : {}),
+      });
+      if (result.project !== project) apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        applied: result.applied.length,
+        skipped: result.skipped.length,
+        failed: result.failed,
+        outcomes: result.applied,
+      });
+    }
+
+    case 'clip_remix': {
+      const project = projectOf(context);
+      const clipId = text(args, 'clipId');
+      const targetSeconds = Number(args.targetSeconds);
+      if (!Number.isFinite(targetSeconds) || targetSeconds <= 0) {
+        throw new Error('targetSeconds debe ser un número positivo');
+      }
+      const clip = project.timeline.clips.find((item) => item.id === clipId);
+      if (!clip) throw new Error('el clip no está en la timeline');
+      if (clip.source.type !== 'asset' || !('assetId' in clip.source)) {
+        throw new Error('el remix necesita un clip con fuente asset');
+      }
+      const assetId = clip.source.assetId;
+
+      // Señal 1: transcripción del asset completo (segundos de archivo).
+      let speech: { start: number; end: number }[] | null = null;
+      try {
+        const transcript = await context.store.service.transcribeAsset(
+          assetId,
+          optionalText(args, 'language'),
+        );
+        speech = transcript.segments.map((segment) => ({
+          start: segment.start,
+          end: segment.end,
+        }));
+      } catch {
+        speech = null;
+      }
+
+      // Señal 2 (respaldo): picos de audio → zonas no-silenciosas.
+      let peaks = null;
+      if (!speech || speech.length === 0) {
+        try {
+          peaks = await context.store.service.audioPeaks(assetId, 400);
+        } catch {
+          peaks = null;
+        }
+      }
+
+      const plan = planRemixForProject(project, clipId, {
+        targetSeconds,
+        speech,
+        peaks,
+      });
+      if (!plan) {
+        throw new Error(
+          'no se pudo planear el remix: falta transcripción/picos, el objetivo no es menor que el clip, o el clip no es candidato (speed≠1, sin asset)',
+        );
+      }
+      const next = applyRemix(project, clipId, plan);
+      if (next === project) {
+        throw new Error('el plan resultó vacío o excesivo; no se aplicó ningún cambio');
+      }
+      apply(context, next);
+      return JSON.stringify({
+        ok: true,
+        clipId,
+        keptSeconds: Number(plan.keptSeconds.toFixed(2)),
+        removedSeconds: Number(plan.removedSeconds.toFixed(2)),
+        keptChunks: plan.keptChunks,
+        totalChunks: plan.totalChunks,
+        signal: speech && speech.length > 0 ? 'transcript' : 'peaks',
+      });
+    }
+
+    case 'clip_morph_cut': {
+      const project = projectOf(context);
+      const framesArg = args.frames ? Number(args.frames) : undefined;
+      const result = applyMorphCut(project, {
+        incomingClipId: text(args, 'clipId'),
+        ...(framesArg !== undefined ? { frames: framesArg } : {}),
+      });
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        incomingClipId: result.incomingClipId,
+        outgoingClipId: result.outgoingClipId,
+        jCutFrames: result.jCutFrames,
+        lCutFrames: result.lCutFrames,
+        audioClipIds: result.audioClipIds,
+      });
+    }
+
+    case 'clip_link': {
+      const project = projectOf(context);
+      const clipIds = Array.isArray(args.clipIds)
+        ? args.clipIds.filter((item): item is string => typeof item === 'string')
+        : [];
+      const result = linkClips(project, clipIds);
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        linkGroup: result.linkGroup,
+        clipIds,
+      });
+    }
+
+    case 'clip_unlink': {
+      const project = projectOf(context);
+      const requested = Array.isArray(args.clipIds)
+        ? args.clipIds.filter((item): item is string => typeof item === 'string')
+        : [];
+      // Un solo id desvincula el grupo completo del clip (como el Unlink
+      // de Premiere); varios ids desvinculan sólo esos clips.
+      const clipIds =
+        requested.length === 1 ? linkedClipIds(project, requested[0]!) : requested;
+      const result = unlinkClips(project, clipIds);
+      if (result.project !== project) apply(context, result.project);
+      return JSON.stringify({ ok: true, unlinked: result.unlinked, clipIds });
+    }
+
+    case 'clip_face_zoom': {
+      const project = projectOf(context);
+      const faceX = optionalNumber(args, 'faceX');
+      const faceY = optionalNumber(args, 'faceY');
+      const scaleArg = optionalNumber(args, 'scale');
+      const strengthArg = optionalNumber(args, 'zoomStrength');
+      const styleArg = optionalText(args, 'style');
+      const face =
+        faceX !== undefined || faceY !== undefined
+          ? { centerX: faceX ?? 0.5, centerY: faceY ?? 0.35 }
+          : undefined;
+      const result = applyFaceCenteredZoom(project, {
+        clipId: text(args, 'clipId'),
+        ...(scaleArg !== undefined ? { scale: scaleArg } : {}),
+        ...(strengthArg !== undefined ? { zoomStrength: strengthArg } : {}),
+        ...(face ? { face } : {}),
+        ...(styleArg ? { style: styleArg as 'punch-in' | 'snap-settle' | 'slow-push' } : {}),
+      });
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        clipId: result.clipId,
+        peakScale: result.peakScale,
+        offsetX: result.offsetX,
+        offsetY: result.offsetY,
+        style: result.style,
+      });
+    }
+
+    case 'timeline_auto_sfx': {
+      const project = projectOf(context);
+      const zoomsArg = optionalBoolean(args, 'zooms');
+      const transitionsArg = optionalBoolean(args, 'transitions');
+      const captionsArg = optionalBoolean(args, 'captions');
+      const hookArg = optionalBoolean(args, 'hook');
+      const gainArg = optionalNumber(args, 'gainDb');
+      const trackArg = optionalText(args, 'trackName');
+      const result = autoPlaceSfx(project, {
+        ...(zoomsArg !== undefined ? { zooms: zoomsArg } : {}),
+        ...(transitionsArg !== undefined ? { transitions: transitionsArg } : {}),
+        ...(captionsArg !== undefined ? { captions: captionsArg } : {}),
+        ...(hookArg !== undefined ? { hook: hookArg } : {}),
+        ...(gainArg !== undefined ? { gainDb: gainArg } : {}),
+        ...(trackArg ? { trackName: trackArg } : {}),
+      });
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        trackId: result.trackId,
+        placedCount: result.placedCount,
+        events: result.events.map((e) => ({
+          frame: e.frame,
+          presetId: e.presetId,
+          reason: e.reason,
+        })),
+      });
+    }
+
+    case 'timeline_auto_zoom': {
+      const project = projectOf(context);
+      const maxZooms = optionalNumber(args, 'maxZooms');
+      const minGap = optionalNumber(args, 'minGapSeconds');
+      const minClip = optionalNumber(args, 'minClipSeconds');
+      const bodyMinClip = optionalNumber(args, 'bodyMinClipSeconds');
+      const includeBody = optionalBoolean(args, 'includeBody');
+      const strengthScale = optionalNumber(args, 'strengthScale');
+      const result = applyAutoZooms(project, {
+        ...(maxZooms !== undefined ? { maxZooms: Math.round(maxZooms) } : {}),
+        ...(minGap !== undefined ? { minGapSeconds: minGap } : {}),
+        ...(minClip !== undefined ? { minClipSeconds: minClip } : {}),
+        ...(bodyMinClip !== undefined ? { bodyMinClipSeconds: bodyMinClip } : {}),
+        ...(includeBody !== undefined ? { includeBody } : {}),
+        ...(strengthScale !== undefined ? { strengthScale } : {}),
+      });
+      if (result.applied > 0) apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        applied: result.applied,
+        skipped: result.skipped,
+        zooms: result.plan.map((item) => ({
+          clipId: item.clipId,
+          zone: item.zone,
+          style: item.style,
+          zoomStrength: item.zoomStrength,
+          reason: item.reason,
+        })),
+      });
+    }
+
+    case 'timeline_apply_broll': {
+      const project = projectOf(context);
+      const fps = fpsOf(project);
+      const segments = project.captions.cues.map((cue) => ({
+        start: cue.startFrame / fps,
+        end: cue.endFrame / fps,
+        text: cue.text,
+        words: [],
+      }));
+
+      const assetIdsArg = Array.isArray(args.brollAssetIds)
+        ? (args.brollAssetIds as string[])
+        : null;
+      const brollAssets = project.assets.filter(
+        (a) =>
+          (a.kind === 'video' || a.kind === 'image') &&
+          (assetIdsArg ? assetIdsArg.includes(a.id) : true),
+      );
+
+      const minDur = optionalNumber(args, 'minDurationSeconds');
+      const maxDur = optionalNumber(args, 'maxDurationSeconds');
+      const minInt = optionalNumber(args, 'minIntervalSeconds');
+      const minSc = optionalNumber(args, 'minScore');
+      const trackName = optionalText(args, 'trackName');
+      const transitionArg = optionalText(args, 'transition');
+
+      const placements = planSemanticBroll({
+        transcript: {
+          language: 'auto',
+          languageProbability: 1,
+          durationSeconds: 300,
+          model: 'whisper',
+          segments,
+        },
+        brollAssets,
+        ...(minDur !== undefined ? { minDurationSeconds: minDur } : {}),
+        ...(maxDur !== undefined ? { maxDurationSeconds: maxDur } : {}),
+        ...(minInt !== undefined ? { minIntervalSeconds: minInt } : {}),
+        ...(minSc !== undefined ? { minScore: minSc } : {}),
+      });
+
+      const result = applySemanticBroll(project, {
+        placements,
+        ...(trackName ? { overlayTrackName: trackName } : {}),
+        ...(transitionArg ? { transition: transitionArg as 'dissolve' | 'fade' | 'none' } : {}),
+      });
+
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        trackId: result.trackId,
+        placedCount: result.placedCount,
+        placements: placements.map((p) => ({
+          brollAssetId: p.brollAssetId,
+          startSeconds: p.startSeconds,
+          endSeconds: p.endSeconds,
+          matchedKeywords: p.matchedKeywords,
+          score: p.score,
+        })),
+      });
+    }
+
+    case 'timeline_music_ducking': {
+      const project = projectOf(context);
+      const fps = fpsOf(project);
+      const segments = project.captions.cues.map((cue) => ({
+        start: cue.startFrame / fps,
+        end: cue.endFrame / fps,
+        text: cue.text,
+        words: [],
+      }));
+      const transcript =
+        segments.length > 0
+          ? {
+              language: 'auto',
+              languageProbability: 1,
+              durationSeconds: totalFrames(project) / fps,
+              model: 'whisper',
+              segments,
+            }
+          : null;
+
+      const musicTrackId = optionalText(args, 'musicTrackId');
+      const voiceDuckDb = optionalNumber(args, 'voiceDuckDb');
+      const swellDb = optionalNumber(args, 'swellDb');
+      const muteDb = optionalNumber(args, 'muteDb');
+      const baseDb = optionalNumber(args, 'baseDb');
+      const punchlineMutes = optionalBoolean(args, 'punchlineMutes');
+      const minPauseDuration = optionalNumber(args, 'minPauseDuration');
+
+      const result = applyMusicDucking(project, {
+        ...(musicTrackId ? { musicTrackId } : {}),
+        ...(transcript ? { transcript } : {}),
+        ...(voiceDuckDb !== undefined ? { voiceDuckDb } : {}),
+        ...(swellDb !== undefined ? { swellDb } : {}),
+        ...(muteDb !== undefined ? { muteDb } : {}),
+        ...(baseDb !== undefined ? { baseDb } : {}),
+        ...(punchlineMutes !== undefined ? { punchlineMutes } : {}),
+        ...(minPauseDuration !== undefined ? { minPauseDuration } : {}),
+      });
+
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        trackId: result.trackId,
+        keyframeCount: result.keyframeCount,
+        punchlineCount: result.punchlineCount,
+        punchlines: result.punchlines.map((p) => ({
+          startSeconds: p.startSeconds,
+          endSeconds: p.endSeconds,
+          confidence: p.confidence,
+          reason: p.reason,
+        })),
+      });
+    }
+
+    case 'timeline_add_vox_graphic': {
+      const project = projectOf(context);
+      const kind = text(args, 'kind') as 'highlighter' | 'counter' | 'callout';
+      const atFrame = frame(args, 'atFrame');
+      const dur = optionalNumber(args, 'durationFrames');
+      const durationFrames = dur !== undefined ? Math.round(dur) : undefined;
+
+      if (kind === 'counter') {
+        const value = optionalText(args, 'value') ?? '100';
+        const label = optionalText(args, 'label') ?? 'métrica';
+        const prefix = optionalText(args, 'prefix');
+        const suffix = optionalText(args, 'suffix');
+        const accent = optionalText(args, 'color');
+        const result = addVoxCounter(project, {
+          value,
+          label,
+          atFrame,
+          ...(durationFrames !== undefined ? { durationFrames } : {}),
+          ...(prefix ? { prefix } : {}),
+          ...(suffix ? { suffix } : {}),
+          ...(accent ? { accent } : {}),
+        });
+        apply(context, result.project);
+        return JSON.stringify({
+          ok: true,
+          clipId: result.clipId,
+          motionId: result.motionId,
+          trackId: result.trackId,
+          startFrame: result.startFrame,
+        });
+      }
+
+      if (kind === 'callout') {
+        const textVal = optionalText(args, 'text') ?? 'Dato importante';
+        const emoji = optionalText(args, 'emoji');
+        const headline = optionalText(args, 'headline');
+        const accent = optionalText(args, 'color');
+        const result = addVoxCallout(project, {
+          text: textVal,
+          atFrame,
+          ...(durationFrames !== undefined ? { durationFrames } : {}),
+          ...(emoji ? { emoji } : {}),
+          ...(headline ? { headline } : {}),
+          ...(accent ? { accent } : {}),
+        });
+        apply(context, result.project);
+        return JSON.stringify({
+          ok: true,
+          clipId: result.clipId,
+          motionId: result.motionId,
+          trackId: result.trackId,
+          startFrame: result.startFrame,
+        });
+      }
+
+      // Default: highlighter
+      const textVal = optionalText(args, 'text') ?? 'Texto de ejemplo a resaltar';
+      const highlight = optionalText(args, 'highlight');
+      const highlighterColor = optionalText(args, 'color');
+      const result = addVoxHighlighter(project, {
+        text: textVal,
+        atFrame,
+        ...(durationFrames !== undefined ? { durationFrames } : {}),
+        ...(highlight ? { highlight } : {}),
+        ...(highlighterColor ? { highlighterColor } : {}),
+      });
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        clipId: result.clipId,
+        motionId: result.motionId,
+        trackId: result.trackId,
+        startFrame: result.startFrame,
+      });
+    }
+
+    case 'timeline_auto_vox_graphics': {
+      const project = projectOf(context);
+      const fps = fpsOf(project);
+      const highlighters = optionalBoolean(args, 'highlighters');
+      const counters = optionalBoolean(args, 'counters');
+      const callouts = optionalBoolean(args, 'callouts');
+      const minIntervalSeconds = optionalNumber(args, 'minIntervalSeconds');
+      const minIntervalFrames =
+        minIntervalSeconds !== undefined ? Math.round(minIntervalSeconds * fps) : undefined;
+
+      const result = autoPlaceVoxGraphics(project, {
+        ...(highlighters !== undefined ? { highlighters } : {}),
+        ...(counters !== undefined ? { counters } : {}),
+        ...(callouts !== undefined ? { callouts } : {}),
+        ...(minIntervalFrames !== undefined ? { minIntervalFrames } : {}),
+      });
+
+      apply(context, result.project);
+      return JSON.stringify({
+        ok: true,
+        placedCount: result.placedCount,
+        trackId: result.trackId,
+        moments: result.moments.map((m) => ({
+          kind: m.kind,
+          atFrame: m.atFrame,
+          atSeconds: m.atSeconds,
+          text: m.text,
+          confidence: m.confidence,
+        })),
+      });
+    }
+
     case 'clip_duplicate': {
       const project = projectOf(context);
-      const result = duplicateClip(project, text(args, 'clipId'));
+      const result = duplicateClipGroup(project, text(args, 'clipId'));
       if (!result) throw new Error('el clip no existe');
       apply(context, result.project);
-      return JSON.stringify({ ok: true, clipId: result.clipId });
+      return JSON.stringify({ ok: true, clipIds: result.clipIds });
     }
 
     case 'clip_compound': {

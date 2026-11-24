@@ -383,6 +383,200 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     inputSchema: obj({ clipId: { type: 'string', minLength: 1, maxLength: 256 } }, ['clipId']),
   },
   {
+    name: 'clip_split_edit',
+    description: `${WRITE} Aplica un corte dividido (J-cut o L-cut): adelanta el audio (J) o lo prolonga después del video (L).`,
+    inputSchema: obj(
+      {
+        clipId: { type: 'string', minLength: 1, maxLength: 256 },
+        type: { type: 'string', enum: ['j-cut', 'l-cut'] },
+        frames: { type: 'number', minimum: 1, maximum: 120 },
+      },
+      ['clipId', 'type'],
+    ),
+  },
+  {
+    name: 'timeline_morph_cuts',
+    description: `${WRITE} Aplica Morph Cut en lote: en cada corte entre clips de video o audio contiguos de pistas desbloqueadas, cruza el audio saliente/entrante (L+J cut). Reporta aplicados, salteados y fallidos.`,
+    inputSchema: obj(
+      {
+        frames: { type: 'number', minimum: 1, maximum: 60 },
+        clipIds: {
+          type: 'array',
+          items: { type: 'string', minLength: 1, maxLength: 256 },
+          maxItems: 500,
+        },
+      },
+      [],
+    ),
+  },
+  {
+    name: 'clip_remix',
+    description: `${WRITE} Remix (estilo Premiere): acorta UN clip a targetSeconds conservando los tramos con más voz/energía. Transcribe el asset si hace falta y elimina el resto con ripple. clipId debe ser video/audio de un asset a velocidad 1×.`,
+    inputSchema: obj(
+      {
+        clipId: { type: 'string', minLength: 1, maxLength: 256 },
+        targetSeconds: { type: 'number', minimum: 0.5, maximum: 3600 },
+        language: { type: 'string', minLength: 2, maxLength: 16 },
+      },
+      ['clipId', 'targetSeconds'],
+    ),
+  },
+  {
+    name: 'clip_morph_cut',
+    description: `${WRITE} Morph Cut (estilo Premiere): en el corte anterior al clip entrante (video o audio), prolonga el audio saliente bajo el entrante (L-cut) y adelanta el audio entrante bajo el saliente (J-cut), de modo que ambas voces se cruzan alrededor del corte. clipId es el clip ENTRANTE; detecta solo el clip saliente contiguo del mismo tipo en la misma pista.`,
+    inputSchema: obj(
+      {
+        clipId: { type: 'string', minLength: 1, maxLength: 256 },
+        frames: { type: 'number', minimum: 1, maximum: 60 },
+      },
+      ['clipId'],
+    ),
+  },
+  {
+    name: 'clip_link',
+    description: `${WRITE} Vincula dos o más clips bajo un grupo común (paridad link selection): se seleccionan, mueven y borran como una unidad — típico video+audio del mismo clip fuente. clipIds reemplaza vínculos previos de esos clips.`,
+    inputSchema: obj(
+      {
+        clipIds: {
+          type: 'array',
+          items: { type: 'string', minLength: 1, maxLength: 256 },
+          minItems: 2,
+          maxItems: 100,
+        },
+      },
+      ['clipIds'],
+    ),
+  },
+  {
+    name: 'clip_unlink',
+    description: `${WRITE} Quita el vínculo de clips. Con un solo clipId desvincula el grupo completo de ese clip (como el Unlink de Premiere); con varios ids desvincula sólo esos clips.`,
+    inputSchema: obj(
+      {
+        clipIds: {
+          type: 'array',
+          items: { type: 'string', minLength: 1, maxLength: 256 },
+          minItems: 1,
+          maxItems: 100,
+        },
+      },
+      ['clipIds'],
+    ),
+  },
+  {
+    name: 'clip_face_zoom',
+    description: `${WRITE} Aplica un zoom inteligente centrado en el rostro o sujeto del clip (estilo punch-in humano de YouTube). Calcula automáticamente los offsets para mantener el encuadre superior sin desbordar el lienzo ni dejar bordes negros.`,
+    inputSchema: obj(
+      {
+        clipId: { type: 'string', minLength: 1, maxLength: 256 },
+        scale: { type: 'number', minimum: 1.02, maximum: 3 },
+        zoomStrength: { type: 'number', minimum: 0, maximum: 100 },
+        faceX: { type: 'number', minimum: 0, maximum: 1 },
+        faceY: { type: 'number', minimum: 0, maximum: 1 },
+        style: { type: 'string', enum: ['punch-in', 'snap-settle', 'slow-push'] },
+      },
+      ['clipId'],
+    ),
+  },
+  {
+    name: 'timeline_auto_sfx',
+    description: `${WRITE} Escanea la línea de tiempo y coloca automáticamente efectos de sonido profesionales (wooshes en zooms/transiciones, dings en cifras clave y pops en emojis) con espaciado inteligente y mezcla equilibrada.`,
+    inputSchema: obj(
+      {
+        zooms: { type: 'boolean' },
+        transitions: { type: 'boolean' },
+        captions: { type: 'boolean' },
+        hook: { type: 'boolean' },
+        gainDb: { type: 'number' },
+        trackName: { type: 'string', minLength: 1, maxLength: 80 },
+      },
+      [],
+    ),
+  },
+  {
+    name: 'timeline_auto_zoom',
+    description: `${WRITE} Decide automáticamente dónde poner punch-ins/zooms al rostro estilo YouTube según la zona de pacing del clip (hook, cuerpo, clímax), con topes de densidad. Nunca pisa keyframes existentes ni pistas bloqueadas.`,
+    inputSchema: obj(
+      {
+        maxZooms: boundedInt(1, 100, 'Tope de zooms en todo el video (default ~1 por cada 60 s).'),
+        minGapSeconds: boundedNum(0, 120, 'Distancia mínima en segundos entre dos zooms (default 15).'),
+        minClipSeconds: boundedNum(0.5, 60, 'Duración mínima del clip candidato en segundos (default 2).'),
+        bodyMinClipSeconds: boundedNum(1, 120, 'En el cuerpo, duración mínima del clip para merecer zoom (default 4).'),
+        includeBody: bool('Si false, el cuerpo no recibe zooms (default true).'),
+        strengthScale: boundedNum(0.5, 1.5, 'Multiplicador de intensidad de los zooms (default 1).'),
+      },
+      [],
+    ),
+  },
+  {
+    name: 'timeline_apply_broll',
+    description: `${WRITE} Analiza la transcripción de voz del proyecto y coloca automáticamente planos de B-roll sobre los fragmentos donde el orador menciona conceptos clave, en una pista de video superpuesta con audio silenciado y transiciones suaves.`,
+    inputSchema: obj(
+      {
+        brollAssetIds: {
+          type: 'array',
+          items: { type: 'string', minLength: 1, maxLength: 256 },
+        },
+        minDurationSeconds: { type: 'number', minimum: 1, maximum: 15 },
+        maxDurationSeconds: { type: 'number', minimum: 1, maximum: 30 },
+        minIntervalSeconds: { type: 'number', minimum: 0, maximum: 60 },
+        minScore: { type: 'number', minimum: 0, maximum: 100 },
+        trackName: { type: 'string', minLength: 1, maxLength: 80 },
+        transition: { type: 'string', enum: ['dissolve', 'fade', 'none'] },
+      },
+      [],
+    ),
+  },
+  {
+    name: 'timeline_music_ducking',
+    description: `${WRITE} Aplica ducking automático a la pista de música: baja el volumen durante voz activa, lo sube en silencios/B-roll, y mutea en pausas dramáticas (punchlines) detectadas por la transcripción. Estilo YouTube profesional.`,
+    inputSchema: obj(
+      {
+        musicTrackId: { type: 'string', minLength: 1, maxLength: 256, description: 'ID de la pista de música. Si se omite, se busca automáticamente.' },
+        voiceDuckDb: boundedNum(-60, 0, 'Volumen durante voz activa (default -18 dB).'),
+        swellDb: boundedNum(-60, 0, 'Volumen durante silencios / B-roll (default -10 dB).'),
+        muteDb: boundedNum(-60, 0, 'Volumen de mute para punchlines (default -60 dB).'),
+        baseDb: boundedNum(-60, 0, 'Volumen base sin voz (default -14 dB).'),
+        punchlineMutes: bool('Habilitar mutes en punchlines detectados (default true).'),
+        minPauseDuration: boundedNum(0.3, 5, 'Duración mínima de pausa para ser punchline, en segundos (default 0.6).'),
+      },
+      [],
+    ),
+  },
+  {
+    name: 'timeline_add_vox_graphic',
+    description: `${WRITE} Agrega un gráfico explicativo estilo Vox (resaltador de texto animado con rotulador, contador numérico dinámico o callout elástico con emoji) en la línea de tiempo.`,
+    inputSchema: obj(
+      {
+        kind: { type: 'string', enum: ['highlighter', 'counter', 'callout'], description: 'Tipo de gráfico Vox.' },
+        atFrame: boundedInt(0, 100_000_000, 'Fotograma de inicio en la timeline.'),
+        durationFrames: boundedInt(1, 10_000_000, 'Duración en fotogramas.'),
+        text: { type: 'string', minLength: 1, maxLength: 200, description: 'Texto principal o cita.' },
+        highlight: { type: 'string', maxLength: 100, description: 'Palabra o frase a resaltar con rotulador (para highlighter).' },
+        value: { type: 'string', maxLength: 40, description: 'Valor numérico o métrica (para counter).' },
+        label: { type: 'string', maxLength: 120, description: 'Etiqueta o descripción del dato.' },
+        prefix: { type: 'string', maxLength: 10, description: 'Prefijo métrico (ej. $, +, €).' },
+        suffix: { type: 'string', maxLength: 20, description: 'Sufijo métrico (ej. %, M, k).' },
+        emoji: { type: 'string', maxLength: 10, description: 'Emoji o icono visual (para callout).' },
+        headline: { type: 'string', maxLength: 40, description: 'Titular de categoría del callout (ej. DATO CLAVE).' },
+        color: { type: 'string', maxLength: 20, description: 'Color de acento/marcador en formato hexadecimal #rrggbb.' },
+      },
+      ['kind', 'atFrame'],
+    ),
+  },
+  {
+    name: 'timeline_auto_vox_graphics',
+    description: `${WRITE} Escanea la transcripción del video y coloca automáticamente gráficos explicativos estilo Vox (resaltadores sobre citas/preguntas, contadores sobre métricas y callouts sobre alertas/revelaciones) con espaciado inteligente.`,
+    inputSchema: obj(
+      {
+        highlighters: bool('Habilitar resaltadores de texto en citas/preguntas (default true).'),
+        counters: bool('Habilitar contadores dinámicos en cifras y métricas (default true).'),
+        callouts: bool('Habilitar callouts elásticos con emoji en revelaciones (default true).'),
+        minIntervalSeconds: boundedNum(1, 30, 'Espaciado mínimo entre gráficos para evitar saturación (default 4 s).'),
+      },
+      [],
+    ),
+  },
+  {
     name: 'clip_duplicate',
     description: `${WRITE} Duplica un clip (offset según la implementación del editor).`,
     inputSchema: obj({ clipId: { type: 'string', minLength: 1, maxLength: 256 } }, ['clipId']),
@@ -1763,6 +1957,41 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     ),
   },
   {
+    name: 'multicam_smart_switch',
+    description: `${WRITE} Arma el corte multicámara cortando por QUIÉN habla (SmartSwitch): diariza el audio de una cámara de referencia y asigna cada hablante a su cámara. Sin mapa explícito reparte hablantes a cámaras por orden de aparición.`,
+    inputSchema: obj(
+      {
+        assetIds: {
+          type: 'array',
+          minItems: 2,
+          maxItems: 16,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1, maxLength: 256 },
+        },
+        offsets: {
+          type: 'object',
+          description: 'offsetFrames no negativos por assetId',
+          additionalProperties: { type: 'number', minimum: 0, maximum: 10_000_000 },
+        },
+        referenceCameraIndex: boundedInt(
+          0,
+          15,
+          'Índice de la cámara cuyo audio se diariza (default 0).',
+        ),
+        speakerCameras: {
+          type: 'object',
+          description:
+            'Mapa hablante→índice de cámara (ej. {"0": 0, "1": 1}). Sin él se asigna por orden de aparición.',
+          additionalProperties: { type: 'integer', minimum: 0, maximum: 15 },
+        },
+        language: { type: 'string', minLength: 2, maxLength: 12 },
+        minShotSeconds: boundedNum(0.3, 10, 'Plano mínimo antes de cambiar de cámara (default 1.2).'),
+        fallbackCamera: boundedInt(0, 15, 'Cámara de tramos sin hablante mapeado (default 0).'),
+      },
+      ['assetIds'],
+    ),
+  },
+  {
     name: 'factory_run',
     description:
       'Encola un video completo desde un brief y devuelve jobId inmediatamente. Consulta factory_job_status/factory_job_list y solicita cancelación con factory_job_cancel.',
@@ -2132,7 +2361,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
 
   {
     name: 'stickman_render',
-    description: `${WRITE} Genera un video MP4 real de un personaje stickman articulado (rig 2D con huesos FK). action implícita por parámetros: action=idle|walk|run|wave|jump, o keyframes=[{frame, ...pose}] para animación personalizada con interpolación lineal. particles.kind: confetti|snow|sparks|bounce|tumble (tumble = cuerpos rígidos rotados con spin). Devuelve ruta, frames, fps y medidas ffprobe verificadas.`,
+    description: `${WRITE} Genera un video MP4 real de un personaje stickman articulado (rig 2D con huesos FK). action implícita por parámetros: action=idle|walk|run|wave|jump, o keyframes=[{frame, ...pose}] para animación personalizada con interpolación lineal. particles.kind: confetti|snow|sparks|bounce|tumble|rigid (tumble = cuerpos rígidos rotados con spin; rigid = cajas con colisiones reales entre sí y con el entorno, máx. 40). Devuelve ruta, frames, fps y medidas ffprobe verificadas.`,
     inputSchema: obj({
       outputPath: { type: 'string', minLength: 1, maxLength: 32_768 },
       action: { type: 'string', enum: ['idle', 'walk', 'run', 'wave', 'jump'] },
@@ -2145,12 +2374,12 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
       particles: {
         type: 'object',
         properties: {
-          kind: { type: 'string', enum: ['confetti', 'snow', 'sparks', 'bounce', 'tumble'] },
+          kind: { type: 'string', enum: ['confetti', 'snow', 'sparks', 'bounce', 'tumble', 'rigid'] },
           count: boundedInt(1, 2000),
           colorHex: { type: 'string', maxLength: 7 },
-          gravity: { type: 'number', minimum: 0, maximum: 5000, description: 'px/s², solo bounce/tumble.' },
-          bounce: { type: 'number', minimum: 0, maximum: 1, description: 'Restitución 0..1, solo bounce/tumble.' },
-          spin: { type: 'number', minimum: -8, maximum: 8, description: 'Escala de velocidad angular, solo tumble (-8..8).' },
+          gravity: { type: 'number', minimum: 0, maximum: 5000, description: 'px/s², solo bounce/tumble/rigid.' },
+          bounce: { type: 'number', minimum: 0, maximum: 1, description: 'Restitución 0..1, solo bounce/tumble/rigid.' },
+          spin: { type: 'number', minimum: -8, maximum: 8, description: 'Escala de velocidad angular, solo tumble/rigid (-8..8).' },
         },
       },
       keyframes: {
@@ -2245,6 +2474,12 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   {
     name: 'markers_list',
     description: `${READ} Marcadores con id, frame, etiqueta y color.`,
+    inputSchema: obj({}),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'markers_export',
+    description: `${READ} Marcadores como CSV (timecode in/out, frame, etiqueta, color, rol, nota) para intercambio con otras herramientas.`,
     inputSchema: obj({}),
     annotations: { readOnlyHint: true },
   },
@@ -3611,6 +3846,24 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     }, ['path', 'outputDir', 'startSeconds', 'endSeconds']),
   },
   {
+    name: 'clip_export_short',
+    description: `${WRITE} Exporta la ventana fuente de un clip de video de la timeline como MP4 vertical 1080x1920 con smart reframe opcional (sigue el rostro). Sólo clips de video a velocidad 1x, sin reverse y de 3 a 90 segundos; exporta el footage fuente, no el clip compuesto.`,
+    inputSchema: obj({
+      clipId: { type: 'string', minLength: 1, maxLength: 256 },
+      outputDir: { type: 'string', minLength: 1, maxLength: 32_768 },
+      label: { type: 'string', maxLength: 200 },
+      smartReframe: bool(),
+    }, ['clipId']),
+  },
+  {
+    name: 'clip_face_track',
+    description: `${READ} Detecta y trackea caras en la ventana fuente de un clip de video de la timeline (muestras, track suavizado y expresiones de encuadre para smart reframe).`,
+    inputSchema: obj({
+      clipId: { type: 'string', minLength: 1, maxLength: 256 },
+    }, ['clipId']),
+    annotations: { readOnlyHint: true },
+  },
+  {
     name: 'analyze_face_track',
     description: `${READ} Detecta y trackea caras en un video entre segundos (muestras, track, expresiones de encuadre).`,
     inputSchema: obj({
@@ -4630,6 +4883,7 @@ const READ_ONLY_TOOL_NAMES = new Set([
   'factory_job_status',
   'factory_job_list',
   'markers_list',
+  'markers_export',
   'settings_get',
   'review_build',
   'media_folder_list',

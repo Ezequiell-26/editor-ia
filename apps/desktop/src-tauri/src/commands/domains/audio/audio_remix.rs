@@ -8,7 +8,7 @@ use tauri::State;
 use super::audio_tools::{
     decode_planar, output_file, resolve_ffmpeg, user_file, MAX_PROCESS_SECONDS,
 };
-use crate::media::audio_tools::{encode_wav_f32, PlanarPcm, TARGET_RATE};
+use crate::media::audio_tools::{PlanarPcm, TARGET_RATE};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
@@ -153,8 +153,15 @@ pub async fn audio_remix_render(
     .map_err(|_| {
         ProjectError::message(ProjectErrorCode::RenderFailed, "el remix de audio falló")
     })??;
-    let wav = encode_wav_f32(&pcm, TARGET_RATE);
-    std::fs::write(&dest, wav).map_err(|e| {
+    let dest_write = dest.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::media::audio_tools::write_wav_atomic(&pcm, TARGET_RATE, &dest_write)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::RenderFailed, "la escritura del WAV falló")
+    })?
+    .map_err(|e| {
         ProjectError::message(
             ProjectErrorCode::Io,
             &format!("no se pudo escribir el WAV: {e}"),

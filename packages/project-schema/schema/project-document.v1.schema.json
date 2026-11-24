@@ -1987,6 +1987,12 @@
                     },
                     "bezier": {
                       "$ref": "#/properties/look/properties/stack/items/properties/keyframes/additionalProperties/items/properties/bezier"
+                    },
+                    "origin": {
+                      "type": "string",
+                      "enum": [
+                        "auto-duck"
+                      ]
                     }
                   },
                   "required": [
@@ -2396,6 +2402,11 @@
                       "capcut",
                       "davinci"
                     ]
+                  },
+                  "linkGroup": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
                   },
                   "kind": {
                     "type": "string",
@@ -2904,6 +2915,9 @@
                   "waveformStyle": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
                   },
+                  "linkGroup": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/linkGroup"
+                  },
                   "kind": {
                     "type": "string",
                     "const": "audio"
@@ -2976,6 +2990,9 @@
                   },
                   "waveformStyle": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
+                  },
+                  "linkGroup": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/linkGroup"
                   },
                   "kind": {
                     "type": "string",
@@ -3072,6 +3089,9 @@
                   "waveformStyle": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
                   },
+                  "linkGroup": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/linkGroup"
+                  },
                   "kind": {
                     "type": "string",
                     "const": "graphic"
@@ -3139,6 +3159,9 @@
                   },
                   "waveformStyle": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
+                  },
+                  "linkGroup": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/linkGroup"
                   },
                   "kind": {
                     "type": "string",
@@ -3221,6 +3244,9 @@
                   "waveformStyle": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
                   },
+                  "linkGroup": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/linkGroup"
+                  },
                   "kind": {
                     "type": "string",
                     "const": "adjustment"
@@ -3287,6 +3313,9 @@
                   },
                   "waveformStyle": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/waveformStyle"
+                  },
+                  "linkGroup": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/linkGroup"
                   },
                   "kind": {
                     "type": "string",

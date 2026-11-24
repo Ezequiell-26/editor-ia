@@ -201,7 +201,7 @@ stickmanRender(input: {
     boneHex?: string;
     bgHex?: string;
     particles?: {
-      kind?: 'confetti' | 'snow' | 'sparks' | 'bounce' | 'tumble';
+      kind?: 'confetti' | 'snow' | 'sparks' | 'bounce' | 'tumble' | 'rigid';
       count?: number;
       colorHex?: string;
       gravity?: number;

@@ -75,7 +75,7 @@ function loadExceptions() {
   const list = [];
   const problems = [];
   for (const e of parsed.exceptions ?? []) {
-    const missing = ['package', 'severity', 'reason', 'owner', 'expires'].filter((k) => !e?.[k]);
+    const missing = ['package', 'severity', 'advisory', 'reason', 'owner', 'expires'].filter((k) => !e?.[k]);
     if (missing.length) {
       problems.push(`excepción incompleta (${missing.join(', ')}): ${JSON.stringify(e)}`);
       continue;
@@ -89,8 +89,44 @@ function loadExceptions() {
   return { list, problems };
 }
 
-const isExcepted = (exceptions, pkg, severity) =>
-  exceptions.some((e) => e.package === pkg && e.severity === severity);
+// SEC-GATE-006: una excepción sólo cubre el advisory que nombra —
+// package+severity ya no alcanzan para silenciar OTRO advisory del
+// mismo paquete. `advisory` es obligatorio (ver loadExceptions).
+const GHSA_RE = /GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}/i;
+
+/// ID de advisory de una entrada `via` de npm audit: el GHSA de la URL
+/// o, en su defecto, el `source` numérico de la base de datos de npm.
+function npmAdvisoryId(via) {
+  if (!via || typeof via === 'string') return null;
+  const match = String(via.url ?? '').match(GHSA_RE);
+  if (match) return match[0];
+  if (via.source != null) return `npm:${via.source}`;
+  return null;
+}
+
+const isExcepted = (exceptions, pkg, severity, advisoryId) =>
+  exceptions.some(
+    (e) =>
+      e.package === pkg &&
+      e.severity === severity &&
+      advisoryId != null &&
+      e.advisory === advisoryId,
+  );
+
+/// Un paquete de `npm audit` puede agrupar varios advisories en `via`:
+/// sólo se considera exceptuado si TODOS ellos están cubiertos; si queda
+/// alguno sin excepción, el paquete bloquea y se listan los sueltos.
+function uncoveredAdvisories(exceptions, name, vuln) {
+  const vias = (vuln.via ?? []).filter((x) => x && typeof x !== 'string');
+  const units = vias.length
+    ? vias.map((via) => ({
+        severity: via.severity ?? vuln.severity ?? 'info',
+        advisoryId: npmAdvisoryId(via),
+        title: via.title ?? via.url ?? 'ver detalle',
+      }))
+    : [{ severity: vuln.severity ?? 'info', advisoryId: null, title: 'ver detalle' }];
+  return units.filter((u) => !isExcepted(exceptions, name, u.severity, u.advisoryId));
+}
 
 let failed = false;
 const statuses = [];
@@ -123,17 +159,15 @@ try {
   let exceptedCount = 0;
   for (const [name, v] of Object.entries(vulns)) {
     const sev = v.severity ?? 'info';
-    if (isExcepted(exceptions, name, sev)) {
+    const uncovered = uncoveredAdvisories(exceptions, name, v);
+    if (uncovered.length === 0) {
       exceptedCount += 1;
       console.log(`  [exceptuado] ${name} (${sev})`);
       continue;
     }
     if (sev in counts) counts[sev] += 1;
     if (sev === 'critical' || sev === 'high') {
-      const titles = (v.via ?? [])
-        .map((x) => (typeof x === 'string' ? x : x.title ?? x.url))
-        .filter(Boolean)
-        .join('; ');
+      const titles = uncovered.map((u) => u.title).join('; ');
       blocking[sev].push(`${name} — ${titles || 'ver detalle'}`);
       console.log(`  [${sev}] ${name} — ${titles || 'ver detalle'}`);
     }
@@ -202,7 +236,61 @@ try {
   cargoAuditInstalled = false;
 }
 if (!cargoAuditInstalled) {
-  status('cargo-audit', 'SKIPPED', 'no instalado (cargo install cargo-audit) — omisión explícita, no OK');
+  // SEC-GATE-002: sin cargo-audit se usa OSV (api.osv.dev) sobre Cargo.lock.
+  // Misma vara: bloquea critical/high/unrated; las excepciones del allowlist
+  // aplican igual (advisory = id RUSTSEC/GHSA de OSV).
+  try {
+    // execFileSync sin shell: process.execPath tiene espacios y el
+    // wrapper run() con shell:true rompe el quoting en Windows.
+    let out;
+    try {
+      out = execFileSync(
+        process.execPath,
+        [join(HERE, 'cargo-osv-audit.mjs'), '--json'],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+    } catch (error) {
+      if (error.stdout) out = error.stdout;
+      else throw error;
+    }
+    const report = JSON.parse(out);
+    let critical = 0;
+    let high = 0;
+    let unrated = 0;
+    const lines = [];
+    for (const f of report.findings ?? []) {
+      const sev = String(f.severity ?? '').toLowerCase();
+      if (sev === 'info') continue;
+      if (isExcepted(exceptions, f.package, sev, f.id)) continue;
+      if (sev === 'critical') critical += 1;
+      else if (sev === 'high') high += 1;
+      else if (sev === 'unrated') unrated += 1;
+      if (['critical', 'high', 'unrated'].includes(sev)) {
+        lines.push(
+          `  [${sev}] ${f.package}@${f.version} ${f.id} — ${f.summary ?? ''}`,
+        );
+      }
+    }
+    console.log(
+      `  OSV: ${report.packages ?? '?'} crates · critical=${critical} high=${high} unrated=${unrated}`,
+    );
+    for (const line of lines) console.log(line);
+    if (critical > 0 || high > 0 || unrated > 0) {
+      status(
+        'cargo-audit',
+        'FAIL',
+        `${critical} critical + ${high} high + ${unrated} unrated sin excepción (vía OSV)`,
+      );
+    } else {
+      status('cargo-audit', 'PASS', 'sin critical/high/unrated bloqueantes (vía OSV)');
+    }
+  } catch (error) {
+    status(
+      'cargo-audit',
+      'ERROR',
+      `cargo audit ausente y OSV no disponible: ${String(error.message).split('\n')[0]}`,
+    );
+  }
 } else try {
   const out = run(CARGO, ['audit', '--json']);
   let report;
@@ -220,7 +308,7 @@ if (!cargoAuditInstalled) {
       const sev = (w?.advisory?.cvss?.severity ?? '').toLowerCase();
       const id = w?.advisory?.id ?? '';
       const pkgKey = `${crate}@${w?.advisory?.package ?? ''}`;
-      if (isExcepted(exceptions, crate, sev) || exceptions.some((e) => e.advisory && e.advisory === id)) {
+      if (isExcepted(exceptions, crate, sev, id)) {
         continue;
       }
       if (sev === 'critical') critical += 1;

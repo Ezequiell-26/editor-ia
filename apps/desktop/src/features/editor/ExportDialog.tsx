@@ -70,6 +70,7 @@ import {
 } from './export-validation';
 import { detectQueueCapabilities, queueCapabilityTitle } from './queue-capabilities';
 import { ConcatWorkerExportPanel } from './ConcatWorkerExportPanel';
+import { chapterSpansFromMarkers } from '../../state/markers';
 
 interface ExportDialogProps {
   readonly open: boolean;
@@ -211,6 +212,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const [gifSide, setGifSide] = useState('auto');
   const [gifFps, setGifFps] = useState('15');
   const [gifQuality, setGifQuality] = useState('auto');
+  // Copia del MP4 con capítulos incrustados (FFMETADATA, sin recodificar):
+  // se deriva de los marcadores del proyecto vía `write_chapters`.
+  const [chaptersBusy, setChaptersBusy] = useState(false);
+  const [chaptersResult, setChaptersResult] = useState<string | null>(null);
+  const [chaptersError, setChaptersError] = useState<string | null>(null);
   // La cola sobrevive al cierre del diálogo: se hidrata en el primer render
   // (no en un efecto) y se persiste en cada cambio. Hidratar en un efecto
   // dejaría un render con la cola vacía que pisaría lo guardado.
@@ -815,6 +821,42 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
       setExtraError(cause instanceof Error ? cause.message : 'no se pudo generar el formato');
     } finally {
       setExtraBusy(false);
+    }
+  }
+
+  /** Genera una copia del MP4 con los capítulos de los marcadores incrustados. */
+  async function generateChaptersCopy(): Promise<void> {
+    const current = store.state.project;
+    if (!finished?.outputPath || !current || chaptersBusy) return;
+    const fps = fpsOf(current);
+    const totalSeconds =
+      finished.durationSeconds ?? store.durationFrames / Math.max(1, fps);
+    const spans = chapterSpansFromMarkers(current.markers, fps, totalSeconds);
+    if (spans.length === 0) {
+      setChaptersError('El proyecto no tiene marcadores dentro del video.');
+      return;
+    }
+    setChaptersBusy(true);
+    setChaptersError(null);
+    setChaptersResult(null);
+    try {
+      const input = finished.outputPath;
+      const extension = input.match(/\.[^.]+$/)?.[0] ?? '.mp4';
+      const output = `${dirname(input)}\\${safeFilePart(current.name)}-capitulos${extension}`;
+      const result = await store.service.writeChapters({
+        input,
+        output,
+        title: current.name,
+        chapters: spans,
+      });
+      setChaptersResult(result.path);
+      store.setNotice(`Copia con ${result.chapters} capítulos generada.`);
+    } catch (cause) {
+      setChaptersError(
+        cause instanceof Error ? cause.message : 'no se pudo generar la copia con capítulos',
+      );
+    } finally {
+      setChaptersBusy(false);
     }
   }
 
@@ -2224,6 +2266,30 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                         </p>
                       ) : null}
                       {extraError ? <p className="notice notice-warning">{extraError}</p> : null}
+                      {/* Copia con capítulos incrustados (FFMETADATA) desde
+                          los marcadores del proyecto — sin recodificar. */}
+                      {project.markers.length > 0 ? (
+                        <div className="export-extra-format">
+                          <button
+                            type="button"
+                            className="small"
+                            disabled={chaptersBusy}
+                            onClick={() => void generateChaptersCopy()}
+                          >
+                            {chaptersBusy
+                              ? 'Generando…'
+                              : `Copia con capítulos (${project.markers.length})`}
+                          </button>
+                          {chaptersResult ? (
+                            <p className="fine-print">
+                              Listo: <code>{basename(chaptersResult)}</code> en la misma carpeta.
+                            </p>
+                          ) : null}
+                          {chaptersError ? (
+                            <p className="notice notice-warning">{chaptersError}</p>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </>
                   ) : finished.status === 'cancelled' ? (
                     <strong>Render cancelado. No se reporta ningún archivo.</strong>

@@ -213,6 +213,11 @@ pub async fn synthesize_narration(
     // el guard borra el temporal y no queda un medio sin asset en `media/`.
     let temp = TempFile::new(media_dir.join(format!(".narracion-{}.wav", Uuid::new_v4())));
     let output = media_dir.join(format!("narracion-{}.wav", Uuid::new_v4()));
+    // AUD-143: epoch de sesión — si el proyecto cambia mientras se
+    // sintetiza, el WAV no se publica en la carpeta del proyecto viejo.
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
     let voice_name = resolve_voice_name(voice.as_deref(), settings.tts_voice.as_deref());
     let voice_arg = voice_name.clone().unwrap_or_default();
     // La síntesis SAPI puede tardar segundos por texto largo y el hash
@@ -228,6 +233,12 @@ pub async fn synthesize_narration(
             synthesize_sapi_wav(&powershell, &text_owned, &voice_owned, &temp_path)?;
             let measure = probe_file(&ffprobe, &temp_path, MediaKind::Audio)?;
             let (sha256, bytes) = sha256_file(&temp_path)?;
+            if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    "el proyecto cambió durante la síntesis; la narración no se guardó",
+                ));
+            }
             std::fs::rename(&temp_path, &publish_path).map_err(|error| {
                 ProjectError::message(
                     ProjectErrorCode::Io,
@@ -244,6 +255,14 @@ pub async fn synthesize_narration(
             )
         })??
     };
+    // AUD-143: la sesión pudo cambiar entre el último chequeo interno y
+    // acá — el WAV ya está publicado en la raíz capturada; se reporta.
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la síntesis; el audio pudo quedar en la carpeta del proyecto anterior",
+        ));
+    }
     temp.keep();
     let relative = format!(
         "media/{}",

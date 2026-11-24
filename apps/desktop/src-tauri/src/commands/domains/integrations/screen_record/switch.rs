@@ -15,9 +15,10 @@
 // también bloquea — nunca hay dos capturas a la vez.
 //
 // Alcance honesto v1: la conmutación es por comando (IA/usuario), no hay
-// mixer preview en vivo ni RTMP durante la sesión, el cursor estilizado
-// no aplica (se graba el cursor del sistema) y los segmentos usan el
-// encoder H.264 de software — el cosido re-codifica igual.
+// mixer preview en vivo, el cursor estilizado no aplica (se graba el
+// cursor del sistema) y los segmentos re-negocian su salida RTMP por
+// escena cuando `streamUrl` está definido (conexión persistente sin
+// renegociar queda pendiente — exige un mixer propio).
 
 use std::path::Path;
 
@@ -913,12 +914,17 @@ pub(crate) async fn obs_switch_finish(
                 }
             });
         }
-        // Espera acotada: el cosido es más rápido que realtime pero con
-        // margen amplio; un ffmpeg colgado se mata.
+        // Espera acotada: el cosido re-codifica con xfade — en la práctica
+        // varios x realtime. Antes el deadline era total/2 con techo de
+        // 1 h: una sesión de ~3 h garantizaba un falso timeout. Ahora
+        // escala con la duración total (peor caso ~1x + 5 min de margen,
+        // techo 4 h — para el máximo de 6 h sigue asumiendo >1.4x, holgado
+        // para x264); un ffmpeg realmente colgado igual se mata, sólo que
+        // más tarde.
         let total = obs_switch::stitched_total_secs(&durations, spec.transition_secs);
         let deadline = Instant::now()
-            + Duration::from_secs_f64((total / 2.0).clamp(120.0, 3600.0))
-            + Duration::from_secs(120);
+            + Duration::from_secs_f64(total.clamp(300.0, 14_400.0))
+            + Duration::from_secs(300);
         let status = loop {
             match child.try_wait() {
                 Ok(Some(status)) => break Ok(status),
@@ -938,7 +944,22 @@ pub(crate) async fn obs_switch_finish(
                 }
             }
         };
-        status?;
+        let exit = status?;
+        if !exit.success() || !output_path.exists() {
+            let detail = stderr_tail
+                .lock()
+                .map(|tail| String::from_utf8_lossy(&tail).trim().to_owned())
+                .unwrap_or_default();
+            let detail = if detail.is_empty() {
+                format!("código de salida {exit}")
+            } else {
+                detail
+            };
+            return Err(ProjectError::message(
+                ProjectErrorCode::ProviderRejected,
+                format!("ffmpeg no pudo coser la sesión: {detail}").as_str(),
+            ));
+        }
         let probe = probe_output(&ffprobe_path, &output_path);
         let (duration, width, height, has_audio) =
             (probe.duration, probe.width, probe.height, probe.has_audio);

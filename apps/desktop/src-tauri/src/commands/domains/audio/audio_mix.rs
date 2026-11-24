@@ -9,7 +9,7 @@ use tauri::State;
 use super::audio_tools::{
     decode_planar, output_file, resolve_ffmpeg, user_file, MAX_PROCESS_SECONDS,
 };
-use crate::media::audio_tools::{encode_wav_f32, PlanarPcm, TARGET_RATE};
+use crate::media::audio_tools::{PlanarPcm, TARGET_RATE};
 use crate::media::{probe_file, MediaKind};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
@@ -107,7 +107,9 @@ pub async fn audio_duck_plan(
         &regions, clip_start, clip_end, base, reduce, fade,
     );
     // Envolvente reducida a ~20 puntos/segundo para no inflar la respuesta.
-    let stride = (TARGET_RATE as f64 * hop_s as f64 / 20.0).round().max(1.0) as usize;
+    // La envolvente tiene un punto cada `hop_s` (100/s con hop 10 ms):
+    // el stride es en ÍNDICES de envolvente, no en samples — stride=5.
+    let stride = (1.0 / (hop_s * 20.0)).round().max(1.0) as usize;
     let envelope_db: Vec<f64> = env
         .iter()
         .step_by(stride.max(1))
@@ -208,8 +210,13 @@ pub async fn audio_channels_convert(
                 .collect::<Vec<f32>>()
         })
         .collect();
-    let wav = encode_wav_f32(&out, TARGET_RATE);
-    std::fs::write(&dest, wav).map_err(|e| {
+    let dest_write = dest.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::media::audio_tools::write_wav_atomic(&out, TARGET_RATE, &dest_write)
+    })
+    .await
+    .map_err(|_| render_failed("la escritura del WAV falló"))?
+    .map_err(|e| {
         ProjectError::message(
             ProjectErrorCode::Io,
             &format!("no se pudo escribir el WAV: {e}"),

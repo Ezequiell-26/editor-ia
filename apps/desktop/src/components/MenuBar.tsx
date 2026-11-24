@@ -5,7 +5,7 @@ import { NAV_VIEWS } from '../app/navigation';
 import { CURRENT_APP_VERSION } from '../app/version';
 import { detectNativeRuntime } from '../services/project-service';
 import { useAppearance } from '../state/AppearanceProvider';
-import { deleteCaptionCue, deleteClip, duplicateClip, splitClip, totalFrames } from '../state/project-actions';
+import { deleteCaptionCue, deleteClip, duplicateClipGroup, splitClip, totalFrames } from '../state/project-actions';
 import { runSilenceCuts } from '../state/silence-cuts';
 import { autoCleanupSummary, runAutoCleanup } from '../state/auto-cleanup';
 import { autoPilotSummary, runAutoPilot } from '../state/auto-pilot';
@@ -273,9 +273,9 @@ export function MenuBar({
   function duplicateSelected(): void {
     if (!clipId) return;
     const result = store.mutate((current) => {
-      const copy = duplicateClip(current, clipId);
+      const copy = duplicateClipGroup(current, clipId);
       if (!copy) throw new Error('no se pudo duplicar el clip');
-      return { project: copy.project, clipId: copy.clipId };
+      return { project: copy.project, clipId: copy.clipIds[0] ?? '' };
     });
     if (result) store.setSelection({ kind: 'clip', id: result.clipId });
   }

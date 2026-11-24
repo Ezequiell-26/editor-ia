@@ -1,4 +1,5 @@
 import type { MediaAnalysis, TranscriptionResult } from '../services/project-service';
+import { modulateCutSeconds } from './dynamic-pacing';
 
 /**
  * Motor del editor automático.
@@ -36,6 +37,8 @@ export interface AutoEditRecipe {
   readonly hook: boolean;
   /** Corta en límites de frase cuando hay transcripción. */
   readonly speechCuts: boolean;
+  /** Modula la duración del corte según posición (rápido en hook/clímax, pausado en cuerpo). */
+  readonly dynamicPacing?: boolean;
 }
 
 export type AutoEditReason = 'hook' | 'speech' | 'scene' | 'energy' | 'fill';
@@ -95,6 +98,7 @@ export const DEFAULT_RECIPE: AutoEditRecipe = {
   transition: 'dissolve',
   hook: true,
   speechCuts: true,
+  dynamicPacing: false,
 };
 
 export function clamp(value: number, min: number, max: number): number {
@@ -112,6 +116,7 @@ export function clampRecipe(recipe: AutoEditRecipe): AutoEditRecipe {
       recipe.transition === 'none' || recipe.transition === 'fade' ? recipe.transition : 'dissolve',
     hook: Boolean(recipe.hook),
     speechCuts: Boolean(recipe.speechCuts),
+    dynamicPacing: Boolean(recipe.dynamicPacing),
   };
 }
 
@@ -123,6 +128,7 @@ export function recipeSummary(recipe: AutoEditRecipe): string {
   if (clean.transition !== 'none') parts.push(clean.transition === 'fade' ? 'fundido' : 'disolvencia');
   if (clean.hook) parts.push('hook');
   if (clean.speechCuts) parts.push('corte por voz');
+  if (clean.dynamicPacing) parts.push('ritmo dinámico');
   return parts.join(' · ');
 }
 
@@ -360,12 +366,23 @@ function selectCuts(
     // Preferir otra fuente si la hay: evita dos cortes seguidos del mismo video.
     const index = pool.findIndex((candidate) => candidate.assetId !== lastAsset);
     const picked = pool.splice(index >= 0 ? index : 0, 1)[0]!;
-    const length = picked.end - picked.start;
+    let cutEnd = picked.end;
+    if (clean.dynamicPacing) {
+      const currentTarget = modulateCutSeconds(
+        clean.cutSeconds,
+        total,
+        limit > 0 && Number.isFinite(limit) ? limit : 45,
+      );
+      if (cutEnd - picked.start > currentTarget * 1.25) {
+        cutEnd = Math.min(picked.end, picked.start + currentTarget);
+      }
+    }
+    const length = cutEnd - picked.start;
     if (total + length > limit * 1.02 && chosen.length > 0) break;
     chosen.push({
       assetId: picked.assetId,
       startSeconds: Number(picked.start.toFixed(3)),
-      endSeconds: Number(picked.end.toFixed(3)),
+      endSeconds: Number(cutEnd.toFixed(3)),
       zoom: clean.zoom > 0 && shouldZoom(chosen.length, clean.zoom),
       score: picked.score,
       reason: picked.reason,

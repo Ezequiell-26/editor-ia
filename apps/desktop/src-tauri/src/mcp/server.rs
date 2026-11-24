@@ -107,6 +107,7 @@ fn is_additive(name: &str) -> bool {
             | "asset_import"
             | "marker_add"
             | "multicam_build"
+            | "multicam_smart_switch"
             | "navigate"
             | "playhead"
     )
@@ -119,6 +120,7 @@ fn is_open_world(name: &str) -> bool {
             | "project_save"
             | "project_save_as"
             | "diarize"
+            | "multicam_smart_switch"
             | "export_render"
             | "export_interchange"
             | "factory_run"
@@ -169,6 +171,7 @@ const SCOPE_READ_TOOLS: &[&str] = &[
     "tracks_list",
     "export_profiles",
     "markers_list",
+    "markers_export",
     "transitions_list",
     "media_folder_list",
     "media_search",
@@ -246,6 +249,7 @@ const SCOPE_READ_TOOLS: &[&str] = &[
     "platform_rules",
     "youtube_channel_analyze",
     "analyze_face_track",
+    "clip_face_track",
     "track_object",
     "analyze_images",
     "analyze_media_frames",
@@ -358,6 +362,19 @@ const SCOPE_WRITE_TOOLS: &[&str] = &[
     "clip_stabilize",
     "clip_freeze",
     "clip_detach_audio",
+    "clip_split_edit",
+    "clip_morph_cut",
+    "clip_remix",
+    "clip_link",
+    "clip_unlink",
+    "timeline_morph_cuts",
+    "clip_face_zoom",
+    "timeline_auto_sfx",
+    "timeline_auto_zoom",
+    "timeline_apply_broll",
+    "timeline_music_ducking",
+    "timeline_add_vox_graphic",
+    "timeline_auto_vox_graphics",
     "clip_duplicate",
     "clip_compound",
     "compound_expand",
@@ -579,6 +596,7 @@ const SCOPE_DESTRUCTIVE_TOOLS: &[&str] = &[
     "write_chapters",
     "package_project",
     "multicam_build",
+    "multicam_smart_switch",
     "review_apply",
     "critic_fix",
     "audio_mix",
@@ -595,6 +613,7 @@ const SCOPE_DESTRUCTIVE_TOOLS: &[&str] = &[
     "watchdog_install",
     "watchdog_remove",
     "export_short",
+    "clip_export_short",
     "convert_media_batch",
     "model_delete",
     "plugin_install",

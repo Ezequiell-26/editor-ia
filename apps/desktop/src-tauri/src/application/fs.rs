@@ -497,8 +497,23 @@ pub fn fs_write(path: String, content: String) -> Result<FsWriteResult, ProjectE
                 .map_err(|_| invalid("no se pudieron crear las carpetas padre"))?;
         }
     }
-    std::fs::write(&target, content.as_bytes())
-        .map_err(|_| invalid("no se pudo escribir el archivo"))?;
+    // Escritura atómica (temp oculto en el mismo dir + rename): un corte a
+    // mitad nunca deja el archivo destino truncado — misma convención que
+    // el resto de persistencia del crate (AUD-148).
+    let tmp = target.with_file_name(format!(
+        ".{}.tmp-{}",
+        target
+            .file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_default(),
+        uuid::Uuid::new_v4()
+    ));
+    let write_result =
+        std::fs::write(&tmp, content.as_bytes()).and_then(|()| std::fs::rename(&tmp, &target));
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(invalid("no se pudo escribir el archivo"));
+    }
     let bytes = target
         .metadata()
         .map(|meta| meta.len())

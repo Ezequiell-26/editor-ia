@@ -19,7 +19,7 @@ import { useSyncExternalStore } from 'react';
 export interface MediaSpyState {
   readonly assetId: string;
   readonly url: string;
-  readonly kind: 'video' | 'image';
+  readonly kind: 'video' | 'image' | 'audio';
   readonly durationSeconds: number;
   readonly timeSeconds: number;
   readonly pinned: boolean;
@@ -38,7 +38,7 @@ function emit(): void {
 export function showMediaSpy(
   assetId: string,
   url: string,
-  kind: 'video' | 'image',
+  kind: 'video' | 'image' | 'audio',
   durationSeconds: number,
   timeSeconds: number,
 ): void {
@@ -63,7 +63,7 @@ export function scrubMediaSpy(assetId: string, timeSeconds: number): void {
 export function pinMediaSpy(
   assetId: string,
   url: string,
-  kind: 'video' | 'image',
+  kind: 'video' | 'image' | 'audio',
   durationSeconds: number,
   timeSeconds: number,
 ): void {

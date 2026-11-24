@@ -145,6 +145,12 @@ export const TrackGainKeyframeSchema = z
     gainDb: DecibelSchema,
     easing: KeyframeEasingSchema.optional(),
     bezier: CubicBezierSchema.optional(),
+    /**
+     * Origen de la clave: 'auto-duck' la generó la automatización de música
+     * (ducking/punchlines) y se puede regenerar; sin origen es manual del
+     * usuario y ninguna automatización la pisa.
+     */
+    origin: z.enum(['auto-duck']).optional(),
   })
   .strict();
 export type TrackGainKeyframe = z.infer<typeof TrackGainKeyframeSchema>;
@@ -1047,6 +1053,12 @@ const clipCommon = {
    * cuando está, pisa la preferencia global `waveformStyle`.
    */
   waveformStyle: z.enum(['capcut', 'davinci']).optional(),
+  /**
+   * Grupo de clips vinculados (paridad link selection de Premiere/Resolve):
+   * los clips que comparten `linkGroup` se seleccionan, mueven y borran
+   * juntos — típicamente video+audio del mismo clip fuente.
+   */
+  linkGroup: z.string().min(1).max(64).optional(),
 };
 
 /** Punto de una curva de velocidad continua con easing por segmento. */
@@ -1349,11 +1361,11 @@ export const ClipSchema = z
 
     const transformKeyframes = clip.transform?.keyframes;
     if (transformKeyframes !== undefined) {
-      if (clip.kind !== 'video' && clip.kind !== 'image') {
+      if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['transform', 'keyframes'],
-          message: 'only video and image clips can animate their transform',
+          message: 'only video, image and freeze clips can animate their transform',
         });
       }
       let previous = -1;
@@ -1377,7 +1389,7 @@ export const ClipSchema = z
     }
 
     const maskKeyframes =
-      clip.kind === 'video' || clip.kind === 'image'
+      clip.kind === 'video' || clip.kind === 'image' || clip.kind === 'freeze'
         ? clip.mask?.keyframes
         : undefined;
     if (maskKeyframes !== undefined) {

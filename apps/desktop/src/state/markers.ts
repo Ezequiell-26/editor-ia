@@ -1,6 +1,11 @@
 import type { Marker, MarkerColor, ProjectDocument } from '@editor-ia/project-schema';
 import { MAX_MARKERS, MAX_MARKER_NOTE } from '@editor-ia/project-schema';
-import { ProjectActionError, cloneProject, newId } from './project-actions';
+import {
+  ProjectActionError,
+  cloneProject,
+  formatTimecode,
+  newId,
+} from './project-actions';
 
 function touch(project: ProjectDocument): void {
   project.revision += 1;
@@ -366,4 +371,80 @@ export function formatMarkerChapters(
   return chaptersFromMarkers(markers, fps)
     .map((chapter) => `${formatChapterTime(chapter.startSeconds)} ${chapter.title}`)
     .join('\n');
+}
+
+export interface MarkerChapterSpan {
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+  readonly title: string;
+}
+
+/**
+ * Capas de capítulo con inicio y fin para formatos de contenedor (MP4
+ * chapters / FFMETADATA): cada marcador abarca hasta el siguiente, y el
+ * último hasta `totalSeconds`. A diferencia de `chaptersFromMarkers` (lista
+ * para YouTube, que exige 3 capítulos de ≥10 s) acá van TODOS los
+ * marcadores — el contenedor no tiene esa regla.
+ */
+export function chapterSpansFromMarkers(
+  markers: readonly Marker[],
+  fps: number,
+  totalSeconds: number,
+): MarkerChapterSpan[] {
+  const safeFps = Math.max(1, fps);
+  const total = Math.max(0, totalSeconds);
+  const sorted = [...markers].sort((a, b) => a.frame - b.frame);
+  const spans: MarkerChapterSpan[] = [];
+  for (let index = 0; index < sorted.length; index += 1) {
+    const marker = sorted[index]!;
+    const startSeconds = marker.frame / safeFps;
+    const nextStart =
+      index + 1 < sorted.length ? sorted[index + 1]!.frame / safeFps : total;
+    const endSeconds = Math.min(nextStart, total);
+    if (endSeconds <= startSeconds) continue;
+    spans.push({
+      startSeconds,
+      endSeconds,
+      title: cleanLabel(marker.label) || 'Capítulo',
+    });
+  }
+  return spans;
+}
+
+function csvCell(raw: string): string {
+  if (/[",\n\r;]/.test(raw)) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+}
+
+/**
+ * Lista completa de marcadores en CSV (paridad con la exportación de
+ * marcadores de Kdenlive): una fila por marcador, ordenada por frame, con
+ * timecode de entrada/salida, frame, etiqueta, color, rol y nota. La nota
+ * puede tener saltos de línea; se escapa como cualquier celda CSV.
+ */
+export function formatMarkersCsv(
+  markers: readonly Marker[],
+  fps: number,
+): string {
+  const safeFps = Math.max(1, fps);
+  const header = 'start_tc,end_tc,start_frame,end_frame,label,color,role,note';
+  const rows = [...markers]
+    .sort((a, b) => a.frame - b.frame)
+    .map((marker) =>
+      [
+        formatTimecode(marker.frame, safeFps),
+        marker.endFrame !== undefined
+          ? formatTimecode(marker.endFrame, safeFps)
+          : '',
+        String(marker.frame),
+        marker.endFrame !== undefined ? String(marker.endFrame) : '',
+        csvCell(marker.label),
+        marker.color ?? '',
+        marker.role ?? '',
+        csvCell(marker.note ?? ''),
+      ].join(','),
+    );
+  return [header, ...rows].join('\r\n');
 }

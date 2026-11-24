@@ -4,9 +4,11 @@ import {
   addMarker,
   chaptersFromMarkers,
   clearMarkers,
+  chapterSpansFromMarkers,
   deleteMarker,
   formatChapterTime,
   formatMarkerChapters,
+  formatMarkersCsv,
   markerAtFrame,
   updateMarker,
   validateChapters,
@@ -175,5 +177,73 @@ describe('marker chapters', () => {
     expect(lateStart.ok).toBe(false);
     expect(lateStart.issues.join(' ')).toMatch(/0:00/i);
     expect(validateChapters([]).ok).toBe(false);
+  });
+});
+
+describe('formatMarkersCsv', () => {
+  const marker = (frame: number, label: string, extra = {}) => ({
+    id: `m-${frame}`,
+    frame,
+    label,
+    ...extra,
+  });
+
+  it('emits a header and one sorted row per marker with timecodes', () => {
+    const csv = formatMarkersCsv(
+      [
+        marker(300, 'Dos', { color: 'amber', note: 'revisar' }),
+        marker(0, 'Arranque', { endFrame: 45, role: 'cover' }),
+      ],
+      30,
+    );
+    const lines = csv.split('\r\n');
+    expect(lines[0]).toBe('start_tc,end_tc,start_frame,end_frame,label,color,role,note');
+    expect(lines[1]).toBe('0:00:00:00,0:00:01:15,0,45,Arranque,,cover,');
+    expect(lines[2]).toBe('0:00:10:00,,300,,Dos,amber,,revisar');
+  });
+
+  it('escapes commas, quotes and newlines inside cells', () => {
+    const csv = formatMarkersCsv(
+      [marker(0, 'Corte, "final"', { note: 'línea1\nlínea2' })],
+      30,
+    );
+    const row = csv.split('\r\n')[1]!;
+    expect(row).toContain('"Corte, ""final"""');
+    expect(row).toContain('"línea1\nlínea2"');
+  });
+
+  it('returns only the header when there are no markers', () => {
+    expect(formatMarkersCsv([], 30)).toBe(
+      'start_tc,end_tc,start_frame,end_frame,label,color,role,note',
+    );
+  });
+});
+
+describe('chapterSpansFromMarkers', () => {
+  const marker = (frame: number, label: string) => ({
+    id: `m-${frame}`,
+    frame,
+    label,
+  });
+
+  it('spans each marker until the next one and the last until the total', () => {
+    const spans = chapterSpansFromMarkers(
+      [marker(90, 'Uno'), marker(300, 'Dos')],
+      30,
+      20,
+    );
+    expect(spans).toEqual([
+      { startSeconds: 3, endSeconds: 10, title: 'Uno' },
+      { startSeconds: 10, endSeconds: 20, title: 'Dos' },
+    ]);
+  });
+
+  it('drops markers that would produce empty spans', () => {
+    const spans = chapterSpansFromMarkers(
+      [marker(0, 'A'), marker(600, 'Fuera')],
+      30,
+      10,
+    );
+    expect(spans).toEqual([{ startSeconds: 0, endSeconds: 10, title: 'A' }]);
   });
 });

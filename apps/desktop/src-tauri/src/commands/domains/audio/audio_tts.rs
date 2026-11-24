@@ -7,6 +7,7 @@ use serde::Serialize;
 use tauri::State;
 
 use super::audio_tools::output_file;
+#[cfg(test)]
 use crate::media::audio_tools::encode_wav_f32;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
@@ -98,8 +99,16 @@ pub async fn tts_synthesize(
             )
         })?;
     let pcm = vec![audio.samples];
-    let wav = encode_wav_f32(&pcm, audio.sample_rate);
-    std::fs::write(&dest, wav).map_err(|e| {
+    let sample_rate = audio.sample_rate;
+    let dest_write = dest.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::media::audio_tools::write_wav_atomic(&pcm, sample_rate, &dest_write)
+    })
+    .await
+    .map_err(|_| {
+        ProjectError::message(ProjectErrorCode::RenderFailed, "la escritura del WAV falló")
+    })?
+    .map_err(|e| {
         ProjectError::message(
             ProjectErrorCode::Io,
             &format!("no se pudo escribir el WAV de la narración: {e}"),

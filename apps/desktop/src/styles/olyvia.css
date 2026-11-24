@@ -1404,6 +1404,43 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
+.multicam-cameras .multicam-speakers {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--olyvia-blue) 14%, transparent);
+}
+
+.multicam-cameras .multicam-speakers .eyebrow {
+  margin: 0 0 6px;
+}
+
+.multicam-cameras .multicam-speakers ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.multicam-cameras .multicam-speaker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--olyvia-blue) 14%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--olyvia-ink) 40%, transparent);
+  font-size: 12px;
+}
+
+.multicam-cameras .multicam-speaker-row select {
+  max-width: 60%;
+  padding: 4px 7px;
+  font-size: 11px;
+}
+
 .multicam-monitor {
   padding: 12px;
 }

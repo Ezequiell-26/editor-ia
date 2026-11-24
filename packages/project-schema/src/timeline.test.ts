@@ -254,6 +254,45 @@ describe('freeze clips', () => {
       ClipSchema.safeParse({ ...freezeClip, speed: { num: 2, den: 1 } }).success,
     ).toBe(false);
   });
+
+  it('accepts transform keyframes on a freeze clip', () => {
+    expect(
+      ClipSchema.safeParse({
+        ...freezeClip,
+        transform: { keyframes: [{ frame: 0, scale: 1.2 }, { frame: 30, scale: 1 }] },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('still validates freeze transform keyframe ordering', () => {
+    expect(
+      ClipSchema.safeParse({
+        ...freezeClip,
+        transform: {
+          keyframes: [
+            { frame: 30, scale: 1.2 },
+            { frame: 10, scale: 1 },
+          ],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts mask keyframes on a freeze clip', () => {
+    expect(
+      ClipSchema.safeParse({
+        ...freezeClip,
+        mask: {
+          shape: 'ellipse',
+          x: 0,
+          y: 0,
+          width: 0.5,
+          height: 0.5,
+          keyframes: [{ frame: 0, x: -0.2 }, { frame: 30, x: 0.2 }],
+        },
+      }).success,
+    ).toBe(true);
+  });
 });
 
 describe('ClipSchema', () => {

@@ -9,11 +9,11 @@
 //! video continuo con fundidos entre escenas, no una concatenación seca.
 //!
 //! Alcance honesto v1: la conmutación es por comando (la IA o el usuario
-//! la dispara); no hay preview del programa mezclado en vivo ni streaming
-//! RTMP durante la sesión; el cursor estilizado no aplica (se graba el
-//! cursor del sistema); cada segmento usa el encoder de software — el
-//! cosido re-codifica igual, así que el encoder de captura no cambia el
-//! resultado.
+//! la dispara); no hay preview del programa mezclado en vivo; el cursor
+//! estilizado no aplica (se graba el cursor del sistema); cada segmento
+//! re-negocia su propia salida RTMP cuando `streamUrl` está definido
+//! (conexión persistente sin corte por escena queda pendiente — exige
+//! un mixer propio, no otro ffmpeg por segmento).
 
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 

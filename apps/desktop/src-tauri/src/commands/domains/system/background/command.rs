@@ -38,7 +38,19 @@ pub async fn remove_background_asset(
     })?;
     let root = session.root.clone();
     let app_handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || match kind.as_str() {
+    // AUD-143: epoch de sesión — el recorte puede tardar minutos y el
+    // resultado se importa en la raíz capturada.
+    let epoch = state.session_epoch_handle();
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "el proyecto cambió antes de quitar el fondo",
+            ));
+        }
+        match kind.as_str() {
         "image" => remove_image_background(
             &root,
             &input,
@@ -65,6 +77,7 @@ pub async fn remove_background_asset(
             ProjectErrorCode::InvalidProject,
             "el recorte automático sólo acepta imágenes o videos",
         )),
+        }
     })
     .await
     .map_err(|error| {
@@ -72,5 +85,13 @@ pub async fn remove_background_asset(
             ProjectErrorCode::Io,
             format!("no se pudo quitar el fondo: {error}").as_str(),
         )
-    })?
+    })?;
+    // AUD-143: la sesión pudo cambiar entre el último chequeo y acá.
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante el recorte; el resultado pudo quedar en la carpeta del proyecto anterior",
+        ));
+    }
+    result
 }

@@ -21,6 +21,7 @@ import {
   updateClip,
   updateProjectSettings,
 } from '../../state/project-actions';
+import { expandWithLinked } from '../../state/clip-links';
 import { useEditorLayout } from '../../state/editor-layout';
 import { useAiMode } from '../../state/ai-mode';
 import { setAiColumnElement } from '../../state/ai-column';
@@ -930,11 +931,34 @@ export const EditorWorkspace = memo(function EditorWorkspace({
       if (bindingMatches(event, shortcutsRef.current['timeline.splitAtPlayhead'])) {
         if (selection.kind === 'clip') {
           event.preventDefault();
-          store.mutate((current) => {
-            const split = splitClip(current, selection.id, store.getPlayhead());
-            if (!split) throw new Error('el playhead no está dentro del clip seleccionado');
-            return { project: split.project, rightClipId: split.rightClipId };
+          const frame = store.getPlayhead();
+          const result = store.mutate((current) => {
+            // Con vínculo activo el corte alcanza a todo el linkGroup que
+            // contiene la aguja (paridad razor de Premiere con linked
+            // selection): cada miembro se divide en su propio tiempo de
+            // fuente si el playhead cae dentro.
+            const ids = expandWithLinked(current, [selection.id]);
+            let doc = current;
+            let splitCount = 0;
+            for (const id of ids) {
+              const clip = doc.timeline.clips.find((item) => item.id === id);
+              if (!clip || clip.kind === 'compound') continue;
+              if (frame <= clip.startFrame || frame >= clip.startFrame + clip.durationFrames) {
+                continue;
+              }
+              const split = splitClip(doc, id, frame);
+              if (!split) continue;
+              doc = split.project;
+              splitCount += 1;
+            }
+            if (splitCount === 0) {
+              throw new Error('el playhead no está dentro del clip seleccionado');
+            }
+            return { project: doc, splitCount };
           });
+          if (result && result.splitCount > 1) {
+            store.setNotice(`${result.splitCount} clips divididos en el playhead.`);
+          }
         }
       }
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {

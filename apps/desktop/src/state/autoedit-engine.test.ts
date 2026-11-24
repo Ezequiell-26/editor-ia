@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Asset } from '@editor-ia/project-schema';
 import { createEmptyProject, parseProject } from '@editor-ia/project-schema';
 import type { MediaAnalysis, TranscriptionResult } from '../services/project-service';
-import { addAsset, totalFrames } from './project-actions';
+import { addAsset, addTrack, totalFrames } from './project-actions';
 import { applyAutoEditVariant } from './autoedit-apply';
 import {
   DEFAULT_RECIPE,
@@ -467,6 +467,143 @@ describe('aplicación a la timeline', () => {
         addCaptions: false,
       }),
     ).toThrow(/volvé a medir/);
+  });
+
+  it('monta cortes divididos (J-cut) separando video y audio en pistas alternas con adelanto de voz', () => {
+    const project = addAsset(createEmptyProject('Auto', NOW), videoAsset());
+    const variant = buildAutoEditVariants([source()]).find((item) => item.style === 'custom')!;
+    const result = applyAutoEditVariant(project, videoAsset(), variant, analysis(), {
+      replace: true,
+      improveAudio: true,
+      addCaptions: false,
+      splitEdits: 'j-cut',
+      splitFrames: 10,
+    });
+
+    const parsed = parseProject(JSON.parse(JSON.stringify(result.project)));
+    expect(parsed.ok).toBe(true);
+
+    const videoTracks = result.project.timeline.tracks.filter((t) => t.kind === 'video');
+    const audioTracks = result.project.timeline.tracks.filter((t) => t.kind === 'audio');
+    expect(videoTracks.length).toBeGreaterThanOrEqual(1);
+    expect(audioTracks.length).toBeGreaterThanOrEqual(2);
+
+    expect(result.clipCount).toBe(variant.cuts.length * 2);
+
+    const videoClips = result.project.timeline.clips.filter((c) => c.kind === 'video');
+    const audioClips = result.project.timeline.clips.filter((c) => c.kind === 'audio');
+    expect(videoClips.every((c) => c.audio?.muted === true)).toBe(true);
+    expect(audioClips.length).toBe(variant.cuts.length);
+
+    if (variant.cuts.length >= 2) {
+      const secondVideo = videoClips[1]!;
+      const secondAudio = audioClips[1]!;
+      expect(secondAudio.startFrame).toBeLessThanOrEqual(secondVideo.startFrame);
+      expect(secondAudio.audio?.highPassHz).toBe(80);
+    }
+  });
+
+  it('monta cortes divididos con modo auto aplicando J-cut o L-cut según el motivo', () => {
+    const project = addAsset(createEmptyProject('Auto', NOW), videoAsset());
+    const variant = buildAutoEditVariants([source()]).find((item) => item.style === 'pulse')!;
+    const result = applyAutoEditVariant(project, videoAsset(), variant, analysis(), {
+      replace: true,
+      improveAudio: false,
+      addCaptions: false,
+      splitEdits: 'auto',
+    });
+
+    const parsed = parseProject(JSON.parse(JSON.stringify(result.project)));
+    expect(parsed.ok).toBe(true);
+    expect(result.clipCount).toBe(variant.cuts.length * 2);
+  });
+
+  it('aplica zoom inteligente encuadrando el rostro en tercio superior en autoedit', () => {
+    const project = addAsset(createEmptyProject('Auto', NOW), videoAsset());
+    const variant = buildAutoEditVariants([source()]).find((item) => item.style === 'story')!;
+    const result = applyAutoEditVariant(project, videoAsset(), variant, analysis(), {
+      replace: true,
+      improveAudio: false,
+      addCaptions: false,
+      zoom: 60,
+      faceFraming: 'talking-head',
+    });
+
+    const parsed = parseProject(JSON.parse(JSON.stringify(result.project)));
+    expect(parsed.ok).toBe(true);
+    const zoomedClips = result.project.timeline.clips.filter(
+      (c) => c.kind === 'video' && c.transform?.keyframes?.length,
+    );
+    expect(zoomedClips.length).toBeGreaterThan(0);
+    const firstZoomed = zoomedClips[0]!;
+    const kf0 = firstZoomed.transform!.keyframes![0]!;
+    expect(kf0.scale).toBeGreaterThan(1.1);
+    expect(kf0.offsetY).toBeGreaterThan(0);
+    expect(Number.isInteger(kf0.offsetY)).toBe(true);
+  });
+
+  it('coloca efectos SFX automáticos en el montaje cuando la opción sfx está activa', () => {
+    const project = addAsset(createEmptyProject('Auto', NOW), videoAsset());
+    const variant = buildAutoEditVariants([source()]).find((item) => item.style === 'impact')!;
+    const result = applyAutoEditVariant(project, videoAsset(), variant, analysis(), {
+      replace: true,
+      improveAudio: false,
+      addCaptions: true,
+      zoom: 80,
+      sfx: true,
+    });
+
+    const parsed = parseProject(JSON.parse(JSON.stringify(result.project)));
+    expect(parsed.ok).toBe(true);
+    expect(result.sfxCount).toBeGreaterThan(0);
+    const sfxTrack = result.project.timeline.tracks.find((t) => t.label.includes('SFX'));
+    expect(sfxTrack).toBeDefined();
+    const sfxClips = result.project.timeline.clips.filter((c) => c.trackId === sfxTrack!.id);
+    expect(sfxClips.length).toBe(result.sfxCount);
+  });
+
+  it('respeta dynamicPacing en clampRecipe y recipeSummary', () => {
+    const recipe = clampRecipe({ ...DEFAULT_RECIPE, dynamicPacing: true });
+    expect(recipe.dynamicPacing).toBe(true);
+    expect(recipeSummary(recipe)).toContain('ritmo dinámico');
+  });
+
+  it('aplica ducking automático de música con punchline mutes en autoedit', () => {
+    let project = addAsset(createEmptyProject('Auto', NOW), videoAsset());
+    const musicTrack = addTrack(project, 'audio', 'Background Music');
+    project = musicTrack.project;
+
+    // Add a music clip
+    project.timeline.clips.push({
+      id: '33333333-3333-4333-8333-333333333333',
+      trackId: musicTrack.trackId,
+      kind: 'audio',
+      label: 'BGM Clip',
+      startFrame: 0,
+      durationFrames: 900,
+      source: {
+        type: 'asset',
+        assetId: ASSET_A,
+        inFrame: 0,
+        outFrame: 900,
+      },
+    });
+
+    const variant = buildAutoEditVariants([source()]).find((item) => item.style === 'custom')!;
+    const result = applyAutoEditVariant(project, videoAsset(), variant, analysis(), {
+      replace: false,
+      improveAudio: false,
+      addCaptions: true,
+      musicDucking: true,
+    });
+
+    const parsed = parseProject(JSON.parse(JSON.stringify(result.project)));
+    expect(parsed.ok).toBe(true);
+    expect(result.duckingApplied).toBe(true);
+
+    const track = result.project.timeline.tracks.find((t) => t.id === musicTrack.trackId);
+    expect(track?.gainKeyframes).toBeDefined();
+    expect(track!.gainKeyframes!.length).toBeGreaterThan(0);
   });
 });
 

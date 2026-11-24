@@ -23,6 +23,11 @@ import {
 } from '../../state/multicam';
 import { deriveTimecodeOffsets } from './multicam-timecode';
 import { resolveMulticamSync } from './multicam-sync';
+import {
+  autoCutBySpeaker,
+  defaultSpeakerCameraMap,
+} from '../../state/multicam-speaker';
+import { speakerLabel, type SpeakerSegment } from '../../state/speakers';
 
 function clock(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -66,6 +71,10 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const [syncReport, setSyncReport] = useState<{ text: string; warnings: readonly string[] } | null>(
     null,
   );
+  const [speakerBusy, setSpeakerBusy] = useState(false);
+  const [speakerSegments, setSpeakerSegments] = useState<readonly SpeakerSegment[] | null>(null);
+  const [speakerNames, setSpeakerNames] = useState<readonly string[]>([]);
+  const [speakerMap, setSpeakerMap] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
   const rafRef = useRef(0);
@@ -304,6 +313,66 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     }
   }
 
+  /**
+   * SmartSwitch por hablante (paridad Resolve Studio): diariza el audio de la
+   * primera cámara y propone el mapa hablante→cámara para revisarlo antes de
+   * generar los cortes. No toca la timeline.
+   */
+  async function analyzeSpeakers(): Promise<void> {
+    const reference = cameras[0];
+    if (!reference || speakerBusy) return;
+    setSpeakerBusy(true);
+    setError(null);
+    try {
+      const diarized = await store.service.diarizeAudio(reference.asset.id);
+      if (diarized.segments.length === 0) {
+        setError('La diarización no encontró hablantes en la cámara de referencia.');
+        return;
+      }
+      // Segmentos en segundos de archivo → segundos de programa: la cámara
+      // entra al programa en su punto de entrada (offsets en segundos).
+      const offsetSeconds = offsets[reference.asset.id] ?? 0;
+      const programSegments: SpeakerSegment[] = diarized.segments.map((segment) => ({
+        ...segment,
+        start: segment.start - offsetSeconds,
+        end: segment.end - offsetSeconds,
+      }));
+      const names: string[] = [];
+      for (const segment of programSegments) {
+        const speaker = segment.speaker.trim();
+        if (speaker && !names.includes(speaker)) names.push(speaker);
+      }
+      setSpeakerSegments(programSegments);
+      setSpeakerNames(names);
+      setSpeakerMap(defaultSpeakerCameraMap(programSegments, cameras.length));
+      store.setNotice(
+        `Multicámara: ${names.length} hablante(s) detectado(s). Revisá la cámara de cada uno y generá los cortes.`,
+      );
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? `No se pudo diarizar el audio: ${failure.message}`
+          : 'No se pudo diarizar el audio.',
+      );
+    } finally {
+      setSpeakerBusy(false);
+    }
+  }
+
+  /** Genera los cortes siguiendo los turnos de habla con el mapa revisado. */
+  function generateSpeakerCuts(): void {
+    if (!speakerSegments || speakerSegments.length === 0) return;
+    const generated = autoCutBySpeaker(speakerSegments, speakerMap, totalFrames, fps);
+    if (generated.length <= 1) {
+      setError('No se generaron cortes: revisá que cada hablante tenga cámara asignada.');
+      return;
+    }
+    setCuts(generated);
+    store.setNotice(
+      `Multicámara: ${generated.length} corte(s) automáticos por hablante.`,
+    );
+  }
+
   async function syncAutomatically(): Promise<void> {
     if (cameras.length < 2 || autoSyncBusy) return;
     setAutoSyncBusy(true);
@@ -531,6 +600,16 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                   <button
                     type="button"
                     className="small ghost icon-text"
+                    onClick={() => void analyzeSpeakers()}
+                    disabled={speakerBusy || cameras.length < 2}
+                    title="Diariza el audio de la primera cámara, detecta quién habla y propone a qué cámara corresponde cada hablante"
+                  >
+                    <Icon name="sparkles" size={13} />
+                    <span>{speakerBusy ? 'Diarizando…' : 'Por hablante…'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="small ghost icon-text"
                     onClick={() => void syncByAudio()}
                     disabled={audioSyncBusy || cameras.length < 2}
                     title="Compara la envolvente de audio de las cámaras (hasta ±10 s)"
@@ -610,6 +689,41 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 usa el TC de inicio grabado en el archivo (jam-sync) y no necesita sonido
                 compartido. El ajuste manual sigue disponible.
               </p>
+              {speakerSegments ? (
+                <div className="multicam-speakers">
+                  <p className="eyebrow">Hablantes detectados — asigná la cámara de cada uno</p>
+                  <ul>
+                    {speakerNames.map((speaker) => (
+                      <li key={speaker} className="multicam-speaker-row">
+                        <span>{speakerLabel(speaker)}</span>
+                        <select
+                          value={speakerMap[speaker] ?? 0}
+                          onChange={(event) =>
+                            setSpeakerMap((current) => ({
+                              ...current,
+                              [speaker]: Number(event.target.value),
+                            }))
+                          }
+                        >
+                          {cameras.map((camera, index) => (
+                            <option key={camera.asset.id} value={index}>
+                              CAM {index + 1} · {camera.asset.label}
+                            </option>
+                          ))}
+                        </select>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    className="small primary icon-text"
+                    onClick={generateSpeakerCuts}
+                  >
+                    <Icon name="sparkles" size={13} />
+                    <span>Generar cortes por hablante</span>
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className="card multicam-monitor">

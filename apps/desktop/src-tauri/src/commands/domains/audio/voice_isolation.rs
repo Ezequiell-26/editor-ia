@@ -150,7 +150,17 @@ async fn run_isolation(
 
     // AUD-008: deadline generoso (3 h) — Demucs en CPU sobre material largo
     // puede tardar mucho, pero un proceso colgado no puede bloquear el comando.
+    // AUD-143: si el proyecto cambia antes de lanzar Demucs, no se escribe
+    // en la carpeta del proyecto viejo.
+    let epoch = state.session_epoch_handle();
+    let expected_epoch = state.session_epoch_value();
     let timed = tauri::async_runtime::spawn_blocking(move || {
+        if epoch.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "el proyecto cambió antes de aislar la voz",
+            ));
+        }
         crate::commands::output_with_timeout(&mut command, std::time::Duration::from_secs(3 * 3600))
     })
     .await
@@ -391,7 +401,17 @@ pub async fn prepare_voice_isolation(
             }
         }
     }
+    // AUD-143: epoch de sesión — la isolación puede tardar horas; si el
+    // proyecto cambia, el resultado no se publica como asset montable.
+    let epoch_after = state.session_epoch_handle();
+    let expected_epoch_after = state.session_epoch_value();
     let mut outcome = run_isolation(&state, &source, &output_dir, &model, quality).await?;
+    if epoch_after.load(std::sync::atomic::Ordering::SeqCst) != expected_epoch_after {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el proyecto cambió durante la isolación; los stems pudieron quedar en la carpeta del proyecto anterior",
+        ));
+    }
     outcome.vocals_path = isolation_stem_path(&root, &asset_id);
     outcome.accompaniment_path = Some(output_dir.join("accompaniment.wav"));
     write_marker(&root, &asset_id, &source, quality, &model, &outcome);

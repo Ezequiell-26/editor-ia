@@ -255,6 +255,50 @@ describe('VoiceoverRecorder', () => {
     expect(button.getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('no graba si el proyecto cambió mientras se pedía el permiso', async () => {
+    let resolveGum!: (stream: MediaStream) => void;
+    const stop = vi.fn();
+    const lateStream = {
+      getTracks: () => [{ stop }],
+    } as unknown as MediaStream;
+    Object.defineProperty(window.navigator, 'mediaDevices', {
+      value: {
+        getUserMedia: vi.fn(
+          () =>
+            new Promise<MediaStream>((resolve) => {
+              resolveGum = resolve;
+            }),
+        ),
+      },
+      configurable: true,
+    });
+    const { service } = renderRecorder();
+    const importMediaBytes = vi.spyOn(service, 'importMediaBytes');
+    const originalId = latestState?.project?.id;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Grabar voz' }));
+    await waitFor(() => {
+      expect(latestStore).toBeTruthy();
+    });
+    // Cambio de proyecto con el diálogo de permiso todavía abierto.
+    const switched = await latestStore!.openProjectAt('otro-proyecto.editoria.json');
+    expect(switched).toBe(true);
+    await waitFor(() => {
+      expect(latestState?.project?.id).not.toBe(originalId);
+    });
+
+    // El permiso se concede tarde: no debe arrancar la grabación.
+    resolveGum(lateStream);
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalledTimes(1);
+    });
+    expect(latestState?.notice).toContain('cambió mientras se pedía el permiso');
+    expect(
+      screen.getByRole('button', { name: 'Grabar voz' }).getAttribute('aria-pressed'),
+    ).toBe('false');
+    expect(importMediaBytes).not.toHaveBeenCalled();
+  });
+
   it('avisa cuando el permiso de micrófono se niega', async () => {
     Object.defineProperty(window.navigator, 'mediaDevices', {
       value: {

@@ -1,0 +1,1267 @@
+/* ============================================================
+   Olyvia · capa de refino «quiet premium»
+   ------------------------------------------------------------
+   Última capa de la cascada. No define paleta nueva: deriva TODO
+   de los 34 tokens del tema (`--color-*`) y de los alias ya
+   publicados por `premium/tokens.css`. Su trabajo es restar
+   decoración acumulada (degradados orbitales, glows, partículas)
+   y dejar una superficie técnica, mate y jerárquicamente clara.
+
+   Reglas de esta capa:
+   - un solo acento (`--color-accent`) para estado y acción;
+   - superficies planas, hairline de 1 px, radios 8–12 px;
+   - sombras de elevación, nunca colored glow;
+   - tipografía ≥ 11 px en metadatos del chat;
+   - la foto del peluche se conserva intacta (sólo se calla su aura).
+   ============================================================ */
+
+/* ── Lienzo y cromo ────────────────────────────────────────── */
+body {
+  background: var(--color-bg) !important;
+}
+
+.app-shell .topbar {
+  box-shadow: none !important;
+}
+
+.topbar-brand img,
+.sidebar-logo-box,
+.start-brand-box {
+  box-shadow: none !important;
+}
+
+.sidebar-brand-title,
+.start-app-title {
+  background: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  -webkit-text-fill-color: var(--color-text) !important;
+  color: var(--color-text) !important;
+  letter-spacing: 0.01em !important;
+}
+
+.app-shell .statusbar {
+  background: var(--color-bg) !important;
+}
+
+/* Botón primario: acento sólido, sin degradado de marca ni halo. */
+button.primary,
+.start-btn--primary {
+  background: var(--color-accent) !important;
+  border: 1px solid var(--color-accent) !important;
+  border-radius: var(--rad-md, 8px) !important;
+  color: var(--color-accent-ink) !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.08) !important;
+  box-shadow: none !important;
+}
+
+button.primary::before {
+  background: none !important;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-accent) !important;
+  outline-offset: 2px !important;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent) !important;
+}
+
+/* Superficies del workspace: mismas 30 % del canvas, sin tinte. */
+.app-shell .asset-rail,
+.app-shell .preview-panel,
+.app-shell .inspector,
+.app-shell .timeline-panel,
+.app-shell .project-current,
+.app-shell .factory-empty,
+.app-shell .script-provider {
+  box-shadow: var(--elev-1, none) !important;
+}
+
+/* ── Launcher del asistente ────────────────────────────────── */
+.assistant-launcher {
+  width: 44px !important;
+  height: 44px !important;
+  right: 16px !important;
+  bottom: 28px !important;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, transparent) !important;
+  border-radius: 12px !important;
+  background: var(--color-accent) !important;
+  color: var(--color-accent-ink) !important;
+  box-shadow: var(--elev-2, 0 8px 24px rgba(0, 0, 0, 0.4)) !important;
+  transition: transform var(--dur-3, 110ms) var(--ease-out, ease),
+    filter var(--dur-3, 110ms) var(--ease-out, ease) !important;
+}
+
+.assistant-launcher:hover {
+  transform: translateY(-1px) !important;
+  filter: brightness(1.08) !important;
+}
+
+/* ── Panel del asistente ───────────────────────────────────── */
+.app-shell {
+  /* Huella del chat flotante (ancho + su margen derecho). La usan las
+     superficies que conviven con el panel para no quedar debajo. */
+  --oly-chat-reserve: calc(min(392px, 100vw - 32px) + 16px);
+}
+
+.assistant-panel {
+  right: 16px !important;
+  bottom: 82px !important;
+  width: min(392px, calc(100vw - 32px)) !important;
+  max-height: min(74vh, 620px) !important;
+  border: 1px solid var(--commercial-border, var(--color-border)) !important;
+  border-radius: 12px !important;
+  background: var(--color-surface) !important;
+  box-shadow: var(--elev-3, 0 24px 70px rgba(0, 0, 0, 0.55)) !important;
+}
+
+.assistant-panel-docked {
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  max-height: none !important;
+  height: 100% !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* ExportDialog monta `.modal-backdrop` (z=50) DENTRO de `.editor-workspace`,
+   que tiene z=90 + transform y por eso crea su propio stacking context. El
+   dock flotante vive un nivel arriba (z=1500) y, verifyado con
+   `elementFromPoint`, quedaba por encima del diálogo aunque tuviera z=50.
+   Subir `.editor-workspace` no sirve: enterraría los modales de MenuBar
+   (z=1200). Bajar SÓLO el dock mientras haya un `.modal-backdrop` abierto
+   lo deja tras el velo del modal, que es el comportamiento esperado.
+   Criterio de eliminación: si ExportDialog se porta a `document.body`,
+   este ajuste deja de hacer falta. */
+.app-shell:has(.modal-backdrop) > .assistant-panel,
+.app-shell:has(.modal-backdrop) > .assistant-launcher {
+  z-index: 40 !important;
+}
+
+/* Cabecera: el peluche baja de 72 a 40 px y pierde su halo. */
+.assistant-head {
+  min-height: 56px;
+  padding: 10px 14px !important;
+  border-bottom: 1px solid var(--commercial-border, var(--color-border)) !important;
+  background: var(--color-surface) !important;
+}
+
+.assistant-identity strong {
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.assistant-identity > div > span {
+  max-width: 240px !important;
+  font-size: 11px !important;
+  color: var(--color-text-muted) !important;
+}
+
+.pet-avatar {
+  width: 40px !important;
+  filter: none !important;
+}
+
+.pet-aura,
+.pet-dots {
+  display: none !important;
+}
+
+.pet-lids path {
+  stroke: color-mix(in srgb, var(--color-accent) 70%, var(--color-text)) !important;
+  stroke-width: 12 !important;
+  filter: none !important;
+}
+
+.pet-gaze circle {
+  filter: none !important;
+}
+
+.pet-stage {
+  animation: none !important;
+}
+
+/* Fila de modelo: una sola línea, sin chip con borde de color. */
+.assistant-model-bar {
+  gap: 8px !important;
+  padding: 8px 14px !important;
+  background: color-mix(in srgb, var(--color-bg) 40%, transparent) !important;
+  border-bottom: 1px solid var(--commercial-border, var(--color-border)) !important;
+}
+
+.assistant-model-info strong,
+.assistant-model-select {
+  font-size: 11.5px !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.assistant-model-info span {
+  font-size: 10.5px !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.assistant-model-select {
+  padding: 3px 8px !important;
+  border: 1px solid var(--commercial-border, var(--color-border)) !important;
+  border-radius: 6px !important;
+  background: var(--color-bg) !important;
+}
+
+.assistant-model-chip {
+  padding: 2px 7px !important;
+  border: 1px solid var(--commercial-border, var(--color-border)) !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: var(--color-text-muted) !important;
+  font-size: 10px !important;
+  letter-spacing: 0 !important;
+}
+
+.assistant-model-chip.local,
+.assistant-model-chip.remote,
+.assistant-model-chip.sim {
+  border-color: var(--commercial-border, var(--color-border)) !important;
+  background: transparent !important;
+  color: var(--color-text-muted) !important;
+}
+
+/* Conversación: un solo acento, sin burbujas de marca competidoras. */
+.assistant-log {
+  gap: 12px !important;
+  min-height: 180px !important;
+  padding: 16px 14px !important;
+  background: var(--color-surface) !important;
+}
+
+.assistant-message {
+  max-width: 92% !important;
+  padding: 10px 12px !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  line-height: 1.55 !important;
+  letter-spacing: -0.005em !important;
+}
+
+.assistant-message.assistant {
+  border: 1px solid var(--commercial-border, var(--color-border)) !important;
+  background: var(--color-panel) !important;
+  color: var(--color-text) !important;
+}
+
+.assistant-message.user {
+  border: 1px solid color-mix(in srgb, var(--color-accent) 38%, transparent) !important;
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-panel)) !important;
+  color: var(--color-text) !important;
+}
+
+.assistant-streaming::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: -2px;
+  background: var(--color-accent);
+  animation: assistant-caret 1s steps(2, start) infinite;
+}
+
+@keyframes assistant-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Proceso: lista técnica, puntos sin glow. */
+.assistant-process {
+  border-top: 1px solid var(--commercial-border, var(--color-border)) !important;
+  background: color-mix(in srgb, var(--color-bg) 35%, transparent) !important;
+}
+
+.assistant-process-head {
+  padding: 8px 14px !important;
+  font-size: 10.5px !important;
+  letter-spacing: 0.06em !important;
+}
+
+.assistant-process-dot {
+  background: var(--color-text-faint) !important;
+  box-shadow: none !important;
+}
+
+.assistant-process-item.running .assistant-process-dot {
+  background: var(--color-accent) !important;
+  box-shadow: none !important;
+}
+
+.assistant-process-title {
+  font-size: 11.5px !important;
+}
+
+.assistant-process-detail,
+.assistant-process-note {
+  font-size: 10.5px !important;
+}
+
+/* Errores y confirmaciones: misma paleta, sin colores de marca. */
+.assistant-error,
+.assistant-confirm {
+  margin: 0 14px 10px !important;
+  border-radius: 8px !important;
+  font-size: 11.5px !important;
+}
+
+/* Acciones rápidas: chips neutros, una sola fila de acento al hover. */
+.assistant-quick {
+  gap: 6px !important;
+  padding: 10px 14px !important;
+  border-top: 1px solid var(--commercial-border, var(--color-border)) !important;
+  background: color-mix(in srgb, var(--color-bg) 35%, transparent) !important;
+}
+
+/* El separador fuerza salto de línea y se convierte en hairline horizontal:
+   arriba los comandos que rellenan el campo, abajo los que se ejecutan. */
+.assistant-quick-divider {
+  flex: 0 0 100% !important;
+  width: auto !important;
+  height: 1px !important;
+  min-height: 0 !important;
+  margin: 2px 0 !important;
+  background: var(--commercial-border, var(--color-border)) !important;
+}
+
+.assistant-quick button {
+  padding: 5px 10px !important;
+  min-height: 26px !important;
+  border: 1px solid var(--commercial-border, var(--color-border)) !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--color-text-muted) !important;
+  font-size: 11px !important;
+}
+
+.assistant-quick button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-accent) 50%, transparent) !important;
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent) !important;
+  color: var(--color-text) !important;
+}
+
+.assistant-consent {
+  padding: 8px 14px !important;
+  font-size: 11px !important;
+}
+
+.assistant-consent input {
+  accent-color: var(--color-accent) !important;
+}
+
+/* Presupuesto de tokens: meta silenciosa, no ruido de primer plano. */
+.assistant-token-budget {
+  margin: 0 !important;
+  padding: 0 14px 8px !important;
+  font-size: 10.5px !important;
+  line-height: 1.4 !important;
+  color: var(--color-text-faint) !important;
+}
+
+.assistant-token-budget.exceeded {
+  color: var(--color-warning) !important;
+}
+
+/* Compositor: campo contenido y botón de envío integrado. */
+.assistant-composer {
+  gap: 8px !important;
+  padding: 12px 14px !important;
+  border-top: 1px solid var(--commercial-border, var(--color-border)) !important;
+  background: var(--color-surface) !important;
+}
+
+.assistant-composer textarea {
+  min-height: 40px !important;
+  max-height: 112px !important;
+  padding: 10px 12px !important;
+  border: 1px solid var(--commercial-border, var(--color-border)) !important;
+  border-radius: 8px !important;
+  background: var(--color-bg) !important;
+  color: var(--color-text) !important;
+  font-size: 12.5px !important;
+  line-height: 1.5 !important;
+}
+
+.assistant-composer textarea::placeholder {
+  color: var(--color-empty) !important;
+}
+
+.assistant-composer button {
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  border-radius: 8px !important;
+}
+
+/* Pie: una sola línea, sin repetir el modelo de la barra superior. */
+.assistant-foot {
+  justify-content: flex-end !important;
+  padding: 0 14px 10px !important;
+  color: var(--color-text-faint) !important;
+  font-size: 10.5px !important;
+}
+
+.assistant-foot .link {
+  font-size: 10.5px !important;
+  color: var(--color-text-muted) !important;
+}
+
+.assistant-foot-model {
+  font-size: 10.5px !important;
+}
+
+/* ── Arranque ────────────────────────────────────────────────── */
+/* La capa Filmora declaraba el degradado del CTA como «el único permitido».
+   Con el refino quiet premium el acento es sólido: una sola tinta de acción,
+   sin arcoíris y con la misma tinta legible en tema claro y oscuro. */
+.start-screen .start-hero-cta {
+  min-height: 56px !important;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 60%, transparent) !important;
+  border-radius: 10px !important;
+  background: var(--color-accent) !important;
+  color: var(--color-accent-ink) !important;
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  box-shadow: none !important;
+}
+
+.start-app-pill {
+  border-color: var(--commercial-border, var(--color-border)) !important;
+  background: transparent !important;
+  color: var(--color-text-muted) !important;
+  letter-spacing: 0.04em !important;
+}
+
+.start-promo-art {
+  background: var(--color-panel) !important;
+}
+
+.start-promo-art-glow {
+  display: none !important;
+}
+
+.start-promo-badge {
+  background: var(--color-panel-3) !important;
+  color: var(--color-text-muted) !important;
+}
+
+.start-new-project-tip {
+  border: 1px solid var(--commercial-border, var(--color-border)) !important;
+  border-radius: 8px !important;
+  background: var(--color-panel-2) !important;
+  color: var(--color-text) !important;
+  box-shadow: var(--elev-2, 0 8px 24px rgba(0, 0, 0, 0.4)) !important;
+}
+
+.start-new-project-tip-tail {
+  background: var(--color-panel-2) !important;
+}
+
+@media (max-width: 520px) {
+  .assistant-panel {
+    right: 12px !important;
+    left: 12px !important;
+    bottom: 80px !important;
+    width: auto !important;
+  }
+}
+
+/* Movimiento reducido: el cursor de streaming también se calla. */
+@media (prefers-reduced-motion: reduce) {
+  .assistant-streaming::after {
+    animation: none !important;
+  }
+}
+
+/* ============================================================
+   Pasada «rounded premium» (2026-11-24)
+   ------------------------------------------------------------
+   El usuario pidió una app más profesional, redondeada y con
+   sensación premium. Esta sección va AL FINAL para ganar la
+   cascada a las capas que fijaban radios de 2–7 px. No cambia
+   ningún color: sólo geometría, elevación suave y transiciones.
+
+   Jerarquía de radios:
+     xs 6–7 · sm 9–10 · md 12–14 · lg 18 · xl 22 · píldora 999
+   ============================================================ */
+
+:root {
+  /* Piso redondeado sobre la preferencia del usuario (`--radius-2`), que
+     sigue existiendo y moviendo la escala dentro del rango premium. */
+  --rad-xs: max(6px, calc(var(--radius-2, 10px) - 3px));
+  --rad-sm: max(9px, calc(var(--radius-2, 10px) - 1px));
+  --rad-md: max(12px, calc(var(--radius-2, 10px) + 3px));
+  --rad-lg: min(20px, calc(var(--radius-2, 10px) + 8px));
+  --rad-xl: min(24px, calc(var(--radius-2, 10px) + 12px));
+  --rad-2xl: min(24px, calc(var(--radius-2, 10px) + 12px));
+
+  --premium-r-xs: var(--rad-xs);
+  --premium-r-sm: var(--rad-sm);
+  --premium-r-md: var(--rad-md);
+  --premium-r-lg: var(--rad-lg);
+  --premium-r-xl: var(--rad-xl);
+
+  /* Elevación táctil: borde interno claro + sombra cercana + sombra lejana. */
+  --oly-tactile:
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 8%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.28),
+    0 8px 22px -10px rgba(0, 0, 0, 0.5);
+  --oly-tactile-hover:
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 11%, transparent),
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 14px 30px -12px rgba(0, 0, 0, 0.58);
+}
+
+/* ── Cromo redondeado ──────────────────────────────────────── */
+.app-shell .topbar button,
+.app-shell .topbar-search,
+.app-shell .menubar-title,
+.app-shell .topbar-ai-btn,
+.app-shell .topbar-tool-map-btn,
+.app-shell .topbar-home-btn {
+  border-radius: var(--rad-sm) !important;
+  transition: background-color 150ms ease, border-color 150ms ease,
+    color 150ms ease !important;
+}
+
+.app-shell .menubar-dropdown,
+.app-shell .profile-popover,
+.app-shell .app-modal,
+.app-shell .modal,
+.app-shell .dialog {
+  border-radius: var(--rad-lg) !important;
+  box-shadow: var(--oly-tactile-hover) !important;
+}
+
+.app-shell .sidebar button,
+.app-shell .rail-tree button,
+.app-shell .nav-item {
+  border-radius: var(--rad-sm) !important;
+}
+
+.sidebar-logo-box,
+.start-brand-box {
+  border-radius: var(--rad-md) !important;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px !important;
+}
+
+::-webkit-scrollbar-track {
+  border-radius: 999px !important;
+}
+
+/* ── Superficies: tarjetas con material, no con degradado ──── */
+.app-shell .card,
+.app-shell .panel,
+.app-shell .tool-card,
+.app-shell .start-card,
+.app-shell .project-current,
+.app-shell .factory-empty,
+.app-shell .script-provider,
+.app-shell .ia-col-hint,
+.app-shell .editor-tool-map-group {
+  border-radius: var(--rad-md) !important;
+  box-shadow: var(--oly-tactile) !important;
+  transition: border-color 160ms ease, box-shadow 160ms ease !important;
+}
+
+.app-shell .card:hover,
+.app-shell .tool-card:hover,
+.app-shell .start-card:hover,
+.app-shell .editor-tool-map-group:hover {
+  border-color: color-mix(in srgb, var(--color-text) 16%, transparent) !important;
+  box-shadow: var(--oly-tactile-hover) !important;
+}
+
+/* ── Controles: todas las esquinas suaves ──────────────────── */
+.app-shell input,
+.app-shell select,
+.app-shell textarea,
+.app-shell button,
+.start-screen input,
+.start-screen select,
+.start-screen button {
+  border-radius: var(--rad-sm) !important;
+}
+
+.app-shell button.primary,
+.start-screen button.primary {
+  border-radius: var(--rad-sm) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 24%, transparent),
+    0 2px 10px -4px color-mix(in srgb, var(--color-accent) 60%, transparent) !important;
+}
+
+.app-shell button.primary:hover:not(:disabled),
+.start-screen button.primary:hover:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 30%, transparent),
+    0 4px 14px -4px color-mix(in srgb, var(--color-accent) 70%, transparent) !important;
+}
+
+.app-shell .badge,
+.app-shell .chip,
+.app-shell .pill,
+.app-shell .fine-print[data-badge] {
+  border-radius: 999px !important;
+}
+
+/* AlaukCut fijaba 4–7 px con !important: se eleva a la nueva escala. */
+.app-shell.editor-immersive .ia-col-toggle,
+.app-shell.editor-immersive .topbar-ai-btn,
+.app-shell.editor-immersive .topbar-tool-map-btn,
+.app-shell.editor-immersive .ia-col-abrir,
+.app-shell.editor-immersive .editor-tool-map-count,
+.app-shell.editor-immersive .editor-tool-chip,
+.app-shell.editor-immersive .editor-tool-map-search {
+  border-radius: var(--rad-sm) !important;
+}
+
+.app-shell.editor-immersive .editor-tool-map-group,
+.app-shell.editor-immersive .ia-col-hint {
+  border-radius: var(--rad-md) !important;
+}
+
+.app-shell.editor-immersive .editor-tool-chip:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 42%, transparent) !important;
+  background: color-mix(in srgb, var(--color-accent) 9%, transparent) !important;
+}
+
+/* ── Workspace: columnas con aire y esquinas suaves ────────── */
+.app-shell .editor-grid .preview-panel,
+.app-shell .editor-grid .inspector,
+.app-shell .editor-grid .asset-rail,
+.app-shell .editor-grid .timeline-panel {
+  border-radius: var(--rad-md) !important;
+}
+
+.app-shell .preview-monitor,
+.app-shell .preview-stage,
+.app-shell .inspector section,
+.app-shell .asset-card,
+.app-shell .timeline-clip {
+  border-radius: var(--rad-sm) !important;
+}
+
+.app-shell .timeline-clip {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text) 10%, transparent) !important;
+}
+
+/* ── Chat: burbujas con cola y panel redondeado ────────────── */
+.assistant-panel {
+  border-radius: 18px !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 8%, transparent),
+    0 2px 6px rgba(0, 0, 0, 0.3),
+    0 24px 60px -20px rgba(0, 0, 0, 0.7) !important;
+}
+
+.assistant-panel-docked {
+  margin: 10px !important;
+  height: calc(100% - 20px) !important;
+  border: 1px solid var(--commercial-border, var(--color-border)) !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  box-shadow: var(--oly-tactile) !important;
+}
+
+.assistant-head {
+  border-radius: 16px 16px 0 0 !important;
+}
+
+.assistant-message {
+  padding: 11px 13px !important;
+  border-radius: 15px !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text) 6%, transparent) !important;
+}
+
+.assistant-message.assistant {
+  border-bottom-left-radius: 5px !important;
+}
+
+.assistant-message.user {
+  border-bottom-right-radius: 5px !important;
+}
+
+.assistant-model-chip,
+.assistant-quick button,
+.assistant-model-select,
+.assistant-consent,
+.assistant-composer textarea,
+.assistant-composer button,
+.assistant-foot .link {
+  border-radius: var(--rad-sm) !important;
+}
+
+.assistant-launcher {
+  border-radius: 15px !important;
+}
+
+.assistant-quick button {
+  transition: background-color 150ms ease, border-color 150ms ease,
+    color 150ms ease, box-shadow 150ms ease !important;
+}
+
+.assistant-quick button:hover:not(:disabled) {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text) 8%, transparent) !important;
+}
+
+.assistant-composer textarea:focus {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent) !important;
+}
+
+/* ── Arranque redondeado ───────────────────────────────────── */
+.start-screen .start-hero-cta {
+  border-radius: 16px !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #ffffff 26%, transparent),
+    0 6px 18px -8px color-mix(in srgb, var(--color-accent) 70%, transparent) !important;
+}
+
+.start-screen .start-hero-cta:hover:not(:disabled) {
+  filter: brightness(1.07) !important;
+}
+
+.start-screen .start-action-card,
+.start-screen .start-template-row,
+.start-screen .start-tool-chip,
+.start-screen .start-quick-card,
+.start-screen .start-service-badge,
+.start-screen .start-promo-card {
+  border-radius: var(--rad-md) !important;
+}
+
+.start-screen .start-new-project-tip {
+  border-radius: 14px !important;
+}
+
+.start-screen .start-feature-chip,
+.start-screen .start-quick-tag {
+  border-radius: 999px !important;
+}
+
+/* El borde del tip lo fijaba Filmora con más especificidad que la regla base. */
+:root .start-screen .start-new-project-tip {
+  border-color: var(--commercial-border, var(--color-border)) !important;
+}
+
+/* Texto más nítido en pantallas de alta densidad: parte del acabado premium. */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ============================================================
+   Pasada 3 · consistencia premium en TODAS las pantallas
+   ------------------------------------------------------------
+   SÓLO CSS: ni un cambio de lógica, JSX ni estructuras de datos.
+   Objetivo: que Inicio, Ajustes, AI Hub y el resto de vistas
+   hablen el mismo idioma que el editor y el chat ya redondeados.
+
+   - superficie de tarjeta derivada de los tokens del tema;
+   - escala tipográfica 11 / 13 / 15 / 18 / 26;
+   - ritmo de espaciado 8 / 12 / 16 / 24;
+   - elevación suave y movimiento de entrada de 180–220 ms.
+   ============================================================ */
+
+:root {
+  --oly-surface-card: color-mix(in srgb, var(--color-surface) 92%, var(--color-bg));
+  --oly-surface-deep: color-mix(in srgb, var(--color-bg) 55%, var(--color-surface));
+  --oly-line-soft: color-mix(in srgb, var(--color-text) 9%, transparent);
+  --oly-line-accent: color-mix(in srgb, var(--color-accent) 24%, var(--oly-line-soft));
+  --oly-elev-card:
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 7%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.22),
+    0 14px 30px -16px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Lienzo de contenido con más aire ──────────────────────── */
+/* `content-flush` del editor debe seguir llegando al borde de la ventana. */
+.app-shell .content:not(.content-flush) {
+  padding: 22px 26px 36px !important;
+}
+
+.app-shell .content {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* ── Jerarquía tipográfica única ───────────────────────────── */
+.app-shell .content h1 {
+  font-size: 26px !important;
+  font-weight: 680 !important;
+  letter-spacing: -0.03em !important;
+  line-height: 1.18 !important;
+}
+
+.app-shell .content h2 {
+  font-size: 18px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.025em !important;
+  line-height: 1.25 !important;
+}
+
+.app-shell .content h3,
+.app-shell .content .card-head strong,
+.app-shell .content .production-card-head strong {
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.015em !important;
+}
+
+.app-shell .content p {
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+}
+
+.app-shell .content .fine-print,
+.app-shell .content .eyebrow {
+  font-size: 10.5px !important;
+  line-height: 1.45 !important;
+  letter-spacing: 0.05em !important;
+}
+
+.app-shell .content .eyebrow {
+  color: var(--color-text-muted) !important;
+}
+
+/* ── Material de tarjeta en todas las vistas ───────────────── */
+.app-shell .content .card,
+.app-shell .content .home-pillar-card,
+.app-shell .content .pipeline-guide-step,
+.app-shell .content .settings-section,
+.app-shell .content .color-group,
+.app-shell .content .shortcuts-card {
+  border: 1px solid var(--oly-line-soft) !important;
+  border-radius: 16px !important;
+  background: var(--oly-surface-card) !important;
+  box-shadow: var(--oly-elev-card) !important;
+}
+
+.app-shell .content .card,
+.app-shell .content .home-pillar-card {
+  padding: 18px !important;
+}
+
+.app-shell .content .card:hover,
+.app-shell .content .home-pillar-card:hover {
+  border-color: var(--oly-line-accent) !important;
+  box-shadow: var(--oly-tactile-hover) !important;
+}
+
+/* ── Inicio: hero mate, sin degradado cian ─────────────────── */
+:root[data-theme='dark'] .app-shell .home-hero {
+  border: 1px solid var(--oly-line-accent) !important;
+  border-radius: 18px !important;
+  background: var(--oly-surface-card) !important;
+  box-shadow: var(--oly-elev-card) !important;
+}
+
+:root[data-theme='dark'] .app-shell .home-hero::after {
+  display: none !important;
+}
+
+.app-shell .home-hero-copy h1 {
+  font-size: 26px !important;
+  font-weight: 680 !important;
+  letter-spacing: -0.035em !important;
+  line-height: 1.16 !important;
+}
+
+.app-shell .home-hero-lead {
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+  color: var(--color-text-muted) !important;
+}
+
+.app-shell .home-hero-chip,
+.app-shell .home-hero-badge,
+.app-shell .home-pillar-tag,
+.app-shell .home-status {
+  border-radius: 999px !important;
+  padding: 4px 10px !important;
+  font-size: 10.5px !important;
+}
+
+.app-shell .home-hero-status {
+  border: 1px solid var(--oly-line-soft) !important;
+  border-radius: 14px !important;
+  background: var(--oly-surface-deep) !important;
+}
+
+/* La capa CapCut pintaba el texto del hero con tinta oscura pensada para el
+   degradado cian. Al quitar el degradado hay que devolver la tinta del tema.
+   Se replica su especificidad (0,4,0 / 0,5,0) para ganar por orden de cascada. */
+:root[data-theme='dark'] .app-shell .home-hero h1,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-lead,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-meta,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-meta span,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-checks,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-checks span,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-chip {
+  color: var(--color-text) !important;
+}
+
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-lead,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-meta,
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-meta span {
+  color: var(--color-text-muted) !important;
+}
+
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-chip {
+  border: 1px solid var(--oly-line-soft) !important;
+  background: color-mix(in srgb, var(--color-text) 6%, transparent) !important;
+  color: var(--color-text-muted) !important;
+}
+
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-actions .primary {
+  border: 1px solid var(--color-accent) !important;
+  background: var(--color-accent) !important;
+  color: var(--color-accent-ink) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 24%, transparent) !important;
+}
+
+:root[data-theme='dark'] .app-shell .home-hero .home-hero-actions .ghost {
+  border: 1px solid var(--oly-line-soft) !important;
+  background: var(--oly-surface-deep) !important;
+  color: var(--color-text) !important;
+}
+
+.app-shell .home-pillar-cta,
+.app-shell .production-card-head .link {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+}
+
+/* ── Ajustes y consola: controles con acabado ──────────────── */
+.app-shell .content .settings-section-head {
+  padding-bottom: 10px !important;
+  border-bottom: 1px solid var(--oly-line-soft) !important;
+}
+
+.app-shell .content .settings-section-head strong {
+  font-size: 17px !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.02em !important;
+}
+
+.app-shell .content input[type='range'] {
+  accent-color: var(--color-accent) !important;
+}
+
+.app-shell .content input[type='range']::-webkit-slider-thumb {
+  border-radius: 50% !important;
+}
+
+.app-shell .content .appearance-card,
+.app-shell .content .color-studio,
+.app-shell .content .ai-provider-card,
+.app-shell .content .ai-operator {
+  border-radius: 16px !important;
+  box-shadow: var(--oly-elev-card) !important;
+}
+
+/* ── Diálogos y paleta: mismas esquinas y elevación ────────── */
+.app-shell .command-palette,
+.app-shell [class*='command-palette'],
+.app-shell .tooltip,
+.app-shell [role='tooltip'] {
+  border-radius: 16px !important;
+  border: 1px solid var(--oly-line-soft) !important;
+  box-shadow: var(--oly-tactile-hover) !important;
+}
+
+/* ── Movimiento sutil de entrada ───────────────────────────── */
+@keyframes oly-rise {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes oly-pop {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.app-shell .content .card,
+.app-shell .content .home-pillar-card,
+.app-shell .content .pipeline-guide-step {
+  animation: oly-rise 220ms var(--ease-out, cubic-bezier(0.2, 0, 0.38, 0.9)) both;
+}
+
+.app-shell .content .card:nth-child(2),
+.app-shell .content .home-pillar-card:nth-child(2) {
+  animation-delay: 30ms;
+}
+
+.app-shell .content .card:nth-child(3),
+.app-shell .content .home-pillar-card:nth-child(3) {
+  animation-delay: 60ms;
+}
+
+.app-shell .content .card:nth-child(4),
+.app-shell .content .home-pillar-card:nth-child(4) {
+  animation-delay: 90ms;
+}
+
+.app-shell .app-modal,
+.app-shell .modal,
+.app-shell .menubar-dropdown,
+.app-shell [class*='command-palette'] {
+  animation: oly-pop 180ms var(--ease-out, cubic-bezier(0.2, 0, 0.38, 0.9)) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell .content .card,
+  .app-shell .content .home-pillar-card,
+  .app-shell .content .pipeline-guide-step,
+  .app-shell .app-modal,
+  .app-shell .modal,
+  .app-shell .menubar-dropdown,
+  .app-shell [class*='command-palette'] {
+    animation: none !important;
+  }
+}
+
+/* ============================================================
+   Pasada 4 · cero superposiciones (auditoría de geometría)
+   ------------------------------------------------------------
+   Medido en el render real: el mapa de herramientas necesitaba
+   632 px de pestañas y 808 px de alto dentro de un panel de
+   296 x 393 px; el chat recortaba 39 px por el fondo y los chips
+   de acciones recortaban su texto. Sólo CSS: se corrige la
+   geometría, no el comportamiento.
+   ============================================================ */
+
+/* Mapa de herramientas: el panel de modo pasa a ocupar el ancho útil y
+   el monitor se retira MIENTRAS el mapa está visible. La columna derecha
+   se reserva para el chat flotante, que sigue disponible. */
+/* El grid real del editor tiene 4 columnas:
+   [asset-rail | contenido | gutter 1px | inspector/chat].
+   Con el mapa abierto el rail no aporta nada, así que se colapsa a 0 y
+   el panel de modo toma la columna de contenido (la 2), que es la única
+   que puede crecer. Antes esta regla declaraba 4 tracks
+   (`minmax(0,1fr) 0 0 424px`) y el panel quedaba con el ancho del rail
+   (296 px) mientras el contenido real se aplastaba a 0: de ahí que las
+   tarjetas se montaran unas sobre otras. */
+/* La especificidad tiene que igualar a la del tema oscuro
+   (`:root[data-theme='dark'] .app-shell .editor-grid:not(...)`: 0,6,0),
+   que también declara `grid-template-columns` con !important.
+   La columna de contenido (2) se recorta hasta el borde izquierdo del
+   chat flotante: `100vw − chat − margen − gutter`. */
+:root[data-theme='dark'] .app-shell .editor-grid.editor-mode-active:has(.editor-tool-map),
+:root[data-theme='light'] .app-shell .editor-grid.editor-mode-active:has(.editor-tool-map),
+.app-shell .editor-grid.editor-mode-active:has(.editor-tool-map) {
+  grid-template-columns:
+    0
+    minmax(0, calc(100vw - var(--oly-chat-reserve, 408px)))
+    0
+    var(--inspector-width, 320px) !important;
+  grid-template-rows: minmax(0, 1fr) 180px !important;
+}
+
+.editor-grid.editor-mode-active:has(.editor-tool-map) > .preview-panel {
+  display: none !important;
+}
+
+.app-shell .editor-grid.editor-mode-active:has(.editor-tool-map) > .editor-mode-panel {
+  grid-column: 2 !important;
+  min-width: 0 !important;
+  overflow: auto !important;
+}
+
+.app-shell .editor-tool-map {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+}
+
+/* El chat del editor es un panel FIJO (right: 16px, 392 px) superpuesto
+   al workspace. Con el mapa de herramientas abierto, las tarjetas de la
+   cuarta columna quedaban debajo del chat. La columna del grid ya se
+   recorta hasta su borde izquierdo, así que el mapa sólo necesita
+   llenar el ancho disponible sin volver a descontar el chat. */
+.app-shell.ai-only .editor-mode-panel:has(.editor-tool-map) .editor-tool-map {
+  width: 100% !important;
+  max-width: none !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+.app-shell.ai-only .editor-mode-panel:has(.editor-tool-map) .editor-mode-content {
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+/* El dock flotante del asistente (.assistant-panel, position:fixed, z=1500)
+   se superpone al workspace. Sin proyecto, el mapa de herramientas se
+   renderiza directamente dentro de .editor-mode-panel (sin el
+   .editor-grid.editor-mode-active que sí existe con proyecto), así que la
+   regla de reserva anterior no alcanzaba: los chips de la columna derecha
+   quedaban ~57 px debajo del dock (verificado con hit-testing en 1360x820 y
+   1280x720). Reservar la huella del chat cuando AMBOS están abiertos deja
+   que las 4 columnas (o 2/1 en responsive) se recalculen sin solapamiento.
+   Criterio de eliminación: si el dock pasa a formar parte del grid o el mapa
+   usa un portal propio, esta regla deja de hacer falta. */
+.app-shell:has(> .assistant-panel:not(.assistant-panel-docked))
+  .editor-mode-panel:has(.editor-tool-map) .editor-mode-content {
+  padding-right: var(--oly-chat-reserve, 408px) !important;
+}
+
+.app-shell:has(> .assistant-panel:not(.assistant-panel-docked))
+  .editor-mode-panel:has(.editor-tool-map) .editor-tool-map {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+/* El botón «Analizar» de Descargar es `flex: 0 1 auto` dentro de
+   `.download-url`; con el input elástico se encogía 6 px y `overflow:hidden`
+   recortaba la última letra (scrollWidth 77 > clientWidth 71) en todos los
+   viewports. Fijarlo deja que el input —que ya tiene `min-width:0`— absorba
+   el espacio. Se acota a `.download-url` para no alterar otros `.icon-text`.
+   Criterio de eliminación: si el botón deja de vivir en una barra flex. */
+.app-shell .download-url > button.primary.icon-text {
+  flex: 0 0 auto !important;
+  white-space: nowrap !important;
+}
+
+/* Pestañas del panel de herramientas: se envuelven en vez de recortarse. */
+.app-shell .editor-mode-panel .hub-tabs {
+  flex-wrap: wrap !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 28px !important;
+  overflow: visible !important;
+}
+
+.app-shell .editor-mode-panel .hub-tab {
+  height: 26px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+}
+
+/* La pista del breadcrumb es texto largo en un panel angosto: se recorta
+   con puntos suspensivos en vez de cortarse a media palabra. */
+.app-shell .editor-mode-panel .editor-mode-context-hint {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.app-shell .editor-mode-panel {
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+}
+
+.app-shell .editor-mode-panel > * {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+/* Herramientas dentro del panel angosto del editor (296 px): los layouts de
+   dos columnas con piso fijo (`.convert-layout` = `minmax(0,1.35fr)
+   minmax(300px,0.8fr)`) colapsaban la primera columna a 0 y la segunda
+   se desbordaba 24 px por encima de la primera. En un panel angosto
+   cualquier grid de dos columnas pasa a una sola. */
+.app-shell .editor-mode-panel .convert-layout,
+.app-shell .editor-mode-panel .director-layout,
+.app-shell .editor-mode-panel .convert-results-grid,
+.app-shell .editor-mode-panel .hub-panel > .view {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.app-shell .editor-mode-panel .convert-assets,
+.app-shell .editor-mode-panel .convert-settings,
+.app-shell .editor-mode-panel .convert-results {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* El breadcrumb trae tres acciones (Volver al mapa / Ocultar monitor /
+   Volver a Edición). En 296 px se apilaban fuera del panel: se envuelven. */
+.app-shell .editor-mode-context {
+  flex: 0 0 auto !important;
+  flex-wrap: wrap !important;
+  height: auto !important;
+  min-height: 30px !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  padding-bottom: 8px !important;
+  row-gap: 6px !important;
+}
+
+.app-shell .editor-mode-context .editor-mode-back,
+.app-shell .editor-mode-context .editor-mode-back:last-child {
+  flex: 0 0 auto !important;
+  margin-left: 0 !important;
+  max-width: 100% !important;
+}
+
+.app-shell .editor-mode-panel .card,
+.app-shell .editor-mode-panel .field,
+.app-shell .editor-mode-panel .field input,
+.app-shell .editor-mode-panel .field select {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Chat flotante: la conversación cede altura y el pie deja de cortarse. */
+.assistant-panel {
+  min-height: 0 !important;
+}
+
+.assistant-panel > :not(.assistant-log) {
+  flex-shrink: 0 !important;
+}
+
+.assistant-log {
+  flex: 1 1 0 !important;
+  min-height: 96px !important;
+  overflow-y: auto !important;
+}
+
+/* Chips de acciones: el texto deja de desbordar su propio botón. */
+.assistant-quick button {
+  height: 26px !important;
+  padding: 0 10px !important;
+  line-height: 1 !important;
+}

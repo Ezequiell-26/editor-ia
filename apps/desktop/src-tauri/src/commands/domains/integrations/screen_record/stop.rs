@@ -214,8 +214,18 @@ fn burn_cursor_overlay(
         .unwrap_or_else(|| "screen".to_owned());
     let ass_path = output.with_file_name(format!("{stem}-cursor.ass"));
     let tmp_path = output.with_file_name(format!("{stem}-cursor-tmp.mp4"));
-    std::fs::write(&ass_path, ass)
-        .map_err(|e| format!("no se pudo escribir el .ass del cursor: {e}"))?;
+    // Escritura atómica: ffmpeg lee este .ass — un corte no debe dejarlo
+    // truncado (misma convención que fs_write / subtitles_pipeline).
+    let ass_tmp = output.with_file_name(format!(
+        "{stem}-cursor.{}.tmp.ass",
+        uuid::Uuid::new_v4()
+    ));
+    let ass_write = std::fs::write(&ass_tmp, &ass)
+        .and_then(|()| std::fs::rename(&ass_tmp, &ass_path));
+    if ass_write.is_err() {
+        let _ = std::fs::remove_file(&ass_tmp);
+        return Err("no se pudo escribir el .ass del cursor".to_owned());
+    }
 
     let filter = ass_filter_arg(&ass_path);
     // Mismo sondeo que la captura: el bundle LGPL no trae libx264.

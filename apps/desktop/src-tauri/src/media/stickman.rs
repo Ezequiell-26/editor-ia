@@ -99,7 +99,7 @@ fn default_particle_count() -> u32 {
 }
 
 pub const ACTIONS: &[&str] = &["idle", "walk", "run", "wave", "jump"];
-pub const PARTICLE_KINDS: &[&str] = &["confetti", "snow", "sparks", "bounce", "tumble"];
+pub const PARTICLE_KINDS: &[&str] = &["confetti", "snow", "sparks", "bounce", "tumble", "rigid"];
 
 pub fn parse_hex(hex: &str, fallback: [u8; 3]) -> [u8; 3] {
     let clean = hex.trim().trim_start_matches('#');
@@ -171,7 +171,7 @@ pub fn plan_stickman_render(
         if !PARTICLE_KINDS.contains(&spec.kind.as_str()) {
             return Err(ProjectError::message(
                 ProjectErrorCode::InvalidProject,
-                "particles.kind debe ser confetti, snow, sparks, bounce o tumble",
+                "particles.kind debe ser confetti, snow, sparks, bounce, tumble o rigid",
             ));
         }
         if let Some(g) = spec.gravity {
